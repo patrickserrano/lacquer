@@ -42,3 +42,19 @@ func TestStampedVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeReplacesExistingBlock(t *testing.T) {
+	content := "# CLAUDE.md\n\nlocal top\n\n" +
+		"<!-- harness:core:start v3 -->\nOLD shared body\n<!-- harness:core:end -->\n\n" +
+		"local bottom\n"
+	got, err := Merge(content, "core", 5, "NEW shared body")
+	if err != nil {
+		t.Fatalf("Merge returned error: %v", err)
+	}
+	want := "# CLAUDE.md\n\nlocal top\n\n" +
+		"<!-- harness:core:start v5 -->\nNEW shared body\n<!-- harness:core:end -->\n\n" +
+		"local bottom\n"
+	if got != want {
+		t.Fatalf("Merge mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
