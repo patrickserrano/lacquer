@@ -12,6 +12,14 @@ import (
 )
 
 // Run syncs core + each component's profiles into the project's CLAUDE.md files.
+//
+// Run is not atomic across files: if it fails partway (e.g. a component names a
+// profile that has no CLAUDE.<profile>.md in the harness — a deliberate fail-loud
+// choice that surfaces manifest typos), files written before the failure stay
+// written. This is recoverable, not corrupting: each per-file write is itself
+// safe (region.Merge preserves project-owned text and is idempotent), so a
+// corrected re-run heals a partial sync. The uncommitted-changes git guard in a
+// later plan will tighten this.
 func Run(harnessRoot, projectRoot string) error {
 	ver, err := version.Read(harnessRoot)
 	if err != nil {
