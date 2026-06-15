@@ -1,0 +1,56 @@
+package sync
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// writeFile is a test helper that creates parent dirs and writes content.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSyncMergesCoreAndProfile(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+
+	// Harness fixtures.
+	writeFile(t, filepath.Join(harness, "VERSION"), "2\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE RULES")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "CLAUDE.ios.md"), "IOS RULES")
+
+	// Project fixtures.
+	writeFile(t, filepath.Join(project, ".harness.toml"),
+		"[project]\nname=\"rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+	writeFile(t, filepath.Join(project, "CLAUDE.md"), "# rail\n\nlocal note\n")
+
+	if err := Run(harness, project); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	root, _ := os.ReadFile(filepath.Join(project, "CLAUDE.md"))
+	if !strings.Contains(string(root), "local note") {
+		t.Error("root CLAUDE.md lost project-owned text")
+	}
+	if !strings.Contains(string(root), "<!-- harness:core:start v2 -->") ||
+		!strings.Contains(string(root), "CORE RULES") {
+		t.Errorf("root CLAUDE.md missing core region:\n%s", root)
+	}
+
+	comp, err := os.ReadFile(filepath.Join(project, "ios", "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("component CLAUDE.md not written: %v", err)
+	}
+	if !strings.Contains(string(comp), "<!-- harness:ios:start v2 -->") ||
+		!strings.Contains(string(comp), "IOS RULES") {
+		t.Errorf("component CLAUDE.md missing ios region:\n%s", comp)
+	}
+}
