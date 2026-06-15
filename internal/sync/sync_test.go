@@ -81,3 +81,28 @@ func TestSyncRefusesToWriteThroughSymlink(t *testing.T) {
 		t.Errorf("symlink target was modified: %q", got)
 	}
 }
+
+func TestSyncRefusesSymlinkedComponentDir(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+	outside := t.TempDir()
+
+	writeFile(t, filepath.Join(harness, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "CLAUDE.ios.md"), "IOS")
+
+	// Component dir is a symlink pointing outside the project root.
+	if err := os.Symlink(outside, filepath.Join(project, "vendor")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(project, ".harness.toml"),
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"vendor\"\nprofiles=[\"ios\"]\n")
+
+	if err := Run(harness, project); err == nil {
+		t.Fatal("expected error: component dir is a symlink escaping the project root")
+	}
+	// Nothing should have been written into the escape target.
+	if _, err := os.Stat(filepath.Join(outside, "CLAUDE.md")); err == nil {
+		t.Error("file was written outside the project root via symlinked component dir")
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/region"
+	"github.com/patrickserrano/harness/internal/safepath"
 	"github.com/patrickserrano/harness/internal/version"
 )
 
@@ -43,7 +44,13 @@ func Rows(harnessRoot, projectRoot string) ([]Row, error) {
 }
 
 func rowFor(projectRoot, rel, key string, latest int) Row {
-	content, _ := os.ReadFile(filepath.Join(projectRoot, rel))
+	// Confine the read within the project root; a symlinked component dir that
+	// escapes the root is treated as having no readable region rather than
+	// reading a file outside the project.
+	var content []byte
+	if target, err := safepath.Resolve(projectRoot, rel); err == nil {
+		content, _ = os.ReadFile(target)
+	}
 	stamped, found := region.StampedVersion(string(content), key)
 	return Row{
 		Key:     key,

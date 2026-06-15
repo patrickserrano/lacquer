@@ -8,6 +8,7 @@ import (
 
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/region"
+	"github.com/patrickserrano/harness/internal/safepath"
 	"github.com/patrickserrano/harness/internal/version"
 )
 
@@ -35,7 +36,7 @@ func Run(harnessRoot, projectRoot string) error {
 	if err != nil {
 		return fmt.Errorf("read core body: %w", err)
 	}
-	if err := mergeInto(filepath.Join(projectRoot, "CLAUDE.md"), "core", ver, string(coreBody)); err != nil {
+	if err := mergeInto(projectRoot, "CLAUDE.md", "core", ver, string(coreBody)); err != nil {
 		return err
 	}
 
@@ -46,8 +47,8 @@ func Run(harnessRoot, projectRoot string) error {
 			if err != nil {
 				return fmt.Errorf("read profile %s body: %w", p, err)
 			}
-			target := filepath.Join(projectRoot, c.Path, "CLAUDE.md")
-			if err := mergeInto(target, p, ver, string(body)); err != nil {
+			rel := filepath.Join(c.Path, "CLAUDE.md")
+			if err := mergeInto(projectRoot, rel, p, ver, string(body)); err != nil {
 				return err
 			}
 		}
@@ -55,9 +56,15 @@ func Run(harnessRoot, projectRoot string) error {
 	return nil
 }
 
-// mergeInto reads target (treating a missing file as empty), merges the managed
-// region, and writes it back, creating parent directories as needed.
-func mergeInto(target, key string, ver int, body string) error {
+// mergeInto resolves rel under projectRoot (confining it within the root even
+// against symlinked directories), reads the target (a missing file is treated as
+// empty), merges the managed region, and writes it back, creating parent
+// directories as needed.
+func mergeInto(projectRoot, rel, key string, ver int, body string) error {
+	target, err := safepath.Resolve(projectRoot, rel)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", rel, err)
+	}
 	existing, err := os.ReadFile(target)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read %s: %w", target, err)
