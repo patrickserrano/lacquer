@@ -6,7 +6,7 @@
 
 **Architecture:** A single Go binary. `internal/region` owns the managed-region merge (the heart). `internal/config` parses each project's `.harness.toml`. `internal/version` reads the harness's current version from a `VERSION` file. `internal/sync` and `internal/status` compose those. `cmd/harness` dispatches subcommands. This milestone covers **only** `CLAUDE.md` managed-region sync — whole-file asset sync (skills/commands/CI/configs), harvest, scaffold, and Renovate are separate follow-on plans.
 
-**Tech Stack:** Go 1.17 (generics-free), `github.com/BurntSushi/toml` for config, Go stdlib `testing` for tests. Reference: `docs/plans/2026-06-15-harness-design.md` for the full design.
+**Tech Stack:** Go 1.23 (toolchain at `/opt/homebrew/bin/go` v1.26.4; the PATH default `go` is an old 1.17, so invoke the brew Go explicitly), `github.com/BurntSushi/toml` for config, Go stdlib `testing` for tests. Reference: `docs/plans/2026-06-15-harness-design.md` for the full design.
 
 ---
 
