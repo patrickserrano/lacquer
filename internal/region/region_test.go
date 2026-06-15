@@ -82,3 +82,11 @@ func TestMergeAppendsToEmpty(t *testing.T) {
 		t.Fatalf("Merge empty mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
+
+func TestMergeRejectsDanglingStart(t *testing.T) {
+	content := "<!-- harness:core:start v1 -->\nbody with no end marker\n"
+	_, err := Merge(content, "core", 2, "new")
+	if err == nil {
+		t.Fatal("expected error for dangling start marker, got nil")
+	}
+}

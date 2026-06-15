@@ -50,6 +50,12 @@ func blockRe(key string) *regexp.Regexp {
 // block at the given version and body. If no block exists yet, the block is
 // appended (see Task 4). Project-owned text outside the block is never touched.
 func Merge(content, key string, version int, body string) (string, error) {
+	hasStart := startRe(key).MatchString(content)
+	hasEnd := strings.Contains(content, endMarker(key))
+	if hasStart != hasEnd {
+		return "", fmt.Errorf("malformed harness:%s region (start present=%v, end present=%v)",
+			key, hasStart, hasEnd)
+	}
 	if loc := blockRe(key).FindStringIndex(content); loc != nil {
 		return content[:loc[0]] + render(key, version, body) + content[loc[1]:], nil
 	}
