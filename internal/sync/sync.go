@@ -66,6 +66,11 @@ func mergeInto(target, key string, ver int, body string) error {
 	if err != nil {
 		return fmt.Errorf("merge %s region in %s: %w", key, target, err)
 	}
+	// Refuse to write through a symlink: os.WriteFile would follow it and clobber
+	// whatever it points at, potentially outside the project root.
+	if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to write through symlink: %s", target)
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}

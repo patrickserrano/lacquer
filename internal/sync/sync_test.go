@@ -54,3 +54,30 @@ func TestSyncMergesCoreAndProfile(t *testing.T) {
 		t.Errorf("component CLAUDE.md missing ios region:\n%s", comp)
 	}
 }
+
+func TestSyncRefusesToWriteThroughSymlink(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+	outside := t.TempDir()
+
+	writeFile(t, filepath.Join(harness, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(project, ".harness.toml"),
+		"[project]\nname=\"x\"\n")
+
+	// Point the project's root CLAUDE.md at a file outside the project.
+	secret := filepath.Join(outside, "secret.md")
+	writeFile(t, secret, "ORIGINAL SECRET\n")
+	if err := os.Symlink(secret, filepath.Join(project, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Run(harness, project); err == nil {
+		t.Fatal("expected error syncing through a symlink, got nil")
+	}
+	// The symlink target must be untouched.
+	got, _ := os.ReadFile(secret)
+	if string(got) != "ORIGINAL SECRET\n" {
+		t.Errorf("symlink target was modified: %q", got)
+	}
+}

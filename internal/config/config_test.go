@@ -42,3 +42,51 @@ profiles = ["web"]
 		t.Errorf("component[1] = %+v", cfg.Components[1])
 	}
 }
+
+// loadString writes data to a temp .harness.toml and loads it.
+func loadString(t *testing.T, data string) (*Config, error) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".harness.toml")
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return Load(path)
+}
+
+func TestLoadRejectsTraversalComponentPath(t *testing.T) {
+	cases := []string{
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"../escape\"\nprofiles=[\"ios\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"../../etc\"\nprofiles=[\"ios\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"/abs/path\"\nprofiles=[\"ios\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios/../../up\"\nprofiles=[\"ios\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"\"\nprofiles=[\"ios\"]\n",
+	}
+	for _, data := range cases {
+		if _, err := loadString(t, data); err == nil {
+			t.Errorf("expected error for component path in:\n%s", data)
+		}
+	}
+}
+
+func TestLoadRejectsInvalidProfileName(t *testing.T) {
+	cases := []string{
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"../evil\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"a/b\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"..\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"UPPER\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"\"]\n",
+	}
+	for _, data := range cases {
+		if _, err := loadString(t, data); err == nil {
+			t.Errorf("expected error for profile name in:\n%s", data)
+		}
+	}
+}
+
+func TestLoadAcceptsValidNames(t *testing.T) {
+	data := "[project]\nname=\"x\"\n\n[[component]]\npath=\"apps/ios-app\"\nprofiles=[\"ios\",\"web-2\"]\n"
+	if _, err := loadString(t, data); err != nil {
+		t.Errorf("valid manifest rejected: %v", err)
+	}
+}
