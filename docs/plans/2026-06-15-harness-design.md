@@ -175,10 +175,14 @@ harness upgrade [--all]              # on-demand dep bump fallback (build+test+P
 5. Seed `web`/`rust`/`go` profiles as real components demand them (YAGNI).
 6. Retire the standalone `ios-template` repo once `profiles/ios` is authoritative.
 
-## Open questions for the plan stage
+## Resolved implementation decisions
 
-- Implementation language for `bin/harness` (shell vs a small Go/TS binary — Go/TS
-  travels better to CI runners; shell is zero-build).
-- Whether `registry.json` lives in the harness repo (committed) or is regenerated
-  by scanning sibling directories.
-- Auto-merge policy thresholds in `renovate-base.json5`.
+- **`bin/harness` is written in Go** — single static binary, zero runtime deps,
+  travels cleanly to CI runners; strong TOML/JSON parsing and file-merge ergonomics
+  for the managed-region logic. Built with `go build -o bin/harness ./cmd/harness`.
+- **`registry.json` is regenerated, not committed** — `harness status` scans sibling
+  directories for `.harness.toml` + stamped marker versions. A committed registry is
+  a second source of truth that goes stale; the fleet *is* whatever is on disk.
+- **Renovate auto-merge policy** — auto-merge patch-level and pinned dev-dependency
+  updates only, once CI is green; minor/major updates open a PR for review.
+  Conservative by default, loosenable per-stack later.
