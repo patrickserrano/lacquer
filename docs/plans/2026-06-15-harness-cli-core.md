@@ -381,7 +381,7 @@ git commit -m "feat: merge appends managed region when absent"
 
 ## Task 5: Reject malformed markers
 
-Guard against a start marker with no matching end (a hand-mangled file), so sync fails loudly instead of corrupting the file.
+Guard against a start marker with no matching end (a hand-mangled file), so sync fails loudly instead of corrupting the file. Hardened to also reject a body that contains the key's own marker literal (which would truncate on the next parse), duplicate blocks for one key, and an end marker that precedes its start.
 
 **Files:**
 - Modify: `internal/region/region.go`

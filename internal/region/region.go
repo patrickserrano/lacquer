@@ -48,18 +48,40 @@ func blockRe(key string) *regexp.Regexp {
 
 // Merge replaces the managed block for key in content with a freshly rendered
 // block at the given version and body. If no block exists yet, the block is
-// appended (see Task 4). Project-owned text outside the block is never touched.
+// appended. Project-owned text outside the block is never touched.
+//
+// Merge fails loud (returns an error, writes nothing) on any input it cannot
+// represent safely: a body that itself contains a harness marker for this key
+// (which would truncate on the next parse), an unbalanced number of start/end
+// markers (a dangling marker), an end marker that precedes its start, or more
+// than one block for the same key.
 func Merge(content, key string, version int, body string) (string, error) {
-	hasStart := startRe(key).MatchString(content)
-	hasEnd := strings.Contains(content, endMarker(key))
-	if hasStart != hasEnd {
-		return "", fmt.Errorf("malformed harness:%s region (start present=%v, end present=%v)",
-			key, hasStart, hasEnd)
+	// A body containing this key's markers is unrepresentable and would corrupt
+	// the file on the next parse. Refuse rather than silently truncate.
+	if strings.Contains(body, endMarker(key)) || startRe(key).MatchString(body) {
+		return "", fmt.Errorf("harness:%s body contains a harness marker literal", key)
 	}
-	if loc := blockRe(key).FindStringIndex(content); loc != nil {
+
+	startLocs := startRe(key).FindAllStringIndex(content, -1)
+	endCount := strings.Count(content, endMarker(key))
+	if len(startLocs) != endCount {
+		return "", fmt.Errorf("malformed harness:%s region (%d start markers, %d end markers)",
+			key, len(startLocs), endCount)
+	}
+
+	switch len(startLocs) {
+	case 0:
+		return appendBlock(content, key, version, body), nil
+	case 1:
+		loc := blockRe(key).FindStringIndex(content)
+		if loc == nil {
+			// Both markers present but not in start-before-end order.
+			return "", fmt.Errorf("malformed harness:%s region (end marker precedes start)", key)
+		}
 		return content[:loc[0]] + render(key, version, body) + content[loc[1]:], nil
+	default:
+		return "", fmt.Errorf("malformed harness:%s region (%d duplicate blocks)", key, len(startLocs))
 	}
-	return appendBlock(content, key, version, body), nil
 }
 
 // appendBlock adds a new managed block to the end of content, ensuring exactly

@@ -90,3 +90,28 @@ func TestMergeRejectsDanglingStart(t *testing.T) {
 		t.Fatal("expected error for dangling start marker, got nil")
 	}
 }
+
+func TestMergeRejectsBodyContainingEndMarker(t *testing.T) {
+	body := "docs say markers look like <!-- harness:core:end -->"
+	_, err := Merge("local\n", "core", 1, body)
+	if err == nil {
+		t.Fatal("expected error: body contains the end marker literal, got nil")
+	}
+}
+
+func TestMergeRejectsDuplicateBlocks(t *testing.T) {
+	content := "<!-- harness:core:start v1 -->\na\n<!-- harness:core:end -->\n\n" +
+		"<!-- harness:core:start v1 -->\nb\n<!-- harness:core:end -->\n"
+	_, err := Merge(content, "core", 2, "x")
+	if err == nil {
+		t.Fatal("expected error for duplicate core blocks, got nil")
+	}
+}
+
+func TestMergeRejectsEndBeforeStart(t *testing.T) {
+	content := "<!-- harness:core:end -->\nstuff\n<!-- harness:core:start v1 -->\n"
+	_, err := Merge(content, "core", 2, "x")
+	if err == nil {
+		t.Fatal("expected error for end marker preceding start, got nil")
+	}
+}
