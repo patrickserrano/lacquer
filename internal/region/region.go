@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // startRe matches a start marker for the given key, capturing the version int.
@@ -55,8 +56,13 @@ func Merge(content, key string, version int, body string) (string, error) {
 	return appendBlock(content, key, version, body), nil
 }
 
-// appendBlock is a temporary placeholder; Task 4 replaces it with the real
-// implementation.
+// appendBlock adds a new managed block to the end of content, ensuring exactly
+// one blank line of separation from any existing text and a trailing newline.
 func appendBlock(content, key string, version int, body string) string {
-	return content
+	block := render(key, version, body) + "\n"
+	if content == "" {
+		return block
+	}
+	trimmed := strings.TrimRight(content, "\n")
+	return trimmed + "\n\n" + block
 }
