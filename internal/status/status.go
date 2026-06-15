@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/region"
@@ -64,7 +65,8 @@ func rowFor(projectRoot, rel, key string, latest int) Row {
 
 // Format renders rows as an aligned text table.
 func Format(rows []Row) string {
-	out := "LAYER  PATH                 STAMPED  LATEST  STATUS\n"
+	var b strings.Builder
+	b.WriteString("LAYER  PATH                 STAMPED  LATEST  STATUS\n")
 	for _, r := range rows {
 		status := "ok"
 		if !r.Found {
@@ -76,7 +78,7 @@ func Format(rows []Row) string {
 		if !r.Found {
 			stamped = "-"
 		}
-		out += fmt.Sprintf("%-6s %-20s %-8s %-7d %s\n", r.Key, r.Path, stamped, r.Latest, status)
+		fmt.Fprintf(&b, "%-6s %-20s %-8s %-7d %s\n", r.Key, r.Path, stamped, r.Latest, status)
 	}
-	return out
+	return b.String()
 }

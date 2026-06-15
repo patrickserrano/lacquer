@@ -56,14 +56,17 @@ func blockRe(key string) *regexp.Regexp {
 // markers (a dangling marker), an end marker that precedes its start, or more
 // than one block for the same key.
 func Merge(content, key string, version int, body string) (string, error) {
+	startRegex := startRe(key)
+	endM := endMarker(key)
+
 	// A body containing this key's markers is unrepresentable and would corrupt
 	// the file on the next parse. Refuse rather than silently truncate.
-	if strings.Contains(body, endMarker(key)) || startRe(key).MatchString(body) {
+	if strings.Contains(body, endM) || startRegex.MatchString(body) {
 		return "", fmt.Errorf("harness:%s body contains a harness marker literal", key)
 	}
 
-	startLocs := startRe(key).FindAllStringIndex(content, -1)
-	endCount := strings.Count(content, endMarker(key))
+	startLocs := startRegex.FindAllStringIndex(content, -1)
+	endCount := strings.Count(content, endM)
 	if len(startLocs) != endCount {
 		return "", fmt.Errorf("malformed harness:%s region (%d start markers, %d end markers)",
 			key, len(startLocs), endCount)
