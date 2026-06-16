@@ -2,8 +2,10 @@ package assets
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/patrickserrano/harness/internal/config"
@@ -71,5 +73,79 @@ func TestPlan(t *testing.T) {
 		if !filepath.IsAbs(a.Src) {
 			t.Errorf("src not absolute: %q", a.Src)
 		}
+	}
+}
+
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+func TestCopyWritesAssets(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir()
+	gitInit(t, project)
+	write(t, filepath.Join(h, "core", "skills", "git.md"), "SKILL BODY")
+
+	cfg := &config.Config{}
+	plan, err := Plan(h, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Copy(project, plan); err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(project, ".claude", "skills", "git.md"))
+	if err != nil {
+		t.Fatalf("asset not written: %v", err)
+	}
+	if string(got) != "SKILL BODY" {
+		t.Errorf("content = %q", got)
+	}
+}
+
+func TestCopyRefusesDirtyTarget(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir()
+	write(t, filepath.Join(h, "core", "commands", "build.md"), "NEW")
+
+	// Pre-create the destination with a local edit and commit, then dirty it.
+	dest := filepath.Join(project, ".claude", "commands", "build.md")
+	write(t, dest, "committed\n")
+	gitInit(t, project)
+	cmd := exec.Command("git", "commit", "-qm", "init")
+	cmd.Dir = project
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	write(t, dest, "LOCAL UNSAVED EDIT\n") // now dirty
+
+	plan, err := Plan(h, &config.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = Copy(project, plan)
+	if err == nil {
+		t.Fatal("expected Copy to refuse dirty target, got nil")
+	}
+	if !strings.Contains(err.Error(), "build.md") {
+		t.Errorf("error should name the dirty file: %v", err)
+	}
+	// The local edit must be preserved.
+	got, _ := os.ReadFile(dest)
+	if string(got) != "LOCAL UNSAVED EDIT\n" {
+		t.Errorf("dirty target was overwritten: %q", got)
 	}
 }

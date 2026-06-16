@@ -4,12 +4,16 @@
 package assets
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/patrickserrano/harness/internal/config"
+	"github.com/patrickserrano/harness/internal/gitguard"
+	"github.com/patrickserrano/harness/internal/safepath"
 )
 
 // Asset is one file to copy: an absolute source path and a project-relative
@@ -91,6 +95,47 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Dest < out[j].Dest })
 	return out, nil
+}
+
+// Copy preflights every asset destination for uncommitted changes; if any are
+// dirty it aborts with the full list and writes nothing. Otherwise it copies
+// each asset, confining the destination within projectRoot.
+func Copy(projectRoot string, plan []Asset) error {
+	var dirty []string
+	for _, a := range plan {
+		isDirty, err := gitguard.Dirty(projectRoot, a.Dest)
+		if err != nil {
+			return fmt.Errorf("git guard %s: %w", a.Dest, err)
+		}
+		if isDirty {
+			dirty = append(dirty, a.Dest)
+		}
+	}
+	if len(dirty) > 0 {
+		return fmt.Errorf("refusing to overwrite uncommitted changes in:\n  %s\n(commit or stash them, then re-run)",
+			strings.Join(dirty, "\n  "))
+	}
+
+	for _, a := range plan {
+		target, err := safepath.Resolve(projectRoot, a.Dest)
+		if err != nil {
+			return fmt.Errorf("resolve %s: %w", a.Dest, err)
+		}
+		if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to write through symlink: %s", a.Dest)
+		}
+		data, err := os.ReadFile(a.Src)
+		if err != nil {
+			return fmt.Errorf("read asset %s: %w", a.Src, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // walkInto calls fn(absSrc, relPath) for every file under dir. A missing dir is
