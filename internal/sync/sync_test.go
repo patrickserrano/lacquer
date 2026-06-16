@@ -2,6 +2,7 @@ package sync
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -104,5 +105,33 @@ func TestSyncRefusesSymlinkedComponentDir(t *testing.T) {
 	// Nothing should have been written into the escape target.
 	if _, err := os.Stat(filepath.Join(outside, "CLAUDE.md")); err == nil {
 		t.Error("file was written outside the project root via symlinked component dir")
+	}
+}
+
+func TestSyncCopiesAssets(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+
+	writeFile(t, filepath.Join(harness, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(harness, "core", "skills", "git.md"), "GIT SKILL")
+
+	// init project as a git repo (gitguard needs one)
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = project
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	writeFile(t, filepath.Join(project, ".harness.toml"), "[project]\nname=\"x\"\n")
+
+	if err := Run(harness, project); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(project, ".claude", "skills", "git.md"))
+	if err != nil {
+		t.Fatalf("skill asset not synced: %v", err)
+	}
+	if string(got) != "GIT SKILL" {
+		t.Errorf("content = %q", got)
 	}
 }

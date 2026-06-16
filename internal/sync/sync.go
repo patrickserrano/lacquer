@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/patrickserrano/harness/internal/assets"
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/region"
 	"github.com/patrickserrano/harness/internal/safepath"
@@ -53,6 +54,21 @@ func Run(harnessRoot, projectRoot string) error {
 			}
 		}
 	}
+
+	// Phase 2: whole-file assets (skills, commands, workflows, configs).
+	// Only run when the harness actually has assets to distribute, so a
+	// region-only sync into a non-git directory still works (assets.Copy
+	// requires a git work tree to guard against clobbering uncommitted work).
+	plan, err := assets.Plan(harnessRoot, cfg)
+	if err != nil {
+		return fmt.Errorf("plan assets: %w", err)
+	}
+	if len(plan) > 0 {
+		if err := assets.Copy(projectRoot, plan); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
