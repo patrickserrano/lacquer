@@ -186,3 +186,22 @@ harness upgrade [--all]              # on-demand dep bump fallback (build+test+P
 - **Renovate auto-merge policy** — auto-merge patch-level and pinned dev-dependency
   updates only, once CI is green; minor/major updates open a PR for review.
   Conservative by default, loosenable per-stack later.
+
+## Security discipline (every step)
+
+The harness reads untrusted inputs (a project's `.harness.toml`, existing
+`CLAUDE.md` files, files inside cloned repos) and writes into many repos — and its
+synced `CLAUDE.md` content becomes trusted LLM instructions. A vulnerability here
+propagates across the whole fleet. So security is a **per-step gate**, not a final
+pass:
+
+1. **Per-commit:** the automated commit security review stays enabled; treat its
+   findings as blocking.
+2. **Per-plan:** every implementation plan ends with a **Security audit** task
+   before the branch is finished.
+3. **Per-PR:** run `/security-review` on the branch diff and resolve every finding
+   at confidence ≥ 8 before merge.
+4. **Bypasses count:** a fix that only partially closes a class (e.g. a symlink
+   guard that checks the final path element but not parent dirs) is a finding until
+   the whole class is closed. Path handling that touches the filesystem must confine
+   the *resolved* path within the project root (see `internal/safepath`).
