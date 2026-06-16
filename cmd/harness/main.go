@@ -27,10 +27,11 @@ func main() {
 
 	switch os.Args[1] {
 	case "sync":
-		if err := syncpkg.Run(harnessRoot, projectRoot); err != nil {
+		res, err := syncpkg.Run(harnessRoot, projectRoot)
+		if err != nil {
 			fail(err)
 		}
-		fmt.Println("sync complete")
+		fmt.Printf("sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
 	case "status":
 		rows, err := status.Rows(harnessRoot, projectRoot)
 		if err != nil {
