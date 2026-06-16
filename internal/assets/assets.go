@@ -97,10 +97,25 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 	return out, nil
 }
 
-// Copy preflights every asset destination for uncommitted changes; if any are
-// dirty it aborts with the full list and writes nothing. Otherwise it copies
-// each asset, confining the destination within projectRoot.
+// Copy distributes assets into projectRoot. It first requires projectRoot to be
+// a git work tree (the dirty-guard is meaningless without git, so a non-git
+// project is refused outright — fail closed). It then preflights every
+// destination for uncommitted changes; if any are dirty it aborts with the full
+// list and writes nothing. Otherwise it copies each asset, confining the
+// destination within projectRoot.
+//
+// The copy phase is not atomic across files: if an I/O error occurs partway, the
+// assets already written stay written (a re-run completes the rest). Only the
+// dirty/confinement preflight is all-or-nothing.
 func Copy(projectRoot string, plan []Asset) error {
+	inRepo, err := gitguard.InWorkTree(projectRoot)
+	if err != nil {
+		return fmt.Errorf("git check: %w", err)
+	}
+	if !inRepo {
+		return fmt.Errorf("refusing asset sync: %s is not a git repository (git is required to guard against overwriting uncommitted work)", projectRoot)
+	}
+
 	var dirty []string
 	for _, a := range plan {
 		isDirty, err := gitguard.Dirty(projectRoot, a.Dest)

@@ -82,3 +82,16 @@ func TestDirtyErrorsOnNonGitDir(t *testing.T) {
 		t.Error("non-git dir: want error, got nil (guard would be bypassed)")
 	}
 }
+
+func TestInWorkTree(t *testing.T) {
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	if in, err := InWorkTree(repo); err != nil || !in {
+		t.Errorf("git repo: in=%v err=%v, want true,nil", in, err)
+	}
+
+	nongit := t.TempDir()
+	if in, err := InWorkTree(nongit); err != nil || in {
+		t.Errorf("non-git dir: in=%v err=%v, want false,nil", in, err)
+	}
+}

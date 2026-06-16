@@ -149,3 +149,41 @@ func TestCopyRefusesDirtyTarget(t *testing.T) {
 		t.Errorf("dirty target was overwritten: %q", got)
 	}
 }
+
+func TestCopyRefusesNonGitProject(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir() // deliberately NOT git init'd
+	write(t, filepath.Join(h, "core", "skills", "git.md"), "BODY")
+	plan, err := Plan(h, &config.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Copy(project, plan); err == nil {
+		t.Fatal("expected Copy to refuse a non-git project (fail-closed), got nil")
+	}
+	if _, err := os.Stat(filepath.Join(project, ".claude", "skills", "git.md")); err == nil {
+		t.Error("asset was written to a non-git project despite guard")
+	}
+}
+
+func TestCopyRefusesSymlinkedDestDir(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir()
+	outside := t.TempDir()
+	gitInit(t, project)
+	write(t, filepath.Join(h, "core", "skills", "git.md"), "BODY")
+	// .claude is a symlink pointing outside the project root.
+	if err := os.Symlink(outside, filepath.Join(project, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Plan(h, &config.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Copy(project, plan); err == nil {
+		t.Fatal("expected Copy to refuse writing through symlinked .claude dir")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "skills", "git.md")); err == nil {
+		t.Error("asset escaped the project root via symlinked .claude")
+	}
+}
