@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/patrickserrano/harness/internal/config"
 )
@@ -22,6 +23,12 @@ type Asset struct {
 // project's components. Skills/commands/workflows are root-scoped (deduped by
 // destination across profiles); config is copied into each component that lists
 // the owning profile.
+//
+// On a destination collision the first writer wins: core is walked before
+// profiles, so a core skill/command takes precedence over a same-named profile
+// one. Profiles are visited in sorted order and the returned slice is sorted by
+// Dest, so the output (and the winning Src on any same-named profile collision)
+// is deterministic.
 func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 	var out []Asset
 	seen := map[string]bool{}
@@ -42,15 +49,20 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 		}
 	}
 
-	// distinct profiles across all components
-	profiles := map[string]bool{}
+	// distinct profiles across all components, sorted for deterministic output
+	profileSet := map[string]bool{}
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
-			profiles[p] = true
+			profileSet[p] = true
 		}
 	}
+	profiles := make([]string, 0, len(profileSet))
+	for p := range profileSet {
+		profiles = append(profiles, p)
+	}
+	sort.Strings(profiles)
 
-	for p := range profiles {
+	for _, p := range profiles {
 		base := filepath.Join(harnessRoot, "profiles", p)
 		for _, kind := range []string{"skills", "commands"} {
 			if err := walkInto(filepath.Join(base, kind),
@@ -77,6 +89,7 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 		}
 	}
 
+	sort.Slice(out, func(i, j int) bool { return out[i].Dest < out[j].Dest })
 	return out, nil
 }
 
