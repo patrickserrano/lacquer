@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/patrickserrano/harness/internal/assets"
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/region"
 	"github.com/patrickserrano/harness/internal/safepath"
@@ -21,39 +22,64 @@ import (
 // safe (region.Merge preserves project-owned text and is idempotent), so a
 // corrected re-run heals a partial sync. The uncommitted-changes git guard in a
 // later plan will tighten this.
-func Run(harnessRoot, projectRoot string) error {
+// Result summarizes what a sync wrote: the number of CLAUDE.md regions merged
+// and the number of whole-file assets copied.
+type Result struct {
+	Regions, Assets int
+}
+
+func Run(harnessRoot, projectRoot string) (Result, error) {
 	ver, err := version.Read(harnessRoot)
 	if err != nil {
-		return fmt.Errorf("read version: %w", err)
+		return Result{}, fmt.Errorf("read version: %w", err)
 	}
 	cfg, err := config.Load(filepath.Join(projectRoot, ".harness.toml"))
 	if err != nil {
-		return fmt.Errorf("load manifest: %w", err)
+		return Result{}, fmt.Errorf("load manifest: %w", err)
 	}
+
+	regions := 0
 
 	// core -> project-root CLAUDE.md
 	coreBody, err := os.ReadFile(filepath.Join(harnessRoot, "core", "CLAUDE.core.md"))
 	if err != nil {
-		return fmt.Errorf("read core body: %w", err)
+		return Result{}, fmt.Errorf("read core body: %w", err)
 	}
 	if err := mergeInto(projectRoot, "CLAUDE.md", "core", ver, string(coreBody)); err != nil {
-		return err
+		return Result{}, err
 	}
+	regions++
 
 	// each profile -> <component>/CLAUDE.md
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
 			body, err := os.ReadFile(filepath.Join(harnessRoot, "profiles", p, "CLAUDE."+p+".md"))
 			if err != nil {
-				return fmt.Errorf("read profile %s body: %w", p, err)
+				return Result{}, fmt.Errorf("read profile %s body: %w", p, err)
 			}
 			rel := filepath.Join(c.Path, "CLAUDE.md")
 			if err := mergeInto(projectRoot, rel, p, ver, string(body)); err != nil {
-				return err
+				return Result{}, err
 			}
+			regions++
 		}
 	}
-	return nil
+
+	// Phase 2: whole-file assets (skills, commands, workflows, configs).
+	// Only run when the harness actually has assets to distribute, so a
+	// region-only sync into a non-git directory still works (assets.Copy
+	// requires a git work tree to guard against clobbering uncommitted work).
+	plan, err := assets.Plan(harnessRoot, cfg)
+	if err != nil {
+		return Result{}, fmt.Errorf("plan assets: %w", err)
+	}
+	if len(plan) > 0 {
+		if err := assets.Copy(projectRoot, plan); err != nil {
+			return Result{}, err
+		}
+	}
+
+	return Result{Regions: regions, Assets: len(plan)}, nil
 }
 
 // mergeInto resolves rel under projectRoot (confining it within the root even
