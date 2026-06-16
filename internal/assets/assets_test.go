@@ -187,3 +187,29 @@ func TestCopyRefusesSymlinkedDestDir(t *testing.T) {
 		t.Error("asset escaped the project root via symlinked .claude")
 	}
 }
+
+// TestCopyAllOrNothingOnConfinementViolation proves the preflight is all-or-
+// nothing for deterministic safety checks: a confinement violation on a LATER
+// asset must abort before any EARLIER asset is written.
+func TestCopyAllOrNothingOnConfinementViolation(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir()
+	outside := t.TempDir()
+	gitInit(t, project)
+	write(t, filepath.Join(h, "good.md"), "GOOD")
+	// A symlinked dir escaping the project root, used by the second asset.
+	if err := os.Symlink(outside, filepath.Join(project, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	plan := []Asset{
+		{Src: filepath.Join(h, "good.md"), Dest: filepath.Join(".claude", "skills", "a.md")},
+		{Src: filepath.Join(h, "good.md"), Dest: filepath.Join("escape", "CLAUDE.md")},
+	}
+	if err := Copy(project, plan); err == nil {
+		t.Fatal("expected a confinement violation error, got nil")
+	}
+	// The earlier, safe asset must NOT have been written.
+	if _, err := os.Stat(filepath.Join(project, ".claude", "skills", "a.md")); err == nil {
+		t.Error("earlier asset was written despite a later confinement violation (partial sync)")
+	}
+}

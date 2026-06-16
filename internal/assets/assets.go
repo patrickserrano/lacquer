@@ -99,14 +99,17 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 
 // Copy distributes assets into projectRoot. It first requires projectRoot to be
 // a git work tree (the dirty-guard is meaningless without git, so a non-git
-// project is refused outright — fail closed). It then preflights every
-// destination for uncommitted changes; if any are dirty it aborts with the full
-// list and writes nothing. Otherwise it copies each asset, confining the
-// destination within projectRoot.
+// project is refused outright — fail closed). It then runs an all-or-nothing
+// preflight over EVERY asset — path confinement within projectRoot, the
+// final-element symlink guard, and the uncommitted-changes check — and aborts
+// before writing anything if any asset fails. Only after the whole preflight
+// passes does it copy.
 //
-// The copy phase is not atomic across files: if an I/O error occurs partway, the
-// assets already written stay written (a re-run completes the rest). Only the
-// dirty/confinement preflight is all-or-nothing.
+// The copy phase itself is not atomic across files: if an I/O error (read,
+// mkdir, write) occurs partway, the assets already written stay written (a
+// re-run completes the rest). The deterministic safety checks are fully
+// preflighted, so a confinement/symlink/dirty violation never causes a partial
+// write — only a genuine mid-copy I/O fault can.
 func Copy(projectRoot string, plan []Asset) error {
 	inRepo, err := gitguard.InWorkTree(projectRoot)
 	if err != nil {
@@ -116,8 +119,20 @@ func Copy(projectRoot string, plan []Asset) error {
 		return fmt.Errorf("refusing asset sync: %s is not a git repository (git is required to guard against overwriting uncommitted work)", projectRoot)
 	}
 
+	// Preflight: validate every asset before writing any. Resolved targets are
+	// cached for the write phase so confinement is decided exactly once.
+	targets := make([]string, len(plan))
 	var dirty []string
-	for _, a := range plan {
+	for i, a := range plan {
+		target, err := safepath.Resolve(projectRoot, a.Dest)
+		if err != nil {
+			return fmt.Errorf("resolve %s: %w", a.Dest, err)
+		}
+		if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to write through symlink: %s", a.Dest)
+		}
+		targets[i] = target
+
 		isDirty, err := gitguard.Dirty(projectRoot, a.Dest)
 		if err != nil {
 			return fmt.Errorf("git guard %s: %w", a.Dest, err)
@@ -131,14 +146,8 @@ func Copy(projectRoot string, plan []Asset) error {
 			strings.Join(dirty, "\n  "))
 	}
 
-	for _, a := range plan {
-		target, err := safepath.Resolve(projectRoot, a.Dest)
-		if err != nil {
-			return fmt.Errorf("resolve %s: %w", a.Dest, err)
-		}
-		if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing to write through symlink: %s", a.Dest)
-		}
+	for i, a := range plan {
+		target := targets[i]
 		data, err := os.ReadFile(a.Src)
 		if err != nil {
 			return fmt.Errorf("read asset %s: %w", a.Src, err)
