@@ -634,18 +634,25 @@ In `internal/sync/sync.go`, add the import and a final asset phase to `Run`. Add
 
 ```go
 	// Phase 2: whole-file assets (skills, commands, workflows, configs).
+	// Only run when the harness actually has assets to distribute, so a
+	// region-only sync into a non-git directory still works (assets.Copy
+	// requires a git work tree to guard against clobbering uncommitted work).
 	plan, err := assets.Plan(harnessRoot, cfg)
 	if err != nil {
 		return fmt.Errorf("plan assets: %w", err)
 	}
-	if err := assets.Copy(projectRoot, plan); err != nil {
-		return err
+	if len(plan) > 0 {
+		if err := assets.Copy(projectRoot, plan); err != nil {
+			return err
+		}
 	}
 
 	return nil
 ```
 
 (Replace the existing bare `return nil` at the end of `Run` with the block above.)
+
+> Note: the existing region-only sync tests use non-git temp dirs with no harness assets, so `plan` is empty and `assets.Copy` is skipped — they keep passing. `TestSyncCopiesAssets` git-inits its project and seeds a skill, so the asset phase runs.
 
 **Step 4: Run the test to verify it passes**
 
