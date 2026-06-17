@@ -25,7 +25,7 @@ jobs:
         id: module
         run: |
           set -euo pipefail
-          module=$(find ios/{{PROJECT_NAME}}/Features -mindepth 1 -maxdepth 1 -type d | sort | shuf -n 1)
+          module=$(find {{COMPONENT_PREFIX}}{{PROJECT_NAME}}/Features -mindepth 1 -maxdepth 1 -type d | sort | shuf -n 1)
           echo "module=$module" >> "$GITHUB_OUTPUT"
           echo "Selected module: $module"
 

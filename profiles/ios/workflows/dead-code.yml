@@ -21,20 +21,20 @@ jobs:
 
       - name: Run Periphery
         run: |
-          cd ios
+          cd {{COMPONENT_PREFIX}}.
           periphery scan --config .periphery.yml --format json > periphery-report.json || true
 
       - name: Upload Report
         uses: actions/upload-artifact@v7.0.1
         with:
           name: periphery-report
-          path: ios/periphery-report.json
+          path: "{{COMPONENT_PREFIX}}periphery-report.json"
           retention-days: 1
 
       - name: Analyze Results
         id: analyze
         run: |
-          cd ios
+          cd {{COMPONENT_PREFIX}}.
           if [ ! -f periphery-report.json ]; then
             echo "count=0" >> $GITHUB_OUTPUT
             echo "has_dead_code=false" >> $GITHUB_OUTPUT

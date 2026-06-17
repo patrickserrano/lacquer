@@ -1,7 +1,7 @@
 # iOS / Swift profile rules
 
 Synced into the `CLAUDE.md` of any component declaring the `ios` profile. These
-rules assume an Xcode project under `ios/`. Where a value is project-specific
+rules assume an Xcode project under `{{COMPONENT_PREFIX}}`. Where a value is project-specific
 (your app name, scheme, bundle id), substitute your own — the project's own
 identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 `<YourScheme>` below with your target and scheme names.
@@ -28,8 +28,8 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 
 ```bash
 flowdeck simulator list           # find an available simulator UDID (names are ambiguous across OS versions)
-flowdeck build -w ios/<YourApp>.xcodeproj -s <YourScheme> -S <udid> -d ios/DerivedData
-flowdeck test  -w ios/<YourApp>.xcodeproj -s <YourScheme> -S <udid> -d ios/DerivedData
+flowdeck build -w {{COMPONENT_PREFIX}}<YourApp>.xcodeproj -s <YourScheme> -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
+flowdeck test  -w {{COMPONENT_PREFIX}}<YourApp>.xcodeproj -s <YourScheme> -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
 flowdeck project packages update  # bump SPM deps within constraints (no .pbxproj edit)
 ```
 
@@ -37,7 +37,7 @@ flowdeck project packages update  # bump SPM deps within constraints (no .pbxpro
 
 ### Working in worktrees
 
-- Pass a **unique derived-data path per worktree** (`-d ios/DerivedData-<feature>`) so parallel worktrees don't collide on one DerivedData dir (collisions surface as SIGKILL test crashes).
+- Pass a **unique derived-data path per worktree** (`-d {{COMPONENT_PREFIX}}DerivedData-<feature>`) so parallel worktrees don't collide on one DerivedData dir (collisions surface as SIGKILL test crashes).
 - **Delete that derived-data dir before running format/lint** — otherwise it lints compiled dependency sources and reports phantom `file_length`/format violations. (The `.swiftformat`/`.swiftlint.yml` excludes cover `DerivedData*`; keep your path matching that glob.)
 - **Ignore SourceKit diagnostics in a fresh worktree** (`No such module 'X'`, `Cannot find type`) — the worktree has no built index, so they're false positives. The authoritative signals are `flowdeck build` / `flowdeck test`.
 
@@ -60,7 +60,7 @@ View (SwiftUI) → ViewModel (@Observable, @MainActor) → Service → Repositor
 
 **Project structure:**
 ```
-ios/<YourApp>/
+{{COMPONENT_PREFIX}}<YourApp>/
 ├── App/           # App entry point, dependency container
 ├── Features/      # Feature modules (one folder per feature)
 ├── Core/          # Services, Repositories, Models, Networking
