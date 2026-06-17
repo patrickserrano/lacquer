@@ -65,8 +65,6 @@ func searchReturnsResults() async {
 
 Mark test with actor if system under test requires it.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 11.2: Testing concurrent code using Swift Testing](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Awaiting Async Callbacks
 
 ### Using continuations
@@ -247,8 +245,6 @@ func isLoadingState() async throws {
 
 **Add package**: `https://github.com/pointfreeco/swift-concurrency-extras.git`
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 11.3: Using Swift Concurrency Extras by Point-Free](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ### Serial execution required
 
 ```swift
@@ -316,8 +312,6 @@ final class DatabaseTests: XCTestCase {
 ```
 
 Mark as `async throws` to call async methods.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 11.1: Testing concurrent code using XCTest](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ### Main serial executor for all tests
 
@@ -588,5 +582,3 @@ struct SetupTrait: TestTrait, TestScoping {
 For advanced testing patterns, real-world examples, and migration strategies:
 - [Swift Testing Documentation](https://developer.apple.com/documentation/testing)
 - [Swift Concurrency Extras](https://github.com/pointfreeco/swift-concurrency-extras)
-- [Swift Concurrency Course](https://www.swiftconcurrencycourse.com)
-

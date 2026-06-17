@@ -32,8 +32,6 @@ public protocol Sendable {}
 
 Empty protocol, but triggers compiler verification of thread-safety.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.1: Explaining the concept of Sendable in Swift](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Isolation Domains
 
 Three types of isolation in Swift Concurrency:
@@ -120,8 +118,6 @@ print(await counter.getValue())
 
 **Key difference**: Swift Concurrency prevents data races but not race conditions. You must still ensure proper sequencing.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.2: Understanding Data Races vs. Race Conditions: Key Differences Explained](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Value Types (Structs, Enums)
 
 ### Implicit conformance
@@ -172,8 +168,6 @@ public struct Location: Sendable {
 }
 ```
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.3: Conforming your code to the Sendable protocol](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ### Copy-on-write makes mutability safe
 
 ```swift
@@ -183,8 +177,6 @@ public struct Person: Sendable {
 ```
 
 Each mutation creates a copy, preventing concurrent access to same instance.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.4: Sendable and Value Types](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Reference Types (Classes)
 
@@ -247,8 +239,6 @@ final class GamePurchaser {
 }
 ```
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.5: Sendable and Reference Types](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Functions and Closures (@Sendable)
 
 Mark functions/closures that cross isolation domains:
@@ -289,8 +279,6 @@ store.filter { [query] contact in
     contact.name.contains(query)
 }
 ```
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.6: Using @Sendable with closures](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## @unchecked Sendable
 
@@ -354,8 +342,6 @@ actor Cache {
     }
 }
 ```
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.7: Using @unchecked Sendable](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Region-Based Isolation
 
@@ -427,8 +413,6 @@ func createArticle(title: String) -> sending Article {
 
 Transfers ownership to caller's region.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.8: Understanding region-based isolation and the sending keyword](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Global Variables
 
 Must be concurrency-safe since accessible from any context.
@@ -473,8 +457,6 @@ struct APIProvider: Sendable {
 ```
 
 Use `private(set)` to limit mutation points.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.9: Concurrency-safe global variables](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Custom Locks + Sendable
 
@@ -521,8 +503,6 @@ actor BankAccount {
     }
 }
 ```
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 4.10: Combining Sendable with custom Locks](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Decision Tree
 
@@ -591,8 +571,3 @@ class ViewModel: ObservableObject {
 7. **Capture immutably** - use capture lists for mutable variables
 8. **Test with Thread Sanitizer** - catches runtime data races
 9. **File migration tickets** - track @unchecked Sendable usage
-
-## Further Learning
-
-For migration strategies, real-world examples, and actor patterns, see [Swift Concurrency Course](https://www.swiftconcurrencycourse.com).
-

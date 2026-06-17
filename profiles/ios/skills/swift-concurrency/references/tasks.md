@@ -56,8 +56,6 @@ final class ImageLoader {
 
 Tasks run regardless of whether you keep a reference.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.1: Introduction to tasks in Swift Concurrency](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Cancellation
 
 ### Checking for cancellation
@@ -108,8 +106,6 @@ parent.cancel() // Both children notified
 
 Children must still check `Task.isCancelled` to stop work.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.2: Task cancellation](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Error Handling
 
 Task error types are inferred from the operation:
@@ -148,8 +144,6 @@ let safeTask: Task<String, Never> = Task {
 }
 ```
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.3: Error handling in Tasks](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## SwiftUI Integration
 
 ### The .task modifier
@@ -182,8 +176,6 @@ Task cancels automatically when view disappears.
 When `searchQuery` changes:
 1. Previous task cancels
 2. New task starts with updated value
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.12: Running tasks in SwiftUI](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ### Priority configuration
 
@@ -245,8 +237,6 @@ let images = try await withThrowingTaskGroup(of: UIImage.self) { group in
 ```
 
 **Critical**: Errors in child tasks don't automatically fail the group. Use iteration (`for try await`, `next()`, `reduce()`) to propagate errors.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.5: Task Groups](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ### Early termination on error
 
@@ -345,8 +335,6 @@ for await _ in NotificationCenter.default.notifications(
 }
 ```
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.6: Discarding Task Groups](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Structured vs Unstructured Tasks
 
 ### Structured (preferred)
@@ -365,8 +353,6 @@ await withTaskGroup(of: Data.self) { group in
     group.addTask { await fetch(2) }
 }
 ```
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.7: The difference between structured and unstructured tasks](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ### Unstructured (use sparingly)
 
@@ -405,8 +391,6 @@ Task.detached(priority: .background) {
 - No `self` references needed
 
 **Prefer**: Task groups or `async let` for most parallel work.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.4: Detached Tasks](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Task Priorities
 
@@ -455,8 +439,6 @@ Task(priority: .high) {
 System automatically elevates priority to prevent priority inversion:
 - Actor waiting on lower-priority task
 - High-priority task awaiting `.value` of lower-priority task
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.8: Managing Task priorities](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Task.sleep() vs Task.yield()
 
@@ -512,8 +494,6 @@ func search(_ query: String) async {
     await searcher.search(searchQuery)
 }
 ```
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.10: Task.yield() vs. Task.sleep()](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## async let vs TaskGroup
 
@@ -574,8 +554,6 @@ let data = try await withTimeout(.seconds(5)) {
 
 `Task.sleep` throws `CancellationError` when the task is cancelled, making it a useful cancellation checkpoint in polling loops. `Task.yield()` only gives other tasks a chance to run and does not check cancellation — if the current task has the highest priority, it may resume immediately.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 3.14: Creating a Task timeout handler using a Task Group (advanced)](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Common Patterns
 
 ### Sequential with early exit
@@ -629,8 +607,3 @@ let profile = Profile(
 5. **Handle errors explicitly** in throwing task groups
 6. **Set priority only when needed** (inherit by default)
 7. **Don't mutate task groups** from outside their creation context
-
-## Further Learning
-
-For hands-on examples, advanced patterns, and migration strategies, see [Swift Concurrency Course](https://www.swiftconcurrencycourse.com).
-

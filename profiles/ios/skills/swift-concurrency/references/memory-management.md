@@ -40,8 +40,6 @@ Task {
 - Harder to track when memory should be released
 - Long-running tasks can hold references indefinitely
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 8.1: Overview of memory management in Swift Concurrency](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Retain Cycles
 
 ### What is a retain cycle?
@@ -118,8 +116,6 @@ task = Task { [weak self] in
     }
 }
 ```
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 8.2: Preventing retain cycles when using Tasks](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 Loop exits when `self` becomes `nil`.
 
@@ -562,8 +558,3 @@ When object won't deallocate:
 - [ ] Review async sequence usage
 - [ ] Check nested task captures
 - [ ] Verify cleanup in deinit
-
-## Further Learning
-
-For migration strategies, real-world examples, and advanced memory patterns, see [Swift Concurrency Course](https://www.swiftconcurrencycourse.com).
-

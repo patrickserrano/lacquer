@@ -38,8 +38,6 @@ actor Counter {
 
 **Key guarantee**: Only one task can access mutable state at a time (serialized access).
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.1: Understanding actors in Swift Concurrency](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Actor Isolation
 
 ### Enforced by compiler
@@ -136,8 +134,6 @@ func applyFilter(_ image: UIImage) -> UIImage {
 
 **Use private init** to prevent creating multiple executors.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.2: An introduction to Global Actors](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## @MainActor Best Practices
 
 ### When to use
@@ -186,8 +182,6 @@ func methodB() {
 ```
 
 **Prefer**: Explicit `@MainActor` or `await MainActor.run` over `assumeIsolated`.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.3: When and how to use @MainActor](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Isolated vs Nonisolated
 
@@ -290,8 +284,6 @@ extension BankAccount: CustomStringConvertible {
 }
 ```
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.4: Isolated vs. non-isolated access in actors](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Isolated Deinit (Swift 6.2+)
 
 Clean up actor state on deallocation:
@@ -307,8 +299,6 @@ actor FileDownloader {
 ```
 
 **Requires**: iOS 18.4+, macOS 15.4+
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.5: Using Isolated synchronous deinit](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Global Actor Isolated Conformance (Swift 6.2+)
 
@@ -329,8 +319,6 @@ extension PersonViewModel: @MainActor Equatable {
 ```
 
 **Enable**: `InferIsolatedConformances` upcoming feature.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.6: Adding isolated conformance to protocols](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Actor Reentrancy
 
@@ -379,8 +367,6 @@ func deposit(amount: Double) async {
 ```
 
 **Rule**: Don't assume state is unchanged after `await`.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.7: Understanding actor reentrancy](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## #isolation Macro
 
@@ -448,8 +434,6 @@ func process(
 
 **Note**: This pattern keeps the `non-Sendable` value alive and accessible within the `Task`. The `Task` runs on the caller's isolation domain, so no cross-isolation "sending" occurs.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.8: Inheritance of actor isolation using the #isolation macro](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Custom Actor Executors
 
 **Advanced**: Control how actor schedules work.
@@ -494,8 +478,6 @@ actor LoggingActor {
 - Custom scheduling logic
 
 **Default executor is usually sufficient.**
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.9: Using a custom actor executor](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Mutex: Alternative to Actors
 
@@ -566,8 +548,6 @@ func decrement() throws {
 - Can adopt async/await
 - Need logical isolation
 - Working in async context
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 5.10: Using a Mutex as an alternative to actors](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Common Patterns
 
@@ -653,8 +633,3 @@ Need thread-safe mutable state?
    ├─ Legacy code integration? → Mutex
    └─ Fine-grained locking? → Mutex
 ```
-
-## Further Learning
-
-For migration strategies, advanced patterns, and real-world examples, see [Swift Concurrency Course](https://www.swiftconcurrencycourse.com).
-

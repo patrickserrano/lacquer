@@ -103,8 +103,6 @@ mutating func next() async -> Int? {
 }
 ```
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 6.1: Working with asynchronous sequences](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## AsyncStream
 
 Convenient way to create async sequences without implementing protocols.
@@ -143,8 +141,6 @@ do {
     print("Error: \(error)")
 }
 ```
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 6.2: Using AsyncStream and AsyncThrowingStream in your code](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Bridging Closures to Streams
 
@@ -554,7 +550,6 @@ func fetchData() async throws -> Data
 // Not this
 func fetchData() -> AsyncThrowingStream<Data, Error>
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 6.3: Deciding between AsyncSequence, AsyncStream, or regular asynchronous methods](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 ```
 
 ## Common Patterns
@@ -703,8 +698,3 @@ func fetchUser() -> AsyncStream<User> { ... } // Overkill for one result
 
 - **Sharing a single `AsyncStream` between multiple consumers**: Values split unpredictably. There is no built-in broadcast; use `AsyncChannel` for point-to-point multi-consumer patterns.
 - **Forgetting `onTermination`** when bridging delegate or observer APIs, causing resources to leak.
-
-## Further Learning
-
-For real-world migration examples, performance patterns, and advanced stream techniques, see [Swift Concurrency Course](https://www.swiftconcurrencycourse.com).
-

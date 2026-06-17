@@ -35,8 +35,6 @@ func fetchData() async throws -> Data {
 
 **Key benefit over closures**: The compiler enforces return values. No forgotten completion handlers.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 2.1: Introduction to async/await syntax](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Calling Async Functions
 
 ### From synchronous context
@@ -71,8 +69,6 @@ let third = try await fetchData(3)   // Starts after second completes
 ```
 
 Code after `await` only executes once the awaited function returns.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 2.2: Understanding the order of execution](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Parallel Execution with async let
 
@@ -118,8 +114,6 @@ let result = try await data
 
 - Cannot use at top-level declarations (only within function bodies)
 - Tasks not explicitly awaited may be canceled implicitly
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 2.3: Calling async functions in parallel using async let](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## URLSession with Async/Await
 
@@ -182,8 +176,6 @@ func createUser(_ user: User) async throws -> User {
     return try JSONDecoder().decode(User.self, from: data)
 }
 ```
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 2.4: Performing network requests using URLSession and async/await](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Typed Errors (Swift 6)
 
@@ -259,8 +251,3 @@ let profile = Profile(
     following: try await following
 )
 ```
-
-## Further Learning
-
-For in-depth coverage of async/await patterns, error handling strategies, and real-world migration scenarios, see [Swift Concurrency Course](https://www.swiftconcurrencycourse.com).
-

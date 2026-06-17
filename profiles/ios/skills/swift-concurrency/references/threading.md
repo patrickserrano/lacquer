@@ -34,8 +34,6 @@ System-level resource that runs instructions. High overhead for creation and swi
 
 **Key insight**: No direct relationship between one task and one thread.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 7.1: How Threads relate to Tasks](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 **Important (Swift 6+)**: Avoid using `Thread.current` inside async contexts. In Swift 6 language mode, `Thread.current` is unavailable from asynchronous contexts and will fail to compile. Prefer reasoning in terms of isolation domains; use Instruments and the debugger to observe execution when needed.
 
 ## Cooperative Thread Pool
@@ -121,8 +119,6 @@ Task(priority: .userInitiated) {
 
 You're describing the nature of work, not assigning threads. Swift optimizes execution.
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 7.2: Getting rid of the "Threading Mindset"](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 ## Suspension Points
 
 ### What is a suspension point?
@@ -189,8 +185,6 @@ func deposit(amount: Int) async {
 ```
 
 **Rule**: Don't mutate actor state after suspension points.
-
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 7.3: Understanding Task suspension points](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ## Thread Execution Patterns
 
@@ -288,8 +282,6 @@ nonisolated(nonsending) func storeTouch(...) async {
 }
 ```
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 7.4: Dispatching to different threads using nonisolated(nonsending) and @concurrent (Updated for Swift 6.2)](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
-
 **Use when**: Method doesn't need to switch isolation, avoiding Sendable requirements.
 
 ## Default Isolation Domain (SE-466)
@@ -334,7 +326,6 @@ struct S {
     func f() {} // Inferred: @MyActor (explicit override)
 }
 
-> **Course Deep Dive**: This topic is covered in detail in [Lesson 7.5: Controlling the default isolation domain (Updated for Swift 6.2)](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 ```
 
 ### Per-module setting
@@ -490,8 +481,3 @@ Instead of asking "what thread should this run on?" ask "what isolation domain s
 - Prevents oversubscription
 - Efficient task scheduling
 - Automatic load balancing
-
-## Further Learning
-
-For migration strategies, real-world examples, and advanced threading patterns, see [Swift Concurrency Course](https://www.swiftconcurrencycourse.com).
-
