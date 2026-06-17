@@ -169,3 +169,54 @@ func TestRunRefusesAssetsInNonGitProject(t *testing.T) {
 		t.Fatal("expected Run to refuse asset sync in a non-git project, got nil")
 	}
 }
+
+func TestSyncSubstitutesTokens(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(harness, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "CLAUDE.ios.md"), "IOS")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "root", ".x.yml"), "scheme: {{SCHEME}}\n")
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = project
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	writeFile(t, filepath.Join(project, ".harness.toml"),
+		"[project]\nname=\"x\"\nscheme=\"Rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+
+	if _, err := Run(harness, project); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(project, ".x.yml"))
+	if string(got) != "scheme: Rail\n" {
+		t.Errorf("token not substituted: %q", got)
+	}
+}
+
+func TestSyncFailsClosedOnMissingToken(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(harness, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "CLAUDE.ios.md"), "IOS")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "root", ".x.yml"), "scheme: {{SCHEME}}\n")
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = project
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	writeFile(t, filepath.Join(project, ".harness.toml"),
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+
+	_, err := Run(harness, project)
+	if err == nil {
+		t.Fatal("expected fail-closed error for missing {{SCHEME}} value")
+	}
+	if !strings.Contains(err.Error(), "SCHEME") {
+		t.Errorf("error should name the missing token: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".x.yml")); err == nil {
+		t.Error(".x.yml was written despite missing token (not fail-closed)")
+	}
+}

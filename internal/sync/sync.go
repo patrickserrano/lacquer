@@ -5,29 +5,37 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/patrickserrano/harness/internal/assets"
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/region"
 	"github.com/patrickserrano/harness/internal/safepath"
+	"github.com/patrickserrano/harness/internal/tokens"
 	"github.com/patrickserrano/harness/internal/version"
 )
 
-// Run syncs core + each component's profiles into the project's CLAUDE.md files.
-//
-// Run is not atomic across files: if it fails partway (e.g. a component names a
-// profile that has no CLAUDE.<profile>.md in the harness — a deliberate fail-loud
-// choice that surfaces manifest typos), files written before the failure stay
-// written. This is recoverable, not corrupting: each per-file write is itself
-// safe (region.Merge preserves project-owned text and is idempotent), so a
-// corrected re-run heals a partial sync. The uncommitted-changes git guard in a
-// later plan will tighten this.
 // Result summarizes what a sync wrote: the number of CLAUDE.md regions merged
 // and the number of whole-file assets copied.
 type Result struct {
 	Regions, Assets int
 }
 
+// region is a CLAUDE.md region to write: destination rel path, marker key, body.
+type regionWrite struct {
+	rel, key, body string
+}
+
+// Run syncs core + each component's profiles into the project's CLAUDE.md files,
+// then distributes whole-file assets, substituting per-project placeholders.
+//
+// A token preflight runs first: if any registered {{KEY}} appears in a region
+// body or asset with no [project] value, Run aborts before writing anything
+// (fail closed), so nothing ever lands half-tokenized.
+//
+// The asset copy phase is not atomic across files (a mid-copy I/O fault may leave
+// some assets written); region/asset writes are otherwise guarded and idempotent,
+// so a corrected re-run heals a partial sync.
 func Run(harnessRoot, projectRoot string) (Result, error) {
 	ver, err := version.Read(harnessRoot)
 	if err != nil {
@@ -38,48 +46,64 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 		return Result{}, fmt.Errorf("load manifest: %w", err)
 	}
 
-	regions := 0
-
-	// core -> project-root CLAUDE.md
+	// Gather region bodies (core + each component profile) without writing yet.
+	var regions []regionWrite
 	coreBody, err := os.ReadFile(filepath.Join(harnessRoot, "core", "CLAUDE.core.md"))
 	if err != nil {
 		return Result{}, fmt.Errorf("read core body: %w", err)
 	}
-	if err := mergeInto(projectRoot, "CLAUDE.md", "core", ver, string(coreBody)); err != nil {
-		return Result{}, err
-	}
-	regions++
-
-	// each profile -> <component>/CLAUDE.md
+	regions = append(regions, regionWrite{"CLAUDE.md", "core", string(coreBody)})
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
 			body, err := os.ReadFile(filepath.Join(harnessRoot, "profiles", p, "CLAUDE."+p+".md"))
 			if err != nil {
 				return Result{}, fmt.Errorf("read profile %s body: %w", p, err)
 			}
-			rel := filepath.Join(c.Path, "CLAUDE.md")
-			if err := mergeInto(projectRoot, rel, p, ver, string(body)); err != nil {
-				return Result{}, err
-			}
-			regions++
+			regions = append(regions, regionWrite{filepath.Join(c.Path, "CLAUDE.md"), p, string(body)})
 		}
 	}
 
-	// Phase 2: whole-file assets (skills, commands, workflows, configs).
-	// Only run when the harness actually has assets to distribute, so a
-	// region-only sync into a non-git directory still works (assets.Copy
-	// requires a git work tree to guard against clobbering uncommitted work).
 	plan, err := assets.Plan(harnessRoot, cfg)
 	if err != nil {
 		return Result{}, fmt.Errorf("plan assets: %w", err)
 	}
-	if len(plan) > 0 {
-		if err := assets.Copy(projectRoot, plan); err != nil {
+
+	// Token preflight — fail closed before any write.
+	var missing []string
+	for _, r := range regions {
+		if _, m := tokens.Substitute(r.body, cfg.Project); len(m) > 0 {
+			for _, t := range m {
+				missing = append(missing, fmt.Sprintf("%s (%s)", t, r.rel))
+			}
+		}
+	}
+	assetMissing, err := assets.MissingTokens(plan, cfg.Project)
+	if err != nil {
+		return Result{}, err
+	}
+	missing = append(missing, assetMissing...)
+	if len(missing) > 0 {
+		return Result{}, fmt.Errorf("missing [project] values for placeholders (add them to .harness.toml [project], then re-run):\n  %s",
+			strings.Join(missing, "\n  "))
+	}
+
+	// Writes: substitute + merge region bodies.
+	for _, r := range regions {
+		body, _ := tokens.Substitute(r.body, cfg.Project)
+		if err := mergeInto(projectRoot, r.rel, r.key, ver, body); err != nil {
 			return Result{}, err
 		}
 	}
 
-	return Result{Regions: regions, Assets: len(plan)}, nil
+	// Whole-file assets. Only run when the harness has assets, so a region-only
+	// sync into a non-git directory still works (assets.Copy requires git).
+	if len(plan) > 0 {
+		if err := assets.Copy(projectRoot, plan, cfg.Project); err != nil {
+			return Result{}, err
+		}
+	}
+
+	return Result{Regions: len(regions), Assets: len(plan)}, nil
 }
 
 // mergeInto resolves rel under projectRoot (confining it within the root even

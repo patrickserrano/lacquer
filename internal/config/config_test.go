@@ -90,3 +90,35 @@ func TestLoadAcceptsValidNames(t *testing.T) {
 		t.Errorf("valid manifest rejected: %v", err)
 	}
 }
+
+func TestLoadProjectValues(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"rail\"\nproject_name=\"Rail\"\nscheme=\"Rail\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"6451234567\"\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	p := cfg.Project
+	if p.ProjectName != "Rail" || p.Scheme != "Rail" || p.BundleID != "com.me.rail" || p.AscAppID != "6451234567" {
+		t.Errorf("project = %+v", p)
+	}
+}
+
+func TestLoadAllowsBlankProjectValues(t *testing.T) {
+	if _, err := loadString(t, "[project]\nname=\"x\"\nbundle_id=\"\"\n"); err != nil {
+		t.Errorf("blank values must be allowed (init stubs them): %v", err)
+	}
+}
+
+func TestLoadRejectsInjectionInProjectValues(t *testing.T) {
+	cases := []string{
+		"[project]\nname=\"x\"\nscheme=\"Rail\\n  evil: true\"\n",
+		"[project]\nname=\"x\"\nbundle_id=\"com.me.$(whoami)\"\n",
+		"[project]\nname=\"x\"\nproject_name=\"Rail`id`\"\n",
+		"[project]\nname=\"x\"\nasc_app_id=\"12a34\"\n",
+		"[project]\nname=\"x\"\nscheme=\"a\\\"b\"\n",
+	}
+	for _, data := range cases {
+		if _, err := loadString(t, data); err == nil {
+			t.Errorf("expected rejection for project value in:\n%s", data)
+		}
+	}
+}

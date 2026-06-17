@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/patrickserrano/harness/internal/initcmd"
 	"github.com/patrickserrano/harness/internal/status"
 	syncpkg "github.com/patrickserrano/harness/internal/sync"
 )
@@ -26,6 +27,12 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "init":
+		summary, err := initcmd.Run(projectRoot)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Println(summary)
 	case "sync":
 		res, err := syncpkg.Run(harnessRoot, projectRoot)
 		if err != nil {
@@ -47,7 +54,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: harness <command>")
-	fmt.Fprintln(os.Stderr, "commands: sync, status")
+	fmt.Fprintln(os.Stderr, "commands: init, sync, status")
 	fmt.Fprintln(os.Stderr, "env: HARNESS_ROOT (path to harness repo, default '.')")
 }
 
