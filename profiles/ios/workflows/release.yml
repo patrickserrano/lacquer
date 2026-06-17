@@ -56,7 +56,7 @@ jobs:
         run: keychain add-certificates
 
       - name: Set Xcode project code signing
-        run: xcode-project use-profiles --export-options-plist ios/ExportOptions.plist
+        run: xcode-project use-profiles --export-options-plist {{COMPONENT_PREFIX}}ExportOptions.plist
 
       - name: Increment build number
         env:
@@ -76,23 +76,23 @@ jobs:
           fi
           NEXT=$((LATEST + 1))
           echo "Build number: $LATEST -> $NEXT"
-          cd ios && agvtool new-version -all "$NEXT"
+          cd {{COMPONENT_PREFIX}}. && agvtool new-version -all "$NEXT"
 
       - name: Build and archive
         run: |
           set -o pipefail
           EXIT_CODE=0
           xcodebuild archive \
-            -project ios/{{PROJECT_NAME}}.xcodeproj \
+            -project {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj \
             -scheme {{SCHEME}} \
             -configuration Release \
-            -archivePath ios/build/{{PROJECT_NAME}}.xcarchive \
+            -archivePath {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive \
             -allowProvisioningUpdates \
             2>&1 | xcpretty || EXIT_CODE=$?
           # Exit code 65 is a known spurious xcodebuild failure. Treat as success
           # ONLY if the .xcarchive was actually produced; otherwise fail. (pipefail
           # ensures $EXIT_CODE reflects xcodebuild's status, not xcpretty's.)
-          if [ $EXIT_CODE -eq 65 ] && [ -d "ios/build/{{PROJECT_NAME}}.xcarchive" ]; then
+          if [ $EXIT_CODE -eq 65 ] && [ -d "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive" ]; then
             echo "xcodebuild exited 65 but archive exists — treating as success."
             EXIT_CODE=0
           fi
@@ -102,9 +102,9 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -exportArchive \
-            -archivePath ios/build/{{PROJECT_NAME}}.xcarchive \
-            -exportOptionsPlist ios/ExportOptions.plist \
-            -exportPath ios/build/ \
+            -archivePath {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive \
+            -exportOptionsPlist {{COMPONENT_PREFIX}}ExportOptions.plist \
+            -exportPath {{COMPONENT_PREFIX}}build/ \
             2>&1 | xcpretty
 
       - name: Upload to TestFlight
@@ -115,13 +115,13 @@ jobs:
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
         run: |
           app-store-connect publish \
-            --path ios/build/{{PROJECT_NAME}}.ipa
+            --path {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: '{{PROJECT_NAME}}-${{ github.ref_name }}.ipa'
-          path: ios/build/{{PROJECT_NAME}}.ipa
+          path: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa"
           retention-days: 30
           if-no-files-found: warn
 
@@ -129,7 +129,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: '{{PROJECT_NAME}}-${{ github.ref_name }}.dSYM'
-          path: ios/build/{{PROJECT_NAME}}.xcarchive/dSYMs/*.dSYM
+          path: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive/dSYMs/*.dSYM"
           retention-days: 90
           if-no-files-found: ignore
 
@@ -137,7 +137,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ios/build/{{PROJECT_NAME}}.ipa
+          files: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa"
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}

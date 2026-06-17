@@ -314,3 +314,31 @@ func TestCopyRestoresExecBitOnOverwrite(t *testing.T) {
 		t.Errorf("exec bit not restored on overwrite: mode=%v", fi.Mode())
 	}
 }
+
+func TestPlanRecordsComponentPrefix(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "profiles", "ios", "workflows", "ci.yml"), "x")
+	write(t, filepath.Join(h, "profiles", "web", "workflows", "ci.yml"), "x")
+	write(t, filepath.Join(h, "core", "skills", "g.md"), "x")
+	cfg := &config.Config{Components: []config.Component{
+		{Path: ".", Profiles: []string{"ios"}},
+		{Path: "dashboard", Profiles: []string{"web"}},
+	}}
+	got, err := Plan(h, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pre := map[string]string{}
+	for _, a := range got {
+		pre[a.Dest] = a.Prefix
+	}
+	if pre[filepath.Join(".github", "workflows", "ios-ci.yml")] != "" {
+		t.Errorf("ios (root) prefix should be empty, got %q", pre[filepath.Join(".github", "workflows", "ios-ci.yml")])
+	}
+	if pre[filepath.Join(".github", "workflows", "web-ci.yml")] != "dashboard/" {
+		t.Errorf("web prefix = %q, want dashboard/", pre[filepath.Join(".github", "workflows", "web-ci.yml")])
+	}
+	if pre[filepath.Join(".claude", "skills", "g.md")] != "" {
+		t.Errorf("core asset prefix must be empty, got %q", pre[filepath.Join(".claude", "skills", "g.md")])
+	}
+}

@@ -27,7 +27,7 @@ func MissingTokens(plan []Asset, proj config.Project) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read asset %s: %w", a.Src, err)
 		}
-		if _, missing := tokens.Substitute(string(data), proj); len(missing) > 0 {
+		if _, missing := tokens.Substitute(string(data), tokens.Values(proj, a.Prefix)); len(missing) > 0 {
 			for _, m := range missing {
 				out = append(out, fmt.Sprintf("%s (%s)", m, a.Dest))
 			}
@@ -41,6 +41,10 @@ func MissingTokens(plan []Asset, proj config.Project) ([]string, error) {
 type Asset struct {
 	Src  string
 	Dest string
+	// Prefix is the {{COMPONENT_PREFIX}} value for this asset's profile (the
+	// owning component's path as a prefix: "" for root, "ios/" for a subdir).
+	// Core assets have an empty prefix.
+	Prefix string
 }
 
 // Plan returns every asset to copy for core plus the profiles named by the
@@ -57,68 +61,68 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 	var out []Asset
 	seen := map[string]bool{}
 
-	add := func(src, dest string) {
+	add := func(src, dest, prefix string) {
 		if seen[dest] {
 			return
 		}
 		seen[dest] = true
-		out = append(out, Asset{Src: src, Dest: dest})
+		out = append(out, Asset{Src: src, Dest: dest, Prefix: prefix})
 	}
 
-	// core: skills + commands -> root .claude/
+	// core assets are stack-agnostic: no component prefix.
 	for _, kind := range []string{"skills", "commands"} {
 		if err := walkInto(filepath.Join(harnessRoot, "core", kind),
-			func(src, rel string) { add(src, filepath.Join(".claude", kind, rel)) }); err != nil {
+			func(src, rel string) { add(src, filepath.Join(".claude", kind, rel), "") }); err != nil {
 			return nil, err
 		}
 	}
-
-	// core: root tree -> project root (verbatim relative paths)
 	if err := walkInto(filepath.Join(harnessRoot, "core", "root"),
-		func(src, rel string) { add(src, rel) }); err != nil {
+		func(src, rel string) { add(src, rel, "") }); err != nil {
 		return nil, err
 	}
 
-	// distinct profiles across all components, sorted for deterministic output
-	profileSet := map[string]bool{}
+	// profile -> owning component path (config guarantees one component per profile).
+	profileDir := map[string]string{}
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
-			profileSet[p] = true
+			profileDir[p] = c.Path
 		}
 	}
-	profiles := make([]string, 0, len(profileSet))
-	for p := range profileSet {
+	profiles := make([]string, 0, len(profileDir))
+	for p := range profileDir {
 		profiles = append(profiles, p)
 	}
 	sort.Strings(profiles)
 
 	for _, p := range profiles {
 		base := filepath.Join(harnessRoot, "profiles", p)
+		prefix := tokens.Prefix(profileDir[p])
 		for _, kind := range []string{"skills", "commands"} {
 			if err := walkInto(filepath.Join(base, kind),
-				func(src, rel string) { add(src, filepath.Join(".claude", kind, rel)) }); err != nil {
+				func(src, rel string) { add(src, filepath.Join(".claude", kind, rel), prefix) }); err != nil {
 				return nil, err
 			}
 		}
 		// workflows -> .github/workflows/<p>-<file> (stack-prefixed; flat)
 		if err := walkInto(filepath.Join(base, "workflows"),
 			func(src, rel string) {
-				add(src, filepath.Join(".github", "workflows", p+"-"+filepath.Base(rel)))
+				add(src, filepath.Join(".github", "workflows", p+"-"+filepath.Base(rel)), prefix)
 			}); err != nil {
 			return nil, err
 		}
 		// profile root tree -> project root (verbatim relative paths)
 		if err := walkInto(filepath.Join(base, "root"),
-			func(src, rel string) { add(src, rel) }); err != nil {
+			func(src, rel string) { add(src, rel, prefix) }); err != nil {
 			return nil, err
 		}
 	}
 
 	// config -> each component dir that lists the owning profile
 	for _, c := range cfg.Components {
+		prefix := tokens.Prefix(c.Path)
 		for _, p := range c.Profiles {
 			if err := walkInto(filepath.Join(harnessRoot, "profiles", p, "config"),
-				func(src, rel string) { add(src, filepath.Join(c.Path, rel)) }); err != nil {
+				func(src, rel string) { add(src, filepath.Join(c.Path, rel), prefix) }); err != nil {
 				return nil, err
 			}
 		}
@@ -183,10 +187,10 @@ func Copy(projectRoot string, plan []Asset, proj config.Project) error {
 		if err != nil {
 			return fmt.Errorf("read asset %s: %w", a.Src, err)
 		}
-		// Substitute per-project placeholders. Any missing value should already
-		// have been caught by sync's preflight; substitute regardless (leaves an
-		// unresolved token in place rather than corrupting other content).
-		substituted, _ := tokens.Substitute(string(data), proj)
+		// Substitute per-project placeholders + this asset's component prefix. Any
+		// missing value should already have been caught by sync's preflight;
+		// substitute regardless (leaves an unresolved token rather than corrupting).
+		substituted, _ := tokens.Substitute(string(data), tokens.Values(proj, a.Prefix))
 		data = []byte(substituted)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err

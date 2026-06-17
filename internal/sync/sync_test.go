@@ -220,3 +220,27 @@ func TestSyncFailsClosedOnMissingToken(t *testing.T) {
 		t.Error(".x.yml was written despite missing token (not fail-closed)")
 	}
 }
+
+func TestSyncRootLayoutEmptyPrefix(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(harness, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "CLAUDE.ios.md"), "IOS")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "workflows", "ci.yml"), "lint: {{COMPONENT_PREFIX}}.swiftlint.yml\nf: '{{COMPONENT_PREFIX}}**'\n")
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = project
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	writeFile(t, filepath.Join(project, ".harness.toml"),
+		"[project]\nname=\"x\"\nproject_name=\"Rail\"\nscheme=\"Rail\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
+
+	if _, err := Run(harness, project); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(project, ".github", "workflows", "ios-ci.yml"))
+	if string(got) != "lint: .swiftlint.yml\nf: '**'\n" {
+		t.Errorf("root-layout prefix not applied:\n%q", got)
+	}
+}

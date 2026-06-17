@@ -79,6 +79,7 @@ func Load(path string) (*Config, error) {
 	if err := validateProject(cfg.Project); err != nil {
 		return nil, err
 	}
+	seenProfile := map[string]string{} // profile -> first component path that declared it
 	for _, c := range cfg.Components {
 		if err := validateComponentPath(c.Path); err != nil {
 			return nil, err
@@ -87,10 +88,23 @@ func Load(path string) (*Config, error) {
 			if !profileNameRe.MatchString(p) {
 				return nil, fmt.Errorf("invalid profile name %q (must match %s)", p, profileNameRe.String())
 			}
+			if prev, ok := seenProfile[p]; ok {
+				return nil, fmt.Errorf("profile %q is declared by two components (%q and %q); one component per profile is supported", p, prev, c.Path)
+			}
+			seenProfile[p] = c.Path
 		}
 	}
 	return &cfg, nil
 }
+
+// componentPathVal allows "." or slash-separated segments of safe characters
+// only. component.path is substituted into CI YAML / shell via the derived
+// {{COMPONENT_PREFIX}}, so it must not carry spaces, shell metacharacters, or
+// path separators beyond simple nesting.
+// Each segment must START with an alphanumeric / "." / "_" (never "-"), so a
+// path can't become a shell flag once glued into {{COMPONENT_PREFIX}} (e.g.
+// "-rf" -> `cd -rf/.`). Subsequent chars may include "-".
+var componentPathVal = regexp.MustCompile(`^(\.|[A-Za-z0-9._][A-Za-z0-9._-]*(/[A-Za-z0-9._][A-Za-z0-9._-]*)*)$`)
 
 // validateComponentPath rejects empty, absolute, and root-escaping component
 // paths. The path must stay within the project root once joined.
@@ -104,6 +118,10 @@ func validateComponentPath(p string) error {
 	clean := filepath.Clean(p)
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("component path %q escapes the project root", p)
+	}
+	// ToSlash so nested paths validate on Windows (filepath.Clean yields "\" there).
+	if !componentPathVal.MatchString(filepath.ToSlash(clean)) {
+		return fmt.Errorf("component path %q contains unsafe characters", p)
 	}
 	return nil
 }

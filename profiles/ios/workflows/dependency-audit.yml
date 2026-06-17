@@ -32,9 +32,9 @@ jobs:
           if [ -f "Package.swift" ]; then
             swift package update --dry-run >> "$report" 2>&1 || true
           else
-            resolved="ios/{{PROJECT_NAME}}.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+            resolved="{{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
             if [ -f "$resolved" ]; then
-              xcodebuild -resolvePackageDependencies -project ios/{{PROJECT_NAME}}.xcodeproj -scheme {{SCHEME}} > /tmp/resolve.log 2>&1 || true
+              xcodebuild -resolvePackageDependencies -project {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj -scheme {{SCHEME}} > /tmp/resolve.log 2>&1 || true
               git diff -- "$resolved" >> "$report" || true
               git checkout -- "$resolved"
             else
