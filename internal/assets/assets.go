@@ -14,7 +14,27 @@ import (
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/gitguard"
 	"github.com/patrickserrano/harness/internal/safepath"
+	"github.com/patrickserrano/harness/internal/tokens"
 )
+
+// MissingTokens returns "<token> (<dest>)" for every registered placeholder that
+// appears in an asset's source with no project value. Used by sync's fail-closed
+// preflight before any write.
+func MissingTokens(plan []Asset, proj config.Project) ([]string, error) {
+	var out []string
+	for _, a := range plan {
+		data, err := os.ReadFile(a.Src)
+		if err != nil {
+			return nil, fmt.Errorf("read asset %s: %w", a.Src, err)
+		}
+		if _, missing := tokens.Substitute(string(data), proj); len(missing) > 0 {
+			for _, m := range missing {
+				out = append(out, fmt.Sprintf("%s (%s)", m, a.Dest))
+			}
+		}
+	}
+	return out, nil
+}
 
 // Asset is one file to copy: an absolute source path and a project-relative
 // destination path.
@@ -121,7 +141,7 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 // re-run completes the rest). The deterministic safety checks are fully
 // preflighted, so a confinement/symlink/dirty violation never causes a partial
 // write — only a genuine mid-copy I/O fault can.
-func Copy(projectRoot string, plan []Asset) error {
+func Copy(projectRoot string, plan []Asset, proj config.Project) error {
 	inRepo, err := gitguard.InWorkTree(projectRoot)
 	if err != nil {
 		return fmt.Errorf("git check: %w", err)
@@ -163,6 +183,11 @@ func Copy(projectRoot string, plan []Asset) error {
 		if err != nil {
 			return fmt.Errorf("read asset %s: %w", a.Src, err)
 		}
+		// Substitute per-project placeholders. Any missing value should already
+		// have been caught by sync's preflight; substitute regardless (leaves an
+		// unresolved token in place rather than corrupting other content).
+		substituted, _ := tokens.Substitute(string(data), proj)
+		data = []byte(substituted)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
