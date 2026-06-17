@@ -135,6 +135,8 @@ func TestLoadRejectsUnsafeComponentPath(t *testing.T) {
 		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios;rm -rf\"\nprofiles=[\"ios\"]\n",
 		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios app\"\nprofiles=[\"ios\"]\n",
 		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios$(x)\"\nprofiles=[\"ios\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"-rf\"\nprofiles=[\"ios\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"apps/-evil\"\nprofiles=[\"ios\"]\n",
 	}
 	for _, d := range cases {
 		if _, err := loadString(t, d); err == nil {

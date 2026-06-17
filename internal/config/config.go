@@ -101,7 +101,10 @@ func Load(path string) (*Config, error) {
 // only. component.path is substituted into CI YAML / shell via the derived
 // {{COMPONENT_PREFIX}}, so it must not carry spaces, shell metacharacters, or
 // path separators beyond simple nesting.
-var componentPathVal = regexp.MustCompile(`^(\.|[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*)$`)
+// Each segment must START with an alphanumeric / "." / "_" (never "-"), so a
+// path can't become a shell flag once glued into {{COMPONENT_PREFIX}} (e.g.
+// "-rf" -> `cd -rf/.`). Subsequent chars may include "-".
+var componentPathVal = regexp.MustCompile(`^(\.|[A-Za-z0-9._][A-Za-z0-9._-]*(/[A-Za-z0-9._][A-Za-z0-9._-]*)*)$`)
 
 // validateComponentPath rejects empty, absolute, and root-escaping component
 // paths. The path must stay within the project root once joined.
