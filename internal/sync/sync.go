@@ -21,9 +21,10 @@ type Result struct {
 	Regions, Assets int
 }
 
-// region is a CLAUDE.md region to write: destination rel path, marker key, body.
+// region is a CLAUDE.md region to write: destination rel path, marker key, body,
+// and the {{COMPONENT_PREFIX}} value for that region's component ("" for core).
 type regionWrite struct {
-	rel, key, body string
+	rel, key, body, prefix string
 }
 
 // Run syncs core + each component's profiles into the project's CLAUDE.md files,
@@ -52,14 +53,14 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("read core body: %w", err)
 	}
-	regions = append(regions, regionWrite{"CLAUDE.md", "core", string(coreBody)})
+	regions = append(regions, regionWrite{"CLAUDE.md", "core", string(coreBody), ""})
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
 			body, err := os.ReadFile(filepath.Join(harnessRoot, "profiles", p, "CLAUDE."+p+".md"))
 			if err != nil {
 				return Result{}, fmt.Errorf("read profile %s body: %w", p, err)
 			}
-			regions = append(regions, regionWrite{filepath.Join(c.Path, "CLAUDE.md"), p, string(body)})
+			regions = append(regions, regionWrite{filepath.Join(c.Path, "CLAUDE.md"), p, string(body), tokens.Prefix(c.Path)})
 		}
 	}
 
@@ -71,7 +72,7 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 	// Token preflight — fail closed before any write.
 	var missing []string
 	for _, r := range regions {
-		if _, m := tokens.Substitute(r.body, cfg.Project); len(m) > 0 {
+		if _, m := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix)); len(m) > 0 {
 			for _, t := range m {
 				missing = append(missing, fmt.Sprintf("%s (%s)", t, r.rel))
 			}
@@ -89,7 +90,7 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 
 	// Writes: substitute + merge region bodies.
 	for _, r := range regions {
-		body, _ := tokens.Substitute(r.body, cfg.Project)
+		body, _ := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix))
 		if err := mergeInto(projectRoot, r.rel, r.key, ver, body); err != nil {
 			return Result{}, err
 		}
