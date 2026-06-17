@@ -6,26 +6,46 @@ import (
 	"github.com/patrickserrano/harness/internal/config"
 )
 
-func TestSubstitute(t *testing.T) {
-	p := config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.me.rail", AscAppID: "999"}
-	in := "scheme: {{SCHEME}}\nid: {{BUNDLE_ID}}\nasc: {{ASC_APP_ID}}\nname: {{PROJECT_NAME}}\nga: ${{ github.ref }}\n"
-	out, missing := Substitute(in, p)
-	if len(missing) != 0 {
-		t.Fatalf("unexpected missing: %v", missing)
+func TestPrefix(t *testing.T) {
+	if Prefix(".") != "" {
+		t.Errorf("Prefix(\".\") = %q, want empty", Prefix("."))
 	}
-	want := "scheme: Rail\nid: com.me.rail\nasc: 999\nname: Rail\nga: ${{ github.ref }}\n"
+	if Prefix("ios") != "ios/" {
+		t.Errorf("Prefix(\"ios\") = %q, want ios/", Prefix("ios"))
+	}
+	if Prefix("apps/ios-app") != "apps/ios-app/" {
+		t.Errorf("Prefix nested = %q", Prefix("apps/ios-app"))
+	}
+}
+
+func TestSubstituteValues(t *testing.T) {
+	vals := Values(config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.me.rail", AscAppID: "9"}, "ios/")
+	in := "p: {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj\nf: '{{COMPONENT_PREFIX}}**'\nga: ${{ github.ref }}\n"
+	out, missing := Substitute(in, vals)
+	if len(missing) != 0 {
+		t.Fatalf("missing: %v", missing)
+	}
+	want := "p: ios/Rail.xcodeproj\nf: 'ios/**'\nga: ${{ github.ref }}\n"
 	if out != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
 	}
 }
 
-func TestSubstituteReportsMissing(t *testing.T) {
-	p := config.Project{ProjectName: "Rail"} // scheme blank
-	out, missing := Substitute("a {{SCHEME}} b {{PROJECT_NAME}}", p)
-	if len(missing) != 1 || missing[0] != "{{SCHEME}}" {
-		t.Fatalf("missing = %v, want [{{SCHEME}}]", missing)
+func TestSubstituteEmptyPrefixIsValid(t *testing.T) {
+	vals := Values(config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "b", AscAppID: "9"}, "")
+	out, missing := Substitute("f: '{{COMPONENT_PREFIX}}**'\nd: {{COMPONENT_PREFIX}}DerivedData\n", vals)
+	if len(missing) != 0 {
+		t.Fatalf("empty prefix must not be 'missing': %v", missing)
 	}
-	if out != "a {{SCHEME}} b Rail" {
-		t.Fatalf("out = %q", out)
+	if out != "f: '**'\nd: DerivedData\n" {
+		t.Fatalf("got: %q", out)
+	}
+}
+
+func TestSubstituteReportsMissingProjectValue(t *testing.T) {
+	vals := Values(config.Project{ProjectName: "Rail"}, "ios/") // scheme blank
+	_, missing := Substitute("{{SCHEME}} {{PROJECT_NAME}}", vals)
+	if len(missing) != 1 || missing[0] != "{{SCHEME}}" {
+		t.Fatalf("missing = %v", missing)
 	}
 }
