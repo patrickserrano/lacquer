@@ -55,3 +55,22 @@ func TestInitRefusesExistingManifest(t *testing.T) {
 		t.Fatal("expected init to refuse clobbering an existing .harness.toml")
 	}
 }
+
+func TestInitWritesXcodeproj(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", ".swiftlint.yml"))
+	if _, err := Run(root); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".harness.toml"))
+	s := string(data)
+	for _, want := range []string{`xcodeproj = "ios/Queueify/Queueify.xcodeproj"`, `path = "ios"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("manifest missing %q:\n%s", want, s)
+		}
+	}
+	if _, err := config.Load(filepath.Join(root, ".harness.toml")); err != nil {
+		t.Errorf("generated manifest does not load: %v", err)
+	}
+}
