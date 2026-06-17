@@ -122,3 +122,32 @@ func TestLoadRejectsInjectionInProjectValues(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadRejectsDuplicateProfile(t *testing.T) {
+	data := "[project]\nname=\"x\"\n\n[[component]]\npath=\"a\"\nprofiles=[\"ios\"]\n\n[[component]]\npath=\"b\"\nprofiles=[\"ios\"]\n"
+	if _, err := loadString(t, data); err == nil {
+		t.Fatal("expected error: two components declare profile ios")
+	}
+}
+
+func TestLoadRejectsUnsafeComponentPath(t *testing.T) {
+	cases := []string{
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios;rm -rf\"\nprofiles=[\"ios\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios app\"\nprofiles=[\"ios\"]\n",
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios$(x)\"\nprofiles=[\"ios\"]\n",
+	}
+	for _, d := range cases {
+		if _, err := loadString(t, d); err == nil {
+			t.Errorf("expected rejection for unsafe component path in:\n%s", d)
+		}
+	}
+}
+
+func TestLoadAllowsNestedAndRootComponentPaths(t *testing.T) {
+	for _, p := range []string{".", "ios", "apps/ios-app"} {
+		data := "[project]\nname=\"x\"\n\n[[component]]\npath=\"" + p + "\"\nprofiles=[\"ios\"]\n"
+		if _, err := loadString(t, data); err != nil {
+			t.Errorf("path %q should be valid: %v", p, err)
+		}
+	}
+}
