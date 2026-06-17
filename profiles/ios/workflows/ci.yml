@@ -74,10 +74,10 @@ jobs:
       - uses: actions/checkout@v6.0.2
 
       - name: Run SwiftLint
-        run: swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}
+        run: swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}.
 
       - name: Check SwiftFormat
-        run: swiftformat --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}
+        run: swiftformat --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.
 
   build-release:
     name: Build (Release)

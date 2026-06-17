@@ -119,7 +119,8 @@ func validateComponentPath(p string) error {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("component path %q escapes the project root", p)
 	}
-	if !componentPathVal.MatchString(clean) {
+	// ToSlash so nested paths validate on Windows (filepath.Clean yields "\" there).
+	if !componentPathVal.MatchString(filepath.ToSlash(clean)) {
 		return fmt.Errorf("component path %q contains unsafe characters", p)
 	}
 	return nil
