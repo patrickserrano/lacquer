@@ -68,3 +68,38 @@ func TestComponentsIgnoresCocoaPodsCarthage(t *testing.T) {
 		t.Errorf("derived name corrupted by Pods/Carthage: %+v", derived)
 	}
 }
+
+func TestComponentsConfigDirAndXcodeproj(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", ".swiftlint.yml"))
+
+	comps, derived, err := Components(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comps) != 1 || comps[0].Path != "ios" {
+		t.Fatalf("component should be the config dir 'ios', got %+v", comps)
+	}
+	if derived.Xcodeproj != "ios/Queueify/Queueify.xcodeproj" {
+		t.Errorf("xcodeproj = %q, want ios/Queueify/Queueify.xcodeproj", derived.Xcodeproj)
+	}
+	if derived.ProjectName != "Queueify" {
+		t.Errorf("project_name = %q", derived.ProjectName)
+	}
+}
+
+func TestComponentsXcodeprojParentFallback(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "App.xcodeproj", "project.pbxproj"))
+	comps, derived, err := Components(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comps) != 1 || comps[0].Path != "ios" {
+		t.Errorf("component = %+v, want ios", comps)
+	}
+	if derived.Xcodeproj != "ios/App.xcodeproj" {
+		t.Errorf("xcodeproj = %q", derived.Xcodeproj)
+	}
+}
