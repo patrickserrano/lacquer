@@ -39,7 +39,8 @@ var swiftConfig = map[string]bool{
 // repo-relative path to the first .xcodeproj.
 func Components(root string) ([]config.Component, config.Project, error) {
 	nonIos := map[string]string{} // component path -> web/rust/go
-	var iosXcodeproj, iosXcodeprojDir, iosConfigDir string
+	var iosXcodeproj, iosXcodeprojDir string
+	var iosConfigDirs []string // every dir holding a Swift config (resolved after the walk)
 	var derived config.Project
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -62,8 +63,8 @@ func Components(root string) ([]config.Component, config.Project, error) {
 			}
 			return nil
 		}
-		if swiftConfig[d.Name()] && iosConfigDir == "" {
-			iosConfigDir = componentPath(root, filepath.Dir(path))
+		if swiftConfig[d.Name()] {
+			iosConfigDirs = append(iosConfigDirs, componentPath(root, filepath.Dir(path)))
 		}
 		if profile, ok := markerProfile[d.Name()]; ok {
 			rel := componentPath(root, filepath.Dir(path))
@@ -85,9 +86,17 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		derived.Xcodeproj = iosXcodeproj
 		iosComp := iosXcodeprojDir
 		// Prefer the config dir when the xcodeproj lives within it (e.g. configs
-		// at ios/, xcodeproj at ios/Queueify/Queueify.xcodeproj).
-		if iosConfigDir != "" && within(iosConfigDir, iosXcodeprojDir) {
-			iosComp = iosConfigDir
+		// at ios/, xcodeproj at ios/Queueify/Queueify.xcodeproj). Among all config
+		// dirs that are ancestors of the xcodeproj, pick the deepest (most
+		// specific); unrelated config dirs elsewhere are ignored. Order-independent.
+		best := ""
+		for _, dir := range iosConfigDirs {
+			if within(dir, iosXcodeprojDir) && len(dir) > len(best) {
+				best = dir
+			}
+		}
+		if best != "" {
+			iosComp = best
 		}
 		byPath[iosComp] = "ios"
 	}

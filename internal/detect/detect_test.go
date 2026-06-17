@@ -73,6 +73,9 @@ func TestComponentsConfigDirAndXcodeproj(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "ios", ".swiftlint.yml"))
+	// Unrelated Swift config in a lexically-earlier dir must not win (walk-order
+	// fragility): the ios component must still resolve to "ios".
+	mk(t, filepath.Join(root, "aaa", ".swiftformat"))
 
 	comps, derived, err := Components(root)
 	if err != nil {
