@@ -1,0 +1,16 @@
+# Brewfile for iOS project dependencies
+# Run: brew bundle install
+
+# iOS Development
+brew "swiftlint"
+brew "swiftformat"
+cask "periphery"
+
+# Release / signing — Codemagic CLI tools (app-store-connect, xcode-project),
+# installed via pipx. `xcode-project use-profiles` needs the Ruby `xcodeproj`
+# gem, hence ruby@3.2.
+brew "pipx"
+brew "ruby@3.2"
+
+# Git hooks
+brew "pre-commit"
