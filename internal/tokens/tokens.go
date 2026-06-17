@@ -25,6 +25,11 @@ var registry = []entry{
 // Substitute replaces each registered placeholder present in content with its
 // project value. Any placeholder that appears but has a blank value is returned
 // in missing (and left untouched in the output), deduplicated in registry order.
+//
+// A substituted value could in principle re-trigger a later registered token,
+// but config.Load's [project] validators forbid "{"/"}" (and newlines, quotes,
+// shell metacharacters) in values, so no loaded value can carry a token literal
+// or inject structure. That validation is the security boundary here — keep it.
 func Substitute(content string, p config.Project) (string, []string) {
 	var missing []string
 	for _, e := range registry {
