@@ -1,0 +1,14 @@
+project: "{{PROJECT_NAME}}.xcodeproj"
+schemes:
+  - "{{SCHEME}}"
+targets:
+  - "{{PROJECT_NAME}}"
+  - "{{PROJECT_NAME}}Tests"
+
+retain_public: true
+retain_objc_accessible: true
+retain_unused_protocol_func_params: true
+
+exclude:
+  - "{{PROJECT_NAME}}/Generated/**"
+  - "**/*+Preview.swift"

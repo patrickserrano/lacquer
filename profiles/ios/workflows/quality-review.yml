@@ -1,0 +1,50 @@
+name: Scheduled Quality Review
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Mondays at 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  quality-review:
+    runs-on: dedicated
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 1
+
+      - name: Select random feature module
+        id: module
+        run: |
+          set -euo pipefail
+          module=$(find ios/{{PROJECT_NAME}}/Features -mindepth 1 -maxdepth 1 -type d | sort | shuf -n 1)
+          echo "module=$module" >> "$GITHUB_OUTPUT"
+          echo "Selected module: $module"
+
+      - name: Run Claude Code quality review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          additional_permissions: |
+            actions: read
+          prompt: |
+            Review the SwiftUI code quality for the feature module: ${{ steps.module.outputs.module }}.
+
+            Focus on:
+            - SwiftUI best practices and consistency
+            - Code smells, duplication, or unnecessary complexity
+            - Missing or weak tests (especially ViewModel/service layers)
+            - Documentation gaps or unclear intent
+            - Performance pitfalls (excessive re-renders, heavy body logic, etc.)
+
+            If you find actionable issues, create GitHub issues with clear titles and repro/steps.
+            Apply labels: ios, quality.
+            If no issues are found, leave a brief comment in the workflow logs summarizing the review.

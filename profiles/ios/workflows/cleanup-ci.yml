@@ -1,0 +1,179 @@
+name: Cleanup CI Runner
+
+on:
+  schedule:
+    # Run every hour at minute 0
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      cleanup_level:
+        description: 'Cleanup level'
+        required: true
+        default: 'standard'
+        type: choice
+        options:
+          - standard
+          - aggressive
+          - nuclear
+
+jobs:
+  cleanup:
+    name: Cleanup Runner
+    runs-on: dedicated
+    timeout-minutes: 10
+    env:
+      # Default to 'standard' for scheduled runs, use input for manual runs
+      CLEANUP_LEVEL: ${{ inputs.cleanup_level || 'standard' }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Check for Running CI Jobs
+        id: check-jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Checking for running CI jobs..."
+
+          # Check all workflows that use the dedicated runner
+          IOS_RUNNING=$(gh run list --workflow=ios-ci.yml --status=in_progress --json databaseId --jq 'length')
+          IOS_RELEASE_RUNNING=$(gh run list --workflow=ios-release.yml --status=in_progress --json databaseId --jq 'length')
+          DEAD_CODE_RUNNING=$(gh run list --workflow=dead-code.yml --status=in_progress --json databaseId --jq 'length')
+
+          TOTAL_RUNNING=$((IOS_RUNNING + IOS_RELEASE_RUNNING + DEAD_CODE_RUNNING))
+
+          echo "  ios-ci.yml: $IOS_RUNNING"
+          echo "  ios-release.yml: $IOS_RELEASE_RUNNING"
+          echo "  dead-code.yml: $DEAD_CODE_RUNNING"
+          echo "  Total: $TOTAL_RUNNING"
+
+          if [ "$TOTAL_RUNNING" -gt 0 ]; then
+            echo "has_running_jobs=true" >> $GITHUB_OUTPUT
+            echo "running_count=$TOTAL_RUNNING" >> $GITHUB_OUTPUT
+          else
+            echo "has_running_jobs=false" >> $GITHUB_OUTPUT
+            echo "running_count=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip Cleanup if Jobs Running (scheduled only)
+        if: github.event_name == 'schedule' && steps.check-jobs.outputs.has_running_jobs == 'true'
+        run: |
+          echo "::notice::Skipping scheduled cleanup - there are CI jobs currently running."
+          echo "The cleanup will run on the next scheduled interval when no jobs are active."
+
+      - name: Warn About Running Jobs (manual only)
+        if: github.event_name == 'workflow_dispatch' && steps.check-jobs.outputs.has_running_jobs == 'true'
+        run: |
+          echo "::warning::There are CI jobs currently running."
+          echo "Proceeding with manual cleanup as requested - this may cause running jobs to fail."
+
+      - name: Kill Hung Processes
+        if: github.event_name != 'schedule' || steps.check-jobs.outputs.has_running_jobs != 'true'
+        run: |
+          echo "=== Killing Hung Processes ==="
+          echo "Cleanup level: ${{ env.CLEANUP_LEVEL }}"
+
+          # Kill any hung xcodebuild processes
+          echo "Killing xcodebuild processes..."
+          pkill -9 xcodebuild 2>/dev/null || echo "No xcodebuild processes found"
+
+          # Kill CoreSimulator service to reset device discovery
+          echo "Resetting CoreSimulator service..."
+          killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || echo "CoreSimulator not running"
+
+          # Kill Simulator app
+          echo "Killing Simulator app..."
+          killall -9 Simulator 2>/dev/null || echo "Simulator not running"
+
+          # Kill any test runner processes
+          echo "Killing test runners..."
+          pkill -9 -f "xctest" 2>/dev/null || echo "No xctest processes found"
+          pkill -9 -f "XCTestRunner" 2>/dev/null || echo "No XCTestRunner processes found"
+
+          # Wait for processes to terminate
+          sleep 3
+
+          echo "=== Process Cleanup Complete ==="
+
+      - name: Reset Simulators (aggressive+)
+        if: (github.event_name != 'schedule' || steps.check-jobs.outputs.has_running_jobs != 'true') && (env.CLEANUP_LEVEL == 'aggressive' || env.CLEANUP_LEVEL == 'nuclear')
+        run: |
+          echo "=== Resetting Simulators ==="
+
+          # Shutdown all simulators
+          echo "Shutting down all simulators..."
+          xcrun simctl shutdown all 2>/dev/null || echo "No simulators to shutdown"
+
+          # Erase all simulator content and settings
+          echo "Erasing simulator content..."
+          xcrun simctl erase all 2>/dev/null || echo "No simulators to erase"
+
+          # Kill additional Apple services that might be stuck
+          echo "Killing additional Apple services..."
+          killall -9 launchd_sim 2>/dev/null || true
+          killall -9 simctl 2>/dev/null || true
+          killall -9 "iOS Simulator" 2>/dev/null || true
+          killall -9 SimulatorTrampoline 2>/dev/null || true
+
+          # Clear simulator device logs
+          echo "Clearing simulator logs..."
+          rm -rf ~/Library/Logs/CoreSimulator/* 2>/dev/null || true
+
+          # Wait for cleanup
+          sleep 5
+
+          echo "=== Simulator Reset Complete ==="
+
+      - name: Delete All Caches (nuclear)
+        if: (github.event_name != 'schedule' || steps.check-jobs.outputs.has_running_jobs != 'true') && env.CLEANUP_LEVEL == 'nuclear'
+        run: |
+          echo "=== Nuclear Cleanup ==="
+          echo "WARNING: This will delete all simulators and derived data!"
+
+          # Delete all simulators
+          echo "Deleting all simulator devices..."
+          xcrun simctl delete all 2>/dev/null || echo "No simulators to delete"
+
+          # Clear DerivedData
+          echo "Clearing DerivedData..."
+          rm -rf ~/Library/Developer/Xcode/DerivedData/* 2>/dev/null || true
+
+          # Clear CoreSimulator caches
+          echo "Clearing CoreSimulator caches..."
+          rm -rf ~/Library/Developer/CoreSimulator/Caches/* 2>/dev/null || true
+
+          # Clear module cache
+          echo "Clearing module cache..."
+          rm -rf ~/Library/Developer/Xcode/ModuleCache.noindex/* 2>/dev/null || true
+
+          # Restart CoreSimulator service fresh
+          echo "Restarting CoreSimulator service..."
+          killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || true
+          sleep 2
+
+          # Trigger CoreSimulator to recreate default devices
+          echo "Regenerating default simulators..."
+          xcrun simctl list devices > /dev/null 2>&1 || true
+
+          echo "=== Nuclear Cleanup Complete ==="
+
+      - name: Verify Cleanup
+        if: github.event_name != 'schedule' || steps.check-jobs.outputs.has_running_jobs != 'true'
+        run: |
+          echo "=== Verification ==="
+
+          echo "Running processes:"
+          ps aux | grep -E "(xcodebuild|Simulator|xctest|CoreSimulator)" | grep -v grep || echo "No relevant processes running"
+
+          echo ""
+          echo "Available simulators:"
+          xcrun simctl list devices available | head -20
+
+          echo ""
+          echo "Disk usage:"
+          echo "  DerivedData: $(du -sh ~/Library/Developer/Xcode/DerivedData 2>/dev/null | cut -f1 || echo 'N/A')"
+          echo "  CoreSimulator: $(du -sh ~/Library/Developer/CoreSimulator 2>/dev/null | cut -f1 || echo 'N/A')"
+          echo "  Module Cache: $(du -sh ~/Library/Developer/Xcode/ModuleCache.noindex 2>/dev/null | cut -f1 || echo 'N/A')"
+          echo ""
+          df -h ~ | head -2
+
+          echo "=== Cleanup verification complete ==="
