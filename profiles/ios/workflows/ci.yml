@@ -98,7 +98,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
-          key: ${{ runner.os }}-spm-${{ hashFiles('{{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: ${{ runner.os }}-spm-${{ hashFiles('{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
@@ -145,7 +145,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -project {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj \
+            -project {{XCODEPROJ}} \
             -scheme {{SCHEME}} \
             -destination 'generic/platform=iOS' \
             -configuration Release \
@@ -175,7 +175,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
-          key: ${{ runner.os }}-spm-${{ hashFiles('{{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: ${{ runner.os }}-spm-${{ hashFiles('{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
@@ -321,7 +321,7 @@ jobs:
           # Run tests and capture exit code, also save output for fallback parsing
           EXIT_CODE=0
           xcodebuild test \
-            -project {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj \
+            -project {{XCODEPROJ}} \
             -scheme {{SCHEME}} \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -derivedDataPath {{COMPONENT_PREFIX}}DerivedData \

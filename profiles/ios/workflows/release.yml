@@ -83,7 +83,7 @@ jobs:
           set -o pipefail
           EXIT_CODE=0
           xcodebuild archive \
-            -project {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj \
+            -project {{XCODEPROJ}} \
             -scheme {{SCHEME}} \
             -configuration Release \
             -archivePath {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive \
