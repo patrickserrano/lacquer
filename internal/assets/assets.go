@@ -53,6 +53,12 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 		}
 	}
 
+	// core: root tree -> project root (verbatim relative paths)
+	if err := walkInto(filepath.Join(harnessRoot, "core", "root"),
+		func(src, rel string) { add(src, rel) }); err != nil {
+		return nil, err
+	}
+
 	// distinct profiles across all components, sorted for deterministic output
 	profileSet := map[string]bool{}
 	for _, c := range cfg.Components {
@@ -79,6 +85,11 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 			func(src, rel string) {
 				add(src, filepath.Join(".github", "workflows", p+"-"+filepath.Base(rel)))
 			}); err != nil {
+			return nil, err
+		}
+		// profile root tree -> project root (verbatim relative paths)
+		if err := walkInto(filepath.Join(base, "root"),
+			func(src, rel string) { add(src, rel) }); err != nil {
 			return nil, err
 		}
 	}
