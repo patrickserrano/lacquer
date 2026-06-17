@@ -1,0 +1,158 @@
+name: iOS Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      skip_testflight:
+        description: 'Skip TestFlight upload (build only)'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: ios-release
+  cancel-in-progress: false
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy to TestFlight
+    runs-on: [self-hosted, macos, ios, dedicated]
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Install Codemagic CLI tools
+        run: |
+          brew install pipx
+          pipx install codemagic-cli-tools
+          pipx ensurepath
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          gem install xcpretty --no-document
+
+      - name: Fetch signing files
+        env:
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.ASC_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          app-store-connect fetch-signing-files \
+            --bundle-id "{{BUNDLE_ID}}" \
+            --platform IOS \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Add certificates to keychain
+        run: keychain add-certificates
+
+      - name: Set Xcode project code signing
+        run: xcode-project use-profiles --export-options-plist ios/ExportOptions.plist
+
+      - name: Increment build number
+        env:
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.ASC_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
+        run: |
+          # Requires the numeric Apple ID (from App Store Connect → App Information).
+          # Set {{ASC_APP_ID}} when scaffolding this template.
+          RAW=$(app-store-connect get-latest-testflight-build-number {{ASC_APP_ID}} 2>&1)
+          echo "get-latest-testflight-build-number output: $RAW"
+          LATEST=$(echo "$RAW" | grep -E '^[0-9]+$' | tail -1)
+          if ! [[ "$LATEST" =~ ^[0-9]+$ ]]; then
+            echo "FATAL: Could not parse build number from output above."
+            echo "Ensure {{ASC_APP_ID}} is the numeric Apple ID (not bundle ID) from App Store Connect."
+            exit 1
+          fi
+          NEXT=$((LATEST + 1))
+          echo "Build number: $LATEST -> $NEXT"
+          cd ios && agvtool new-version -all "$NEXT"
+
+      - name: Build and archive
+        run: |
+          set -o pipefail
+          EXIT_CODE=0
+          xcodebuild archive \
+            -project ios/{{PROJECT_NAME}}.xcodeproj \
+            -scheme {{SCHEME}} \
+            -configuration Release \
+            -archivePath ios/build/{{PROJECT_NAME}}.xcarchive \
+            -allowProvisioningUpdates \
+            2>&1 | xcpretty || EXIT_CODE=$?
+          # Exit code 65 is a known spurious xcodebuild failure. Treat as success
+          # ONLY if the .xcarchive was actually produced; otherwise fail. (pipefail
+          # ensures $EXIT_CODE reflects xcodebuild's status, not xcpretty's.)
+          if [ $EXIT_CODE -eq 65 ] && [ -d "ios/build/{{PROJECT_NAME}}.xcarchive" ]; then
+            echo "xcodebuild exited 65 but archive exists — treating as success."
+            EXIT_CODE=0
+          fi
+          exit $EXIT_CODE
+
+      - name: Export IPA
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath ios/build/{{PROJECT_NAME}}.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath ios/build/ \
+            2>&1 | xcpretty
+
+      - name: Upload to TestFlight
+        if: ${{ github.event.inputs.skip_testflight != 'true' }}
+        env:
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.ASC_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
+        run: |
+          app-store-connect publish \
+            --path ios/build/{{PROJECT_NAME}}.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: '{{PROJECT_NAME}}-${{ github.ref_name }}.ipa'
+          path: ios/build/{{PROJECT_NAME}}.ipa
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload dSYM artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: '{{PROJECT_NAME}}-${{ github.ref_name }}.dSYM'
+          path: ios/build/{{PROJECT_NAME}}.xcarchive/dSYMs/*.dSYM
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ios/build/{{PROJECT_NAME}}.ipa
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-on-failure:
+    name: Notify on Failure
+    runs-on: dedicated
+    needs: build-and-deploy
+    if: failure()
+    steps:
+      - name: Send failure notification
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          echo "Build failed for $REF_NAME"
+          # Add Slack/Discord notification here if needed

@@ -1,0 +1,544 @@
+name: iOS CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    # No path filter on purpose: the workflow must run on EVERY PR so the single
+    # required check (CI OK) always reports. A path-filtered workflow that doesn't
+    # run leaves required checks stuck "pending" and blocks docs-only PRs (forcing
+    # an admin bypass). Heavy jobs are instead path-gated at the job level via the
+    # `changes` job's `code` output.
+    branches: [main, develop, 'feat/*', 'fix/*']
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: dedicated
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      views: ${{ steps.filter.outputs.views }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        name: Check for code / view changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # push / manual dispatch: treat as a code change so the build/test
+            # jobs run.
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "views=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(git diff --name-only "$base" "$head")"
+          # `code` mirrors the old pull_request path filter — anything that can
+          # affect the build or lint. Docs-only PRs leave it false, so the heavy
+          # jobs skip and CI OK still reports green (no admin bypass needed).
+          if echo "$changed" | grep -qE '^(ios/|\.github/workflows/ios-ci\.yml$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+          # `views` triggers the Release archive on PRs (where a Release-only
+          # leak — e.g. an un-gated #Preview using a #if DEBUG-only helper — can
+          # pass Debug build + Test but fail the archive).
+          if echo "$changed" | grep -qE '^ios/.*/(Views|App)/'; then
+            echo "views=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "views=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  lint:
+    name: Lint
+    runs-on: dedicated
+    needs: changes
+    # Skip on docs-only PRs (no Swift / lint-config change). Skipped counts as
+    # passing for the CI OK aggregator.
+    # SECURITY: never run untrusted fork-PR code on the self-hosted runner — the
+    # same-repo guard skips this job for fork PRs (also enable repo setting
+    # "Require approval for all fork PRs" for defense-in-depth).
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Run SwiftLint
+        run: swiftlint --strict --config ios/.swiftlint.yml ios/
+
+      - name: Check SwiftFormat
+        run: swiftformat --lint --config ios/.swiftformat ios/
+
+  build-release:
+    name: Build (Release)
+    runs-on: dedicated
+    needs: [lint, changes]
+    # Runs on every main push, and on PRs that touch SwiftUI views/app — where a
+    # DEBUG-only-in-Release leak (e.g. an un-gated #Preview using a #if DEBUG-only
+    # helper) can pass DEBUG builds + the Test job but fail the archive. See the
+    # SwiftLint comment near the custom rules for the fast local guard.
+    # SECURITY: same-repo guard — fork-PR code must not build on the self-hosted runner.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true')
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Cache SPM packages
+        id: spm-cache
+        uses: actions/cache@v4
+        with:
+          path: ios/DerivedData/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('ios/{{PROJECT_NAME}}.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Validate SPM cache
+        run: |
+          if [ ! -d "ios/DerivedData/SourcePackages/artifacts" ]; then
+            exit 0
+          fi
+          # On a restore-keys hit the packages may differ from Package.resolved — clear.
+          if [ "${{ steps.spm-cache.outputs.cache-hit }}" != "true" ]; then
+            echo "Stale cache (restore-keys hit): clearing SourcePackages."
+            rm -rf ios/DerivedData/SourcePackages
+            exit 0
+          fi
+          # Exact hit: validate every binary package has at least one xcframework
+          # with inner arch-specific .framework bundles. A cache can be saved in a
+          # corrupted state if a prior run was cancelled mid-download.
+          CORRUPT=""
+          for pkg_dir in ios/DerivedData/SourcePackages/artifacts/*/; do
+            [ -d "$pkg_dir" ] || continue
+            xcfw_count=$(find "$pkg_dir" -name '*.xcframework' -type d -maxdepth 5 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$xcfw_count" -eq 0 ]; then
+              CORRUPT="$pkg_dir (no xcframework found)"
+              break
+            fi
+            while IFS= read -r xcfw; do
+              if [ -z "$(find "$xcfw" -name '*.framework' -type d -maxdepth 3 2>/dev/null | head -1)" ]; then
+                CORRUPT="$xcfw (no inner framework bundle)"
+                break 2
+              fi
+            done < <(find "$pkg_dir" -name '*.xcframework' -type d -maxdepth 5 2>/dev/null)
+          done
+          if [ -n "$CORRUPT" ]; then
+            echo "Corrupt SPM cache: $CORRUPT — clearing SourcePackages."
+            rm -rf ios/DerivedData/SourcePackages
+          fi
+
+      - name: Install xcpretty
+        run: |
+          gem install xcpretty --user-install --no-document
+          echo "XCPRETTY=$(ruby -e 'puts Gem.bindir')/xcpretty" >> $GITHUB_ENV
+
+      - name: Build Release
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/{{PROJECT_NAME}}.xcodeproj \
+            -scheme {{SCHEME}} \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            -derivedDataPath ios/DerivedData \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+          | $XCPRETTY --color
+
+  test:
+    name: Test
+    runs-on: dedicated
+    needs: [lint, changes]
+    # Skip on push-to-main (squash-merged tree == tested tree; Build (Release) is
+    # the main-side compile backstop) AND on docs-only PRs (no code change). Tests
+    # stay a required gate on every code PR + manual dispatch. CAVEAT: airtight
+    # only when PRs are up-to-date with main before the squash-merge.
+    # SECURITY: same-repo guard — fork-PR code must not build/test on the self-hosted runner.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'push' && needs.changes.outputs.code == 'true'
+    # Per-step fail-fast timeouts below catch silent hangs; this is the generous
+    # backstop with headroom for a cold, cache-cold build.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Cache SPM packages
+        id: spm-cache
+        uses: actions/cache@v4
+        with:
+          path: ios/DerivedData/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('ios/{{PROJECT_NAME}}.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Validate SPM cache
+        run: |
+          if [ ! -d "ios/DerivedData/SourcePackages/artifacts" ]; then
+            exit 0
+          fi
+          # On a restore-keys hit the packages may differ from Package.resolved — clear.
+          if [ "${{ steps.spm-cache.outputs.cache-hit }}" != "true" ]; then
+            echo "Stale cache (restore-keys hit): clearing SourcePackages."
+            rm -rf ios/DerivedData/SourcePackages
+            exit 0
+          fi
+          # Exact hit: validate every binary package has at least one xcframework
+          # with inner arch-specific .framework bundles. A cache can be saved in a
+          # corrupted state if a prior run was cancelled mid-download.
+          CORRUPT=""
+          for pkg_dir in ios/DerivedData/SourcePackages/artifacts/*/; do
+            [ -d "$pkg_dir" ] || continue
+            xcfw_count=$(find "$pkg_dir" -name '*.xcframework' -type d -maxdepth 5 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$xcfw_count" -eq 0 ]; then
+              CORRUPT="$pkg_dir (no xcframework found)"
+              break
+            fi
+            while IFS= read -r xcfw; do
+              if [ -z "$(find "$xcfw" -name '*.framework' -type d -maxdepth 3 2>/dev/null | head -1)" ]; then
+                CORRUPT="$xcfw (no inner framework bundle)"
+                break 2
+              fi
+            done < <(find "$pkg_dir" -name '*.xcframework' -type d -maxdepth 5 2>/dev/null)
+          done
+          if [ -n "$CORRUPT" ]; then
+            echo "Corrupt SPM cache: $CORRUPT — clearing SourcePackages."
+            rm -rf ios/DerivedData/SourcePackages
+          fi
+
+      - name: Install xcpretty
+        run: |
+          gem install xcpretty --user-install --no-document
+          echo "XCPRETTY=$(ruby -e 'puts Gem.bindir')/xcpretty" >> $GITHUB_ENV
+
+      - name: Clean stale build intermediates
+        run: |
+          # Gitignored dirs persist between runs on a dedicated runner. Stale .o
+          # files from a prior failed build cause Swift incremental compilation
+          # crashes (exit 65). SPM packages are cached separately.
+          rm -rf ios/DerivedData/Build
+
+      - name: Setup Simulator
+        id: simulator
+        # simctl boot / bootstatus can hang silently if CoreSimulator wedges
+        # (the step kills zombies first, but boot itself can still stall).
+        # Normal ~1 min; fail fast well before the job backstop.
+        timeout-minutes: 6
+        run: |
+          # Kill host-side test infrastructure from prior runs. When a job times
+          # out, GitHub kills the shell but leaves zombie xctest/testmanagerd
+          # processes holding CoreSimulator XPC connections; new test sessions
+          # block on those connections and hang silently.
+          pkill -9 -f "xctest" 2>/dev/null || true
+          pkill -9 -f "XCTestRunner" 2>/dev/null || true
+          killall -9 testmanagerd 2>/dev/null || true
+          killall -9 Simulator 2>/dev/null || true
+          killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || true
+          sleep 3
+
+          # Pin to a specific iOS runtime for consistency.
+          # Update this when upgrading Xcode/iOS SDK.
+          PINNED_RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-26-2"
+
+          if ! xcrun simctl list runtimes | grep -q "$PINNED_RUNTIME"; then
+            FALLBACK=$(xcrun simctl list runtimes | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS[0-9-]*' | sort -V | tail -1)
+            if [ -z "$FALLBACK" ]; then
+              echo "::error::No iOS simulator runtimes installed"
+              xcrun simctl list runtimes
+              exit 1
+            fi
+            echo "::warning::Pinned runtime $PINNED_RUNTIME not found, falling back to $FALLBACK"
+            PINNED_RUNTIME="$FALLBACK"
+          fi
+          echo "Using runtime: $PINNED_RUNTIME"
+
+          # Delete stale CI-iPhone simulators to guarantee zero state carryover.
+          # Deleting and recreating gives a fresh UDID and eliminates residual
+          # xctestd / CoreSimulator state from prior runs.
+          STALE_IDS=$(xcrun simctl list devices | grep "CI-iPhone" | grep -oE '[A-F0-9-]{36}')
+          for id in $STALE_IDS; do
+            echo "Deleting stale simulator: $id"
+            xcrun simctl shutdown "$id" 2>/dev/null || true
+            xcrun simctl delete "$id" 2>/dev/null || true
+          done
+
+          echo "Creating CI-iPhone simulator..."
+          DEVICE_ID=$(xcrun simctl create CI-iPhone "iPhone 17 Pro" "$PINNED_RUNTIME")
+          echo "device_id=$DEVICE_ID" >> $GITHUB_OUTPUT
+          echo "Created new simulator: CI-iPhone ($DEVICE_ID)"
+
+          xcrun simctl boot "$DEVICE_ID"
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+
+          # bootstatus -b confirms the kernel is up but SpringBoard finishes
+          # several seconds later — poll for it (up to 60s).
+          echo "Polling for SpringBoard readiness (up to 60s)..."
+          for i in $(seq 1 20); do
+            if xcrun simctl spawn "$DEVICE_ID" launchctl list 2>/dev/null | grep -qi "springboard"; then
+              echo "SpringBoard ready after $((i*3))s"
+              break
+            fi
+            sleep 3
+            if [ "$i" -eq 20 ]; then
+              echo "::warning::SpringBoard readiness poll timed out after 60s, proceeding anyway"
+            fi
+          done
+
+          echo "Simulator ready: CI-iPhone ($DEVICE_ID)"
+
+      - name: Run Tests
+        id: tests
+        # The hang-prone step: `xcodebuild test` drives a simulator test session
+        # that can stall silently (hence the heartbeat watchdog below). Normal
+        # ~1-2 min; ~5x that as a fail-fast ceiling so a hung session frees the
+        # runner instead of squatting it for the job max.
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          DEVICE_ID="${{ steps.simulator.outputs.device_id }}"
+
+          # Kill zombie test processes that may have spawned during simulator
+          # boot or survived as orphans from a prior cancelled job.
+          pkill -9 -f "xctest" 2>/dev/null || true
+          pkill -9 -f "XCTestRunner" 2>/dev/null || true
+          killall -9 testmanagerd 2>/dev/null || true
+          sleep 2
+
+          # Clean up stale results from previous runs
+          rm -rf TestResults.xcresult
+
+          # Heartbeat watchdog: prints every 60s so GitHub doesn't treat this as a silent/stuck step
+          ( while true; do sleep 60; echo "[watchdog $(date -u +%H:%M:%S)] xcodebuild still running..."; done ) &
+          WATCHDOG_PID=$!
+
+          # Run tests and capture exit code, also save output for fallback parsing
+          EXIT_CODE=0
+          xcodebuild test \
+            -project ios/{{PROJECT_NAME}}.xcodeproj \
+            -scheme {{SCHEME}} \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath ios/DerivedData \
+            -only-testing:{{PROJECT_NAME}}Tests \
+            -parallel-testing-enabled NO \
+            -enableCodeCoverage YES \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_REQUIRED=NO \
+          2>&1 | tee xcodebuild.log | $XCPRETTY --color --test || EXIT_CODE=$?
+
+          kill $WATCHDOG_PID 2>/dev/null || true
+
+          # Handle exit code 65 - known Swift Testing spurious failure
+          # Only apply this workaround for exit code 65, not other errors
+          if [ $EXIT_CODE -eq 65 ]; then
+            echo "xcodebuild exited with code 65, checking for actual test failures..."
+
+            # Verify xcresult exists
+            if [ ! -d "TestResults.xcresult" ]; then
+              echo "::error::No test results found - tests may not have run"
+              exit 1
+            fi
+
+            # PRIMARY: Parse xcresult using xcresulttool (most reliable)
+            echo "Parsing test results from xcresult..."
+            set +e
+            XCRESULT_JSON=$(xcrun xcresulttool get --format json --path TestResults.xcresult 2>/dev/null)
+            XCRESULT_EXIT=$?
+            set -e
+
+            if [ $XCRESULT_EXIT -eq 0 ] && [ -n "$XCRESULT_JSON" ]; then
+              # Extract test failure count from xcresult
+              FAILED_TESTS=$(echo "$XCRESULT_JSON" | jq -r '
+                .actions[]?.actionResult?.testsRef?.id // empty
+              ' 2>/dev/null | head -1)
+
+              if [ -n "$FAILED_TESTS" ]; then
+                TEST_SUMMARY=$(xcrun xcresulttool get --format json --path TestResults.xcresult --id "$FAILED_TESTS" 2>/dev/null || echo "{}")
+                FAILURE_COUNT=$(echo "$TEST_SUMMARY" | jq '[.. | .testStatus? // empty | select(. == "Failure")] | length' 2>/dev/null || echo "0")
+
+                if [ "$FAILURE_COUNT" = "0" ] || [ -z "$FAILURE_COUNT" ]; then
+                  echo "All tests passed (xcresult). Exit code 65 was spurious."
+                  echo "test_result=passed" >> $GITHUB_OUTPUT
+                  exit 0
+                else
+                  echo "Test failures detected via xcresult: $FAILURE_COUNT failed"
+                  echo "test_result=failed" >> $GITHUB_OUTPUT
+                  echo "failure_count=$FAILURE_COUNT" >> $GITHUB_OUTPUT
+                  exit 65
+                fi
+              fi
+
+              ALL_SUCCEEDED=$(echo "$XCRESULT_JSON" | jq -r '
+                [.actions[]?.actionResult?.status // "unknown"] | all(. == "succeeded")
+              ' 2>/dev/null || echo "false")
+
+              if [ "$ALL_SUCCEEDED" = "true" ]; then
+                echo "All tests passed (xcresult actions). Exit code 65 was spurious."
+                echo "test_result=passed" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+
+              echo "xcresult parsing inconclusive, falling back to log parsing..."
+            else
+              echo "::warning::xcresulttool failed, falling back to log parsing..."
+            fi
+
+            # FALLBACK: Parse xcodebuild.log
+            set +e
+
+            grep -q "Test session results" xcodebuild.log
+            HAS_SWIFT_TESTING=$?
+
+            if [ $HAS_SWIFT_TESTING -eq 0 ]; then
+              # Swift Testing format - check for failures.
+              # Use [1-9][0-9]* (one-or-more digits, non-zero leading) so we never
+              # match "xcresulttool failed" (no digit before "failed") or "0 failed"
+              # (zero failures = pass). Xcode 26 no longer emits "0 failed" on success.
+              FAIL_COUNT=$(grep -oE "[1-9][0-9]* failed" xcodebuild.log | tail -1 | awk '{print $1}')
+              if [ -n "$FAIL_COUNT" ]; then
+                echo "Test failures detected (Swift Testing): $FAIL_COUNT failed"
+                echo "test_result=failed" >> $GITHUB_OUTPUT
+                echo "failure_count=$FAIL_COUNT" >> $GITHUB_OUTPUT
+                exit 65
+              else
+                echo "All tests passed (Swift Testing). Exit code 65 was spurious."
+                echo "test_result=passed" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+            fi
+
+            grep -q "Test Suite .* passed" xcodebuild.log
+            HAS_XCTEST=$?
+
+            if [ $HAS_XCTEST -eq 0 ]; then
+              if grep -q "Test Suite .* failed" xcodebuild.log; then
+                echo "Test failures detected (XCTest format)"
+                echo "test_result=failed" >> $GITHUB_OUTPUT
+                exit 65
+              else
+                echo "All tests passed (XCTest). Exit code 65 was spurious."
+                echo "test_result=passed" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+            fi
+
+            # Could not determine test results - fail explicitly (no "assume pass")
+            echo "::error::Could not determine test results from xcresult or logs"
+            echo "This may indicate a test infrastructure issue."
+            echo "test_result=unknown" >> $GITHUB_OUTPUT
+            exit 1
+
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "::error::xcodebuild failed with exit code $EXIT_CODE"
+            echo "test_result=failed" >> $GITHUB_OUTPUT
+            exit $EXIT_CODE
+          else
+            echo "test_result=passed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Collect Simulator Diagnostics
+        if: failure()
+        run: |
+          echo "=== Simulator devices ==="
+          xcrun simctl list devices | grep -E "(CI-iPhone|Booted)" || true
+          echo "=== Relevant processes ==="
+          pgrep -la "xcodebuild|testmanagerd|xctest|XCTestRunner" || echo "None found"
+          echo "=== Disk space ==="
+          df -h ~
+
+      - name: Generate Test Summary
+        if: always() && steps.tests.outputs.test_result != ''
+        run: |
+          echo "## iOS Test Results" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.tests.outputs.test_result }}" = "passed" ]; then
+            echo "All tests passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.tests.outputs.test_result }}" = "failed" ]; then
+            echo "Tests failed" >> $GITHUB_STEP_SUMMARY
+
+            if [ -d "TestResults.xcresult" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### Failed Tests" >> $GITHUB_STEP_SUMMARY
+
+              FAILED_TESTS=$(xcrun xcresulttool get --format json --path TestResults.xcresult 2>/dev/null | \
+                jq -r '.. | select(.testStatus? == "Failure") | .name // empty' 2>/dev/null | head -20)
+
+              if [ -n "$FAILED_TESTS" ]; then
+                echo '```' >> $GITHUB_STEP_SUMMARY
+                echo "$FAILED_TESTS" >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+              else
+                grep -E "^|Test Case .* failed" xcodebuild.log 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          else
+            echo "Test result unknown - check logs" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check Coverage
+        if: always() && hashFiles('TestResults.xcresult') != ''
+        run: |
+          # Calculate coverage for {{PROJECT_NAME}}.app only (excludes third-party dependencies)
+          APP_COVERAGE=$(xcrun xccov view --report --json TestResults.xcresult | \
+            jq '.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100' | \
+            xargs printf "%.1f")
+
+          echo "## iOS Test Coverage: ${APP_COVERAGE}%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Coverage calculated for {{PROJECT_NAME}}.app target only (excludes third-party dependencies)_" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage by Target" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          xcrun xccov view --report --json TestResults.xcresult | \
+            jq -r '.targets[] | "\(.lineCoverage * 100 | floor)% \(.name)"' | \
+            sort -rn >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          if (( $(echo "$APP_COVERAGE < 80" | bc -l) )); then
+            echo "::warning::App coverage ${APP_COVERAGE}% is below 80% threshold"
+          fi
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v7.0.1
+        if: always()
+        continue-on-error: true
+        with:
+          name: ios-test-results
+          path: TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 1
+
+  ci-ok:
+    name: CI OK
+    runs-on: dedicated
+    # The single required status check (branch protection points at "CI OK", not
+    # at Lint / Build / Test directly). It ALWAYS runs, so it always reports —
+    # even on docs-only PRs where every heavy job skips — so branch protection
+    # never gets stuck "pending" and docs PRs merge without an admin bypass.
+    # Fails only if a required job actually FAILED or was CANCELLED; a skipped
+    # job counts as OK.
+    needs: [changes, lint, build-release, test]
+    if: always()
+    timeout-minutes: 2
+    steps:
+      - name: Verify required jobs passed (or were skipped)
+        run: |
+          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}"
+          for r in \
+            "${{ needs.changes.result }}" \
+            "${{ needs.lint.result }}" \
+            "${{ needs.build-release.result }}" \
+            "${{ needs.test.result }}"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::A required job did not pass (result=$r)"
+              exit 1
+            fi
+          done
+          echo "All required jobs passed or were skipped."

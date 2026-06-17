@@ -1,0 +1,58 @@
+name: Scheduled Dependency Audit
+
+on:
+  schedule:
+    - cron: "0 10 1,15 * *" # 1st and 15th of each month at 10:00 UTC
+  workflow_dispatch:
+
+jobs:
+  dependency-audit:
+    runs-on: dedicated
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 1
+
+      - name: Collect dependency update info
+        run: |
+          set -euo pipefail
+          report="dependency-audit.md"
+          echo "# Dependency Audit" > "$report"
+          echo "" >> "$report"
+
+          echo "## Swift Package Updates" >> "$report"
+          if [ -f "Package.swift" ]; then
+            swift package update --dry-run >> "$report" 2>&1 || true
+          else
+            resolved="ios/{{PROJECT_NAME}}.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+            if [ -f "$resolved" ]; then
+              xcodebuild -resolvePackageDependencies -project ios/{{PROJECT_NAME}}.xcodeproj -scheme {{SCHEME}} > /tmp/resolve.log 2>&1 || true
+              git diff -- "$resolved" >> "$report" || true
+              git checkout -- "$resolved"
+            else
+              echo "No Package.swift or Package.resolved found." >> "$report"
+            fi
+          fi
+
+      - name: Run Claude Code dependency audit
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          additional_permissions: |
+            actions: read
+          prompt: |
+            Review dependency-audit.md and determine safe Swift package dependency updates.
+
+            Requirements:
+            - If updates look safe, open a PR with the changes.
+            - If updates are risky or breaking, open GitHub issues describing the risk.
+            - Include changelog notes or release links when possible.
+            - Apply labels: dependencies, ios as appropriate.

@@ -1,0 +1,209 @@
+name: Dead Code Analysis
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
+  workflow_dispatch:
+
+env:
+  # Threshold for warning annotations in workflow output (issues are created regardless of count)
+  DEAD_CODE_THRESHOLD: 5
+
+jobs:
+  periphery:
+    name: iOS - Periphery Scan
+    runs-on: dedicated
+    outputs:
+      count: ${{ steps.analyze.outputs.count }}
+      has_dead_code: ${{ steps.analyze.outputs.has_dead_code }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Run Periphery
+        run: |
+          cd ios
+          periphery scan --config .periphery.yml --format json > periphery-report.json || true
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: periphery-report
+          path: ios/periphery-report.json
+          retention-days: 1
+
+      - name: Analyze Results
+        id: analyze
+        run: |
+          cd ios
+          if [ ! -f periphery-report.json ]; then
+            echo "count=0" >> $GITHUB_OUTPUT
+            echo "has_dead_code=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Count total issues
+          COUNT=$(jq 'length' periphery-report.json 2>/dev/null || echo "0")
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$COUNT" -gt "0" ]; then
+            echo "has_dead_code=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_dead_code=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Generate detailed summary
+          echo "## iOS Dead Code Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$COUNT" -eq "0" ]; then
+            echo "No dead code found!" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          echo "Found **$COUNT** unused declarations:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Group by kind and show details
+          echo "### By Category" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+
+          jq -r 'group_by(.kind) | .[] | "\(.[ 0].kind)|\(length)"' periphery-report.json | \
+          while IFS='|' read -r kind count; do
+            echo "| $kind | $count |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>Click to expand full list</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Line | Kind | Name |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|------|------|" >> $GITHUB_STEP_SUMMARY
+
+          # Show up to 50 items
+          jq -r '.[:50] | .[] | "\(.location.file | split("/") | last)|\(.location.line)|\(.kind)|\(.name)"' periphery-report.json | \
+          while IFS='|' read -r file line kind name; do
+            echo "| \`$file\` | $line | $kind | \`$name\` |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          if [ "$COUNT" -gt "50" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "_...and $((COUNT - 50)) more. See full report in artifacts._" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$COUNT" -gt "$DEAD_CODE_THRESHOLD" ]; then
+            echo "::warning::Found $COUNT unused iOS code declarations (threshold: $DEAD_CODE_THRESHOLD)"
+          fi
+
+  create-issue:
+    name: Create Tracking Issue
+    runs-on: dedicated
+    needs: [periphery]
+    if: >
+      always() && (
+        needs.periphery.result == 'success' && needs.periphery.outputs.has_dead_code == 'true'
+      )
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Check for existing issue
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Look for an open issue with the dead-code label
+          EXISTING=$(gh issue list --label "dead-code" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "issue_number=$EXISTING" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download reports
+        uses: actions/download-artifact@v7.0.1
+        with:
+          path: reports
+
+      - name: Create or update issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IOS_COUNT: ${{ needs.periphery.outputs.count }}
+          EXISTING_ISSUE: ${{ steps.check.outputs.exists }}
+          ISSUE_NUMBER: ${{ steps.check.outputs.issue_number }}
+          RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # Use default values to handle undefined outputs
+          TOTAL=${IOS_COUNT:-0}
+          DATE=$(date +%Y-%m-%d)
+
+          # Build iOS section with fallback for empty results
+          IOS_DETAILS=""
+          if [ -f reports/periphery-report/periphery-report.json ]; then
+            IOS_DETAILS=$(jq -r '.[:30] | .[] | "- `\(.name)` (\(.kind)) in `\(.location.file | split("/") | last)`:\(.location.line)"' reports/periphery-report/periphery-report.json 2>/dev/null || echo "")
+          fi
+          if [ -z "$IOS_DETAILS" ]; then
+            IOS_DETAILS="No iOS dead code found."
+          fi
+
+          if [ "$EXISTING_ISSUE" == "true" ]; then
+            # Update existing issue with a comment
+            gh issue comment $ISSUE_NUMBER --body "## Update - $DATE
+
+          Latest scan found **$TOTAL** dead code items:
+          - iOS: $IOS_COUNT
+
+          <details>
+          <summary>iOS Details</summary>
+
+          $IOS_DETAILS
+
+          </details>
+
+          See [workflow run](https://github.com/$REPOSITORY/actions/runs/$RUN_ID) for full details."
+
+            echo "Updated existing issue #$ISSUE_NUMBER"
+          else
+            # Create new issue
+            gh issue create \
+              --title "Dead Code Cleanup - $DATE ($TOTAL items)" \
+              --label "dead-code,maintenance" \
+              --body "## Dead Code Analysis - $DATE
+
+          Automated scan found potential dead code that should be investigated and removed.
+
+          ### Summary
+
+          | Platform | Issues Found |
+          |----------|--------------|
+          | iOS (Periphery) | $IOS_COUNT |
+          | **Total** | **$TOTAL** |
+
+          ### iOS Dead Code
+
+          <details>
+          <summary>Click to expand iOS issues ($IOS_COUNT items)</summary>
+
+          $IOS_DETAILS
+
+          </details>
+
+          ### Action Items
+
+          - [ ] Review each item to confirm it's truly unused
+          - [ ] Remove confirmed dead code
+          - [ ] Run tests to ensure nothing breaks
+          - [ ] Close this issue when resolved
+
+          ---
+          *This issue was automatically created by the [Dead Code Analysis](https://github.com/$REPOSITORY/actions/runs/$RUN_ID) workflow.*"
+
+            echo "Created new issue"
+          fi
