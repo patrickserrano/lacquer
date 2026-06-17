@@ -1,0 +1,35 @@
+repos:
+  - repo: local
+    hooks:
+      - id: swiftformat
+        name: SwiftFormat
+        entry: swiftformat --config ios/.swiftformat
+        language: system
+        types: [swift]
+        files: ^ios/
+
+      - id: swiftlint
+        name: SwiftLint
+        entry: swiftlint --strict --config ios/.swiftlint.yml
+        language: system
+        types: [swift]
+        files: ^ios/
+
+      - id: swift-test
+        name: Swift Tests
+        # -derivedDataPath DerivedData keeps SPM resolution per-checkout,
+        # avoiding the default-DerivedData "Couldn't check out revision"
+        # corruption when other checkouts/CI race the shared SwiftPM cache.
+        # Stderr is intentionally NOT suppressed and there is no fake-device
+        # fallback: if the pinned simulator is missing, fail loudly with the
+        # real error.
+        entry: bash -c 'cd ios && xcodebuild test -scheme {{SCHEME}} -destination "platform=iOS Simulator,name=iPhone 17 Pro" -derivedDataPath DerivedData -only-testing:{{PROJECT_NAME}}Tests -quiet'
+        language: system
+        pass_filenames: false
+        files: ^ios/
+
+      - id: no-secrets
+        name: Check for hardcoded secrets
+        entry: scripts/check-secrets.sh
+        language: system
+        pass_filenames: false

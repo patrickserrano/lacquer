@@ -213,3 +213,104 @@ func TestCopyAllOrNothingOnConfinementViolation(t *testing.T) {
 		t.Error("earlier asset was written despite a later confinement violation (partial sync)")
 	}
 }
+
+func TestPlanRootCategory(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "core", "root", "scripts", "check-secrets.sh"), "#!/bin/sh\n")
+	write(t, filepath.Join(h, "profiles", "ios", "root", "Brewfile"), "brew 'x'\n")
+	write(t, filepath.Join(h, "profiles", "ios", "root", ".claude", "scripts", "allow_mcp.js"), "//x\n")
+
+	cfg := &config.Config{Components: []config.Component{{Path: "ios", Profiles: []string{"ios"}}}}
+	got, err := Plan(h, cfg)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	dests := map[string]bool{}
+	for _, a := range got {
+		dests[a.Dest] = true
+	}
+	for _, want := range []string{
+		filepath.Join("scripts", "check-secrets.sh"),
+		"Brewfile",
+		filepath.Join(".claude", "scripts", "allow_mcp.js"),
+	} {
+		if !dests[want] {
+			t.Errorf("missing root asset dest %q; got %v", want, dests)
+		}
+	}
+}
+
+func TestCopyPreservesExecutableBit(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir()
+	gitInit(t, project)
+	exe := filepath.Join(h, "core", "root", "scripts", "hook.sh")
+	write(t, exe, "#!/bin/sh\necho hi\n")
+	if err := os.Chmod(exe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(h, "core", "root", "Brewfile"), "brew 'x'\n")
+
+	plan, err := Plan(h, &config.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Copy(project, plan); err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	fi, err := os.Stat(filepath.Join(project, "scripts", "hook.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&0o100 == 0 {
+		t.Errorf("script lost its executable bit: mode=%v", fi.Mode())
+	}
+	bf, err := os.Stat(filepath.Join(project, "Brewfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bf.Mode()&0o111 != 0 {
+		t.Errorf("non-exec file gained an executable bit: mode=%v", bf.Mode())
+	}
+}
+
+func TestCopyRestoresExecBitOnOverwrite(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir()
+
+	exe := filepath.Join(h, "core", "root", "scripts", "hook.sh")
+	write(t, exe, "#!/bin/sh\necho new\n")
+	if err := os.Chmod(exe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-existing, committed (clean), NON-executable destination.
+	dest := filepath.Join(project, "scripts", "hook.sh")
+	write(t, dest, "old\n")
+	if err := os.Chmod(dest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, project)
+	commit := exec.Command("git", "commit", "-qm", "init")
+	commit.Dir = project
+	commit.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+
+	plan, err := Plan(h, &config.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Copy(project, plan); err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	fi, err := os.Stat(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&0o100 == 0 {
+		t.Errorf("exec bit not restored on overwrite: mode=%v", fi.Mode())
+	}
+}
