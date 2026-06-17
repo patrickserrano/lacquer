@@ -153,3 +153,34 @@ func TestLoadAllowsNestedAndRootComponentPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadXcodeproj(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"q\"\nxcodeproj=\"ios/Queueify/Queueify.xcodeproj\"\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Project.Xcodeproj != "ios/Queueify/Queueify.xcodeproj" {
+		t.Errorf("xcodeproj = %q", cfg.Project.Xcodeproj)
+	}
+}
+
+func TestLoadRejectsUnsafeXcodeproj(t *testing.T) {
+	cases := []string{
+		"[project]\nname=\"x\"\nxcodeproj=\"/abs/App.xcodeproj\"\n",
+		"[project]\nname=\"x\"\nxcodeproj=\"../escape/App.xcodeproj\"\n",
+		"[project]\nname=\"x\"\nxcodeproj=\"ios/$(x).xcodeproj\"\n",
+		"[project]\nname=\"x\"\nxcodeproj=\"ios/App.xcodeproj; rm -rf\"\n",
+		"[project]\nname=\"x\"\nxcodeproj=\"ios/App\"\n",
+	}
+	for _, d := range cases {
+		if _, err := loadString(t, d); err == nil {
+			t.Errorf("expected rejection for xcodeproj in:\n%s", d)
+		}
+	}
+}
+
+func TestLoadAllowsBlankXcodeproj(t *testing.T) {
+	if _, err := loadString(t, "[project]\nname=\"x\"\n"); err != nil {
+		t.Errorf("blank xcodeproj must be allowed: %v", err)
+	}
+}
