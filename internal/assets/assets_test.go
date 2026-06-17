@@ -239,3 +239,37 @@ func TestPlanRootCategory(t *testing.T) {
 		}
 	}
 }
+
+func TestCopyPreservesExecutableBit(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir()
+	gitInit(t, project)
+	exe := filepath.Join(h, "core", "root", "scripts", "hook.sh")
+	write(t, exe, "#!/bin/sh\necho hi\n")
+	if err := os.Chmod(exe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(h, "core", "root", "Brewfile"), "brew 'x'\n")
+
+	plan, err := Plan(h, &config.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Copy(project, plan); err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	fi, err := os.Stat(filepath.Join(project, "scripts", "hook.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&0o100 == 0 {
+		t.Errorf("script lost its executable bit: mode=%v", fi.Mode())
+	}
+	bf, err := os.Stat(filepath.Join(project, "Brewfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bf.Mode()&0o111 != 0 {
+		t.Errorf("non-exec file gained an executable bit: mode=%v", bf.Mode())
+	}
+}

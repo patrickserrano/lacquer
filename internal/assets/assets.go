@@ -166,7 +166,17 @@ func Copy(projectRoot string, plan []Asset) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(target, data, 0o644); err != nil {
+		// Preserve the source's executable bit so synced scripts stay runnable;
+		// everything else is 0o644.
+		mode := os.FileMode(0o644)
+		if info, err := os.Stat(a.Src); err == nil && info.Mode()&0o100 != 0 {
+			mode = 0o755
+		}
+		if err := os.WriteFile(target, data, mode); err != nil {
+			return err
+		}
+		// WriteFile only applies mode on create; enforce it on overwrite too.
+		if err := os.Chmod(target, mode); err != nil {
 			return err
 		}
 	}
