@@ -12,10 +12,13 @@ import (
 	"github.com/patrickserrano/harness/internal/config"
 )
 
-// skip names that should never be treated as project source.
+// skip names that should never be treated as project source. Pods/Carthage hold
+// dependency .xcodeproj files that would otherwise be mis-detected as components
+// (and could corrupt the derived project name).
 var skipDirs = map[string]bool{
 	".git": true, ".worktrees": true, "node_modules": true,
 	"DerivedData": true, ".build": true, "vendor": true, ".agents": true,
+	"Pods": true, "Carthage": true,
 }
 
 // markerProfile maps a marker filename to the profile it implies.
@@ -40,7 +43,8 @@ func Components(root string) ([]config.Component, config.Project, error) {
 			if path != root && skipDirs[d.Name()] {
 				return filepath.SkipDir
 			}
-			// An *.xcodeproj directory marks an iOS component at its parent.
+			// An *.xcodeproj directory marks an iOS component at its parent. Don't
+			// descend into it (its internals hold no further markers).
 			if strings.HasSuffix(d.Name(), ".xcodeproj") {
 				rel := componentPath(root, filepath.Dir(path))
 				byPath[rel] = "ios"
@@ -49,6 +53,7 @@ func Components(root string) ([]config.Component, config.Project, error) {
 					derived.ProjectName = name
 					derived.Scheme = name
 				}
+				return filepath.SkipDir
 			}
 			return nil
 		}
@@ -77,11 +82,12 @@ func Components(root string) ([]config.Component, config.Project, error) {
 	return comps, derived, nil
 }
 
-// componentPath returns dir relative to root, normalized ("" at root becomes ".").
+// componentPath returns dir relative to root as a forward-slash path ("" at root
+// becomes "."), so the manifest is canonical and cross-platform.
 func componentPath(root, dir string) string {
 	rel, err := filepath.Rel(root, dir)
 	if err != nil || rel == "" {
 		return "."
 	}
-	return rel
+	return filepath.ToSlash(rel)
 }

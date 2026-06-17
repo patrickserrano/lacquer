@@ -50,3 +50,21 @@ func TestComponentsIgnoresVendorDirs(t *testing.T) {
 		t.Errorf("expected no components from vendor dirs, got %+v", comps)
 	}
 }
+
+func TestComponentsIgnoresCocoaPodsCarthage(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "Pods", "Pods.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Carthage", "Checkouts", "Dep", "Dep.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", "Rail.xcodeproj", "project.pbxproj"))
+
+	comps, derived, err := Components(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comps) != 1 || comps[0].Path != "ios" {
+		t.Errorf("expected only the ios component, got %+v", comps)
+	}
+	if derived.ProjectName != "Rail" {
+		t.Errorf("derived name corrupted by Pods/Carthage: %+v", derived)
+	}
+}
