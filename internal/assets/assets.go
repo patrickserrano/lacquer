@@ -166,18 +166,28 @@ func Copy(projectRoot string, plan []Asset) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		// Preserve the source's executable bit so synced scripts stay runnable;
-		// everything else is 0o644.
-		mode := os.FileMode(0o644)
+		// Preserve the source's executable bit so synced scripts stay runnable.
+		sourceExec := false
 		if info, err := os.Stat(a.Src); err == nil && info.Mode()&0o100 != 0 {
+			sourceExec = true
+		}
+		mode := os.FileMode(0o644)
+		if sourceExec {
 			mode = 0o755
 		}
 		if err := os.WriteFile(target, data, mode); err != nil {
 			return err
 		}
-		// WriteFile only applies mode on create; enforce it on overwrite too.
-		if err := os.Chmod(target, mode); err != nil {
-			return err
+		// WriteFile only applies mode on create. Only an executable source needs a
+		// follow-up chmod (to restore the exec bit when overwriting an existing
+		// non-exec file). Non-exec files are left alone so the user's umask is
+		// respected and we avoid spurious chmod EPERM on shared mounts.
+		if sourceExec {
+			if fi, err := os.Stat(target); err == nil && fi.Mode()&0o100 == 0 {
+				if err := os.Chmod(target, mode); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

@@ -273,3 +273,44 @@ func TestCopyPreservesExecutableBit(t *testing.T) {
 		t.Errorf("non-exec file gained an executable bit: mode=%v", bf.Mode())
 	}
 }
+
+func TestCopyRestoresExecBitOnOverwrite(t *testing.T) {
+	h := t.TempDir()
+	project := t.TempDir()
+
+	exe := filepath.Join(h, "core", "root", "scripts", "hook.sh")
+	write(t, exe, "#!/bin/sh\necho new\n")
+	if err := os.Chmod(exe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-existing, committed (clean), NON-executable destination.
+	dest := filepath.Join(project, "scripts", "hook.sh")
+	write(t, dest, "old\n")
+	if err := os.Chmod(dest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, project)
+	commit := exec.Command("git", "commit", "-qm", "init")
+	commit.Dir = project
+	commit.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+
+	plan, err := Plan(h, &config.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Copy(project, plan); err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	fi, err := os.Stat(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&0o100 == 0 {
+		t.Errorf("exec bit not restored on overwrite: mode=%v", fi.Mode())
+	}
+}
