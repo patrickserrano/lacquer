@@ -22,6 +22,7 @@ type Project struct {
 	Scheme      string `toml:"scheme"`
 	BundleID    string `toml:"bundle_id"`
 	AscAppID    string `toml:"asc_app_id"`
+	Xcodeproj   string `toml:"xcodeproj"`
 }
 
 // Validators for [project] values. These values are substituted into synced CI
@@ -53,7 +54,30 @@ func validateProject(p Project) error {
 	if err := check("bundle_id", p.BundleID, projBundleVal); err != nil {
 		return err
 	}
-	return check("asc_app_id", p.AscAppID, projAscVal)
+	if err := check("asc_app_id", p.AscAppID, projAscVal); err != nil {
+		return err
+	}
+	return validateXcodeproj(p.Xcodeproj)
+}
+
+// validateXcodeproj accepts a blank value, or a relative, non-escaping,
+// charset-safe path ending in ".xcodeproj" (it is substituted into CI -project
+// args via {{XCODEPROJ}}).
+func validateXcodeproj(p string) error {
+	if p == "" {
+		return nil
+	}
+	if filepath.IsAbs(p) {
+		return fmt.Errorf("[project].xcodeproj %q must be relative", p)
+	}
+	clean := filepath.Clean(p)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("[project].xcodeproj %q escapes the project root", p)
+	}
+	if !componentPathVal.MatchString(filepath.ToSlash(clean)) || !strings.HasSuffix(clean, ".xcodeproj") {
+		return fmt.Errorf("[project].xcodeproj %q is not a valid .xcodeproj path", p)
+	}
+	return nil
 }
 
 type Component struct {
