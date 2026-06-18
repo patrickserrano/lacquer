@@ -50,6 +50,9 @@ func Run(projectRoot, org string, createRepo bool) (string, error) {
 	}
 
 	if createRepo {
+		if org == "" {
+			return "", fmt.Errorf("--org is required to create a repo (the harness has no default org); pass --org <login> or --no-repo")
+		}
 		if !orgRe.MatchString(org) {
 			return "", fmt.Errorf("invalid --org %q (expected a GitHub org/user login)", org)
 		}

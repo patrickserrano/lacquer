@@ -102,6 +102,27 @@ func TestOnboardRejectsUnsafeOrg(t *testing.T) {
 	}
 }
 
+func TestOnboardRequiresExplicitOrg(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mk(t, filepath.Join(root, "App.xcodeproj", "project.pbxproj"))
+	called := false
+	orig := ghCreate
+	ghCreate = func(dir, org, name string) error { called = true; return nil }
+	defer func() { ghCreate = orig }()
+	// Empty org with createRepo must fail closed — the harness has no default org.
+	if _, err := Run(root, "", true); err == nil {
+		t.Error("expected error when --org is empty and createRepo is true")
+	}
+	if called {
+		t.Error("ghCreate must not be called with an empty org")
+	}
+	// Empty org is fine when not creating a repo.
+	if _, err := Run(root, "", false); err != nil {
+		t.Errorf("empty org with --no-repo should succeed, got %v", err)
+	}
+}
+
 func TestOnboardSurfacesMalformedManifest(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
