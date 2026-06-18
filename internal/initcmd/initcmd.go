@@ -38,6 +38,7 @@ func Run(root string) (string, error) {
 	fmt.Fprintf(&b, "project_name = %q\n", derived.ProjectName)
 	fmt.Fprintf(&b, "scheme = %q\n", derived.Scheme)
 	fmt.Fprintf(&b, "xcodeproj = %q\n", derived.Xcodeproj)
+	fmt.Fprintf(&b, "swift_version = %q\n", derived.SwiftVersion)
 	b.WriteString("bundle_id = \"\"\n")
 	b.WriteString("asc_app_id = \"\"\n")
 	for _, c := range comps {

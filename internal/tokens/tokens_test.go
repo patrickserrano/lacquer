@@ -68,3 +68,16 @@ func TestSubstituteReportsMissingXcodeproj(t *testing.T) {
 		t.Fatalf("missing = %v", missing)
 	}
 }
+
+func TestSubstituteSwiftVersion(t *testing.T) {
+	vals := Values(config.Project{ProjectName: "A", Scheme: "A", BundleID: "b", AscAppID: "9", Xcodeproj: "A.xcodeproj", SwiftVersion: "6.2"}, "")
+	out, missing := Substitute("--swiftversion {{SWIFT_VERSION}}", vals)
+	if len(missing) != 0 || out != "--swiftversion 6.2" {
+		t.Fatalf("out=%q missing=%v", out, missing)
+	}
+	// blank swift_version with the token present must fail closed
+	v2 := Values(config.Project{ProjectName: "A", Scheme: "A", BundleID: "b", AscAppID: "9", Xcodeproj: "A.xcodeproj"}, "")
+	if _, m := Substitute("--swiftversion {{SWIFT_VERSION}}", v2); len(m) != 1 || m[0] != "{{SWIFT_VERSION}}" {
+		t.Fatalf("expected {{SWIFT_VERSION}} missing, got %v", m)
+	}
+}
