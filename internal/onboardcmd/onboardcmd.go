@@ -87,5 +87,11 @@ func repoName(projectRoot, manifest string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Base(abs), nil
+	name := filepath.Base(abs)
+	// Defense in depth: the dir basename isn't manifest-validated, and it is
+	// passed to `gh`. Refuse anything outside the safe name charset.
+	if !config.ValidProjectName(name) {
+		return "", fmt.Errorf("cannot derive a safe repo name from dir %q; set [project].name in .harness.toml", name)
+	}
+	return name, nil
 }

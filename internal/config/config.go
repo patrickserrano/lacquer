@@ -35,6 +35,13 @@ var (
 	projAscVal    = regexp.MustCompile(`^[0-9]+$`)
 )
 
+// ValidProjectName reports whether s is a safe project/repo name (the same
+// charset used for [project].name / project_name). Exported so the onboard
+// command can defensively validate a name before passing it to `gh`.
+func ValidProjectName(s string) bool {
+	return projNameVal.MatchString(s)
+}
+
 func validateProject(p Project) error {
 	check := func(field, val string, re *regexp.Regexp) error {
 		if val == "" {
@@ -44,6 +51,9 @@ func validateProject(p Project) error {
 			return fmt.Errorf("invalid [project].%s value %q", field, val)
 		}
 		return nil
+	}
+	if err := check("name", p.Name, projNameVal); err != nil {
+		return err
 	}
 	if err := check("project_name", p.ProjectName, projNameVal); err != nil {
 		return err
