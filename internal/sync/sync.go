@@ -64,6 +64,19 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 		}
 	}
 
+	// Mirror every CLAUDE.md region into a sibling AGENTS.md. Codex, Google
+	// Antigravity, Cursor, and Windsurf all read a project-root AGENTS.md, so this
+	// gives every tool the same harness-managed rules as Claude Code from a single
+	// authored source. Identical key/body/prefix — only the destination filename
+	// differs, so the token preflight and merge below handle it transparently.
+	mirror := make([]regionWrite, 0, len(regions))
+	for _, r := range regions {
+		m := r
+		m.rel = filepath.Join(filepath.Dir(r.rel), "AGENTS.md")
+		mirror = append(mirror, m)
+	}
+	regions = append(regions, mirror...)
+
 	plan, err := assets.Plan(harnessRoot, cfg)
 	if err != nil {
 		return Result{}, fmt.Errorf("plan assets: %w", err)
