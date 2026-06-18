@@ -184,3 +184,15 @@ func TestLoadAllowsBlankXcodeproj(t *testing.T) {
 		t.Errorf("blank xcodeproj must be allowed: %v", err)
 	}
 }
+
+func TestLoadRejectsUnsafeProjectName(t *testing.T) {
+	for _, n := range []string{`--public`, `a;rm -rf`, `a$(x)`, "a\nb", `-x`} {
+		data := "[project]\nname=\"" + n + "\"\n"
+		if _, err := loadString(t, data); err == nil {
+			t.Errorf("expected rejection for project name %q", n)
+		}
+	}
+	if _, err := loadString(t, "[project]\nname=\"ShelfLife\"\n"); err != nil {
+		t.Errorf("valid name rejected: %v", err)
+	}
+}
