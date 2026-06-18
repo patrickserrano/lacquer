@@ -41,6 +41,16 @@ flowdeck project packages update  # bump SPM deps within constraints (no .pbxpro
 - **Delete that derived-data dir before running format/lint** — otherwise it lints compiled dependency sources and reports phantom `file_length`/format violations. (The `.swiftformat`/`.swiftlint.yml` excludes cover `DerivedData*`; keep your path matching that glob.)
 - **Ignore SourceKit diagnostics in a fresh worktree** (`No such module 'X'`, `Cannot find type`) — the worktree has no built index, so they're false positives. The authoritative signals are `flowdeck build` / `flowdeck test`.
 
+## Editor hooks (.claude/settings.json)
+
+The synced `.claude/settings.json` installs hooks that: block edits to
+`.pbxproj`/`.xcworkspace`/`.xib`/`.storyboard`/`.entitlements` (PreToolUse),
+run SwiftFormat + SwiftLint on every `.swift` write (PostToolUse), and — on
+SessionStart — **auto-approve the Xcode MCP permission dialog** via
+`allow_mcp.js` (requires macOS Accessibility permission for your terminal).
+That auto-approve is a deliberate convenience; remove the SessionStart hook if
+you'd rather approve the Xcode MCP dialog manually.
+
 ## Test Timeout Rule
 
 Tests must NEVER run longer than **5 minutes (300 seconds)**. If tests exceed 5 minutes, they are hung. Kill the process immediately and investigate. When invoking builds/tests via a Bash tool, set a 300000 ms timeout.
@@ -70,6 +80,22 @@ View (SwiftUI) → ViewModel (@Observable, @MainActor) → Service → Repositor
 
 **Layer rule:** ViewModels MUST NOT depend directly on Repository protocols. Inject Service protocols instead.
 
+## SwiftData + CloudKit Rules (when syncing to CloudKit)
+
+If a SwiftData store syncs via CloudKit (`ModelConfiguration(cloudKitDatabase:)` /
+`NSPersistentCloudKitContainer`), the schema MUST stay CloudKit-compatible at all
+times — CloudKit imposes hard constraints, and violating them fails store setup
+or silently drops data:
+
+- **No `@Attribute(.unique)`** — CloudKit has no cross-device uniqueness; enforce uniqueness in code.
+- **Every property is optional OR has a default value** — CloudKit records can arrive partially; non-optional, non-defaulted properties are rejected.
+- **Relationships must be optional** — a `@Relationship` is allowed but the property must be optional (CloudKit requirement); avoid `.deny` delete rules. Set inverse relationships.
+- **Migrations are add-only once CloudKit is enabled** — do NOT delete or rename existing entities/attributes (CloudKit treats a rename as delete-then-add → data loss). Lightweight migration only.
+
+Optional stricter convention (some apps adopt this to sidestep relationship-sync
+complexity): keep the schema **flat** and JSON-encode complex children into a
+`Data` property (e.g. `songsJSON: Data`) instead of modeling them as relationships.
+
 ## Testing
 
 **Swift Testing is the standard for all new test files.** Use `@Test`, `@Suite`, and `#expect`. XCTest is legacy — only modify existing XCTest files when touched for other reasons. Never create new XCTest files.
@@ -95,6 +121,38 @@ struct FeatureTests {
 ### Targeted tests during development
 
 During RED/GREEN, run **targeted** tests only (`-only-testing:<YourApp>Tests/SomeSuite/someTest`) — never a full self-run. The **full** suite runs at pre-commit and again in CI (fresh checkout). Treat **SwiftLint warnings as errors** — fix the code, never suppress (see core Fundamental Rule #7).
+
+### Test support: `waitUntil` (no `Task.sleep` in tests)
+
+The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in tests — they cause flaky failures. Wait for the actual state change instead. Add this `TestHelpers.swift` to your test target (the lint rules already exclude `*TestHelpers.swift`):
+
+```swift
+import Foundation
+
+/// Thrown by `waitUntil` when the condition never became true within the timeout.
+struct WaitTimeoutError: Error, CustomStringConvertible {
+    let timeout: Duration
+    var description: String { "waitUntil timed out after \(timeout)" }
+}
+
+/// Polls `condition` until true, throwing on timeout. Runs on the caller's actor
+/// (via `#isolation`) so the closure may read `@MainActor` fixtures safely.
+func waitUntil(
+    timeout: Duration = .seconds(2),
+    pollInterval: Duration = .milliseconds(10),
+    isolation _: isolated (any Actor)? = #isolation,
+    _ condition: () -> Bool
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition() {
+        guard clock.now < deadline else { throw WaitTimeoutError(timeout: timeout) }
+        try await Task.sleep(for: pollInterval)
+    }
+}
+```
+
+Usage: `try await waitUntil { viewModel.isLoaded }` instead of `try await Task.sleep(for: .seconds(1))`.
 
 ## Battery & Performance Patterns
 

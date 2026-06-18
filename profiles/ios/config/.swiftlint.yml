@@ -137,3 +137,10 @@ custom_rules:
     severity: error
     included: ".*Tests\\.swift$"
     multiline: true
+
+  no_repository_in_viewmodel:
+    name: "ViewModels must not depend directly on Repositories"
+    regex: "(any|some)\\s+\\w+Repository"
+    included: ".*ViewModel\\.swift"
+    message: "Inject a Service protocol, not a Repository, into a ViewModel (keeps the layer boundary). Harvested from rail."
+    severity: warning
