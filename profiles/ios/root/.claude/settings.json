@@ -1,0 +1,56 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "osascript -l JavaScript .claude/scripts/allow_mcp.js",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FP=$(echo \"$INPUT\" | jq -r \".tool_input.file_path // empty\"); if echo \"$FP\" | grep -qE \"\\.(pbxproj|xcworkspace|xib|storyboard)$|xcodeproj/|xcworkspace/\"; then echo \"BLOCKED: Do not modify Xcode project files directly. Create Swift files and add them to Xcode manually.\" >&2; exit 2; fi'"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FP=$(echo \"$INPUT\" | jq -r \".tool_input.file_path // empty\"); if echo \"$FP\" | grep -qE \"\\.entitlements$\"; then echo \"BLOCKED: Do not modify .entitlements files without explicit user permission.\" >&2; exit 2; fi'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FP=$(echo \"$INPUT\" | jq -r \".tool_input.file_path // empty\"); if echo \"$FP\" | grep -qE \"\\.swift$\"; then swiftformat \"$FP\" --quiet 2>/dev/null; fi'"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FP=$(echo \"$INPUT\" | jq -r \".tool_input.file_path // empty\"); if echo \"$FP\" | grep -qE \"\\.swift$\"; then swiftlint lint --path \"$FP\" --quiet 2>/dev/null || true; fi'"
+          }
+        ]
+      }
+    ]
+  }
+}
