@@ -22,6 +22,12 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 
 - **`ITSAppUsesNonExemptEncryption` must be set** in `Info.plist` (or as `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption` build setting). Value is `NO` for apps using only standard HTTPS; `YES` for apps with custom encryption. Missing or wrong value causes export compliance failures on every TestFlight upload.
 
+- **Terms of Use (EULA).** Configure a custom EULA in App Store Connect → **License Agreement** (if you set none, Apple's standard EULA applies automatically). *Separately*, App Review requires a **functional Terms of Use link in the App Store description** — link your custom EULA, or Apple's standard EULA: `https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`. A missing/broken EULA link is a common rejection.
+
+- **Privacy Policy link.** Required for every app: set the **Privacy Policy URL** in App Store Connect → App Information, AND make the policy reachable **inside the app**. Include the link in the App Store description too. A non-functional or missing privacy policy link is a frequent rejection.
+
+- **Subscription / IAP apps (Guideline 3.1.2):** the **paywall/purchase screen itself** must clearly show price, duration, auto-renewal terms, and how to cancel — not just the description — and both the **privacy policy** and **terms of use (EULA)** links must be **clickable on that screen** (in the binary, not only in metadata). See [Premium / Subscription Gating](#premium--subscription-gating-if-monetized).
+
 ## Build & Test Tooling (flowdeck)
 
 **Use `flowdeck` for ALL Apple-platform work** — build, run, test, simulator, device, logs, UI automation. Do NOT use `xcodebuild`, `xcrun`, `simctl`, or `devicectl` directly (raw `simctl`/`devicectl` are typically hook-blocked).
