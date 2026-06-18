@@ -56,6 +56,51 @@ func TestSyncMergesCoreAndProfile(t *testing.T) {
 	}
 }
 
+func TestSyncMirrorsAgentsMd(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+
+	writeFile(t, filepath.Join(harness, "VERSION"), "3\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE RULES")
+	writeFile(t, filepath.Join(harness, "profiles", "ios", "CLAUDE.ios.md"), "IOS RULES")
+	writeFile(t, filepath.Join(project, ".harness.toml"),
+		"[project]\nname=\"rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+	// Pre-existing project-owned text in AGENTS.md must be preserved (managed
+	// region merge, not whole-file overwrite).
+	writeFile(t, filepath.Join(project, "AGENTS.md"), "# rail agents\n\nkeep me\n")
+
+	if _, err := Run(harness, project); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	rootAgents, err := os.ReadFile(filepath.Join(project, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("root AGENTS.md not written: %v", err)
+	}
+	s := string(rootAgents)
+	if !strings.Contains(s, "keep me") {
+		t.Error("root AGENTS.md lost project-owned text")
+	}
+	if !strings.Contains(s, "<!-- harness:core:start v3 -->") || !strings.Contains(s, "CORE RULES") {
+		t.Errorf("root AGENTS.md missing core region:\n%s", s)
+	}
+
+	compAgents, err := os.ReadFile(filepath.Join(project, "ios", "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("component AGENTS.md not written: %v", err)
+	}
+	if !strings.Contains(string(compAgents), "<!-- harness:ios:start v3 -->") ||
+		!strings.Contains(string(compAgents), "IOS RULES") {
+		t.Errorf("component AGENTS.md missing ios region:\n%s", compAgents)
+	}
+
+	// AGENTS.md and CLAUDE.md must carry identical managed-region bodies.
+	rootClaude, _ := os.ReadFile(filepath.Join(project, "CLAUDE.md"))
+	if !strings.Contains(string(rootClaude), "CORE RULES") {
+		t.Error("root CLAUDE.md missing core region (mirror must not replace it)")
+	}
+}
+
 func TestSyncRefusesToWriteThroughSymlink(t *testing.T) {
 	harness := t.TempDir()
 	project := t.TempDir()
