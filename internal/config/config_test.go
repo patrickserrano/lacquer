@@ -196,3 +196,18 @@ func TestLoadRejectsUnsafeProjectName(t *testing.T) {
 		t.Errorf("valid name rejected: %v", err)
 	}
 }
+
+func TestLoadSwiftVersion(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\nswift_version=\"6.2\"\n")
+	if err != nil || cfg.Project.SwiftVersion != "6.2" {
+		t.Fatalf("swift_version=%q err=%v", cfg.Project.SwiftVersion, err)
+	}
+	if _, err := loadString(t, "[project]\nname=\"x\"\nswift_version=\"6\"\n"); err != nil {
+		t.Errorf("single-component version should be allowed: %v", err)
+	}
+	for _, v := range []string{"6.2; rm", "6.x", "$(id)", "6.2 "} {
+		if _, err := loadString(t, "[project]\nname=\"x\"\nswift_version=\""+v+"\"\n"); err == nil {
+			t.Errorf("expected rejection for swift_version %q", v)
+		}
+	}
+}

@@ -106,3 +106,18 @@ func TestComponentsXcodeprojParentFallback(t *testing.T) {
 		t.Errorf("xcodeproj = %q", derived.Xcodeproj)
 	}
 }
+
+func TestComponentsDerivesSwiftVersion(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "App.xcodeproj", "project.pbxproj"))
+	if err := os.WriteFile(filepath.Join(root, "project.yml"), []byte("settings:\n  base:\n    SWIFT_VERSION: \"6.2\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, derived, err := Components(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if derived.SwiftVersion != "6.2" {
+		t.Errorf("SwiftVersion = %q, want 6.2", derived.SwiftVersion)
+	}
+}

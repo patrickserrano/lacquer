@@ -17,6 +17,7 @@ const (
 	BundleID        = "{{BUNDLE_ID}}"
 	AscAppID        = "{{ASC_APP_ID}}"
 	Xcodeproj       = "{{XCODEPROJ}}"
+	SwiftVersion    = "{{SWIFT_VERSION}}"
 	ComponentPrefix = "{{COMPONENT_PREFIX}}"
 )
 
@@ -34,6 +35,7 @@ var registry = []entry{
 	{BundleID, true},
 	{AscAppID, true},
 	{Xcodeproj, true},
+	{SwiftVersion, true},
 	{ComponentPrefix, false},
 }
 
@@ -54,6 +56,7 @@ func Values(p config.Project, prefix string) map[string]string {
 		BundleID:        p.BundleID,
 		AscAppID:        p.AscAppID,
 		Xcodeproj:       p.Xcodeproj,
+		SwiftVersion:    p.SwiftVersion,
 		ComponentPrefix: prefix,
 	}
 }

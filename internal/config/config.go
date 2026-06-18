@@ -17,12 +17,13 @@ import (
 var profileNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 type Project struct {
-	Name        string `toml:"name"`
-	ProjectName string `toml:"project_name"`
-	Scheme      string `toml:"scheme"`
-	BundleID    string `toml:"bundle_id"`
-	AscAppID    string `toml:"asc_app_id"`
-	Xcodeproj   string `toml:"xcodeproj"`
+	Name         string `toml:"name"`
+	ProjectName  string `toml:"project_name"`
+	Scheme       string `toml:"scheme"`
+	BundleID     string `toml:"bundle_id"`
+	AscAppID     string `toml:"asc_app_id"`
+	Xcodeproj    string `toml:"xcodeproj"`
+	SwiftVersion string `toml:"swift_version"`
 }
 
 // Validators for [project] values. These values are substituted into synced CI
@@ -30,9 +31,10 @@ type Project struct {
 // manifest from injecting structure or commands. A blank value is allowed (init
 // stubs them); sync fails closed if a blank value's placeholder is actually used.
 var (
-	projNameVal   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]*$`)
-	projBundleVal = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
-	projAscVal    = regexp.MustCompile(`^[0-9]+$`)
+	projNameVal    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]*$`)
+	projBundleVal  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
+	projAscVal     = regexp.MustCompile(`^[0-9]+$`)
+	projVersionVal = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -65,6 +67,9 @@ func validateProject(p Project) error {
 		return err
 	}
 	if err := check("asc_app_id", p.AscAppID, projAscVal); err != nil {
+		return err
+	}
+	if err := check("swift_version", p.SwiftVersion, projVersionVal); err != nil {
 		return err
 	}
 	return validateXcodeproj(p.Xcodeproj)

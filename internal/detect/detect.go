@@ -5,12 +5,17 @@ package detect
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/patrickserrano/harness/internal/config"
 )
+
+// swiftVersionRe extracts a SWIFT_VERSION value from an XcodeGen project.yml.
+var swiftVersionRe = regexp.MustCompile(`SWIFT_VERSION:\s*"?([0-9]+(?:\.[0-9]+)*)"?`)
 
 // skip names that should never be treated as project source. Pods/Carthage hold
 // dependency .xcodeproj files that would otherwise be mis-detected as components.
@@ -65,6 +70,13 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		}
 		if swiftConfig[d.Name()] {
 			iosConfigDirs = append(iosConfigDirs, componentPath(root, filepath.Dir(path)))
+		}
+		if d.Name() == "project.yml" && derived.SwiftVersion == "" {
+			if data, rerr := os.ReadFile(path); rerr == nil {
+				if m := swiftVersionRe.FindSubmatch(data); m != nil {
+					derived.SwiftVersion = string(m[1])
+				}
+			}
 		}
 		if profile, ok := markerProfile[d.Name()]; ok {
 			rel := componentPath(root, filepath.Dir(path))
