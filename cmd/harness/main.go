@@ -37,7 +37,9 @@ func main() {
 		fmt.Println(summary)
 	case "onboard":
 		fs := flag.NewFlagSet("onboard", flag.ExitOnError)
-		org := fs.String("org", "PixelFoxStudio", "GitHub org for repo creation")
+		// No default org: the harness must not bake in any one org's identity, so
+		// repo creation requires an explicit --org (see onboardcmd.Run).
+		org := fs.String("org", "", "GitHub org for repo creation (required unless --no-repo)")
 		noRepo := fs.Bool("no-repo", false, "do not create a repo even if no remote exists")
 		_ = fs.Parse(os.Args[2:])
 		summary, err := onboardcmd.Run(projectRoot, *org, !*noRepo)
@@ -66,7 +68,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: harness <command>")
-	fmt.Fprintln(os.Stderr, "commands: init, onboard [--org O] [--no-repo], sync, status")
+	fmt.Fprintln(os.Stderr, "commands: init, onboard --org O [--no-repo], sync, status")
 	fmt.Fprintln(os.Stderr, "env: HARNESS_ROOT (path to harness repo, default '.')")
 }
 
