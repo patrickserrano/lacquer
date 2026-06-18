@@ -41,6 +41,16 @@ flowdeck project packages update  # bump SPM deps within constraints (no .pbxpro
 - **Delete that derived-data dir before running format/lint** — otherwise it lints compiled dependency sources and reports phantom `file_length`/format violations. (The `.swiftformat`/`.swiftlint.yml` excludes cover `DerivedData*`; keep your path matching that glob.)
 - **Ignore SourceKit diagnostics in a fresh worktree** (`No such module 'X'`, `Cannot find type`) — the worktree has no built index, so they're false positives. The authoritative signals are `flowdeck build` / `flowdeck test`.
 
+## Editor hooks (.claude/settings.json)
+
+The synced `.claude/settings.json` installs hooks that: block edits to
+`.pbxproj`/`.xcworkspace`/`.xib`/`.storyboard`/`.entitlements` (PreToolUse),
+run SwiftFormat + SwiftLint on every `.swift` write (PostToolUse), and — on
+SessionStart — **auto-approve the Xcode MCP permission dialog** via
+`allow_mcp.js` (requires macOS Accessibility permission for your terminal).
+That auto-approve is a deliberate convenience; remove the SessionStart hook if
+you'd rather approve the Xcode MCP dialog manually.
+
 ## Test Timeout Rule
 
 Tests must NEVER run longer than **5 minutes (300 seconds)**. If tests exceed 5 minutes, they are hung. Kill the process immediately and investigate. When invoking builds/tests via a Bash tool, set a 300000 ms timeout.
