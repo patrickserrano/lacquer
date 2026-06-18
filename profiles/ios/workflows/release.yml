@@ -22,11 +22,14 @@ env:
 jobs:
   build-and-deploy:
     name: Build and Deploy to TestFlight
-    # Match the single `dedicated` label every other job uses. The previous
-    # `[self-hosted, macos, ios, dedicated]` required an `ios` label that the
-    # self-hosted macOS runners are not tagged with, so this job queued forever
-    # and never scheduled.
-    runs-on: dedicated
+    # The previous `[self-hosted, macos, ios, dedicated]` required an `ios` label
+    # the self-hosted macOS runners are not tagged with, so this job queued
+    # forever. Require `self-hosted` AND `dedicated`: stricter than the bare
+    # `dedicated` the other jobs use (this job holds TestFlight signing creds, so
+    # it must never schedule on a non-self-hosted runner), but not org-specific
+    # like the old macos/ios labels — every self-hosted runner carries
+    # `self-hosted`.
+    runs-on: [self-hosted, dedicated]
     timeout-minutes: 45
 
     steps:
