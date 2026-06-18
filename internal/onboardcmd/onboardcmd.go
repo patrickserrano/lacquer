@@ -8,11 +8,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/initcmd"
 )
+
+// orgRe matches a GitHub org/user login (alphanumeric + single hyphens, no
+// leading hyphen) so org can't become a `gh` flag or carry shell metacharacters.
+var orgRe = regexp.MustCompile(`^[A-Za-z0-9](-?[A-Za-z0-9])*$`)
 
 // ghCreate creates a private repo and wires it as origin. Injectable for tests.
 var ghCreate = func(dir, org, name string) error {
@@ -45,6 +50,9 @@ func Run(projectRoot, org string, createRepo bool) (string, error) {
 	}
 
 	if createRepo {
+		if !orgRe.MatchString(org) {
+			return "", fmt.Errorf("invalid --org %q (expected a GitHub org/user login)", org)
+		}
 		if hasOriginRemote(projectRoot) {
 			out.WriteString("Remote 'origin' already exists; skipping repo creation.\n")
 		} else {
@@ -79,8 +87,13 @@ func hasOriginRemote(dir string) bool {
 }
 
 // repoName uses [project].name when present, else the project dir's basename.
+// A malformed manifest is surfaced, not silently ignored.
 func repoName(projectRoot, manifest string) (string, error) {
-	if cfg, err := config.Load(manifest); err == nil && cfg.Project.Name != "" {
+	cfg, err := config.Load(manifest)
+	if err != nil {
+		return "", fmt.Errorf("load manifest for repo name: %w", err)
+	}
+	if cfg.Project.Name != "" {
 		return cfg.Project.Name, nil
 	}
 	abs, err := filepath.Abs(projectRoot)

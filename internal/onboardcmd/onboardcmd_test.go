@@ -83,3 +83,36 @@ func TestOnboardNoRepoFlag(t *testing.T) {
 		t.Error("ghCreate must NOT be called when createRepo is false")
 	}
 }
+
+func TestOnboardRejectsUnsafeOrg(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mk(t, filepath.Join(root, "App.xcodeproj", "project.pbxproj"))
+	called := false
+	orig := ghCreate
+	ghCreate = func(dir, org, name string) error { called = true; return nil }
+	defer func() { ghCreate = orig }()
+	for _, org := range []string{"-evil", "a;b", "a/b", "a b"} {
+		if _, err := Run(root, org, true); err == nil {
+			t.Errorf("expected rejection for --org %q", org)
+		}
+	}
+	if called {
+		t.Error("ghCreate must not be called with an invalid org")
+	}
+}
+
+func TestOnboardSurfacesMalformedManifest(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	// pre-existing, malformed manifest (invalid project name) + no remote
+	if err := os.WriteFile(filepath.Join(root, ".harness.toml"), []byte("[project]\nname=\"--bad\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := ghCreate
+	ghCreate = func(dir, org, name string) error { return nil }
+	defer func() { ghCreate = orig }()
+	if _, err := Run(root, "PixelFoxStudio", true); err == nil {
+		t.Fatal("expected error surfacing the malformed manifest, got nil")
+	}
+}
