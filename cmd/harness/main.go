@@ -1,10 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
 	"github.com/patrickserrano/harness/internal/initcmd"
+	"github.com/patrickserrano/harness/internal/onboardcmd"
 	"github.com/patrickserrano/harness/internal/status"
 	syncpkg "github.com/patrickserrano/harness/internal/sync"
 )
@@ -33,6 +35,16 @@ func main() {
 			fail(err)
 		}
 		fmt.Println(summary)
+	case "onboard":
+		fs := flag.NewFlagSet("onboard", flag.ExitOnError)
+		org := fs.String("org", "PixelFoxStudio", "GitHub org for repo creation")
+		noRepo := fs.Bool("no-repo", false, "do not create a repo even if no remote exists")
+		_ = fs.Parse(os.Args[2:])
+		summary, err := onboardcmd.Run(projectRoot, *org, !*noRepo)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Println(summary)
 	case "sync":
 		res, err := syncpkg.Run(harnessRoot, projectRoot)
 		if err != nil {
@@ -54,7 +66,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: harness <command>")
-	fmt.Fprintln(os.Stderr, "commands: init, sync, status")
+	fmt.Fprintln(os.Stderr, "commands: init, onboard [--org O] [--no-repo], sync, status")
 	fmt.Fprintln(os.Stderr, "env: HARNESS_ROOT (path to harness repo, default '.')")
 }
 
