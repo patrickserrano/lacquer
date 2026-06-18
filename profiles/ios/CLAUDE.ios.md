@@ -141,7 +141,7 @@ func waitUntil(
     timeout: Duration = .seconds(2),
     pollInterval: Duration = .milliseconds(10),
     isolation _: isolated (any Actor)? = #isolation,
-    _ condition: @escaping () -> Bool
+    _ condition: () -> Bool
 ) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
