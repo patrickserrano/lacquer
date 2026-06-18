@@ -3,17 +3,17 @@ repos:
     hooks:
       - id: swiftformat
         name: SwiftFormat
-        entry: swiftformat --config ios/.swiftformat
+        entry: swiftformat --config {{COMPONENT_PREFIX}}.swiftformat
         language: system
         types: [swift]
-        files: ^ios/
+        files: ^{{COMPONENT_PREFIX}}
 
       - id: swiftlint
         name: SwiftLint
-        entry: swiftlint --strict --config ios/.swiftlint.yml
+        entry: swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml
         language: system
         types: [swift]
-        files: ^ios/
+        files: ^{{COMPONENT_PREFIX}}
 
       - id: swift-test
         name: Swift Tests
@@ -22,11 +22,12 @@ repos:
         # corruption when other checkouts/CI race the shared SwiftPM cache.
         # Stderr is intentionally NOT suppressed and there is no fake-device
         # fallback: if the pinned simulator is missing, fail loudly with the
-        # real error.
-        entry: bash -c 'cd ios && xcodebuild test -scheme {{SCHEME}} -destination "platform=iOS Simulator,name=iPhone 17 Pro" -derivedDataPath DerivedData -only-testing:{{PROJECT_NAME}}Tests -quiet'
+        # real error. `cd {{COMPONENT_PREFIX}}.` is `cd ios/.` for a nested
+        # layout and `cd .` for a root layout.
+        entry: bash -c 'cd {{COMPONENT_PREFIX}}. && xcodebuild test -scheme {{SCHEME}} -destination "platform=iOS Simulator,name=iPhone 17 Pro" -derivedDataPath DerivedData -only-testing:{{PROJECT_NAME}}Tests -quiet'
         language: system
         pass_filenames: false
-        files: ^ios/
+        files: ^{{COMPONENT_PREFIX}}
 
       - id: no-secrets
         name: Check for hardcoded secrets

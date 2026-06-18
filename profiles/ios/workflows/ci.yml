@@ -43,18 +43,28 @@ jobs:
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
           changed="$(git diff --name-only "$base" "$head")"
-          # `code` mirrors the old pull_request path filter — anything that can
-          # affect the build or lint. Docs-only PRs leave it false, so the heavy
-          # jobs skip and CI OK still reports green (no admin bypass needed).
-          if echo "$changed" | grep -qE '^({{COMPONENT_PREFIX}}|\.github/workflows/ios-ci\.yml$)'; then
+          # `code` gates the heavy build/lint/test jobs: run them unless the PR is
+          # docs-only, so CI OK still reports green on docs PRs (no admin bypass).
+          # This is an INVERTED test (any non-docs change -> code=true) on purpose:
+          # a path ALLOWLIST anchored on {{COMPONENT_PREFIX}} produces the regex
+          # `^(|...)` for a root-layout project (empty prefix), and an empty ERE
+          # alternative is rejected by the runner's ugrep — which silently skipped
+          # EVERY job. The deny-list below has no prefix and no empty alternative,
+          # so it is layout-independent and fails safe (over-run, not under-run).
+          # NOTE: count with `-cv`, do NOT use `grep -qv` — the runner's ugrep
+          # mis-reports `-q -v` (exits 1 even when -v alone selects lines), so a
+          # `-qv` test would wrongly skip every code PR.
+          nondocs=$(echo "$changed" | grep -cvE '(\.md$|^docs/|^LICENSE$|^\.gitignore$)' || true)
+          if [ "${nondocs:-0}" -gt 0 ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
           # `views` triggers the Release archive on PRs (where a Release-only
           # leak — e.g. an un-gated #Preview using a #if DEBUG-only helper — can
-          # pass Debug build + Test but fail the archive).
-          if echo "$changed" | grep -qE '^{{COMPONENT_PREFIX}}.*/(Views|App)/'; then
+          # pass Debug build + Test but fail the archive). The leading path is
+          # optional so a root-layout `App/` (no parent dir) still matches.
+          if echo "$changed" | grep -qE '^{{COMPONENT_PREFIX}}(.*/)?(Views|App)/'; then
             echo "views=true" >> "$GITHUB_OUTPUT"
           else
             echo "views=false" >> "$GITHUB_OUTPUT"
@@ -474,7 +484,7 @@ jobs:
                 echo "$FAILED_TESTS" >> $GITHUB_STEP_SUMMARY
                 echo '```' >> $GITHUB_STEP_SUMMARY
               else
-                grep -E "^|Test Case .* failed" xcodebuild.log 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+                grep -E "Test Case .* failed" xcodebuild.log 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
               fi
             fi
           else
