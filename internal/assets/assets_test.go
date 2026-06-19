@@ -76,6 +76,45 @@ func TestPlan(t *testing.T) {
 	}
 }
 
+func TestPlanFansSkillsAcrossTools(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "core", "skills", "git.md"), "x")
+	write(t, filepath.Join(h, "core", "commands", "sync-worktree.md"), "x")
+	write(t, filepath.Join(h, "profiles", "ios", "skills", "build.md"), "x")
+
+	cfg := &config.Config{
+		Project:    config.Project{Tools: []string{"claude", "codex", "antigravity"}},
+		Components: []config.Component{{Path: "ios", Profiles: []string{"ios"}}},
+	}
+
+	got, err := Plan(h, cfg)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	dests := map[string]bool{}
+	for _, a := range got {
+		dests[a.Dest] = true
+	}
+
+	// Each skill must be provisioned into all three tool dirs.
+	for _, skill := range []string{"git.md", "build.md"} {
+		for _, dir := range []string{".claude/skills", ".codex/skills", ".agents/skills"} {
+			want := filepath.Join(filepath.FromSlash(dir), skill)
+			if !dests[want] {
+				t.Errorf("missing skill fan-out: %q", want)
+			}
+		}
+	}
+	// Commands stay Claude-only — never fanned to other tools.
+	if dests[filepath.Join(".codex", "skills", "sync-worktree.md")] ||
+		dests[filepath.Join(".agents", "skills", "sync-worktree.md")] {
+		t.Error("commands must not fan out to non-Claude tools")
+	}
+	if !dests[filepath.Join(".claude", "commands", "sync-worktree.md")] {
+		t.Error("command missing from .claude/commands")
+	}
+}
+
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}} {

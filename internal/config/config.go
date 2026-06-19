@@ -17,13 +17,34 @@ import (
 var profileNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 type Project struct {
-	Name         string `toml:"name"`
-	ProjectName  string `toml:"project_name"`
-	Scheme       string `toml:"scheme"`
-	BundleID     string `toml:"bundle_id"`
-	AscAppID     string `toml:"asc_app_id"`
-	Xcodeproj    string `toml:"xcodeproj"`
-	SwiftVersion string `toml:"swift_version"`
+	Name         string   `toml:"name"`
+	ProjectName  string   `toml:"project_name"`
+	Scheme       string   `toml:"scheme"`
+	BundleID     string   `toml:"bundle_id"`
+	AscAppID     string   `toml:"asc_app_id"`
+	Xcodeproj    string   `toml:"xcodeproj"`
+	SwiftVersion string   `toml:"swift_version"`
+	Tools        []string `toml:"tools"`
+}
+
+// knownTools is the set of agent tools the harness can provision skills for.
+// A tool name maps (in the assets package) to that tool's project-level skills
+// directory. Restricted to a strict allowlist because it would otherwise route
+// file writes to an attacker-named directory.
+var knownTools = map[string]bool{
+	"claude":      true, // .claude/skills
+	"codex":       true, // .codex/skills
+	"antigravity": true, // .agents/skills
+}
+
+// EffectiveTools returns the configured tools, defaulting to just "claude" when
+// the manifest omits the field (backward-compatible: existing projects keep
+// their Claude-only skill layout until they opt other tools in).
+func (p Project) EffectiveTools() []string {
+	if len(p.Tools) == 0 {
+		return []string{"claude"}
+	}
+	return p.Tools
 }
 
 // Validators for [project] values. These values are substituted into synced CI
@@ -71,6 +92,11 @@ func validateProject(p Project) error {
 	}
 	if err := check("swift_version", p.SwiftVersion, projVersionVal); err != nil {
 		return err
+	}
+	for _, t := range p.Tools {
+		if !knownTools[t] {
+			return fmt.Errorf("invalid [project].tools entry %q (known tools: antigravity, claude, codex)", t)
+		}
 	}
 	return validateXcodeproj(p.Xcodeproj)
 }

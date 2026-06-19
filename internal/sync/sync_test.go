@@ -64,7 +64,7 @@ func TestSyncMirrorsAgentsMd(t *testing.T) {
 	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE RULES")
 	writeFile(t, filepath.Join(harness, "profiles", "ios", "CLAUDE.ios.md"), "IOS RULES")
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"rail\"\ntools=[\"claude\",\"codex\",\"antigravity\"]\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 	// Pre-existing project-owned text in AGENTS.md must be preserved (managed
 	// region merge, not whole-file overwrite).
 	writeFile(t, filepath.Join(project, "AGENTS.md"), "# rail agents\n\nkeep me\n")
@@ -98,6 +98,25 @@ func TestSyncMirrorsAgentsMd(t *testing.T) {
 	rootClaude, _ := os.ReadFile(filepath.Join(project, "CLAUDE.md"))
 	if !strings.Contains(string(rootClaude), "CORE RULES") {
 		t.Error("root CLAUDE.md missing core region (mirror must not replace it)")
+	}
+}
+
+func TestSyncClaudeOnlyWritesNoAgentsMd(t *testing.T) {
+	harness := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(harness, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE")
+	// No tools field -> defaults to claude-only -> no AGENTS.md.
+	writeFile(t, filepath.Join(project, ".harness.toml"), "[project]\nname=\"x\"\n")
+
+	if _, err := Run(harness, project); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(project, "AGENTS.md")); err == nil {
+		t.Error("claude-only project must not get an AGENTS.md")
+	}
+	if _, err := os.Stat(filepath.Join(project, "CLAUDE.md")); err != nil {
+		t.Errorf("claude-only project must still get CLAUDE.md: %v", err)
 	}
 }
 

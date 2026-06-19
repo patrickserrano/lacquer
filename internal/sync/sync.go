@@ -64,18 +64,21 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 		}
 	}
 
-	// Mirror every CLAUDE.md region into a sibling AGENTS.md. Codex, Google
-	// Antigravity, Cursor, and Windsurf all read a project-root AGENTS.md, so this
-	// gives every tool the same harness-managed rules as Claude Code from a single
-	// authored source. Identical key/body/prefix — only the destination filename
+	// Mirror every CLAUDE.md region into a sibling AGENTS.md when a tool that reads
+	// it (Codex, Google Antigravity) is enabled in [project].tools. AGENTS.md is
+	// the cross-tool rules file; gating it on the same `tools` switch as skill
+	// provisioning keeps the model coherent and leaves claude-only projects with
+	// just CLAUDE.md. Identical key/body/prefix — only the destination filename
 	// differs, so the token preflight and merge below handle it transparently.
-	mirror := make([]regionWrite, 0, len(regions))
-	for _, r := range regions {
-		m := r
-		m.rel = filepath.Join(filepath.Dir(r.rel), "AGENTS.md")
-		mirror = append(mirror, m)
+	if wantsAgentsMd(cfg.Project) {
+		mirror := make([]regionWrite, 0, len(regions))
+		for _, r := range regions {
+			m := r
+			m.rel = filepath.Join(filepath.Dir(r.rel), "AGENTS.md")
+			mirror = append(mirror, m)
+		}
+		regions = append(regions, mirror...)
 	}
-	regions = append(regions, mirror...)
 
 	plan, err := assets.Plan(harnessRoot, cfg)
 	if err != nil {
@@ -118,6 +121,18 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 	}
 
 	return Result{Regions: len(regions), Assets: len(plan)}, nil
+}
+
+// wantsAgentsMd reports whether any enabled tool reads a project-root AGENTS.md
+// (Codex, Antigravity). Claude Code uses CLAUDE.md, so a claude-only project
+// gets no AGENTS.md.
+func wantsAgentsMd(p config.Project) bool {
+	for _, t := range p.EffectiveTools() {
+		if t == "codex" || t == "antigravity" {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeInto resolves rel under projectRoot (confining it within the root even

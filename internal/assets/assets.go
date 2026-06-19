@@ -36,6 +36,18 @@ func MissingTokens(plan []Asset, proj config.Project) ([]string, error) {
 	return out, nil
 }
 
+// toolSkillsDir maps a configured agent tool to its project-level skills
+// directory. SKILL.md is an open standard shared across Claude Code, Codex,
+// Antigravity, Cursor, and Gemini CLI — only the directory differs — so the same
+// skill package is copied verbatim into each enabled tool's dir. Commands are NOT
+// fanned out: each tool's prompt/command mechanism differs, so commands stay
+// Claude-only (.claude/commands).
+var toolSkillsDir = map[string]string{
+	"claude":      ".claude/skills",
+	"codex":       ".codex/skills",
+	"antigravity": ".agents/skills",
+}
+
 // Asset is one file to copy: an absolute source path and a project-relative
 // destination path.
 type Asset struct {
@@ -69,12 +81,20 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 		out = append(out, Asset{Src: src, Dest: dest, Prefix: prefix})
 	}
 
-	// core assets are stack-agnostic: no component prefix.
-	for _, kind := range []string{"skills", "commands"} {
-		if err := walkInto(filepath.Join(harnessRoot, "core", kind),
-			func(src, rel string) { add(src, filepath.Join(".claude", kind, rel), "") }); err != nil {
+	tools := cfg.Project.EffectiveTools()
+
+	// core assets are stack-agnostic: no component prefix. Skills fan out to each
+	// enabled tool's skills dir; commands stay Claude-only.
+	for _, tool := range tools {
+		dir := toolSkillsDir[tool]
+		if err := walkInto(filepath.Join(harnessRoot, "core", "skills"),
+			func(src, rel string) { add(src, filepath.Join(dir, rel), "") }); err != nil {
 			return nil, err
 		}
+	}
+	if err := walkInto(filepath.Join(harnessRoot, "core", "commands"),
+		func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), "") }); err != nil {
+		return nil, err
 	}
 	if err := walkInto(filepath.Join(harnessRoot, "core", "root"),
 		func(src, rel string) { add(src, rel, "") }); err != nil {
@@ -97,11 +117,16 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 	for _, p := range profiles {
 		base := filepath.Join(harnessRoot, "profiles", p)
 		prefix := tokens.Prefix(profileDir[p])
-		for _, kind := range []string{"skills", "commands"} {
-			if err := walkInto(filepath.Join(base, kind),
-				func(src, rel string) { add(src, filepath.Join(".claude", kind, rel), prefix) }); err != nil {
+		for _, tool := range tools {
+			dir := toolSkillsDir[tool]
+			if err := walkInto(filepath.Join(base, "skills"),
+				func(src, rel string) { add(src, filepath.Join(dir, rel), prefix) }); err != nil {
 				return nil, err
 			}
+		}
+		if err := walkInto(filepath.Join(base, "commands"),
+			func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), prefix) }); err != nil {
+			return nil, err
 		}
 		// workflows -> .github/workflows/<p>-<file> (stack-prefixed; flat)
 		if err := walkInto(filepath.Join(base, "workflows"),
