@@ -108,6 +108,33 @@ func TestLoadAllowsBlankProjectValues(t *testing.T) {
 	}
 }
 
+func TestEffectiveToolsDefaultsToClaude(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := cfg.Project.EffectiveTools()
+	if len(got) != 1 || got[0] != "claude" {
+		t.Errorf("EffectiveTools() = %v, want [claude]", got)
+	}
+}
+
+func TestLoadAcceptsKnownTools(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\ntools=[\"claude\",\"codex\",\"antigravity\"]\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Project.EffectiveTools()) != 3 {
+		t.Errorf("tools = %v", cfg.Project.EffectiveTools())
+	}
+}
+
+func TestLoadRejectsUnknownTool(t *testing.T) {
+	if _, err := loadString(t, "[project]\nname=\"x\"\ntools=[\"claude\",\"../evil\"]\n"); err == nil {
+		t.Error("expected rejection of an unknown/unsafe tool name")
+	}
+}
+
 func TestLoadRejectsInjectionInProjectValues(t *testing.T) {
 	cases := []string{
 		"[project]\nname=\"x\"\nscheme=\"Rail\\n  evil: true\"\n",
