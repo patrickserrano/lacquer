@@ -32,6 +32,10 @@ type Project struct {
 // configured exclusion prefix, so sync/audit leave that path project-owned.
 // A pattern matches the path itself or anything beneath it: "x/y" excludes
 // "x/y" and "x/y/z", but not "x/yz".
+//
+// An excluded path is opted out of harness oversight entirely — it is neither
+// distributed by sync nor reported by audit (audit derives its unit set from the
+// same filtered plan). That is the intended tradeoff for keeping a path local.
 func (p Project) Excludes(dest string) bool {
 	for _, pat := range p.Exclude {
 		pat = strings.TrimSuffix(pat, "/")
