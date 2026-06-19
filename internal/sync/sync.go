@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/patrickserrano/harness/internal/assets"
+	"github.com/patrickserrano/harness/internal/audit"
 	"github.com/patrickserrano/harness/internal/config"
+	"github.com/patrickserrano/harness/internal/lock"
 	"github.com/patrickserrano/harness/internal/region"
 	"github.com/patrickserrano/harness/internal/safepath"
 	"github.com/patrickserrano/harness/internal/tokens"
@@ -37,7 +39,7 @@ type regionWrite struct {
 // The asset copy phase is not atomic across files (a mid-copy I/O fault may leave
 // some assets written); region/asset writes are otherwise guarded and idempotent,
 // so a corrected re-run heals a partial sync.
-func Run(harnessRoot, projectRoot string) (Result, error) {
+func Run(harnessRoot, projectRoot string, force bool) (Result, error) {
 	ver, err := version.Read(harnessRoot)
 	if err != nil {
 		return Result{}, fmt.Errorf("read version: %w", err)
@@ -70,7 +72,7 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 	// provisioning keeps the model coherent and leaves claude-only projects with
 	// just CLAUDE.md. Identical key/body/prefix — only the destination filename
 	// differs, so the token preflight and merge below handle it transparently.
-	if wantsAgentsMd(cfg.Project) {
+	if cfg.Project.WantsAgentsMd() {
 		mirror := make([]regionWrite, 0, len(regions))
 		for _, r := range regions {
 			m := r
@@ -104,6 +106,21 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 			strings.Join(missing, "\n  "))
 	}
 
+	// Clobber guard: refuse to overwrite a managed unit the project has locally
+	// changed (and the harness has not), unless forced. This is detectable only
+	// with a .harness.lock baseline, so a project syncing for the first time is
+	// never blocked — the lock bootstraps below. See internal/audit.
+	if !force {
+		rows, _, err := audit.Classify(harnessRoot, projectRoot)
+		if err != nil {
+			return Result{}, fmt.Errorf("audit before sync: %w", err)
+		}
+		if clob := audit.Clobbered(rows); len(clob) > 0 {
+			return Result{}, fmt.Errorf("refusing to overwrite local changes the harness did not make — run `harness audit` to review, then either promote the change into the harness or re-sync with --force to take the harness version:\n  %s",
+				strings.Join(clob, "\n  "))
+		}
+	}
+
 	// Writes: substitute + merge region bodies.
 	for _, r := range regions {
 		body, _ := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix))
@@ -120,19 +137,18 @@ func Run(harnessRoot, projectRoot string) (Result, error) {
 		}
 	}
 
-	return Result{Regions: len(regions), Assets: len(plan)}, nil
-}
-
-// wantsAgentsMd reports whether any enabled tool reads a project-root AGENTS.md
-// (Codex, Antigravity). Claude Code uses CLAUDE.md, so a claude-only project
-// gets no AGENTS.md.
-func wantsAgentsMd(p config.Project) bool {
-	for _, t := range p.EffectiveTools() {
-		if t == "codex" || t == "antigravity" {
-			return true
-		}
+	// Record the baseline so the next audit/sync can tell a project's edits apart
+	// from harness updates. Fail loud if it can't be written — a missing or stale
+	// lock would silently disable the clobber guard.
+	lk, err := audit.LockFor(harnessRoot, projectRoot)
+	if err != nil {
+		return Result{}, fmt.Errorf("compute lock: %w", err)
 	}
-	return false
+	if err := lock.Write(projectRoot, lk); err != nil {
+		return Result{}, fmt.Errorf("write %s: %w", lock.Name, err)
+	}
+
+	return Result{Regions: len(regions), Assets: len(plan)}, nil
 }
 
 // mergeInto resolves rel under projectRoot (confining it within the root even

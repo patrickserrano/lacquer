@@ -115,3 +115,22 @@ func TestMergeRejectsEndBeforeStart(t *testing.T) {
 		t.Fatal("expected error for end marker preceding start, got nil")
 	}
 }
+
+func TestExtractBody(t *testing.T) {
+	// Body round-trips through Merge: what Merge writes, ExtractBody recovers.
+	merged, err := Merge("intro\n", "core", 7, "line one\nline two")
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	body, found := ExtractBody(merged, "core")
+	if !found {
+		t.Fatal("ExtractBody did not find the core block")
+	}
+	if body != "line one\nline two" {
+		t.Errorf("body = %q, want %q", body, "line one\nline two")
+	}
+	// Absent key.
+	if _, found := ExtractBody(merged, "ios"); found {
+		t.Error("ExtractBody found a block for an absent key")
+	}
+}

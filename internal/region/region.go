@@ -32,6 +32,27 @@ func StampedVersion(content, key string) (int, bool) {
 	return v, true
 }
 
+// bodyRe captures the body between a key's start and end markers (the text
+// render() wraps in markers). The capture excludes the newline that immediately
+// follows the start marker and the one preceding the end marker.
+func bodyRe(key string) *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?s)<!-- harness:` + regexp.QuoteMeta(key) + `:start v\d+ -->\n(.*)\n` +
+			regexp.QuoteMeta(endMarker(key)))
+}
+
+// ExtractBody returns the current body of the key's managed block in content
+// (the text between its markers, exactly as render() would have written it), and
+// whether such a block was found. It lets a caller compare a project's on-disk
+// region body against what the harness would render now.
+func ExtractBody(content, key string) (string, bool) {
+	m := bodyRe(key).FindStringSubmatch(content)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
 // render produces a complete managed block for the key/version/body.
 func render(key string, version int, body string) string {
 	return fmt.Sprintf("<!-- harness:%s:start v%d -->\n%s\n<!-- harness:%s:end -->",

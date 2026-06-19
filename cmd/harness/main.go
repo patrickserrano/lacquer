@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/patrickserrano/harness/internal/audit"
 	"github.com/patrickserrano/harness/internal/initcmd"
 	"github.com/patrickserrano/harness/internal/onboardcmd"
 	"github.com/patrickserrano/harness/internal/status"
@@ -48,11 +49,25 @@ func main() {
 		}
 		fmt.Println(summary)
 	case "sync":
-		res, err := syncpkg.Run(harnessRoot, projectRoot)
+		fs := flag.NewFlagSet("sync", flag.ExitOnError)
+		force := fs.Bool("force", false, "overwrite local changes the harness did not make (see `harness audit`)")
+		_ = fs.Parse(os.Args[2:])
+		res, err := syncpkg.Run(harnessRoot, projectRoot, *force)
 		if err != nil {
 			fail(err)
 		}
 		fmt.Printf("sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
+	case "audit":
+		rows, ver, err := audit.Classify(harnessRoot, projectRoot)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Print(audit.Format(rows, ver))
+		// Exit non-zero when a project change would be clobbered, so `harness
+		// audit` is usable as a CI drift gate.
+		if len(audit.Clobbered(rows)) > 0 {
+			os.Exit(3)
+		}
 	case "status":
 		rows, err := status.Rows(harnessRoot, projectRoot)
 		if err != nil {
@@ -68,7 +83,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: harness <command>")
-	fmt.Fprintln(os.Stderr, "commands: init, onboard --org O [--no-repo], sync, status")
+	fmt.Fprintln(os.Stderr, "commands: init, onboard --org O [--no-repo], sync [--force], audit, status")
 	fmt.Fprintln(os.Stderr, "env: HARNESS_ROOT (path to harness repo, default '.')")
 }
 
