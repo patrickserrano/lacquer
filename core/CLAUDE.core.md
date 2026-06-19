@@ -42,13 +42,18 @@ specifics (Swift, SwiftUI, Node, etc.) live in the matching profile body.
 
 ## Docs Taxonomy
 
-Feature work flows through three doc types, each dated and named `YYYY-MM-DD-<feature>-<type>.md`:
+A project starts from a **brief** at `docs/brief.md` — the pitch, scope, and
+roadmap, the human-authored source of truth for what's being built. `harness
+init` scaffolds a stub; paste the real brief there first. Feature work then flows
+through three dated doc types named `YYYY-MM-DD-<feature>-<type>.md`:
 
+- **Brief** (the product pitch, scope, roadmap — the source of truth) → `docs/brief.md`
 - **PRD** (product requirements — the *what* and *why*) → `docs/prds/`
 - **PCD** (product/component design — the *how*, UX + technical shape) → `docs/pcds/`
 - **Plan** (bite-sized implementation tasks) → `docs/plans/`
 
-Write the PRD first, derive the PCD, then the Plan. Keep each artifact in its dated file so history is auditable.
+Derive the PRD from the brief, then the PCD, then the Plan. Keep each artifact in
+its dated file so history is auditable.
 
 ## Critical Review Pattern
 

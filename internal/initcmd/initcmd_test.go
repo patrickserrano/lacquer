@@ -56,6 +56,40 @@ func TestInitRefusesExistingManifest(t *testing.T) {
 	}
 }
 
+func TestInitScaffoldsBriefStub(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "Skein.xcodeproj", "project.pbxproj"))
+	if _, err := Run(root); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "docs", "brief.md"))
+	if err != nil {
+		t.Fatalf("brief stub not written: %v", err)
+	}
+	if !strings.Contains(string(data), "# Skein — Product Brief") {
+		t.Errorf("brief stub missing project name heading:\n%s", data)
+	}
+}
+
+func TestInitPreservesExistingBrief(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "Skein.xcodeproj", "project.pbxproj"))
+	brief := filepath.Join(root, "docs", "brief.md")
+	if err := os.MkdirAll(filepath.Dir(brief), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brief, []byte("MY REAL BRIEF"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(root); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, _ := os.ReadFile(brief)
+	if string(got) != "MY REAL BRIEF" {
+		t.Errorf("init overwrote an existing brief: %q", got)
+	}
+}
+
 func TestInitWritesXcodeproj(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))
