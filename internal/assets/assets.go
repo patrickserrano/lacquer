@@ -86,7 +86,13 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 	// core assets are stack-agnostic: no component prefix. Skills fan out to each
 	// enabled tool's skills dir; commands stay Claude-only.
 	for _, tool := range tools {
-		dir := toolSkillsDir[tool]
+		dir, ok := toolSkillsDir[tool]
+		if !ok {
+			// Defense in depth: config.Load allowlists tool names, and every known
+			// tool has a dir here. Fail loud rather than write skills to the project
+			// root if the two ever drift.
+			return nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
+		}
 		if err := walkInto(filepath.Join(harnessRoot, "core", "skills"),
 			func(src, rel string) { add(src, filepath.Join(dir, rel), "") }); err != nil {
 			return nil, err
@@ -118,7 +124,10 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 		base := filepath.Join(harnessRoot, "profiles", p)
 		prefix := tokens.Prefix(profileDir[p])
 		for _, tool := range tools {
-			dir := toolSkillsDir[tool]
+			dir, ok := toolSkillsDir[tool]
+			if !ok {
+				return nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
+			}
 			if err := walkInto(filepath.Join(base, "skills"),
 				func(src, rel string) { add(src, filepath.Join(dir, rel), prefix) }); err != nil {
 				return nil, err
