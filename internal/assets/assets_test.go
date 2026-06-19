@@ -115,6 +115,36 @@ func TestPlanFansSkillsAcrossTools(t *testing.T) {
 	}
 }
 
+func TestPlanHonorsExclude(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "profiles", "ios", "workflows", "ci.yml"), "x")
+	write(t, filepath.Join(h, "profiles", "ios", "skills", "build.md"), "x")
+
+	cfg := &config.Config{
+		Project:    config.Project{Exclude: []string{".github/workflows/"}},
+		Components: []config.Component{{Path: "ios", Profiles: []string{"ios"}}},
+	}
+	got, err := Plan(h, cfg)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	for _, a := range got {
+		if strings.HasPrefix(a.Dest, ".github/workflows/") {
+			t.Errorf("excluded path was planned: %s", a.Dest)
+		}
+	}
+	// The non-excluded skill is still planned.
+	var sawSkill bool
+	for _, a := range got {
+		if a.Dest == filepath.Join(".claude", "skills", "build.md") {
+			sawSkill = true
+		}
+	}
+	if !sawSkill {
+		t.Error("non-excluded skill should still be planned")
+	}
+}
+
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}} {

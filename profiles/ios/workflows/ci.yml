@@ -21,7 +21,7 @@ concurrency:
 jobs:
   changes:
     name: Detect changed paths
-    runs-on: dedicated
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
     outputs:
       code: ${{ steps.filter.outputs.code }}
       views: ${{ steps.filter.outputs.views }}
@@ -72,7 +72,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: dedicated
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: changes
     # Skip on docs-only PRs (no Swift / lint-config change). Skipped counts as
     # passing for the CI OK aggregator.
@@ -91,7 +91,7 @@ jobs:
 
   build-release:
     name: Build (Release)
-    runs-on: dedicated
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: [lint, changes]
     # Runs on every main push, and on PRs that touch SwiftUI views/app — where a
     # DEBUG-only-in-Release leak (e.g. an un-gated #Preview using a #if DEBUG-only
@@ -166,7 +166,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: dedicated
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: [lint, changes]
     # Skip on push-to-main (squash-merged tree == tested tree; Build (Release) is
     # the main-side compile backstop) AND on docs-only PRs (no code change). Tests
@@ -527,7 +527,7 @@ jobs:
 
   ci-ok:
     name: CI OK
-    runs-on: dedicated
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
     # The single required status check (branch protection points at "CI OK", not
     # at Lint / Build / Test directly). It ALWAYS runs, so it always reports —
     # even on docs-only PRs where every heavy job skips — so branch protection

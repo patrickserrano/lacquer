@@ -25,6 +25,21 @@ type Project struct {
 	Xcodeproj    string   `toml:"xcodeproj"`
 	SwiftVersion string   `toml:"swift_version"`
 	Tools        []string `toml:"tools"`
+	Exclude      []string `toml:"exclude"`
+}
+
+// Excludes reports whether dest (a project-relative asset path) falls under any
+// configured exclusion prefix, so sync/audit leave that path project-owned.
+// A pattern matches the path itself or anything beneath it: "x/y" excludes
+// "x/y" and "x/y/z", but not "x/yz".
+func (p Project) Excludes(dest string) bool {
+	for _, pat := range p.Exclude {
+		pat = strings.TrimSuffix(pat, "/")
+		if dest == pat || strings.HasPrefix(dest, pat+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // knownTools is the set of agent tools the harness can provision skills for.
@@ -108,6 +123,11 @@ func validateProject(p Project) error {
 	for _, t := range p.Tools {
 		if !knownTools[t] {
 			return fmt.Errorf("invalid [project].tools entry %q (known tools: antigravity, claude, codex)", t)
+		}
+	}
+	for _, e := range p.Exclude {
+		if err := validateComponentPath(e); err != nil {
+			return fmt.Errorf("invalid [project].exclude entry: %w", err)
 		}
 	}
 	return validateXcodeproj(p.Xcodeproj)

@@ -19,7 +19,7 @@ on:
 jobs:
   cleanup:
     name: Cleanup Runner
-    runs-on: dedicated
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
     timeout-minutes: 10
     env:
       # Default to 'standard' for scheduled runs, use input for manual runs
