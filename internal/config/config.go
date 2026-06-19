@@ -47,6 +47,18 @@ func (p Project) EffectiveTools() []string {
 	return p.Tools
 }
 
+// WantsAgentsMd reports whether any enabled tool reads a project-root AGENTS.md
+// (Codex, Antigravity). Claude Code uses CLAUDE.md, so a claude-only project
+// gets no AGENTS.md. Shared by sync (what it writes) and audit (what it expects).
+func (p Project) WantsAgentsMd() bool {
+	for _, t := range p.EffectiveTools() {
+		if t == "codex" || t == "antigravity" {
+			return true
+		}
+	}
+	return false
+}
+
 // Validators for [project] values. These values are substituted into synced CI
 // YAML and pre-commit shell, so they are charset-restricted to prevent a crafted
 // manifest from injecting structure or commands. A blank value is allowed (init

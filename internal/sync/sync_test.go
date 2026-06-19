@@ -33,7 +33,7 @@ func TestSyncMergesCoreAndProfile(t *testing.T) {
 		"[project]\nname=\"rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 	writeFile(t, filepath.Join(project, "CLAUDE.md"), "# rail\n\nlocal note\n")
 
-	if _, err := Run(harness, project); err != nil {
+	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestSyncMirrorsAgentsMd(t *testing.T) {
 	// region merge, not whole-file overwrite).
 	writeFile(t, filepath.Join(project, "AGENTS.md"), "# rail agents\n\nkeep me\n")
 
-	if _, err := Run(harness, project); err != nil {
+	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -109,7 +109,7 @@ func TestSyncClaudeOnlyWritesNoAgentsMd(t *testing.T) {
 	// No tools field -> defaults to claude-only -> no AGENTS.md.
 	writeFile(t, filepath.Join(project, ".harness.toml"), "[project]\nname=\"x\"\n")
 
-	if _, err := Run(harness, project); err != nil {
+	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(project, "AGENTS.md")); err == nil {
@@ -137,7 +137,7 @@ func TestSyncRefusesToWriteThroughSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Run(harness, project); err == nil {
+	if _, err := Run(harness, project, false); err == nil {
 		t.Fatal("expected error syncing through a symlink, got nil")
 	}
 	// The symlink target must be untouched.
@@ -163,7 +163,7 @@ func TestSyncRefusesSymlinkedComponentDir(t *testing.T) {
 	writeFile(t, filepath.Join(project, ".harness.toml"),
 		"[project]\nname=\"x\"\n\n[[component]]\npath=\"vendor\"\nprofiles=[\"ios\"]\n")
 
-	if _, err := Run(harness, project); err == nil {
+	if _, err := Run(harness, project, false); err == nil {
 		t.Fatal("expected error: component dir is a symlink escaping the project root")
 	}
 	// Nothing should have been written into the escape target.
@@ -188,7 +188,7 @@ func TestSyncCopiesAssets(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(project, ".harness.toml"), "[project]\nname=\"x\"\n")
 
-	if _, err := Run(harness, project); err != nil {
+	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(project, ".claude", "skills", "git.md"))
@@ -213,7 +213,7 @@ func TestRunReportsCounts(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(project, ".harness.toml"), "[project]\nname=\"x\"\n")
 
-	res, err := Run(harness, project)
+	res, err := Run(harness, project, false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestRunRefusesAssetsInNonGitProject(t *testing.T) {
 	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE")
 	writeFile(t, filepath.Join(harness, "core", "skills", "git.md"), "S")
 	writeFile(t, filepath.Join(project, ".harness.toml"), "[project]\nname=\"x\"\n")
-	if _, err := Run(harness, project); err == nil {
+	if _, err := Run(harness, project, false); err == nil {
 		t.Fatal("expected Run to refuse asset sync in a non-git project, got nil")
 	}
 }
@@ -249,7 +249,7 @@ func TestSyncSubstitutesTokens(t *testing.T) {
 	writeFile(t, filepath.Join(project, ".harness.toml"),
 		"[project]\nname=\"x\"\nscheme=\"Rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 
-	if _, err := Run(harness, project); err != nil {
+	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(project, ".x.yml"))
@@ -273,7 +273,7 @@ func TestSyncFailsClosedOnMissingToken(t *testing.T) {
 	writeFile(t, filepath.Join(project, ".harness.toml"),
 		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 
-	_, err := Run(harness, project)
+	_, err := Run(harness, project, false)
 	if err == nil {
 		t.Fatal("expected fail-closed error for missing {{SCHEME}} value")
 	}
@@ -300,7 +300,7 @@ func TestSyncRootLayoutEmptyPrefix(t *testing.T) {
 	writeFile(t, filepath.Join(project, ".harness.toml"),
 		"[project]\nname=\"x\"\nproject_name=\"Rail\"\nscheme=\"Rail\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
 
-	if _, err := Run(harness, project); err != nil {
+	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(project, ".github", "workflows", "ios-ci.yml"))
