@@ -12,7 +12,7 @@ env:
 jobs:
   periphery:
     name: iOS - Periphery Scan
-    runs-on: dedicated
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
     outputs:
       count: ${{ steps.analyze.outputs.count }}
       has_dead_code: ${{ steps.analyze.outputs.has_dead_code }}
@@ -103,7 +103,7 @@ jobs:
 
   create-issue:
     name: Create Tracking Issue
-    runs-on: dedicated
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: [periphery]
     if: >
       always() && (

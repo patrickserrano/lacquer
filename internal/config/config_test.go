@@ -135,6 +135,31 @@ func TestLoadRejectsUnknownTool(t *testing.T) {
 	}
 }
 
+func TestExcludesMatching(t *testing.T) {
+	p := Project{Exclude: []string{".github/workflows/", "Brewfile"}}
+	cases := map[string]bool{
+		".github/workflows/ios-ci.yml": true,
+		".github/workflows":            true,
+		"Brewfile":                     true,
+		".github/workflowsX":           false, // prefix must be a path boundary
+		".claude/skills/git.md":        false,
+	}
+	for dest, want := range cases {
+		if got := p.Excludes(dest); got != want {
+			t.Errorf("Excludes(%q) = %v, want %v", dest, got, want)
+		}
+	}
+}
+
+func TestLoadRejectsUnsafeExclude(t *testing.T) {
+	for _, bad := range []string{"../etc", "/abs", "a/../../b"} {
+		data := "[project]\nname=\"x\"\nexclude=[\"" + bad + "\"]\n"
+		if _, err := loadString(t, data); err == nil {
+			t.Errorf("expected rejection of unsafe exclude %q", bad)
+		}
+	}
+}
+
 func TestLoadRejectsInjectionInProjectValues(t *testing.T) {
 	cases := []string{
 		"[project]\nname=\"x\"\nscheme=\"Rail\\n  evil: true\"\n",

@@ -78,6 +78,12 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 			return
 		}
 		seen[dest] = true
+		// Project-declared exclusions stay project-owned: the harness neither
+		// distributes nor (via audit) tracks them. Used to keep a project's
+		// hand-tuned CI/config local while still adopting the rest of the harness.
+		if cfg.Project.Excludes(dest) {
+			return
+		}
 		out = append(out, Asset{Src: src, Dest: dest, Prefix: prefix})
 	}
 
