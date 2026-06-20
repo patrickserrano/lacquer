@@ -115,6 +115,36 @@ func TestPlanFansSkillsAcrossTools(t *testing.T) {
 	}
 }
 
+func TestPlanSkipsCruft(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "core", "skills", "git.md"), "x")
+	// Build/tool junk that may sit on the harness disk must never be planned.
+	write(t, filepath.Join(h, "core", "skills", "__pycache__", "git.cpython-314.pyc"), "x")
+	write(t, filepath.Join(h, "core", "skills", "helper.pyc"), "x")
+	write(t, filepath.Join(h, "core", "skills", ".DS_Store"), "x")
+
+	got, err := Plan(h, &config.Config{})
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	for _, a := range got {
+		if strings.Contains(a.Dest, "__pycache__") || strings.HasSuffix(a.Dest, ".pyc") ||
+			strings.HasSuffix(a.Dest, ".DS_Store") {
+			t.Errorf("cruft was planned: %s", a.Dest)
+		}
+	}
+	// The real skill is still planned.
+	var sawGit bool
+	for _, a := range got {
+		if a.Dest == filepath.Join(".claude", "skills", "git.md") {
+			sawGit = true
+		}
+	}
+	if !sawGit {
+		t.Error("real skill git.md should still be planned")
+	}
+}
+
 func TestPlanHonorsExclude(t *testing.T) {
 	h := t.TempDir()
 	write(t, filepath.Join(h, "profiles", "ios", "workflows", "ci.yml"), "x")
