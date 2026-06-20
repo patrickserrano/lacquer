@@ -64,7 +64,8 @@ def _der_to_raw_ecdsa(der: bytes) -> bytes:
         raise ValueError("bad DER signature")
     idx = 2 if der[1] < 0x80 else 3 + (der[1] & 0x7F) - 1
     def read_int(i):
-        assert der[i] == 0x02
+        if der[i] != 0x02:
+            raise ValueError("bad DER integer")
         ln = der[i + 1]
         val = der[i + 2:i + 2 + ln]
         return val.lstrip(b"\x00").rjust(32, b"\x00"), i + 2 + ln
@@ -114,8 +115,10 @@ def fetch(kind: str, app_id: str, token: str) -> list:
 def issue_exists(feedback_id: str) -> bool:
     """True if an issue already references this feedback id (dedup, stateless)."""
     res = subprocess.run(
+        # `--search=<id>` (not `--search <id>`) so an id starting with `-` can
+        # never be parsed as a flag.
         ["gh", "issue", "list", "--state", "all", "--label", LABEL,
-         "--search", feedback_id, "--json", "number"],
+         f"--search={feedback_id}", "--json", "number"],
         capture_output=True, text=True, check=True)
     return bool(json.loads(res.stdout or "[]"))
 
