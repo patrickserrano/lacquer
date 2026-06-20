@@ -28,6 +28,68 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 
 - **Subscription / IAP apps (Guideline 3.1.2):** the **paywall/purchase screen itself** must clearly show price, duration, auto-renewal terms, and how to cancel — not just the description — and both the **privacy policy** and **terms of use (EULA)** links must be **clickable on that screen** (in the binary, not only in metadata). See [Premium / Subscription Gating](#premium--subscription-gating-if-monetized).
 
+## Secrets & Service Keys
+
+Two separate buckets — never mix them.
+
+### App-runtime keys → `Secrets.xcconfig` (compiled into the app)
+
+Service keys the app needs at runtime (RevenueCat, Aptabase, …) live in a
+gitignored `Secrets.xcconfig`, never in source or the committed `project.yml`.
+The harness syncs a `Secrets.xcconfig.example` template into the component dir.
+
+1. **Copy & ignore:** `cp Secrets.xcconfig.example Secrets.xcconfig`, fill in real
+   values, and add `Secrets.xcconfig` to `.gitignore`. The example is committed;
+   the real file never is. (The committed `project.yml` must also stay key-free.)
+2. **Wire into the build (`project.yml`):** point the target's configs at the
+   xcconfig and surface each key into `Info.plist`:
+   ```yaml
+   targets:
+     <App>:
+       configFiles:
+         Debug: Secrets.xcconfig
+         Release: Secrets.xcconfig
+       info:
+         path: App/Info.plist
+         properties:
+           REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
+           APTABASE_APP_KEY: $(APTABASE_APP_KEY)
+   ```
+3. **Read at runtime** from the Info dictionary — fail loud if a required key is
+   blank rather than shipping a broken SDK init:
+   ```swift
+   enum Secrets {
+       static func required(_ key: String) -> String {
+           guard let v = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+                 !v.isEmpty else {
+               fatalError("Missing \(key) — copy Secrets.xcconfig.example to Secrets.xcconfig and fill it in")
+           }
+           return v
+       }
+       static var revenueCatAPIKey: String { required("REVENUECAT_API_KEY") }
+       static var aptabaseAppKey: String { required("APTABASE_APP_KEY") }
+   }
+   ```
+   `Secrets.xcconfig` values are **build-time** — they are baked into the binary,
+   so treat them as obfuscated, not secret. A truly sensitive secret belongs on a
+   server, never in the app.
+
+### CI / release secrets → GitHub Actions (never in the app)
+
+The release and quality workflows read these from repo/org **GitHub Actions
+secrets** (`gh secret set <NAME>`), not from any xcconfig:
+
+| Secret | Used by | Source |
+|--------|---------|--------|
+| `ASC_KEY_ID` | release | App Store Connect → Users and Access → Integrations → API key |
+| `ASC_ISSUER_ID` | release | same page (issuer ID) |
+| `ASC_KEY_CONTENT` | release | the `.p8` private key contents |
+| `APPLE_TEAM_ID` | release | Apple Developer membership |
+| `KEYCHAIN_PASSWORD` | release (signing) | the self-hosted runner's login-keychain password |
+| `CLAUDE_CODE_OAUTH_TOKEN` | quality-review | `claude setup-token` |
+
+`GITHUB_TOKEN` is provided automatically by Actions — do not set it.
+
 ## Build & Test Tooling (flowdeck)
 
 **Use `flowdeck` for ALL Apple-platform work** — build, run, test, simulator, device, logs, UI automation. Do NOT use `xcodebuild`, `xcrun`, `simctl`, or `devicectl` directly (raw `simctl`/`devicectl` are typically hook-blocked).
