@@ -38,7 +38,7 @@
         "noArrayIndexKey": "warn"
       },
       "security": {
-        "noDangerouslySetInnerHtml": "warn"
+        "noDangerouslySetInnerHtml": "error"
       },
       "a11y": {
         "useSemanticElements": "warn"
