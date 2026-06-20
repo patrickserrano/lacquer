@@ -123,6 +123,27 @@ func TestOnboardRequiresExplicitOrg(t *testing.T) {
 	}
 }
 
+func TestOnboardFallsBackToManifestOrg(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	// Manifest declares github_org; no --org passed.
+	if err := os.WriteFile(filepath.Join(root, ".harness.toml"),
+		[]byte("[project]\nname=\"App\"\ngithub_org=\"AcmeOrg\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var gotOrg string
+	orig := ghCreate
+	ghCreate = func(dir, org, name string) error { gotOrg = org; return nil }
+	defer func() { ghCreate = orig }()
+
+	if _, err := Run(root, "", true); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotOrg != "AcmeOrg" {
+		t.Errorf("org = %q, want AcmeOrg (from manifest github_org)", gotOrg)
+	}
+}
+
 func TestOnboardSurfacesMalformedManifest(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)

@@ -135,6 +135,24 @@ func TestLoadRejectsUnknownTool(t *testing.T) {
 	}
 }
 
+func TestLoadGithubOrg(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\ngithub_org=\"PixelFoxStudio\"\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Project.GithubOrg != "PixelFoxStudio" {
+		t.Errorf("github_org = %q", cfg.Project.GithubOrg)
+	}
+}
+
+func TestLoadRejectsUnsafeGithubOrg(t *testing.T) {
+	for _, bad := range []string{"a b", "a/b", "-evil", "a;b", "a--", "a-"} {
+		if _, err := loadString(t, "[project]\nname=\"x\"\ngithub_org=\""+bad+"\"\n"); err == nil {
+			t.Errorf("expected rejection of github_org %q", bad)
+		}
+	}
+}
+
 func TestExcludesMatching(t *testing.T) {
 	p := Project{Exclude: []string{".github/workflows/", "Brewfile"}}
 	cases := map[string]bool{

@@ -8,16 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/patrickserrano/harness/internal/config"
 	"github.com/patrickserrano/harness/internal/initcmd"
 )
-
-// orgRe matches a GitHub org/user login (alphanumeric + single hyphens, no
-// leading hyphen) so org can't become a `gh` flag or carry shell metacharacters.
-var orgRe = regexp.MustCompile(`^[A-Za-z0-9](-?[A-Za-z0-9])*$`)
 
 // ghCreate creates a private repo and wires it as origin. Injectable for tests.
 var ghCreate = func(dir, org, name string) error {
@@ -51,10 +46,18 @@ func Run(projectRoot, org string, createRepo bool) (string, error) {
 
 	if createRepo {
 		if org == "" {
-			return "", fmt.Errorf("--org is required to create a repo (the harness has no default org); pass --org <login> or --no-repo")
+			// Fall back to the manifest's github_org so the org is declared once
+			// (in .harness.toml) and reused by repo creation and the {{GITHUB_ORG}}
+			// token. A freshly init-stubbed manifest leaves it blank → still errors.
+			if cfg, err := config.Load(manifest); err == nil {
+				org = cfg.Project.GithubOrg
+			}
 		}
-		if !orgRe.MatchString(org) {
-			return "", fmt.Errorf("invalid --org %q (expected a GitHub org/user login)", org)
+		if org == "" {
+			return "", fmt.Errorf("no org to create the repo under (the harness has no default); pass --org <login>, set github_org in .harness.toml, or use --no-repo")
+		}
+		if !config.ValidGithubOrg(org) {
+			return "", fmt.Errorf("invalid org %q (expected a GitHub org/user login)", org)
 		}
 		if hasOriginRemote(projectRoot) {
 			out.WriteString("Remote 'origin' already exists; skipping repo creation.\n")
