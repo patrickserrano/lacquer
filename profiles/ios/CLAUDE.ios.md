@@ -102,32 +102,34 @@ gh secret set <NAME> --org {{GITHUB_ORG}}
 
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
 
-## CI Runners — dedicated self-hosted ONLY
+## CI Runners
 
-**Every job in an iOS project's GitHub Actions workflows runs on the dedicated
-self-hosted runner:**
+Split jobs by whether they actually touch Xcode.
+
+**iOS / Xcode work → the dedicated self-hosted runner.** Every job that builds,
+tests, lints, archives, signs, releases, or runs a periphery/dead-code scan:
 
 ```yaml
 runs-on: [self-hosted, macOS, ARM64, dedicated]
 ```
 
-**Never use a GitHub-hosted runner** (`macos-latest`, `ubuntu-latest`, any
-`*-latest` / `macos-*` / `ubuntu-*` label) for iOS build, test, lint, archive,
-dead-code, or release work. The reasons are non-negotiable:
+**Never use a GitHub-hosted macOS runner** (`macos-latest`, `macos-*`) for this
+work — and never run it on a stray self-hosted label like `mac-mini`; use the
+exact `[self-hosted, macOS, ARM64, dedicated]` set. The reasons are non-negotiable:
 
 - **Signing & secrets:** release jobs hold App Store Connect keys and unlock the
-  login keychain — those must only ever exist on infrastructure we control, never
-  a shared GitHub-hosted VM.
+  login keychain — those must only ever exist on infrastructure we control.
 - **Correctness:** the pinned Xcode + simulator runtime lives on the dedicated
   runner; GitHub-hosted macOS images drift and lack our setup.
-- **Cost:** GitHub-hosted macOS minutes are billed per-minute; the dedicated
-  runner is not.
+- **Cost:** GitHub-hosted macOS minutes are billed; the dedicated runner is not.
 
-This applies to **auxiliary jobs too** — a TestFlight-feedback fetch, a
-periphery report upload, a merge gate. If a job in an iOS repo has truly zero
-reason to touch the build (a pure third-party REST call), it still defaults to
-the dedicated runner; only drop to `ubuntu-latest` with a specific, commented
-justification. A stray `*-latest` in an iOS workflow is a bug — fix it.
+**Lightweight / non-Xcode jobs → a GitHub-hosted runner (`ubuntu-latest`).** A
+merge gate (wait-on-checks), a TestFlight-feedback fetch, a report upload, a wiki
+sync, a Vercel/Supabase deploy — anything that's a pure script or REST call with
+no Xcode dependency — runs on `ubuntu-latest`. **Don't tie up the Mac** for work
+that doesn't need it; that's slower and starves the build queue. The test is
+simply: *does this job invoke `xcodebuild` / the simulator / signing?* If yes,
+dedicated; if no, `ubuntu-latest`.
 
 ## Build & Test Tooling (flowdeck)
 

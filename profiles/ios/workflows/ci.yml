@@ -21,7 +21,9 @@ concurrency:
 jobs:
   changes:
     name: Detect changed paths
-    runs-on: [self-hosted, macOS, ARM64, dedicated]
+    # Pure git diff — no Xcode — so it runs on a GitHub-hosted runner and doesn't
+    # tie up the dedicated Mac (see CLAUDE.md "CI Runners").
+    runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
       views: ${{ steps.filter.outputs.views }}
@@ -47,13 +49,12 @@ jobs:
           # docs-only, so CI OK still reports green on docs PRs (no admin bypass).
           # This is an INVERTED test (any non-docs change -> code=true) on purpose:
           # a path ALLOWLIST anchored on {{COMPONENT_PREFIX}} produces the regex
-          # `^(|...)` for a root-layout project (empty prefix), and an empty ERE
-          # alternative is rejected by the runner's ugrep — which silently skipped
-          # EVERY job. The deny-list below has no prefix and no empty alternative,
-          # so it is layout-independent and fails safe (over-run, not under-run).
-          # NOTE: count with `-cv`, do NOT use `grep -qv` — the runner's ugrep
-          # mis-reports `-q -v` (exits 1 even when -v alone selects lines), so a
-          # `-qv` test would wrongly skip every code PR.
+          # `^(|...)` for a root-layout project (empty prefix) — an empty ERE
+          # alternative that some greps reject. The deny-list below has no prefix
+          # and no empty alternative, so it is layout-independent and fails safe
+          # (over-run, not under-run). It is written portably (`-cv` count, no
+          # `-qv`) so it behaves the same on this job's ubuntu GNU grep and on the
+          # self-hosted runner's ugrep, which mis-reports `grep -q -v`.
           nondocs=$(echo "$changed" | grep -cvE '(\.md$|^docs/|^LICENSE$|^\.gitignore$)' || true)
           if [ "${nondocs:-0}" -gt 0 ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
@@ -527,7 +528,9 @@ jobs:
 
   ci-ok:
     name: CI OK
-    runs-on: [self-hosted, macOS, ARM64, dedicated]
+    # Just aggregates the needs[] results — no Xcode — so it runs on a
+    # GitHub-hosted runner (see CLAUDE.md "CI Runners").
+    runs-on: ubuntu-latest
     # The single required status check (branch protection points at "CI OK", not
     # at Lint / Build / Test directly). It ALWAYS runs, so it always reports —
     # even on docs-only PRs where every heavy job skips — so branch protection
