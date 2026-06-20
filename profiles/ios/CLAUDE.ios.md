@@ -102,6 +102,33 @@ gh secret set <NAME> --org {{GITHUB_ORG}}
 
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
 
+## CI Runners — dedicated self-hosted ONLY
+
+**Every job in an iOS project's GitHub Actions workflows runs on the dedicated
+self-hosted runner:**
+
+```yaml
+runs-on: [self-hosted, macOS, ARM64, dedicated]
+```
+
+**Never use a GitHub-hosted runner** (`macos-latest`, `ubuntu-latest`, any
+`*-latest` / `macos-*` / `ubuntu-*` label) for iOS build, test, lint, archive,
+dead-code, or release work. The reasons are non-negotiable:
+
+- **Signing & secrets:** release jobs hold App Store Connect keys and unlock the
+  login keychain — those must only ever exist on infrastructure we control, never
+  a shared GitHub-hosted VM.
+- **Correctness:** the pinned Xcode + simulator runtime lives on the dedicated
+  runner; GitHub-hosted macOS images drift and lack our setup.
+- **Cost:** GitHub-hosted macOS minutes are billed per-minute; the dedicated
+  runner is not.
+
+This applies to **auxiliary jobs too** — a TestFlight-feedback fetch, a
+periphery report upload, a merge gate. If a job in an iOS repo has truly zero
+reason to touch the build (a pure third-party REST call), it still defaults to
+the dedicated runner; only drop to `ubuntu-latest` with a specific, commented
+justification. A stray `*-latest` in an iOS workflow is a bug — fix it.
+
 ## Build & Test Tooling (flowdeck)
 
 **Use `flowdeck` for ALL Apple-platform work** — build, run, test, simulator, device, logs, UI automation. Do NOT use `xcodebuild`, `xcrun`, `simctl`, or `devicectl` directly (raw `simctl`/`devicectl` are typically hook-blocked).
