@@ -1,0 +1,28 @@
+# Git hooks (lefthook). Install once with `npx lefthook install`.
+# Assumes the project package.json defines: typecheck, test, test:coverage, build.
+
+pre-commit:
+  parallel: false
+  commands:
+    # Format + lint staged files with Biome and re-stage the fixes.
+    biome:
+      glob: "*.{ts,tsx,js,jsx,json,jsonc,css}"
+      run: npx biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    typecheck:
+      run: npm run typecheck
+
+pre-push:
+  parallel: true
+  commands:
+    test:
+      run: npm run test:coverage
+    build:
+      run: npm run build
+
+commit-msg:
+  commands:
+    # Conventional Commits — the same shared check the iOS profile uses
+    # (scripts/check-commit-msg.sh is synced from the harness core).
+    conventional:
+      run: scripts/check-commit-msg.sh {1}
