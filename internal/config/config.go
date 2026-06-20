@@ -24,9 +24,19 @@ type Project struct {
 	AscAppID     string   `toml:"asc_app_id"`
 	Xcodeproj    string   `toml:"xcodeproj"`
 	SwiftVersion string   `toml:"swift_version"`
+	GithubOrg    string   `toml:"github_org"`
 	Tools        []string `toml:"tools"`
 	Exclude      []string `toml:"exclude"`
 }
+
+// orgVal matches a GitHub org/user login (alphanumeric, single internal hyphens,
+// no leading hyphen). github_org is substituted into synced docs via
+// {{GITHUB_ORG}}, so it is charset-restricted like every other [project] value.
+var orgVal = regexp.MustCompile(`^[A-Za-z0-9](-?[A-Za-z0-9])*$`)
+
+// ValidGithubOrg reports whether s is a safe GitHub org/user login. Exported so
+// the onboard command validates the same way before passing --org to `gh`.
+func ValidGithubOrg(s string) bool { return orgVal.MatchString(s) }
 
 // Excludes reports whether dest (a project-relative asset path) falls under any
 // configured exclusion prefix, so sync/audit leave that path project-owned.
@@ -122,6 +132,9 @@ func validateProject(p Project) error {
 		return err
 	}
 	if err := check("swift_version", p.SwiftVersion, projVersionVal); err != nil {
+		return err
+	}
+	if err := check("github_org", p.GithubOrg, orgVal); err != nil {
 		return err
 	}
 	for _, t := range p.Tools {

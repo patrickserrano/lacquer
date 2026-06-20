@@ -81,3 +81,16 @@ func TestSubstituteSwiftVersion(t *testing.T) {
 		t.Fatalf("expected {{SWIFT_VERSION}} missing, got %v", m)
 	}
 }
+
+func TestSubstituteGithubOrg(t *testing.T) {
+	vals := Values(config.Project{GithubOrg: "PixelFoxStudio"}, "")
+	out, missing := Substitute("gh secret set X --org {{GITHUB_ORG}}", vals)
+	if len(missing) != 0 || out != "gh secret set X --org PixelFoxStudio" {
+		t.Fatalf("out=%q missing=%v", out, missing)
+	}
+	// github_org is NOT required: a blank value renders empty, never fails closed.
+	out2, m2 := Substitute("--org {{GITHUB_ORG}}", Values(config.Project{}, ""))
+	if len(m2) != 0 || out2 != "--org " {
+		t.Fatalf("blank org should render empty, got out=%q missing=%v", out2, m2)
+	}
+}

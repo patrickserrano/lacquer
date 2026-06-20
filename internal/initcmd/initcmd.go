@@ -41,6 +41,7 @@ func Run(root string) (string, error) {
 	fmt.Fprintf(&b, "swift_version = %q\n", derived.SwiftVersion)
 	b.WriteString("bundle_id = \"\"\n")
 	b.WriteString("asc_app_id = \"\"\n")
+	b.WriteString("github_org = \"\"\n")
 	// Agent tools to provision skills for. New projects default to all supported
 	// tools; trim this list to opt out (an omitted field means claude-only).
 	b.WriteString("tools = [\"claude\", \"codex\", \"antigravity\"]\n")

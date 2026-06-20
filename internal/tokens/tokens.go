@@ -18,6 +18,7 @@ const (
 	AscAppID        = "{{ASC_APP_ID}}"
 	Xcodeproj       = "{{XCODEPROJ}}"
 	SwiftVersion    = "{{SWIFT_VERSION}}"
+	GithubOrg       = "{{GITHUB_ORG}}"
 	ComponentPrefix = "{{COMPONENT_PREFIX}}"
 )
 
@@ -36,6 +37,7 @@ var registry = []entry{
 	{AscAppID, true},
 	{Xcodeproj, true},
 	{SwiftVersion, true},
+	{GithubOrg, false}, // empty is valid: a project may not have a repo/org yet
 	{ComponentPrefix, false},
 }
 
@@ -57,6 +59,7 @@ func Values(p config.Project, prefix string) map[string]string {
 		AscAppID:        p.AscAppID,
 		Xcodeproj:       p.Xcodeproj,
 		SwiftVersion:    p.SwiftVersion,
+		GithubOrg:       p.GithubOrg,
 		ComponentPrefix: prefix,
 	}
 }

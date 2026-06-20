@@ -74,10 +74,21 @@ The harness syncs a `Secrets.xcconfig.example` template into the component dir.
    so treat them as obfuscated, not secret. A truly sensitive secret belongs on a
    server, never in the app.
 
-### CI / release secrets → GitHub Actions (never in the app)
+> **RevenueCat ships two different keys — do not confuse them.** The
+> `REVENUECAT_API_KEY` above is the **public SDK key** (`appl_…`), safe to compile
+> into the app. RevenueCat's **REST API** uses a separate **secret key** (`sk_…`)
+> that grants full account access — it must **never** go in `Secrets.xcconfig` or
+> the binary. It is a CI/server secret (`REVENUECAT_REST_API_KEY`, below).
 
-The release and quality workflows read these from repo/org **GitHub Actions
-secrets** (`gh secret set <NAME>`), not from any xcconfig:
+### CI / server secrets → GitHub Actions (never in the app)
+
+The release and quality workflows — and any server-side job that calls a vendor
+REST API — read these from repo/org **GitHub Actions secrets**, never from an
+xcconfig. Set each at the project's org:
+
+```bash
+gh secret set <NAME> --org {{GITHUB_ORG}}
+```
 
 | Secret | Used by | Source |
 |--------|---------|--------|
@@ -87,6 +98,7 @@ secrets** (`gh secret set <NAME>`), not from any xcconfig:
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
 | `KEYCHAIN_PASSWORD` | release (signing) | the self-hosted runner's login-keychain password |
 | `CLAUDE_CODE_OAUTH_TOKEN` | quality-review | `claude setup-token` |
+| `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → **secret** key (`sk_…`) — full account access |
 
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
 
