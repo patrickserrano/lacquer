@@ -1,0 +1,33 @@
+name: TestFlight Feedback
+
+# Pulls TestFlight beta feedback (tester screenshots + crashes) from App Store
+# Connect and files a deduplicated GitHub issue per new item. Pure REST + `gh`,
+# no Xcode — so it runs on a GitHub-hosted runner (see CLAUDE.md "CI Runners").
+
+on:
+  schedule:
+    - cron: "0 9 * * *" # daily, 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fetch-feedback:
+    name: Fetch and file TestFlight feedback
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Fetch feedback and create issues
+        env:
+          # A DEDICATED, least-privilege App Store Connect key — NOT the
+          # release/signing key. It only needs read access to beta feedback.
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_FEEDBACK_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_FEEDBACK_PRIVATE_KEY }}
+          APP_ID: "{{ASC_APP_ID}}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 .github/scripts/fetch_testflight_feedback.py
