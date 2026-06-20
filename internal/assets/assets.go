@@ -262,6 +262,12 @@ func Copy(projectRoot string, plan []Asset, proj config.Project) error {
 	return nil
 }
 
+// isCruft reports whether a filename is build/tool junk that must never be
+// distributed into a project (compiled bytecode, OS metadata).
+func isCruft(name string) bool {
+	return name == ".DS_Store" || strings.HasSuffix(name, ".pyc")
+}
+
 // walkInto calls fn(absSrc, relPath) for every file under dir. A missing dir is
 // not an error (a profile need not define every asset kind).
 func walkInto(dir string, fn func(src, rel string)) error {
@@ -273,6 +279,15 @@ func walkInto(dir string, fn func(src, rel string)) error {
 			return err
 		}
 		if d.IsDir() {
+			// Never distribute build/tool cruft that may sit on the harness disk
+			// (e.g. a stray __pycache__ from running a synced script during dev).
+			// walkInto walks the filesystem, not git, so .gitignore won't stop it.
+			if d.Name() == "__pycache__" || d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isCruft(d.Name()) {
 			return nil
 		}
 		rel, err := filepath.Rel(dir, path)
