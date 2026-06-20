@@ -38,6 +38,29 @@ func TestComponents(t *testing.T) {
 	}
 }
 
+func TestComponentsDetectsSupabase(t *testing.T) {
+	root := t.TempDir()
+	// supabase/config.toml under server/ marks server/ as a supabase component.
+	mk(t, filepath.Join(root, "server", "supabase", "config.toml"))
+	mk(t, filepath.Join(root, "server", "supabase", "functions", "hello", "index.ts"))
+	mk(t, filepath.Join(root, "ios", "App.xcodeproj", "project.pbxproj"))
+
+	comps, _, err := Components(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, c := range comps {
+		got[c.Path] = c.Profiles[0]
+	}
+	if got["server"] != "supabase" {
+		t.Errorf("expected server -> supabase, got %+v", comps)
+	}
+	if got["ios"] != "ios" {
+		t.Errorf("ios component should still be detected alongside supabase: %+v", comps)
+	}
+}
+
 func TestComponentsIgnoresVendorDirs(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "node_modules", "dep", "package.json"))

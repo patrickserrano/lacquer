@@ -84,6 +84,15 @@ func Components(root string) ([]config.Component, config.Project, error) {
 				nonIos[rel] = profile
 			}
 		}
+		// A Supabase backend is marked by `supabase/config.toml`. The component is
+		// the directory that CONTAINS `supabase/` (e.g. `server/`), not the
+		// supabase dir itself — that's where deno.jsonc / the CLAUDE region land.
+		if d.Name() == "config.toml" && filepath.Base(filepath.Dir(path)) == "supabase" {
+			rel := componentPath(root, filepath.Dir(filepath.Dir(path)))
+			if nonIos[rel] == "" {
+				nonIos[rel] = "supabase"
+			}
+		}
 		return nil
 	})
 	if err != nil {

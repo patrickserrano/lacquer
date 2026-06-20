@@ -1,0 +1,45 @@
+name: Supabase CI
+
+# Deno backend — runs on a GitHub-hosted runner (no Apple toolchain).
+
+on:
+  pull_request:
+    paths:
+      - "{{COMPONENT_PREFIX}}**"
+  push:
+    branches: [main]
+    paths:
+      - "{{COMPONENT_PREFIX}}**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Format · Lint · Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "{{COMPONENT_PREFIX}}."
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Format check
+        run: deno fmt --check
+
+      - name: Lint
+        run: deno lint
+
+      - name: Type check
+        run: deno check supabase/functions/*/index.ts
+
+      - name: Test
+        run: deno test --allow-all supabase/functions/

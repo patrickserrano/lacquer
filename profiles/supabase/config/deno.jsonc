@@ -1,0 +1,23 @@
+{
+  // Deno config for the Supabase backend (Edge Functions live in
+  // supabase/functions/). Run: deno fmt · deno lint · deno test --allow-all
+  "fmt": {
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false,
+    "include": ["supabase/functions/"]
+  },
+  "lint": {
+    "include": ["supabase/functions/"],
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "tasks": {
+    "fmt": "deno fmt",
+    "fmt:check": "deno fmt --check",
+    "lint": "deno lint",
+    "test": "deno test --allow-all supabase/functions/"
+  }
+}
