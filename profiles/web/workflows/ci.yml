@@ -1,0 +1,56 @@
+name: Web CI
+
+# Web work runs on GitHub-hosted runners (no Apple toolchain). Assumes the
+# component's package.json defines: typecheck, test:coverage, build.
+
+on:
+  pull_request:
+    paths:
+      - "{{COMPONENT_PREFIX}}**"
+  push:
+    branches: [main]
+    paths:
+      - "{{COMPONENT_PREFIX}}**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint · Types · Test · Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "{{COMPONENT_PREFIX}}."
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: "{{COMPONENT_PREFIX}}package-lock.json"
+
+      - run: npm ci
+
+      # Biome: format + lint in check mode (no writes, fails on any issue).
+      - name: Biome
+        run: npx biome ci .
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test (coverage)
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+      # Block only on CRITICAL advisories by default — transitive highs are often
+      # unfixable; tighten to `high` (and/or add npm `overrides`) per project.
+      - name: Dependency audit
+        run: npm audit --audit-level=critical
