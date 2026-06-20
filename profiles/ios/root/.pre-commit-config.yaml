@@ -34,3 +34,21 @@ repos:
         entry: scripts/check-secrets.sh
         language: system
         pass_filenames: false
+
+      - id: model-defaults
+        name: SwiftData @Model inline defaults (CloudKit)
+        # Non-optional @Model stored properties without an inline default crash
+        # NSPersistentCloudKitContainer at runtime (Code=134060) — catch it here.
+        entry: scripts/check-model-defaults.sh {{COMPONENT_PREFIX}}.
+        language: system
+        pass_filenames: false
+        files: ^{{COMPONENT_PREFIX}}.*\.swift$
+
+      # Conventional Commits — enforced by a LOCAL script (the harness keeps every
+      # hook local: no remote pre-commit repo runs on every commit = no supply
+      # chain to trust).
+      - id: conventional-commit
+        name: Conventional commit message
+        entry: scripts/check-commit-msg.sh
+        language: system
+        stages: [commit-msg]
