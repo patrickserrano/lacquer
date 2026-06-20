@@ -99,6 +99,13 @@ gh secret set <NAME> --org {{GITHUB_ORG}}
 | `KEYCHAIN_PASSWORD` | release (signing) | the self-hosted runner's login-keychain password |
 | `CLAUDE_CODE_OAUTH_TOKEN` | quality-review | `claude setup-token` |
 | `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → **secret** key (`sk_…`) — full account access |
+| `APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER` | testflight-feedback | a **separate, least-privilege** ASC API key id (read-only) |
+| `APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` | testflight-feedback | issuer id for that key |
+| `APP_STORE_CONNECT_FEEDBACK_PRIVATE_KEY` | testflight-feedback | that key's `.p8` contents |
+
+The TestFlight-feedback job uses its **own** App Store Connect key, distinct from
+the release/signing key (`ASC_*`) — it only needs read access to beta feedback,
+and it runs on a GitHub-hosted runner, so it must never carry the signing key.
 
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
 
