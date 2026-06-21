@@ -1,5 +1,5 @@
 --swiftversion {{SWIFT_VERSION}}
---exclude DerivedData,DerivedData-*
+--exclude DerivedData,DerivedData-*,.build,.swiftpm,**/Generated
 --indent 4
 --indentcase false
 --trimwhitespace always
