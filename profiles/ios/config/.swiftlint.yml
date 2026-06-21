@@ -1,13 +1,17 @@
-included:
-  - "{{PROJECT_NAME}}"
-  - "{{PROJECT_NAME}}Tests"
-
+# No `included` allowlist on purpose. SwiftLint intersects `included` with the
+# path passed on the command line, so a GUESSED source-dir name (e.g.
+# "{{PROJECT_NAME}}/") that doesn't match the project's actual layout (App/,
+# nested, package sources, …) makes SwiftLint find "No lintable files" and
+# silently enforce NOTHING. The CI/pre-commit invocations already pass the
+# component path, so lint everything under it and just exclude build output and
+# generated code — that works for any layout.
 excluded:
-  - "{{PROJECT_NAME}}/Generated"
-  - "**/Package.swift"
+  - "**/Generated"
   - "**/.build"
+  - "**/.swiftpm"
   - "**/DerivedData"
   - "**/DerivedData-*"
+  - "**/Package.swift"
 
 opt_in_rules:
   - closure_body_length
