@@ -52,7 +52,26 @@ jobs:
             --type IOS_APP_STORE \
             --create
 
+      - name: Unlock login keychain
+        env:
+          # Org-level secret (always set): the dedicated runner's login-keychain
+          # password.
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Use the runner's EXISTING system login keychain — never create a
+          # temporary one. A fresh keychain pops an interactive unlock dialog on
+          # the dedicated Mac runner that hangs the job; the login keychain already
+          # holds the signing identity. Unlock it and grant codesign/productsign
+          # non-interactive access to the key (set-key-partition-list).
+          KEYCHAIN=~/Library/Keychains/login.keychain-db
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
       - name: Add certificates to keychain
+        # No `keychain initialize` — so codemagic adds the fetched cert to the
+        # system default (login) keychain we just unlocked, not a fresh temporary
+        # one.
         run: keychain add-certificates
 
       - name: Set Xcode project code signing
