@@ -25,11 +25,23 @@ jobs:
         id: module
         run: |
           set -euo pipefail
-          module=$(find {{COMPONENT_PREFIX}}{{PROJECT_NAME}}/Features -mindepth 1 -maxdepth 1 -type d | sort | shuf -n 1)
+          # Find any Features/ directory under the component without assuming
+          # its parent's name (source dir may be App/, Sources/, etc.), then
+          # pick one module portably — stock macOS has no shuf.
+          module=$(find {{COMPONENT_PREFIX}}. -type d -name Features -not -path '*/.build/*' -not -path '*/DerivedData*/*' \
+            -exec sh -c 'ls -d "$1"/*/ 2>/dev/null' _ {} \; \
+            | awk 'BEGIN{srand()} {a[NR]=$0} END{if(NR>0) printf "%s", a[int(rand()*NR)+1]}')
+          if [ -z "$module" ]; then
+            echo "::notice::No feature modules found under a Features/ directory — skipping quality review."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
           echo "module=$module" >> "$GITHUB_OUTPUT"
           echo "Selected module: $module"
 
       - name: Run Claude Code quality review
+        if: steps.module.outputs.found == 'true'
         uses: anthropics/claude-code-action@558b1d6cab4085c7753fe402c10bef0fbb92ac7a # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
