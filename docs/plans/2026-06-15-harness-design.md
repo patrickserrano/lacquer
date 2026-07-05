@@ -6,6 +6,22 @@ A central system that standardizes how Claude Code works across every project in
 `~/developer`, lets projects learn from each other, and makes onboarding a new
 project (or a new component within a project) a single command.
 
+> **Implementation status (2026-07-05).** This document is the original design
+> and describes more surface than is built. Treat it as intent, not as current
+> behavior.
+>
+> - **Built:** `harness init`, `harness onboard`, `harness sync` (managed regions
+>   + whole-file assets, `.harness.lock` clobber guard, `--force`), `harness
+>   status`, `harness audit` (drift classification, exit 3 as a CI gate),
+>   `harness version`; the `core`, `ios`, `web`, and `supabase` profiles;
+>   `.harness.toml` component/profile detection and `{{TOKEN}}` substitution.
+> - **Not built (aspirational below):** `harness new`, `harness scaffold`,
+>   `harness harvest`, `harness upgrade [--all]`, `harness sync --component X`,
+>   the committed/regenerated `registry.json` fleet view, and the scaffolded
+>   Renovate presets (`renovate-base.json5`, per-component `renovate.json5`).
+>   The bidirectional "harvest up" loop is currently manual (edit the profile in
+>   the harness repo and open a PR).
+
 ## Problem
 
 Today the `ios-template` repo is a **fork-once** template: a new project copies it,
