@@ -82,5 +82,10 @@ pre-commit.
 - `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-
   tested. The synced `supabase-ci.yml` runs `deno fmt --check`, `deno lint`,
   `deno check`, and `deno test` on `ubuntu-latest`.
+- CI also **checks the schema, not just the functions**: `supabase db lint
+  --level warning` (Splinter — flags missing-RLS / security-definer issues) and
+  `supabase test db` (pgTAP against `supabase/tests/*.sql`, no-op until you add
+  the first test). Write pgTAP tests that assert RLS actually denies cross-user
+  access — the lint catches a *missing* policy, a test catches a *wrong* one.
 - See the **supabase-postgres-best-practices** skill for schema design, indexing,
   RLS performance, and query patterns.

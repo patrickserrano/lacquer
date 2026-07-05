@@ -91,6 +91,58 @@ jobs:
       - name: Test
         run: deno test --allow-all supabase/functions/
 
+  lint-database:
+    name: DB Lint (Splinter)
+    # CLAUDE.supabase.md calls RLS "the security boundary" — Splinter (supabase db
+    # lint) is what actually enforces it in CI, catching missing-RLS and
+    # security-definer issues the Edge-Function checks never see.
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    defaults:
+      run:
+        working-directory: "{{COMPONENT_PREFIX}}."
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
+        with:
+          version: latest
+
+      # Boots Postgres + applies migrations; a broken migration fails here (desired).
+      - name: Start local stack
+        run: supabase start
+
+      - name: Lint database schema
+        run: supabase db lint --level warning
+
+  test-database:
+    name: DB Tests (pgTAP)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    defaults:
+      run:
+        working-directory: "{{COMPONENT_PREFIX}}."
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
+        with:
+          version: latest
+
+      - name: Start local stack
+        run: supabase start
+
+      # No-op gracefully until the project adds its first pgTAP test.
+      - name: Run pgTAP tests
+        run: |
+          if ls supabase/tests/*.sql >/dev/null 2>&1; then
+            supabase test db
+          else
+            echo "no pgTAP tests yet"
+          fi
+
   ci-ok:
     name: CI OK
     # Just aggregates the needs[] results — no toolchain — so it always runs and
@@ -99,16 +151,18 @@ jobs:
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
     runs-on: ubuntu-latest
-    needs: [changes, check]
+    needs: [changes, check, lint-database, test-database]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} lint-database=${{ needs.lint-database.result }} test-database=${{ needs.test-database.result }}"
           for r in \
             "${{ needs.changes.result }}" \
-            "${{ needs.check.result }}"; do
+            "${{ needs.check.result }}" \
+            "${{ needs.lint-database.result }}" \
+            "${{ needs.test-database.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"
               exit 1
