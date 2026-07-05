@@ -350,6 +350,17 @@ jobs:
 
           echo "Simulator ready: CI-iPhone ($DEVICE_ID)"
 
+      - name: Suppress crash-reporter dialogs
+        env:
+          DEVICE_ID: ${{ steps.simulator.outputs.device_id }}
+        run: |
+          # A crashing test can pop a macOS CrashReporter modal that wedges the
+          # dedicated Mac until someone dismisses it. Disable the dialogs host-
+          # side and inside the booted simulator (last line is best-effort).
+          defaults write com.apple.CrashReporter DialogType none
+          defaults write com.apple.iphonesimulator ShowCrashReporter -bool NO
+          xcrun simctl spawn "$DEVICE_ID" defaults write com.apple.CrashReporter DialogType none || true
+
       - name: Run Tests
         id: tests
         # The hang-prone step: `xcodebuild test` drives a simulator test session
