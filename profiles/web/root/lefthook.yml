@@ -1,23 +1,40 @@
 # Git hooks (lefthook). Install once with `npx lefthook install`.
 # Assumes the project package.json defines: typecheck, test, test:coverage, build.
+#
+# `root: "{{COMPONENT_PREFIX}}"` scopes each command to its component. For a
+# nested layout it renders `root: "ios/"`: lefthook cds into that directory (so a
+# component with no ROOT package.json still finds its own) and filters
+# {staged_files} to that subtree, cutting the prefix — so a commit that doesn't
+# touch the component skips these hooks. For a root layout it renders `root: ""`,
+# which lefthook treats as the repo root with no file filtering. The secrets scan
+# is intentionally NOT scoped: the shared script reads the full staged set itself.
 
 pre-commit:
   parallel: false
   commands:
     # Format + lint staged files with Biome and re-stage the fixes.
     biome:
+      root: "{{COMPONENT_PREFIX}}"
       glob: "*.{ts,tsx,js,jsx,json,jsonc,css}"
       run: npx biome check --write --no-errors-on-unmatched {staged_files}
       stage_fixed: true
     typecheck:
+      root: "{{COMPONENT_PREFIX}}"
       run: npm run typecheck
+    # Scan every staged file for hardcoded secrets — repo-wide, not component-
+    # scoped: check-secrets.sh reads `git diff --cached` itself (no root, no
+    # {staged_files}). Mirrors the iOS profile's `no-secrets` pre-commit hook.
+    secrets:
+      run: scripts/check-secrets.sh
 
 pre-push:
   parallel: true
   commands:
     test:
+      root: "{{COMPONENT_PREFIX}}"
       run: npm run test:coverage
     build:
+      root: "{{COMPONENT_PREFIX}}"
       run: npm run build
 
 commit-msg:
