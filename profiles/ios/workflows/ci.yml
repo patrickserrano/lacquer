@@ -169,7 +169,7 @@ jobs:
       - name: Install xcpretty
         run: |
           gem install xcpretty -v 0.4.1 --user-install --no-document
-          echo "XCPRETTY=$(ruby -e 'puts Gem.bindir')/xcpretty" >> $GITHUB_ENV
+          echo "XCPRETTY=$(ruby -e 'puts File.join(Gem.user_dir, "bin", "xcpretty")')" >> $GITHUB_ENV
 
       - name: Build Release
         run: |
@@ -246,7 +246,7 @@ jobs:
       - name: Install xcpretty
         run: |
           gem install xcpretty -v 0.4.1 --user-install --no-document
-          echo "XCPRETTY=$(ruby -e 'puts Gem.bindir')/xcpretty" >> $GITHUB_ENV
+          echo "XCPRETTY=$(ruby -e 'puts File.join(Gem.user_dir, "bin", "xcpretty")')" >> $GITHUB_ENV
 
       - name: Clean stale build intermediates
         run: |
