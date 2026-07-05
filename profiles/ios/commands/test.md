@@ -24,9 +24,9 @@ Run tests for {{PROJECT_NAME}} using flowdeck (see CLAUDE.md "Build & Test Tooli
    flowdeck test -w {{XCODEPROJ}} -s {{SCHEME}} -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
    ```
    - If no argument: run the command above as-is (all tests).
-   - If `$ARGUMENTS` is provided: flowdeck test supports test selection —
-     consult the flowdeck skill for its test-filter flag and pass the module
-     name through it. Do NOT guess or invent a flag name.
+   - If `$ARGUMENTS` is provided: append `--only <TargetName>/<ClassName>` (or
+     `--test-targets <name>` to scope to a whole test target) to run just that
+     module's tests. See `flowdeck test --help` for the exact selection format.
 
 3. Parse test results and report:
    - Total tests run
