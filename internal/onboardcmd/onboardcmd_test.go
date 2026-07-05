@@ -153,6 +153,57 @@ func TestOnboardFallsBackToManifestOrg(t *testing.T) {
 	}
 }
 
+// With a manifest that declares no [project].name, the repo name falls back to
+// the project directory's basename.
+func TestOnboardRepoNameFallsBackToDirBasename(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "Widgetsmith")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, root)
+	// Manifest present but nameless — repoName must use the dir basename.
+	if err := os.WriteFile(filepath.Join(root, ".harness.toml"), []byte("[project]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var gotName string
+	orig := ghCreate
+	ghCreate = func(dir, org, name string) error { gotName = name; return nil }
+	defer func() { ghCreate = orig }()
+
+	if _, err := Run(harnessIOS(t), root, "AcmeOrg", true); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotName != "Widgetsmith" {
+		t.Errorf("repo name = %q, want Widgetsmith (dir basename)", gotName)
+	}
+}
+
+// A nameless manifest in a directory whose basename isn't a safe repo name must
+// be rejected before reaching `gh`, rather than passing an unsafe name through.
+func TestOnboardRejectsUnsafeDirBasename(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "-rf")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, root)
+	if err := os.WriteFile(filepath.Join(root, ".harness.toml"), []byte("[project]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	orig := ghCreate
+	ghCreate = func(dir, org, name string) error { called = true; return nil }
+	defer func() { ghCreate = orig }()
+
+	if _, err := Run(harnessIOS(t), root, "AcmeOrg", true); err == nil {
+		t.Fatal("expected rejection of an unsafe dir-basename repo name")
+	}
+	if called {
+		t.Error("ghCreate must not be called with an unsafe derived name")
+	}
+}
+
 func TestOnboardSurfacesMalformedManifest(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
