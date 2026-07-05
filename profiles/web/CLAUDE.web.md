@@ -5,6 +5,15 @@ harness web stack is **TypeScript + Biome + Vitest + lefthook**, deployed to
 Vercel/Cloudflare; the framework (Next.js / Vite / a Node API) is per-project.
 Web jobs run on GitHub-hosted runners — there is no Apple toolchain here.
 
+## Read the vendored framework docs first
+
+If the component's framework ships its own docs inside the dependency (e.g. under
+`node_modules/<framework>/dist/docs/`, as Next.js and some others do), read the
+relevant guide there **before** writing code against it. The installed major may
+carry breaking API changes versus your training data, and these fast-moving
+frameworks routinely deprecate or rename APIs — trust the vendored copy over
+memory and heed its deprecation notices.
+
 ## Required package.json scripts
 
 The synced CI and git hooks assume these scripts exist — define them:
