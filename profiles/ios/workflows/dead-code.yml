@@ -106,7 +106,7 @@ jobs:
 
   create-issue:
     name: Create Tracking Issue
-    runs-on: [self-hosted, macOS, ARM64, dedicated]
+    runs-on: ubuntu-latest
     needs: [periphery]
     permissions:
       # `gh issue list/comment/create` needs issues; checkout needs contents.
