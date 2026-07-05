@@ -11,6 +11,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      whats_new:
+        description: "TestFlight 'What's New' notes (blank = auto-generate from commits)"
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: ios-release
@@ -115,6 +120,14 @@ jobs:
           echo "Build number: $LATEST -> $NEXT"
           cd {{COMPONENT_PREFIX}}. && agvtool new-version -all "$NEXT"
 
+      - name: Clean stale build intermediates
+        run: |
+          # Gitignored output from a prior run persists between runs on the
+          # dedicated runner; stale intermediates cause Swift incremental-
+          # compilation exit-65 crashes during archive. Remove the archive/export
+          # output dir the workflow creates.
+          rm -rf "{{COMPONENT_PREFIX}}build"
+
       - name: Build and archive
         run: |
           set -o pipefail
@@ -144,15 +157,51 @@ jobs:
             -exportPath {{COMPONENT_PREFIX}}build/ \
             2>&1 | xcpretty
 
+      - name: Prepare TestFlight release notes
+        id: whats_new
+        if: ${{ github.event.inputs.skip_testflight != 'true' }}
+        env:
+          # Untrusted workflow_dispatch input — passed via env and only ever
+          # written to a file with a quoted variable, never interpolated into
+          # the script body, so metacharacters cannot inject shell commands.
+          WHATS_NEW_INPUT: ${{ github.event.inputs.whats_new }}
+        run: |
+          set -euo pipefail
+          notes_file="whats-new.txt"
+          if [ -n "${WHATS_NEW_INPUT:-}" ]; then
+            # Explicit notes provided — write verbatim (quoted var, no eval).
+            printf '%s\n' "$WHATS_NEW_INPUT" > "$notes_file"
+          else
+            # Auto-generate from conventional-commit feat/fix/perf subjects since
+            # the previous tag. git log output is redirected straight to a file —
+            # never eval'd — so subjects with shell metacharacters are inert.
+            last_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -n "$last_tag" ]; then range="${last_tag}..HEAD"; else range="HEAD"; fi
+            git log "$range" --no-merges --format='%s' \
+              | grep -iE '^(feat|fix|perf)(\([^)]*\))?!?:' \
+              | sed -E 's/^[a-zA-Z]+(\([^)]*\))?!?:[[:space:]]*/- /' \
+              | cut -c1-200 \
+              > "$notes_file" || true
+            if [ ! -s "$notes_file" ]; then
+              printf '%s\n' "Bug fixes and performance improvements." > "$notes_file"
+            fi
+          fi
+          # App Store Connect caps "What's New" at 4000 chars — trim with headroom.
+          head -c 3900 "$notes_file" > "${notes_file}.capped"
+          mv "${notes_file}.capped" "$notes_file"
+          echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+
       - name: Upload to TestFlight
         if: ${{ github.event.inputs.skip_testflight != 'true' }}
         env:
           APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.ASC_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
+          NOTES_FILE: ${{ steps.whats_new.outputs.notes_file }}
         run: |
           app-store-connect publish \
-            --path {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa
+            --path {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa \
+            --whats-new "$(cat "$NOTES_FILE")"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7.0.1

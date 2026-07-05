@@ -2,8 +2,10 @@ name: Cleanup CI Runner
 
 on:
   schedule:
-    # Run every hour at minute 0
-    - cron: '0 * * * *'
+    # The only timer-driven job in the profile. Runs once daily at 07:00 UTC —
+    # waking the dedicated runner 24x/day for a mostly-no-op janitorial job is
+    # wasteful and can race live PR jobs.
+    - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       cleanup_level:

@@ -79,9 +79,16 @@ type_contents_order:
 custom_rules:
   no_singleton_abuse:
     name: "Avoid .shared singletons"
-    regex: "\\.shared(?!Container|Instance\\(\\)|\\(\\))"
+    # Negative lookbehinds exempt framework-mandated singletons that have no DI
+    # alternative — UIApplication.shared and URLSession.shared are fully general
+    # (every iOS app uses them). Bare app-level `.shared` is still flagged.
+    regex: "(?<!UIApplication)(?<!URLSession)\\.shared(?!Container|Instance\\(\\)|\\(\\))"
     message: "Prefer dependency injection over singletons"
     severity: warning
+    # To exempt ONE sanctioned DI-seam file that wraps a vendor `.shared`
+    # (RevenueCat's Purchases.shared, Firebase, etc.), scope it rather than
+    # disabling the rule inline:
+    #   excluded: ".*MyVendorGateway\\.swift$"
 
   sendable_protocol:
     name: "Protocols should require Sendable"

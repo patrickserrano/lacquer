@@ -18,11 +18,11 @@ specifics (Swift, SwiftUI, Node, etc.) live in the matching profile body.
 
 6. **Use expert agents and orchestrate them to find the best solution.** When in doubt, stop and ask for input or clarification.
 
-7. **NEVER disable linting rules without explicit user confirmation.** If code triggers a lint error, FIX THE CODE. Do not add `disable` directives or any similar escape hatches. If you believe a disable comment is truly necessary, STOP and ask the user first.
+7. **NEVER disable linting rules without explicit user confirmation.** If code triggers a lint error, FIX THE CODE. Do not add `// swiftlint:disable`, `// swiftformat:disable`, `// biome-ignore`, `// eslint-disable`, `// deno-lint-ignore`, `@ts-ignore`/`@ts-expect-error`, `@available`, or any similar suppression. If you truly believe a suppression is necessary, STOP and ask the user first.
 
-8. **NEVER bypass CI checks or use force flags without explicit user confirmation.** Do not use `--force`, `--no-verify`, or any other flags that bypass safety checks. If CI is failing, FIX THE ISSUE.
+8. **NEVER bypass CI checks or use force flags without explicit user confirmation.** Do not use `--force`, `--force-with-lease`, `--no-verify`, `--admin` (bypasses branch protection on `gh pr merge`), or any other flags that bypass safety checks. Do not merge a PR with failing or pending required checks. If CI is failing, FIX THE ISSUE.
 
-9. **Pre-existing failures are your failures.** If tests fail or builds break — even if the issue existed before your changes — it is your responsibility to fix it.
+9. **Pre-existing failures are your failures.** If tests fail or builds break — even if the issue existed before your changes — it is your responsibility to fix it. If you genuinely cannot fix a pre-existing failure, STOP and ask for guidance rather than working around it.
 
 10. **Always update related tests when modifying code.** Tests are not optional maintenance — they are part of the deliverable.
 
