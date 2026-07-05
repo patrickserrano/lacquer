@@ -1,0 +1,37 @@
+name: Supabase Health Canary
+
+# Free-tier Supabase projects auto-pause after inactivity — silently. This daily
+# canary pings the REST gateway and fails loudly if the project paused or the API
+# broke. Skips (does not fail) when the secrets aren't configured. Set the
+# documented SUPABASE_URL / SUPABASE_ANON_KEY repo secrets to arm it.
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: Ping REST gateway
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST gateway
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::notice::SUPABASE_URL/ANON_KEY not set — skipping health canary."; exit 0
+          fi
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "apikey: $SUPABASE_ANON_KEY" "$SUPABASE_URL/rest/v1/")
+          echo "REST gateway HTTP $STATUS"
+          # A 401/404 still proves the gateway is UP (auth/routing reached); only a
+          # network failure (000) or a 5xx means the project is paused or down.
+          case "$STATUS" in
+            2*|3*|401|404) echo "gateway reachable" ;;
+            *) echo "::error::Supabase REST gateway returned $STATUS — project may be paused or down"; exit 1 ;;
+          esac
