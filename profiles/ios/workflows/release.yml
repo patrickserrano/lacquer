@@ -115,6 +115,14 @@ jobs:
           echo "Build number: $LATEST -> $NEXT"
           cd {{COMPONENT_PREFIX}}. && agvtool new-version -all "$NEXT"
 
+      - name: Clean stale build intermediates
+        run: |
+          # Gitignored output from a prior run persists between runs on the
+          # dedicated runner; stale intermediates cause Swift incremental-
+          # compilation exit-65 crashes during archive. Remove the archive/export
+          # output dir the workflow creates.
+          rm -rf "{{COMPONENT_PREFIX}}build"
+
       - name: Build and archive
         run: |
           set -o pipefail
