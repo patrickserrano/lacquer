@@ -130,25 +130,31 @@ def fetch(kind: str, app_id: str, token: str) -> list:
 
 
 def dedup_marker(feedback_id: str) -> str:
-    """The exact marker text create_issue embeds (inside an HTML comment).
+    """The exact HTML-comment marker create_issue embeds in the issue body.
 
-    sanitize() strips `<!--`/`-->` from tester text, so the marker's enclosing
-    comment — and therefore a script-filed issue for this id — cannot be forged
-    from tester input.
+    sanitize() strips `<!--`/`-->` from tester text, so this full string can
+    only ever be written by this script — never forged from tester input.
     """
-    return f"tf-feedback-id: {feedback_id}"
+    return f"<!-- tf-feedback-id: {feedback_id} -->"
 
 
 def issue_exists(feedback_id: str) -> bool:
-    """True if an issue already references this feedback id (dedup, stateless)."""
+    """True if an issue already references this feedback id (dedup, stateless).
+
+    Two-phase: GitHub search matches loose tokens anywhere in a body (a tester
+    comment quoting an id would match), so the search only nominates candidates;
+    dedup is decided by an exact-substring check for the full HTML-comment
+    marker, which sanitize() guarantees tester text can never contain.
+    """
     res = subprocess.run(
-        # `--search=<marker>` (not `--search <marker>`) so a value starting with
-        # `-` can never be parsed as a flag. The search string is the exact
-        # marker create_issue writes.
+        # `--search=<id>` (not `--search <id>`) so an id starting with `-` can
+        # never be parsed as a flag.
         ["gh", "issue", "list", "--state", "all", "--label", LABEL,
-         f"--search={dedup_marker(feedback_id)}", "--json", "number"],
+         f"--search={feedback_id}", "--json", "body"],
         capture_output=True, text=True, check=True)
-    return bool(json.loads(res.stdout or "[]"))
+    marker = dedup_marker(feedback_id)
+    return any(marker in issue.get("body", "")
+               for issue in json.loads(res.stdout or "[]"))
 
 
 def create_issue(f: dict) -> None:
@@ -165,8 +171,8 @@ def create_issue(f: dict) -> None:
         body += f"\n**Comment:**\n\n{quoted}\n"
     if f["crashLog"]:
         body += f"\n**Crash log:** {f['crashLog']}\n"
-    # Hidden marker the dedup search matches on (see dedup_marker).
-    body += f"\n<!-- {dedup_marker(f['id'])} -->\n"
+    # Hidden marker the dedup verify pass matches on (see issue_exists).
+    body += f"\n{dedup_marker(f['id'])}\n"
     subprocess.run(
         ["gh", "issue", "create", "--label", LABEL, "--title", title, "--body", body],
         check=True)
