@@ -9,14 +9,23 @@ import (
 	"strings"
 
 	"github.com/patrickserrano/harness/internal/detect"
+	"github.com/patrickserrano/harness/internal/safepath"
 )
 
 // Run detects components under root and writes a .harness.toml. It refuses to
 // overwrite an existing manifest. It returns a human-readable summary of what it
 // wrote and which [project] values still need filling.
 func Run(root string) (string, error) {
-	manifest := filepath.Join(root, ".harness.toml")
-	if _, err := os.Stat(manifest); err == nil {
+	manifest, err := safepath.Resolve(root, ".harness.toml")
+	if err != nil {
+		return "", fmt.Errorf("resolve .harness.toml: %w", err)
+	}
+	// Lstat (not Stat): a dangling symlink must read as "present" so os.WriteFile
+	// can never follow it and create a file outside the project root.
+	if fi, err := os.Lstat(manifest); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("refusing to write through symlink: %s", manifest)
+		}
 		return "", fmt.Errorf(".harness.toml already exists at %s; refusing to overwrite", manifest)
 	} else if !os.IsNotExist(err) {
 		return "", err
@@ -81,13 +90,27 @@ func Run(root string) (string, error) {
 // already exist. It reports whether it wrote the file. An existing brief is never
 // overwritten — the brief is project-owned, human-authored content.
 func writeBriefStub(root, name string) (bool, error) {
-	brief := filepath.Join(root, "docs", "brief.md")
-	if _, err := os.Stat(brief); err == nil {
+	// safepath.Resolve refuses a docs/ symlink that escapes the project root;
+	// the Lstat checks below refuse any remaining symlink at the final elements.
+	brief, err := safepath.Resolve(root, filepath.Join("docs", "brief.md"))
+	if err != nil {
+		return false, fmt.Errorf("resolve docs/brief.md: %w", err)
+	}
+	if fi, err := os.Lstat(brief); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return false, fmt.Errorf("refusing to write through symlink: %s", brief)
+		}
 		return false, nil // already present — leave it alone
 	} else if !os.IsNotExist(err) {
 		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(brief), 0o755); err != nil {
+	// The docs dir itself must not be a symlink either: MkdirAll/WriteFile would
+	// follow it into whatever it points at.
+	dir := filepath.Dir(brief)
+	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("refusing to write through symlink: %s", dir)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
 	stub := fmt.Sprintf(briefTemplate, name)
