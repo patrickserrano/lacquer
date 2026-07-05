@@ -14,6 +14,11 @@ on:
     paths:
       - '{{COMPONENT_PREFIX}}**'
 
+# No job talks to the GitHub API (caches/artifacts/step summaries use the
+# Actions runtime token, not GITHUB_TOKEN) — checkout is all the token does.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

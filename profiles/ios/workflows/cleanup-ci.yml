@@ -16,6 +16,12 @@ on:
           - aggressive
           - nuclear
 
+permissions:
+  # `gh run list` (read-only run queries) plus checkout; everything else the
+  # job does is local process/simulator cleanup needing no token scope.
+  actions: read
+  contents: read
+
 jobs:
   cleanup:
     name: Cleanup Runner
