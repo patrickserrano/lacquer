@@ -96,7 +96,7 @@ gh secret set <NAME> --org {{GITHUB_ORG}}
 | `ASC_ISSUER_ID` | release | same page (issuer ID) |
 | `ASC_KEY_CONTENT` | release | the `.p8` private key contents |
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
-| `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own) |
+| `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step re-locks it so the keychain never stays unlocked past the job) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | quality-review | `claude setup-token` |
 | `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → **secret** key (`sk_…`) — full account access |
 | `APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER` | testflight-feedback | a **separate, least-privilege** ASC API key id (read-only) |
@@ -125,7 +125,8 @@ work — and never run it on a stray self-hosted label like `mac-mini`; use the
 exact `[self-hosted, macOS, ARM64, dedicated]` set. The reasons are non-negotiable:
 
 - **Signing & secrets:** release jobs hold App Store Connect keys and unlock the
-  login keychain — those must only ever exist on infrastructure we control.
+  login keychain (re-locking it when the job ends) — those must only ever exist
+  on infrastructure we control.
 - **Correctness:** the pinned Xcode + simulator runtime lives on the dedicated
   runner; GitHub-hosted macOS images drift and lack our setup.
 - **Cost:** GitHub-hosted macOS minutes are billed; the dedicated runner is not.
