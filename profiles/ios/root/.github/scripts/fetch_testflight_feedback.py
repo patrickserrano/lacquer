@@ -37,8 +37,13 @@ def sanitize(text: str) -> str:
     With `<!--`/`-->` removed, an HTML comment in an issue body — in
     particular the hidden `tf-feedback-id` dedup marker — can only ever be
     produced by this script, never forged by a tester.
+
+    Must strip to a FIXPOINT: a single replace pass can splice adjacent
+    characters into a fresh delimiter (`<!<!----` -> `<!--`).
     """
-    return text.replace("<!--", "").replace("-->", "")
+    while "<!--" in text or "-->" in text:
+        text = text.replace("<!--", "").replace("-->", "")
+    return text
 
 
 def _b64url(data: bytes) -> str:
