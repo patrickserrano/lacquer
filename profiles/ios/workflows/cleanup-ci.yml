@@ -43,13 +43,17 @@ jobs:
           # Check all workflows that use the dedicated runner
           IOS_RUNNING=$(gh run list --workflow=ios-ci.yml --status=in_progress --json databaseId --jq 'length')
           IOS_RELEASE_RUNNING=$(gh run list --workflow=ios-release.yml --status=in_progress --json databaseId --jq 'length')
-          DEAD_CODE_RUNNING=$(gh run list --workflow=dead-code.yml --status=in_progress --json databaseId --jq 'length')
+          DEAD_CODE_RUNNING=$(gh run list --workflow=ios-dead-code.yml --status=in_progress --json databaseId --jq 'length')
+          DEP_AUDIT_RUNNING=$(gh run list --workflow=ios-dependency-audit.yml --status=in_progress --json databaseId --jq 'length')
+          QUALITY_REVIEW_RUNNING=$(gh run list --workflow=ios-quality-review.yml --status=in_progress --json databaseId --jq 'length')
 
-          TOTAL_RUNNING=$((IOS_RUNNING + IOS_RELEASE_RUNNING + DEAD_CODE_RUNNING))
+          TOTAL_RUNNING=$((IOS_RUNNING + IOS_RELEASE_RUNNING + DEAD_CODE_RUNNING + DEP_AUDIT_RUNNING + QUALITY_REVIEW_RUNNING))
 
           echo "  ios-ci.yml: $IOS_RUNNING"
           echo "  ios-release.yml: $IOS_RELEASE_RUNNING"
-          echo "  dead-code.yml: $DEAD_CODE_RUNNING"
+          echo "  ios-dead-code.yml: $DEAD_CODE_RUNNING"
+          echo "  ios-dependency-audit.yml: $DEP_AUDIT_RUNNING"
+          echo "  ios-quality-review.yml: $QUALITY_REVIEW_RUNNING"
           echo "  Total: $TOTAL_RUNNING"
 
           if [ "$TOTAL_RUNNING" -gt 0 ]; then

@@ -3,3 +3,4 @@ node_modules/
 bin/
 __pycache__/
 *.pyc
+.worktrees/

@@ -1,10 +1,10 @@
 ---
 description: Run tests for the iOS app or specific module
 argument-hint: <optional-module-name>
-allowed-tools: mcp__XcodeBuildMCP__*
+allowed-tools: Bash(flowdeck *)
 ---
 
-Run tests for {{PROJECT_NAME}}. Optionally specify a module name to filter tests.
+Run tests for {{PROJECT_NAME}} using flowdeck (see CLAUDE.md "Build & Test Tooling").
 
 ## Arguments
 
@@ -12,15 +12,21 @@ Run tests for {{PROJECT_NAME}}. Optionally specify a module name to filter tests
 
 ## Steps
 
-1. Ensure session defaults are configured for XcodeBuildMCP:
-   - projectPath: ios/{{PROJECT_NAME}}.xcodeproj
-   - scheme: {{SCHEME}}
-   - useLatestOS: true
-   - suppressWarnings: true
+1. Get a simulator UDID:
+   ```
+   flowdeck simulator list
+   ```
+   Pick an available iOS simulator and use its **UDID** — simulator names are
+   ambiguous across OS versions, so never pass a name.
 
 2. Run tests:
-   - If no argument: `mcp__XcodeBuildMCP__test_sim` (all tests)
-   - If argument provided: run with filter for that module
+   ```
+   flowdeck test -w {{XCODEPROJ}} -s {{SCHEME}} -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
+   ```
+   - If no argument: run the command above as-is (all tests).
+   - If `$ARGUMENTS` is provided: append `--only <TargetName>/<ClassName>` (or
+     `--test-targets <name>` to scope to a whole test target) to run just that
+     module's tests. See `flowdeck test --help` for the exact selection format.
 
 3. Parse test results and report:
    - Total tests run

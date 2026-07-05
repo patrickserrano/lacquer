@@ -7,9 +7,9 @@ Run all code quality tools to format and lint the iOS codebase.
 
 ## Steps
 
-1. Run SwiftFormat: `swiftformat ios/ --config ios/.swiftformat`
-2. Run SwiftLint auto-correct: `swiftlint --fix --config ios/.swiftlint.yml ios/`
-3. Run SwiftLint check: `swiftlint --strict --config ios/.swiftlint.yml ios/`
+1. Run SwiftFormat: `swiftformat --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.`
+2. Run SwiftLint auto-correct: `swiftlint --fix --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}.`
+3. Run SwiftLint check: `swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}.`
 
 ## Expected Output
 
