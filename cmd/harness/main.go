@@ -31,7 +31,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "init":
-		summary, err := initcmd.Run(projectRoot)
+		summary, err := initcmd.Run(harnessRoot, projectRoot)
 		if err != nil {
 			fail(err)
 		}
@@ -43,7 +43,7 @@ func main() {
 		org := fs.String("org", "", "GitHub org for repo creation (required unless --no-repo)")
 		noRepo := fs.Bool("no-repo", false, "do not create a repo even if no remote exists")
 		_ = fs.Parse(os.Args[2:])
-		summary, err := onboardcmd.Run(projectRoot, *org, !*noRepo)
+		summary, err := onboardcmd.Run(harnessRoot, projectRoot, *org, !*noRepo)
 		if err != nil {
 			fail(err)
 		}

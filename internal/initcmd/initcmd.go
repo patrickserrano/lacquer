@@ -15,7 +15,14 @@ import (
 // Run detects components under root and writes a .harness.toml. It refuses to
 // overwrite an existing manifest. It returns a human-readable summary of what it
 // wrote and which [project] values still need filling.
-func Run(root string) (string, error) {
+//
+// harnessRoot is the harness checkout: a detected profile is only written into
+// the manifest when it actually ships there (profiles/<p>/CLAUDE.<p>.md exists).
+// A detected stack with no shipping profile (e.g. rust/go today) would otherwise
+// make the next `harness sync` fail with an opaque "no such file" — so its
+// component is still recorded (with an empty profiles list) and a notice is
+// printed instead.
+func Run(harnessRoot, root string) (string, error) {
 	manifest, err := safepath.Resolve(root, ".harness.toml")
 	if err != nil {
 		return "", fmt.Errorf("resolve .harness.toml: %w", err)
@@ -34,6 +41,23 @@ func Run(root string) (string, error) {
 	comps, derived, err := detect.Components(root)
 	if err != nil {
 		return "", fmt.Errorf("detect components: %w", err)
+	}
+
+	// Keep only profiles the harness actually ships; collect a notice for each
+	// dropped one so the operator knows why a detected stack isn't wired up.
+	var notices []string
+	for i := range comps {
+		kept := comps[i].Profiles[:0:0]
+		for _, p := range comps[i].Profiles {
+			if profileShips(harnessRoot, p) {
+				kept = append(kept, p)
+				continue
+			}
+			notices = append(notices, fmt.Sprintf(
+				"NOTE: component %q detected as %q — no harness profile ships for it yet; add one under profiles/%s/.",
+				comps[i].Path, p, p))
+		}
+		comps[i].Profiles = kept
 	}
 
 	name := derived.ProjectName
@@ -57,7 +81,7 @@ func Run(root string) (string, error) {
 	for _, c := range comps {
 		b.WriteString("\n[[component]]\n")
 		fmt.Fprintf(&b, "path = %q\n", c.Path)
-		fmt.Fprintf(&b, "profiles = [%q]\n", c.Profiles[0])
+		fmt.Fprintf(&b, "profiles = [%s]\n", quoteList(c.Profiles))
 	}
 
 	if err := os.WriteFile(manifest, []byte(b.String()), 0o644); err != nil {
@@ -75,15 +99,45 @@ func Run(root string) (string, error) {
 	} else {
 		s.WriteString("Detected components:\n")
 		for _, c := range comps {
-			fmt.Fprintf(&s, "  %s -> %s\n", c.Path, c.Profiles[0])
+			if len(c.Profiles) == 0 {
+				fmt.Fprintf(&s, "  %s -> (no shipping profile)\n", c.Path)
+			} else {
+				fmt.Fprintf(&s, "  %s -> %s\n", c.Path, strings.Join(c.Profiles, ", "))
+			}
 		}
 	}
 	fmt.Fprintf(&s, "Wrote %s\n", manifest)
 	if briefWritten {
 		s.WriteString("Wrote docs/brief.md (stub) — paste the project brief there.\n")
 	}
+	for _, n := range notices {
+		s.WriteString(n)
+		s.WriteString("\n")
+	}
 	s.WriteString("Fill any blank [project] values (e.g. bundle_id, asc_app_id), then run `harness sync`.")
 	return s.String(), nil
+}
+
+// profileShips reports whether harnessRoot actually ships profile p — i.e. the
+// CLAUDE body that sync/audit read (profiles/<p>/CLAUDE.<p>.md) exists. This is
+// the exact file whose absence makes a later `harness sync` fail, so it is the
+// precise gate for whether a detected profile should be written into the manifest.
+func profileShips(harnessRoot, p string) bool {
+	body := filepath.Join(harnessRoot, "profiles", p, "CLAUDE."+p+".md")
+	if _, err := os.Stat(body); err == nil {
+		return true
+	}
+	return false
+}
+
+// quoteList renders a string slice as the body of a TOML array: `"a", "b"`, or
+// the empty string for an empty slice (yielding `profiles = []`).
+func quoteList(items []string) string {
+	quoted := make([]string, len(items))
+	for i, it := range items {
+		quoted[i] = fmt.Sprintf("%q", it)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // writeBriefStub creates docs/brief.md with a starter template when it does not

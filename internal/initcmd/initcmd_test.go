@@ -19,11 +19,23 @@ func mk(t *testing.T, path string) {
 	}
 }
 
+// harnessWith builds a temp harness checkout that ships exactly the given
+// profiles (each as profiles/<p>/CLAUDE.<p>.md), so init's profile-ship gate has
+// something to check against.
+func harnessWith(t *testing.T, profiles ...string) string {
+	t.Helper()
+	hr := t.TempDir()
+	for _, p := range profiles {
+		mk(t, filepath.Join(hr, "profiles", p, "CLAUDE."+p+".md"))
+	}
+	return hr
+}
+
 func TestInitWritesManifest(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "ios", "Rail.xcodeproj", "project.pbxproj"))
 
-	if _, err := Run(root); err != nil {
+	if _, err := Run(harnessWith(t, "ios"), root); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	manifest := filepath.Join(root, ".harness.toml")
@@ -51,7 +63,7 @@ func TestInitRefusesExistingManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".harness.toml"), []byte("[project]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(root); err == nil {
+	if _, err := Run(harnessWith(t), root); err == nil {
 		t.Fatal("expected init to refuse clobbering an existing .harness.toml")
 	}
 }
@@ -59,7 +71,7 @@ func TestInitRefusesExistingManifest(t *testing.T) {
 func TestInitScaffoldsBriefStub(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "Skein.xcodeproj", "project.pbxproj"))
-	if _, err := Run(root); err != nil {
+	if _, err := Run(harnessWith(t, "ios"), root); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "docs", "brief.md"))
@@ -81,7 +93,7 @@ func TestInitPreservesExistingBrief(t *testing.T) {
 	if err := os.WriteFile(brief, []byte("MY REAL BRIEF"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(root); err != nil {
+	if _, err := Run(harnessWith(t, "ios"), root); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got, _ := os.ReadFile(brief)
@@ -158,7 +170,7 @@ func TestInitWritesXcodeproj(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "ios", ".swiftlint.yml"))
-	if _, err := Run(root); err != nil {
+	if _, err := Run(harnessWith(t, "ios"), root); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, ".harness.toml"))
@@ -170,5 +182,48 @@ func TestInitWritesXcodeproj(t *testing.T) {
 	}
 	if _, err := config.Load(filepath.Join(root, ".harness.toml")); err != nil {
 		t.Errorf("generated manifest does not load: %v", err)
+	}
+}
+
+// A go.mod-only project detects a "go" component, but no go profile ships — the
+// component must still be recorded (empty profiles) with a notice, and the
+// manifest must stay loadable (so the next `harness sync` doesn't hard-fail on an
+// opaque missing-profile-file error).
+func TestInitDropsNonShippingProfile(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "tool", "go.mod"))
+
+	summary, err := Run(harnessWith(t, "ios"), root) // ships ios, NOT go
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(summary, `component "tool" detected as "go"`) ||
+		!strings.Contains(summary, "profiles/go/") {
+		t.Errorf("summary missing the non-shipping-profile notice:\n%s", summary)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(root, ".harness.toml"))
+	s := string(data)
+	for _, want := range []string{`path = "tool"`, "profiles = []"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("manifest missing %q:\n%s", want, s)
+		}
+	}
+	// The whole point: the emitted manifest must load cleanly.
+	if _, err := config.Load(filepath.Join(root, ".harness.toml")); err != nil {
+		t.Errorf("generated manifest does not load: %v", err)
+	}
+}
+
+// Regression guard: an .xcodeproj still yields the ios profile when it ships.
+func TestInitKeepsShippingProfile(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "App.xcodeproj", "project.pbxproj"))
+	if _, err := Run(harnessWith(t, "ios"), root); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".harness.toml"))
+	if !strings.Contains(string(data), `profiles = ["ios"]`) {
+		t.Errorf("ios profile was dropped despite shipping:\n%s", data)
 	}
 }
