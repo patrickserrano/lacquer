@@ -34,10 +34,10 @@ jobs:
       - name: Install Codemagic CLI tools
         run: |
           brew install pipx
-          pipx install codemagic-cli-tools
+          pipx install codemagic-cli-tools==0.68.0
           pipx ensurepath
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-          gem install xcpretty --no-document
+          gem install xcpretty -v 0.4.1 --no-document
 
       - name: Fetch signing files
         env:
@@ -166,7 +166,7 @@ jobs:
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa"
           generate_release_notes: true
