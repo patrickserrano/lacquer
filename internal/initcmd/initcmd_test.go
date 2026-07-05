@@ -113,7 +113,7 @@ func TestInitRefusesDanglingManifestSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Run(root); err == nil {
+	if _, err := Run(harnessWith(t, "ios"), root); err == nil {
 		t.Fatal("expected init to refuse a symlinked .harness.toml")
 	}
 	if _, err := os.Lstat(target); err == nil {
@@ -133,7 +133,7 @@ func TestInitRefusesManifestSymlinkToExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Run(root)
+	_, err := Run(harnessWith(t, "ios"), root)
 	if err == nil {
 		t.Fatal("expected init to refuse a symlinked .harness.toml")
 	}
@@ -158,7 +158,7 @@ func TestInitRefusesSymlinkedDocsDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Run(root); err == nil {
+	if _, err := Run(harnessWith(t, "ios"), root); err == nil {
 		t.Fatal("expected init to refuse a symlinked docs dir")
 	}
 	if _, err := os.Lstat(filepath.Join(outside, "brief.md")); err == nil {
