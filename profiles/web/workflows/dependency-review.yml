@@ -1,0 +1,29 @@
+name: Dependency Review
+
+# Scans dependency-manifest changes on a PR for known-vulnerable or
+# disallowed-license packages. Standalone (NOT part of the required CI OK check)
+# so it never wedges branch protection: GHAS / Dependency-Graph is not enabled on
+# private repos, so the action soft-fails there instead of blocking merges.
+
+on:
+  pull_request:
+    paths:
+      - '{{COMPONENT_PREFIX}}package.json'
+      - '{{COMPONENT_PREFIX}}package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        continue-on-error: true # GHAS/Dependency-Graph isn't on private repos → soft-fail
+        with:
+          fail-on-severity: moderate
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC
