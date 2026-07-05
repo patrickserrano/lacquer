@@ -123,6 +123,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
+      - name: Create Secrets.xcconfig (build-time placeholder)
+        run: |
+          # project.yml may reference a gitignored Secrets.xcconfig as its base
+          # config; a clean checkout has no such file and xcodebuild fails before
+          # compiling. Seed it from the committed example. Guarded so projects
+          # without a Secrets.xcconfig.example (no runtime keys) are a no-op.
+          if [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ]; then
+            cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
+          fi
+
       - name: Cache SPM packages
         id: spm-cache
         uses: actions/cache@v4.3.0
@@ -199,6 +209,16 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6.0.2
+
+      - name: Create Secrets.xcconfig (build-time placeholder)
+        run: |
+          # project.yml may reference a gitignored Secrets.xcconfig as its base
+          # config; a clean checkout has no such file and xcodebuild fails before
+          # compiling. Seed it from the committed example. Guarded so projects
+          # without a Secrets.xcconfig.example (no runtime keys) are a no-op.
+          if [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ]; then
+            cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
+          fi
 
       - name: Cache SPM packages
         id: spm-cache
