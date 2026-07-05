@@ -4,11 +4,37 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/patrickserrano/harness/internal/audit"
 	syncpkg "github.com/patrickserrano/harness/internal/sync"
 )
+
+func TestFormatReportsAndSummarizesClobbers(t *testing.T) {
+	rows := []audit.Row{
+		{Dest: "CLAUDE.md", Kind: "region", Detail: "core", Status: audit.OK},
+		{Dest: ".claude/skills/git.md", Kind: "asset", Status: audit.Modified},
+		{Dest: "ios/CLAUDE.md", Kind: "region", Detail: "ios", Status: audit.Behind},
+	}
+	out := audit.Format(rows, 7)
+
+	if !strings.Contains(out, "harness audit — project vs harness v7") {
+		t.Errorf("missing header:\n%s", out)
+	}
+	// The Modified unit is listed under its status section by bare dest...
+	if !strings.Contains(out, "locally-modified:\n  .claude/skills/git.md") {
+		t.Errorf("modified unit not listed under its section:\n%s", out)
+	}
+	// ...and a region under Behind is labelled dest#marker.
+	if !strings.Contains(out, "ios/CLAUDE.md#ios") {
+		t.Errorf("region label missing marker key:\n%s", out)
+	}
+	// The clobber summary counts Modified (and Conflict) units.
+	if !strings.Contains(out, "1 unit(s) would be overwritten by sync") {
+		t.Errorf("missing clobber summary:\n%s", out)
+	}
+}
 
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()

@@ -26,13 +26,14 @@ var ghCreate = func(dir, org, name string) error {
 }
 
 // Run ensures a .harness.toml exists, then (if createRepo and no origin remote)
-// creates a private repo under org. It does not sync.
-func Run(projectRoot, org string, createRepo bool) (string, error) {
+// creates a private repo under org. It does not sync. harnessRoot is threaded to
+// initcmd so profile detection only records profiles the harness actually ships.
+func Run(harnessRoot, projectRoot, org string, createRepo bool) (string, error) {
 	var out strings.Builder
 
 	manifest := filepath.Join(projectRoot, ".harness.toml")
 	if _, err := os.Stat(manifest); os.IsNotExist(err) {
-		summary, err := initcmd.Run(projectRoot)
+		summary, err := initcmd.Run(harnessRoot, projectRoot)
 		if err != nil {
 			return "", err
 		}

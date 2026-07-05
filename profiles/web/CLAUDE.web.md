@@ -88,9 +88,18 @@ never carried by colour alone. Target WCAG 2.1 AA.
 ## Git hooks & commits
 
 `lefthook.yml` is synced — install once with `npx lefthook install`. It runs
-Biome + typecheck pre-commit, coverage + build pre-push, and enforces
-**Conventional Commits** via the shared `scripts/check-commit-msg.sh`
-(`type(scope): summary`).
+Biome + typecheck + a secrets scan pre-commit (each scoped to the component via
+lefthook's `root:`), coverage + build pre-push, and enforces **Conventional
+Commits** via the shared `scripts/check-commit-msg.sh` (`type(scope): summary`).
+
+**Git hooks in a mixed repo.** If this repo ALSO contains an iOS component, the
+iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a
+`lefthook.yml` — both write `.git/hooks`, and whichever `install`s last silently
+wins. Don't install both. The iOS `pre-commit` framework should own `.git/hooks`;
+the web checks always run in CI regardless, so rely on that. To keep them running
+locally too, add them as `repo: local` hooks in the iOS `.pre-commit-config.yaml`
+(e.g. an entry that runs `npx biome ci` scoped to the web component) rather than
+installing lefthook alongside pre-commit.
 
 ## CI
 

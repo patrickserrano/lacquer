@@ -4,9 +4,14 @@ name: Web CI
 # component's package.json defines: typecheck, test:coverage, build.
 
 on:
+  workflow_dispatch:
   pull_request:
-    paths:
-      - "{{COMPONENT_PREFIX}}**"
+    # No path filter on purpose: the workflow must run on EVERY PR so the single
+    # required check (CI OK) always reports. A path-filtered workflow that doesn't
+    # run leaves required checks stuck "pending" and blocks docs-only PRs (forcing
+    # an admin bypass). The heavy `check` job is instead gated at the job level via
+    # the `changes` job's `code` output. Mirrors the iOS profile.
+    branches: [main, develop, 'feat/*', 'fix/*']
   push:
     branches: [main]
     paths:
@@ -20,9 +25,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    # Pure git diff — no toolchain — so it always runs and lets CI OK report even
+    # on docs-only PRs where the heavy check is skipped.
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        name: Check for code changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # push / manual dispatch: treat as a code change so the check job runs.
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(git diff --name-only "$base" "$head")"
+          # `code` gates the heavy check job: run it unless the PR is docs-only, so
+          # CI OK still reports green on docs PRs (no admin bypass). This is an
+          # INVERTED deny-list (any non-docs change -> code=true) on purpose: a path
+          # ALLOWLIST anchored on {{COMPONENT_PREFIX}} produces the regex `^(|...)`
+          # for a root-layout project (empty prefix) — an empty ERE alternative that
+          # some greps reject. The deny-list has no prefix and no empty alternative,
+          # so it is layout-independent and fails safe (over-run, not under-run). It
+          # is written portably (`-cv` count, no `-qv`) so it behaves the same on
+          # this job's ubuntu GNU grep and on the self-hosted runner's ugrep.
+          nondocs=$(echo "$changed" | grep -cvE '(\.md$|^docs/|^LICENSE$|^\.gitignore$)' || true)
+          if [ "${nondocs:-0}" -gt 0 ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   check:
     name: Lint · Types · Test · Build
     runs-on: ubuntu-latest
+    needs: changes
+    # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
+    if: needs.changes.outputs.code == 'true'
     defaults:
       run:
         working-directory: "{{COMPONENT_PREFIX}}."
@@ -54,3 +101,28 @@ jobs:
       # unfixable; tighten to `high` (and/or add npm `overrides`) per project.
       - name: Dependency audit
         run: npm audit --audit-level=critical
+
+  ci-ok:
+    name: CI OK
+    # Just aggregates the needs[] results — no toolchain — so it always runs and
+    # always reports. This is the single required status check (branch protection
+    # points at "CI OK", not at the check job), so it never gets stuck "pending"
+    # on a docs-only PR where the check job skips. Fails only if a required job
+    # actually FAILED or was CANCELLED; a skipped job counts as OK.
+    runs-on: ubuntu-latest
+    needs: [changes, check]
+    if: always()
+    timeout-minutes: 2
+    steps:
+      - name: Verify required jobs passed (or were skipped)
+        run: |
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }}"
+          for r in \
+            "${{ needs.changes.result }}" \
+            "${{ needs.check.result }}"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::A required job did not pass (result=$r)"
+              exit 1
+            fi
+          done
+          echo "All required jobs passed or were skipped."

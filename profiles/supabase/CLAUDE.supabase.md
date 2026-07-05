@@ -60,6 +60,23 @@ on GitHub-hosted runners (no Apple toolchain).
   for CI — and in a **gitignored** `.env.local` for local dev. Commit `.env.example`.
 - Never log a secret or return it in a response.
 
+## Git hooks & commits
+
+`lefthook.yml` is synced — install once with `npx lefthook install` (or
+`brew install lefthook`). It runs `deno fmt --check` + `deno lint` (scoped to the
+component via lefthook's `root:`) and a secrets scan pre-commit, and enforces
+**Conventional Commits** via the shared `scripts/check-commit-msg.sh`.
+
+**Git hooks in a mixed repo.** If this repo ALSO contains an iOS component, the
+iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a
+`lefthook.yml` — both write `.git/hooks`, and whichever `install`s last silently
+wins. Don't install both. The iOS `pre-commit` framework should own `.git/hooks`;
+the Supabase checks always run in CI regardless, so rely on that. To keep them
+running locally too, add them as `repo: local` hooks in the iOS
+`.pre-commit-config.yaml` (e.g. an entry that runs `deno fmt --check`/`deno lint`
+scoped to the supabase component) rather than installing lefthook alongside
+pre-commit.
+
 ## Testing & CI
 
 - `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-
