@@ -1,0 +1,34 @@
+# Git hooks (lefthook) for a Supabase / Deno backend. Install once with
+# `npx lefthook install` (lefthook is a single binary; no Node/npm required —
+# `brew install lefthook`, or run via `deno run npm:lefthook`).
+#
+# `root: "{{COMPONENT_PREFIX}}"` scopes each command to its component. For a
+# nested layout it renders `root: "server/"`: lefthook cds into it (so `deno fmt`
+# picks up that component's deno.jsonc) and filters {staged_files} to the subtree,
+# so a commit that doesn't touch the component skips these hooks. For a root
+# layout it renders `root: ""` — the repo root, with no file filtering. The
+# secrets scan is intentionally NOT scoped: the shared script reads the full
+# staged set itself. Mirrors profiles/web/root/lefthook.yml.
+
+pre-commit:
+  parallel: false
+  commands:
+    # Format check (no writes) — matches the `deno fmt --check` CI step.
+    fmt:
+      root: "{{COMPONENT_PREFIX}}"
+      run: deno fmt --check
+    lint:
+      root: "{{COMPONENT_PREFIX}}"
+      run: deno lint
+    # Scan every staged file for hardcoded secrets — repo-wide, not component-
+    # scoped: check-secrets.sh reads `git diff --cached` itself (no root, no
+    # {staged_files}). Mirrors the iOS profile's `no-secrets` pre-commit hook.
+    secrets:
+      run: scripts/check-secrets.sh
+
+commit-msg:
+  commands:
+    # Conventional Commits — the same shared check the iOS/web profiles use
+    # (scripts/check-commit-msg.sh is synced from the harness core).
+    conventional:
+      run: scripts/check-commit-msg.sh {1}
