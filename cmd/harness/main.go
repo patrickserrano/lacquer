@@ -49,12 +49,21 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 
 	switch args[0] {
 	case "init":
+		// init reads harnessRoot to gate detected profiles to those that ship;
+		// with it unset (default ".") every profile would be silently dropped.
+		if err := requireHarnessRoot(harnessRoot); err != nil {
+			return fail(stderr, err)
+		}
 		summary, err := initcmd.Run(harnessRoot, projectRoot)
 		if err != nil {
 			return fail(stderr, err)
 		}
 		fmt.Fprintln(stdout, summary)
 	case "onboard":
+		// onboard invokes init, which reads harnessRoot (see init above).
+		if err := requireHarnessRoot(harnessRoot); err != nil {
+			return fail(stderr, err)
+		}
 		fs := flag.NewFlagSet("onboard", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		// No default org: the harness must not bake in any one org's identity, so

@@ -85,8 +85,11 @@ func TestVersionPrints(t *testing.T) {
 // must fail with an actionable message (naming HARNESS_ROOT), not an opaque
 // "open VERSION: no such file".
 func TestMissingHarnessRootIsFriendly(t *testing.T) {
+	// init/onboard are included: init reads harnessRoot to gate profiles, so an
+	// unset/wrong HARNESS_ROOT would otherwise silently drop every shipping
+	// profile (write an empty profiles list) with exit 0 instead of erroring.
 	empty := t.TempDir() // no VERSION, no profiles/
-	for _, cmd := range []string{"version", "sync", "status", "audit"} {
+	for _, cmd := range []string{"version", "sync", "status", "audit", "init", "onboard"} {
 		t.Run(cmd, func(t *testing.T) {
 			var out, errb bytes.Buffer
 			code := run([]string{cmd}, envMap(map[string]string{"HARNESS_ROOT": empty}), &out, &errb)
