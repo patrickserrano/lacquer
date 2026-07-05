@@ -12,6 +12,12 @@ Runs in CI on a GitHub-hosted runner (pure REST + `gh`, no Xcode). Env:
 
 Use a dedicated, least-privilege App Store Connect key for feedback — never the
 release/signing key.
+
+Trust boundary: feedback attributes (comment, tester email, device, OS, app
+version) are written by arbitrary TestFlight testers and flow into GitHub issue
+markdown. Every tester-controlled string passes through sanitize() before use so
+HTML comment delimiters — and with them a forged tf-feedback-id dedup marker —
+can never come from tester input.
 """
 import json
 import os
@@ -23,6 +29,16 @@ import urllib.request
 
 BASE = "https://api.appstoreconnect.apple.com/v1"
 LABEL = "testflight-feedback"
+
+
+def sanitize(text: str) -> str:
+    """Strip HTML comment delimiters from tester-controlled text.
+
+    With `<!--`/`-->` removed, an HTML comment in an issue body — in
+    particular the hidden `tf-feedback-id` dedup marker — can only ever be
+    produced by this script, never forged by a tester.
+    """
+    return text.replace("<!--", "").replace("-->", "")
 
 
 def _b64url(data: bytes) -> str:
@@ -101,24 +117,36 @@ def fetch(kind: str, app_id: str, token: str) -> list:
         out.append({
             "kind": kind,
             "id": item.get("id", ""),
-            "tester": a.get("testerEmail") or a.get("email", "unknown"),
-            "device": a.get("deviceModel", ""),
-            "os": a.get("osVersion", ""),
-            "appVersion": a.get("appVersion", ""),
+            # Tester-controlled fields are sanitized at ingestion, before any use.
+            "tester": sanitize(a.get("testerEmail") or a.get("email", "unknown")),
+            "device": sanitize(a.get("deviceModel", "")),
+            "os": sanitize(a.get("osVersion", "")),
+            "appVersion": sanitize(a.get("appVersion", "")),
             "timestamp": a.get("timestamp", ""),
-            "comment": (a.get("comment") or "").strip(),
+            "comment": sanitize((a.get("comment") or "").strip()),
             "crashLog": a.get("crashLog", {}).get("url", "") if kind == "crash" else "",
         })
     return out
 
 
+def dedup_marker(feedback_id: str) -> str:
+    """The exact marker text create_issue embeds (inside an HTML comment).
+
+    sanitize() strips `<!--`/`-->` from tester text, so the marker's enclosing
+    comment — and therefore a script-filed issue for this id — cannot be forged
+    from tester input.
+    """
+    return f"tf-feedback-id: {feedback_id}"
+
+
 def issue_exists(feedback_id: str) -> bool:
     """True if an issue already references this feedback id (dedup, stateless)."""
     res = subprocess.run(
-        # `--search=<id>` (not `--search <id>`) so an id starting with `-` can
-        # never be parsed as a flag.
+        # `--search=<marker>` (not `--search <marker>`) so a value starting with
+        # `-` can never be parsed as a flag. The search string is the exact
+        # marker create_issue writes.
         ["gh", "issue", "list", "--state", "all", "--label", LABEL,
-         f"--search={feedback_id}", "--json", "number"],
+         f"--search={dedup_marker(feedback_id)}", "--json", "number"],
         capture_output=True, text=True, check=True)
     return bool(json.loads(res.stdout or "[]"))
 
@@ -131,11 +159,14 @@ def create_issue(f: dict) -> None:
         f"- **App version:** {f['appVersion']}\n- **When:** {f['timestamp']}\n"
     )
     if f["comment"]:
-        body += f"\n**Comment:**\n\n> {f['comment']}\n"
+        # Blockquote EVERY line so no part of a multi-line tester comment escapes
+        # the quote and reads as issue-author markdown.
+        quoted = "\n".join(f"> {line}" for line in f["comment"].splitlines())
+        body += f"\n**Comment:**\n\n{quoted}\n"
     if f["crashLog"]:
         body += f"\n**Crash log:** {f['crashLog']}\n"
-    # Hidden marker the dedup search matches on.
-    body += f"\n<!-- tf-feedback-id: {f['id']} -->\n"
+    # Hidden marker the dedup search matches on (see dedup_marker).
+    body += f"\n<!-- {dedup_marker(f['id'])} -->\n"
     subprocess.run(
         ["gh", "issue", "create", "--label", LABEL, "--title", title, "--body", body],
         check=True)
