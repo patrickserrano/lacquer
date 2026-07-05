@@ -61,18 +61,30 @@ jobs:
           # Use the runner's EXISTING system login keychain — never create a
           # temporary one. A fresh keychain pops an interactive unlock dialog on
           # the dedicated Mac runner that hangs the job; the login keychain already
-          # holds the signing identity. Unlock it and grant codesign/productsign
-          # non-interactive access to the key (set-key-partition-list).
+          # holds the signing identity. The auto-lock timeout must outlast the
+          # job (timeout-minutes: 45) but no more — the final "Lock keychain"
+          # step re-locks explicitly, so the unlocked window never outlives the run.
           KEYCHAIN=~/Library/Keychains/login.keychain-db
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
 
       - name: Add certificates to keychain
         # No `keychain initialize` — so codemagic adds the fetched cert to the
         # system default (login) keychain we just unlocked, not a fresh temporary
         # one.
         run: keychain add-certificates
+
+      - name: Grant codesign access to signing keys
+        env:
+          # Org-level secret (always set): the dedicated runner's login-keychain
+          # password.
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Grant codesign/productsign non-interactive access to the signing
+          # keys. Must run AFTER `keychain add-certificates`: the partition-list
+          # ACL only covers keys present at the time it is set, so it has to
+          # include the freshly added ones.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" ~/Library/Keychains/login.keychain-db
 
       - name: Set Xcode project code signing
         run: xcode-project use-profiles --export-options-plist {{COMPONENT_PREFIX}}ExportOptions.plist
@@ -162,6 +174,10 @@ jobs:
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lock keychain
+        if: always()
+        run: security lock-keychain ~/Library/Keychains/login.keychain-db
 
   notify-on-failure:
     name: Notify on Failure
