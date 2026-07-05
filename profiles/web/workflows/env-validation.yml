@@ -1,8 +1,11 @@
 name: Env Schema Validation
 
-# Validates the committed .env.example against the .env.schema DSL (dotenvx) so a
-# new/renamed env var can't silently drift out of the documented schema. Runs on
-# GitHub-hosted runners (no Apple toolchain); no-ops when no schema exists yet.
+# Validates the committed .env.example against .env.schema so a new/renamed env
+# var can't silently drift out of the documented schema. The check is a small
+# self-contained awk validator (no external tool) — every `required` key in the
+# schema must be documented in .env.example, and a required(<prefix>) rule also
+# checks the example value starts with that prefix. Runs on GitHub-hosted runners
+# (no Apple toolchain); no-ops when no .env.schema exists yet.
 
 on:
   pull_request:
@@ -26,8 +29,36 @@ jobs:
 
       - name: Validate .env.example against .env.schema
         run: |
-          if [ ! -f .env.schema ]; then echo "no .env.schema — skipping"; exit 0; fi
-          cp .env.example .env
-          npm install -g @dotenvx/dotenvx
-          dotenvx validate
-          rm -f .env
+          set -euo pipefail
+          if [ ! -f .env.schema ]; then echo "no .env.schema — nothing to validate"; exit 0; fi
+          if [ ! -f .env.example ]; then
+            echo "::error::.env.schema exists but .env.example is missing"; exit 1
+          fi
+          # Portable (mawk/gawk): load documented keys from .env.example, then
+          # enforce every `required`/`required(<prefix>)` rule in .env.schema.
+          awk '
+            function trim(s){ gsub(/^[ \t]+|[ \t]+$/,"",s); return s }
+            FNR==NR {
+              l=$0; sub(/#.*/,"",l)
+              if (l ~ /^[ \t]*$/) next
+              e=index(l,"="); if (e==0) next
+              k=trim(substr(l,1,e-1)); present[k]=1; val[k]=trim(substr(l,e+1))
+              next
+            }
+            {
+              l=$0; sub(/#.*/,"",l)
+              if (l ~ /^[ \t]*$/) next
+              e=index(l,"="); if (e==0) next
+              key=trim(substr(l,1,e-1)); rule=trim(substr(l,e+1))
+              if (rule !~ /^required/) next
+              prefix=""
+              if (rule ~ /^required\(.*\)$/) { p=rule; sub(/^required\(/,"",p); sub(/\)$/,"",p); prefix=p }
+              if (!(key in present)) {
+                printf "::error::.env.example is missing required key: %s\n", key; bad=1; next
+              }
+              if (prefix != "" && index(val[key], prefix) != 1) {
+                printf "::error::.env.example value for %s should start with \"%s\"\n", key, prefix; bad=1
+              }
+            }
+            END { if (bad) exit 1; print "env schema OK" }
+          ' .env.example .env.schema
