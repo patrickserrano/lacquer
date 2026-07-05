@@ -184,6 +184,9 @@ jobs:
       - name: Build Release
         run: |
           set -o pipefail
+          # xcpretty prints nothing for project-level failures (link/actool/
+          # codesign) — an opaque red X. Tee the raw log and dump the error tail
+          # on failure so the cause is visible.
           xcodebuild build \
             -project {{XCODEPROJ}} \
             -scheme {{SCHEME}} \
@@ -192,7 +195,11 @@ jobs:
             -derivedDataPath {{COMPONENT_PREFIX}}DerivedData \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-          | $XCPRETTY --color
+          2>&1 | tee xcodebuild-release.log | $XCPRETTY --color || {
+            echo "::error::Release build failed — raw xcodebuild tail:"
+            grep -iE 'error:|fatal|failed|ld:|actool|CodeSign' xcodebuild-release.log | tail -60
+            exit 1
+          }
 
   test:
     name: Test
