@@ -14,12 +14,12 @@ Create a new feature module following the project's architecture.
 
 Do NOT assume the app's source directory is named after the project — layouts
 vary (e.g. `App/`, `Sources/`). Find the existing `Features/` directory under
-`{{COMPONENT_PREFIX}}` (Glob for `{{COMPONENT_PREFIX}}**/Features`, ignoring
+`{{COMPONENT_PREFIX}}.` (Glob for `{{COMPONENT_PREFIX}}**/Features`, ignoring
 build output like `DerivedData*` and `.build/`) and create the module there,
 as a sibling of the existing feature folders. If no `Features/` directory
 exists yet, create one alongside the app's other source folders under
-`{{COMPONENT_PREFIX}}` (the directory that holds the app's Swift sources, next
-to the `.xcodeproj`).
+`{{COMPONENT_PREFIX}}.` (the directory that holds the app's Swift sources,
+next to the `.xcodeproj`).
 
 ## Structure to Create
 
