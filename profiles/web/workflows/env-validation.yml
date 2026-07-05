@@ -1,0 +1,33 @@
+name: Env Schema Validation
+
+# Validates the committed .env.example against the .env.schema DSL (dotenvx) so a
+# new/renamed env var can't silently drift out of the documented schema. Runs on
+# GitHub-hosted runners (no Apple toolchain); no-ops when no schema exists yet.
+
+on:
+  pull_request:
+    paths:
+      - '{{COMPONENT_PREFIX}}.env.schema'
+      - '{{COMPONENT_PREFIX}}.env.example'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate .env.example against schema
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "{{COMPONENT_PREFIX}}."
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Validate .env.example against .env.schema
+        run: |
+          if [ ! -f .env.schema ]; then echo "no .env.schema — skipping"; exit 0; fi
+          cp .env.example .env
+          npm install -g @dotenvx/dotenvx
+          dotenvx validate
+          rm -f .env
