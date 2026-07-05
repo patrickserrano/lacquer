@@ -160,6 +160,12 @@ func mergeInto(projectRoot, rel, key string, ver int, body string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", rel, err)
 	}
+	// Refuse a symlinked target before touching it: os.WriteFile would follow it
+	// and clobber whatever it points at, potentially outside the project root —
+	// and even the ReadFile below must not follow it into an out-of-root file.
+	if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to write through symlink: %s", target)
+	}
 	existing, err := os.ReadFile(target)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read %s: %w", target, err)
@@ -167,11 +173,6 @@ func mergeInto(projectRoot, rel, key string, ver int, body string) error {
 	merged, err := region.Merge(string(existing), key, ver, body)
 	if err != nil {
 		return fmt.Errorf("merge %s region in %s: %w", key, target, err)
-	}
-	// Refuse to write through a symlink: os.WriteFile would follow it and clobber
-	// whatever it points at, potentially outside the project root.
-	if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing to write through symlink: %s", target)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err

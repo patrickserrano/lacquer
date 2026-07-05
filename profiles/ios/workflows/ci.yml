@@ -14,6 +14,11 @@ on:
     paths:
       - '{{COMPONENT_PREFIX}}**'
 
+# No job talks to the GitHub API (caches/artifacts/step summaries use the
+# Actions runtime token, not GITHUB_TOKEN) — checkout is all the token does.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -120,7 +125,7 @@ jobs:
 
       - name: Cache SPM packages
         id: spm-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
           key: ${{ runner.os }}-spm-${{ hashFiles('{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -163,7 +168,7 @@ jobs:
 
       - name: Install xcpretty
         run: |
-          gem install xcpretty --user-install --no-document
+          gem install xcpretty -v 0.4.1 --user-install --no-document
           echo "XCPRETTY=$(ruby -e 'puts Gem.bindir')/xcpretty" >> $GITHUB_ENV
 
       - name: Build Release
@@ -197,7 +202,7 @@ jobs:
 
       - name: Cache SPM packages
         id: spm-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
           key: ${{ runner.os }}-spm-${{ hashFiles('{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -240,7 +245,7 @@ jobs:
 
       - name: Install xcpretty
         run: |
-          gem install xcpretty --user-install --no-document
+          gem install xcpretty -v 0.4.1 --user-install --no-document
           echo "XCPRETTY=$(ruby -e 'puts Gem.bindir')/xcpretty" >> $GITHUB_ENV
 
       - name: Clean stale build intermediates

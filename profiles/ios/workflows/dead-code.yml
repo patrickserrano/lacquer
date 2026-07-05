@@ -5,6 +5,9 @@ on:
     - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   # Threshold for warning annotations in workflow output (issues are created regardless of count)
   DEAD_CODE_THRESHOLD: 5
@@ -105,6 +108,10 @@ jobs:
     name: Create Tracking Issue
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: [periphery]
+    permissions:
+      # `gh issue list/comment/create` needs issues; checkout needs contents.
+      contents: read
+      issues: write
     if: >
       always() && (
         needs.periphery.result == 'success' && needs.periphery.outputs.has_dead_code == 'true'

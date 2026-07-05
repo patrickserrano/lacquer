@@ -15,7 +15,9 @@ function run() {
     for (const window of xcodeProcess.windows()) {
       for (const text of window.staticTexts()) {
         const val = text.value()
-        if (val && val.includes('to access Xcode?')) {
+        // This is a consent dialog — never blanket-approve. Only click Allow
+        // when the dialog names the expected requesting app (Claude).
+        if (val && val.includes('to access Xcode?') && /Claude/i.test(val)) {
           const allowButton = window.buttons.whose({ name: 'Allow' })[0]
           if (allowButton && allowButton.exists()) {
             allowButton.click()
