@@ -61,8 +61,9 @@ jobs:
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          app-store-connect fetch-signing-files \
-            --bundle-id "{{BUNDLE_ID}}" \
+          # Bundle id is a POSITIONAL arg in codemagic-cli-tools (there is no
+          # --bundle-id flag; passing it errors "unrecognized arguments").
+          app-store-connect fetch-signing-files "{{BUNDLE_ID}}" \
             --platform IOS \
             --type IOS_APP_STORE \
             --create
