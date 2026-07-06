@@ -48,7 +48,11 @@ jobs:
           pipx install codemagic-cli-tools==0.68.0
           pipx ensurepath
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-          gem install xcpretty -v 0.4.1 --no-document
+          # --user-install: the dedicated runner's system gem dir isn't writable
+          # (Gem::FilePermissionError otherwise). Put the user gem bin on PATH so
+          # the bare `| xcpretty` pipes below resolve it. Mirrors ios-ci.yml.
+          gem install xcpretty -v 0.4.1 --user-install --no-document
+          echo "$(ruby -e 'puts File.join(Gem.user_dir, "bin")')" >> $GITHUB_PATH
 
       - name: Fetch signing files
         env:
