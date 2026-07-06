@@ -60,6 +60,12 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # The distribution certificate's private key. fetch-signing-files reads
+          # CERTIFICATE_PRIVATE_KEY from the environment to pair with the fetched
+          # cert; without it the step fails "Cannot save Signing Certificates
+          # without certificate private key" (the account is at its Apple
+          # Distribution cert limit, so --create alone can't mint a new keypair).
+          CERTIFICATE_PRIVATE_KEY: ${{ secrets.CERTIFICATE_PRIVATE_KEY }}
         run: |
           # Bundle id is a POSITIONAL arg in codemagic-cli-tools (there is no
           # --bundle-id flag; passing it errors "unrecognized arguments").
