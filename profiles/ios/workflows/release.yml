@@ -60,13 +60,24 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # The distribution certificate's private key. fetch-signing-files reads
-          # CERTIFICATE_PRIVATE_KEY from the environment to pair with the fetched
-          # cert; without it the step fails "Cannot save Signing Certificates
-          # without certificate private key" (the account is at its Apple
-          # Distribution cert limit, so --create alone can't mint a new keypair).
+          # The SHARED, UNIFIED distribution certificate private key. Every app on
+          # this team signs with ONE Apple Distribution cert — the account holds
+          # exactly one — so this secret MUST be the same shared key across all
+          # apps (source of truth: 1Password "iOS CI Signing Credentials"). Using
+          # a per-app key mints a second same-named cert and causes xcodebuild to
+          # pick the wrong one on the shared runner ("profile doesn't include
+          # signing certificate"). fetch-signing-files pairs the key with the
+          # fetched cert; without it the step fails "Cannot save Signing
+          # Certificates without certificate private key" (at the cert limit,
+          # --create alone can't mint a new keypair).
           CERTIFICATE_PRIVATE_KEY: ${{ secrets.CERTIFICATE_PRIVATE_KEY }}
         run: |
+          # The certificates dir is SHARED across every app's release pipeline on
+          # the dedicated runner. Clear stale certs first so `keychain
+          # add-certificates` (below) loads ONLY the freshly-fetched unified cert,
+          # never a leftover from another app that would create a duplicate,
+          # same-named identity and break signing. The p12s are re-downloadable.
+          rm -f "$HOME/Library/Developer/Xcode/UserData/Certificates/"*.p12 || true
           # Bundle id is a POSITIONAL arg in codemagic-cli-tools (there is no
           # --bundle-id flag; passing it errors "unrecognized arguments").
           app-store-connect fetch-signing-files "{{BUNDLE_ID}}" \
