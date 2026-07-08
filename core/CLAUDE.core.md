@@ -37,8 +37,23 @@ specifics (Swift, SwiftUI, Node, etc.) live in the matching profile body.
 
 ## Context Management
 
-- **Use `/compact` proactively** with preservation instructions.
-- **Use `/clear` between unrelated tasks** when this file provides sufficient context.
+Mid-task compaction is the single strongest predictor of a failed session — work
+that compacts before it finishes lands incomplete far more often than work that
+doesn't. Manage context so it never happens mid-task:
+
+- **One task per session.** Start a fresh session for a new task instead of
+  extending a long, multi-day thread. Long threads accrue cost (repeated cache
+  re-reads of bloated context) and hit compaction exactly when the work matters.
+- **Hand off deliberately, before pressure forces it.** When a session is getting
+  long, write the state down (a plan doc, PR description, or commit) and resume in
+  a new session — don't let an automatic mid-task compaction decide what survives.
+- **Offload exploration to subagents.** Broad searches and surveys should run in a
+  subagent so their output, not their full transcript, lands in the main thread —
+  this keeps the main context lean for the actual work.
+- **Use `/compact` proactively** with preservation instructions, and **`/clear`
+  between unrelated tasks** when this file provides sufficient context.
+- **Front-load, don't rebuild, on resume.** Read the last plan/PR/commit and state
+  the next action; do not reconstruct context by re-reading everything.
 
 ## Docs Taxonomy
 
