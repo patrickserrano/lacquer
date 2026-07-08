@@ -14,8 +14,8 @@ they run out of context mid-task. This template forecloses that.
 - **In scope** — the specific files/components/behaviors this task touches.
 - **Out of scope** — what NOT to change (prevents scope creep and context bloat).
 - **Constraints** — the rules the solution must respect (existing patterns, no new deps,
-  perf/security boundaries, "don't touch X"). Prompts here are graded near-zero by default —
-  make them explicit.
+  perf/security boundaries, "don't touch X"). This is the field most often left implicit —
+  state it explicitly.
 - **Success criteria** — how we'll know it's done: the observable end state.
 - **Verification** — the exact commands/checks that prove it (build, test, lint, a manual
   run). Name them now so "done" isn't a guess.
