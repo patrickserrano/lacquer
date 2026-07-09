@@ -120,7 +120,27 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" ~/Library/Keychains/login.keychain-db
 
       - name: Set Xcode project code signing
-        run: xcode-project use-profiles --export-options-plist {{COMPONENT_PREFIX}}ExportOptions.plist
+        run: |
+          # Remove stale automatic "iOS Team Provisioning Profile" entries from the
+          # SHARED profiles dir before use-profiles runs. The archive step's
+          # -allowProvisioningUpdates creates these development/automatic profiles,
+          # and they persist across runs. use-profiles globs this dir and would
+          # otherwise pick a DEVELOPMENT Team profile over the freshly-fetched App
+          # Store distribution profile — producing a development-signed archive that
+          # App Store upload rejects with "Invalid Provisioning Profile … Missing
+          # code-signing certificate" (error 90161). Only dev Team profiles are
+          # removed; App Store distribution profiles (which concurrent releases on
+          # this shared runner rely on) are left untouched.
+          PDIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          if [ -d "$PDIR" ]; then
+            find "$PDIR" -name '*.mobileprovision' -print0 | while IFS= read -r -d '' p; do
+              name=$(security cms -D -i "$p" 2>/dev/null | plutil -extract Name raw - -o - 2>/dev/null)
+              case "$name" in
+                "iOS Team Provisioning Profile"*) rm -f "$p" ;;
+              esac
+            done
+          fi
+          xcode-project use-profiles --export-options-plist {{COMPONENT_PREFIX}}ExportOptions.plist
 
       - name: Increment build number
         env:
