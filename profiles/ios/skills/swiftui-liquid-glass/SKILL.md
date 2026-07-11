@@ -1,5 +1,5 @@
 ---
-name: liquid-glass
+name: swiftui-liquid-glass
 description: Implement, review, or improve SwiftUI features using the iOS 26+ Liquid Glass API. Use when asked to adopt Liquid Glass in SwiftUI UI, refactor to Liquid Glass, or review Liquid Glass usage.
 ---
 

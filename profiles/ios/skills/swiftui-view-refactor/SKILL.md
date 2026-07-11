@@ -1,5 +1,5 @@
 ---
-name: view-refactor
+name: swiftui-view-refactor
 description: Refactor SwiftUI view files for consistent structure, dependency injection, and Observation usage. Use when asked to clean up a SwiftUI view's layout, handle view models safely, or standardize how dependencies are initialized and passed.
 ---
 
