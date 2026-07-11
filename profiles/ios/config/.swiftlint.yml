@@ -80,9 +80,10 @@ custom_rules:
   no_singleton_abuse:
     name: "Avoid .shared singletons"
     # Negative lookbehinds exempt framework-mandated singletons that have no DI
-    # alternative — UIApplication.shared and URLSession.shared are fully general
-    # (every iOS app uses them). Bare app-level `.shared` is still flagged.
-    regex: "(?<!UIApplication)(?<!URLSession)\\.shared(?!Container|Instance\\(\\)|\\(\\))"
+    # alternative — UIApplication/NSApplication.shared and URLSession.shared are
+    # fully general (every app on the platform uses them). Bare app-level
+    # `.shared` is still flagged.
+    regex: "(?<!UIApplication)(?<!NSApplication)(?<!URLSession)\\.shared(?!Container|Instance\\(\\)|\\(\\))"
     message: "Prefer dependency injection over singletons"
     severity: warning
     # To exempt ONE sanctioned DI-seam file that wraps a vendor `.shared`
