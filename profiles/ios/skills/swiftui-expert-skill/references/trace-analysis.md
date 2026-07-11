@@ -197,10 +197,10 @@ When `swiftui.high_severity_events[].description` is one of:
 
 | description      | Likely cause              | Route to                            |
 |------------------|---------------------------|-------------------------------------|
-| `onChange`       | Expensive `.onChange` body | `references/performance-patterns.md`, `references/state-management.md` |
-| `Gesture`        | Heavy gesture handler     | `references/performance-patterns.md` |
-| `Action Callback`| Button/tap handler work   | `references/performance-patterns.md` |
-| `Update`         | View body recomputation   | `references/view-structure.md`, `references/performance-patterns.md` |
+| `onChange`       | Expensive `.onChange` body | the `swiftui-performance-audit` skill, `references/state-management.md` |
+| `Gesture`        | Heavy gesture handler     | the `swiftui-performance-audit` skill |
+| `Action Callback`| Button/tap handler work   | the `swiftui-performance-audit` skill |
+| `Update`         | View body recomputation   | `references/view-structure.md`, the `swiftui-performance-audit` skill |
 | `Creation`       | View init cost            | `references/view-structure.md`      |
 | `Layout`         | GeometryReader churn      | `references/layout-best-practices.md` |
 
@@ -243,8 +243,8 @@ Signatures to watch for in `top_sources`:
   entries with thousands of edges each, you have a feedback storm. Fix
   by reading each key once at a high level and passing values down, or
   wrapping settings in a single `@Observable` so only genuine readers
-  invalidate. Route to `references/state-management.md` and
-  `references/performance-patterns.md`.
+  invalidate. Route to `references/state-management.md` and the
+  `swiftui-performance-audit` skill.
 - **`EnvironmentWriter: …`** with thousands of edges — a modifier (often
   `.hoverEffect`, custom environment keys) is applied too widely and
   being re-installed during every layout pass. Route to

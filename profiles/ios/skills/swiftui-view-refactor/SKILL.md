@@ -9,6 +9,8 @@ description: Refactor SwiftUI view files for consistent structure, dependency in
 
 Apply consistent structure and dependency patterns to SwiftUI views, focusing on ordering, MV patterns, careful view model handling, and correct Observation usage.
 
+For composition concerns beyond reordering an existing file -- extracting subviews, `@ViewBuilder` usage, container patterns, `AnyView`, `ZStack` vs `overlay`/`background` -- use the `swiftui-expert-skill` skill's view composition reference instead.
+
 ## View Ordering (top to bottom)
 
 1. Environment properties

@@ -12,7 +12,7 @@ description: Write, review, or improve SwiftUI code following best practices for
 - Focus on correctness and performance; do not enforce specific architectures (MVVM, VIPER, etc.)
 - Encourage separating business logic from views for testability without mandating how
 - Follow Apple's Human Interface Guidelines and API design patterns
-- Only adopt Liquid Glass when explicitly requested by the user (see `references/liquid-glass.md`)
+- Only adopt Liquid Glass when explicitly requested by the user (use the `swiftui-liquid-glass` skill)
 - Present performance optimizations as suggestions, not requirements
 - Use `#available` gating with sensible fallbacks for version-specific APIs
 
@@ -95,7 +95,7 @@ Consult the reference file for each topic relevant to the current task:
 |-------|-----------|
 | State management | `references/state-management.md` |
 | View composition | `references/view-structure.md` |
-| Performance | `references/performance-patterns.md` |
+| Performance | Use the `swiftui-performance-audit` skill |
 | Lists and ForEach | `references/list-patterns.md` |
 | Layout | `references/layout-best-practices.md` |
 | Sheets and navigation | `references/sheet-navigation-patterns.md` |
@@ -108,7 +108,7 @@ Consult the reference file for each topic relevant to the current task:
 | Swift Charts | `references/charts.md` |
 | Charts accessibility | `references/charts-accessibility.md` |
 | Image optimization | `references/image-optimization.md` |
-| Liquid Glass (iOS 26+) | `references/liquid-glass.md` |
+| Liquid Glass (iOS 26+) | Use the `swiftui-liquid-glass` skill |
 | macOS scenes | `references/macos-scenes.md` |
 | macOS window styling | `references/macos-window-styling.md` |
 | macOS views | `references/macos-views.md` |
@@ -138,8 +138,7 @@ These are hard rules -- violations are always bugs:
 
 - `references/latest-apis.md` -- **Read first for every task.** Deprecated-to-modern API transitions (iOS 15+ through iOS 26+)
 - `references/state-management.md` -- Property wrappers, data flow, `@Observable` migration
-- `references/view-structure.md` -- View extraction, container patterns, `@ViewBuilder`
-- `references/performance-patterns.md` -- Hot-path optimization, update control, `_logChanges()`
+- `references/view-structure.md` -- View extraction, container patterns, `@ViewBuilder` (for reordering/refactoring an existing view file's structure, DI, and Observation usage, use the `swiftui-view-refactor` skill instead)
 - `references/list-patterns.md` -- ForEach identity, Table (iOS 16+), inline filtering pitfalls
 - `references/layout-best-practices.md` -- Layout patterns, GeometryReader alternatives
 - `references/accessibility-patterns.md` -- VoiceOver, Dynamic Type, grouping, traits
@@ -152,7 +151,6 @@ These are hard rules -- violations are always bugs:
 - `references/scroll-patterns.md` -- ScrollViewReader, programmatic scrolling
 - `references/focus-patterns.md` -- Focus state, focusable views, focused values, default focus, common pitfalls
 - `references/image-optimization.md` -- AsyncImage, downsampling, caching
-- `references/liquid-glass.md` -- iOS 26+ Liquid Glass effects and fallback patterns
 - `references/macos-scenes.md` -- Settings, MenuBarExtra, WindowGroup, multi-window
 - `references/macos-window-styling.md` -- Toolbar styles, window sizing, Commands
 - `references/macos-views.md` -- HSplitView, Table, PasteButton, AppKit interop

@@ -215,7 +215,7 @@ When using `Tab(role:)`, all tabs must use the `Tab` syntax. Mixing `Tab(role:)`
 
 ## When Targeting iOS 26+
 
-For Liquid Glass APIs (`glassEffect`, `GlassEffectContainer`, glass button styles), see [liquid-glass.md](liquid-glass.md).
+For Liquid Glass APIs (`glassEffect`, `GlassEffectContainer`, glass button styles), use the `swiftui-liquid-glass` skill.
 
 ### Scroll Edge Effects
 

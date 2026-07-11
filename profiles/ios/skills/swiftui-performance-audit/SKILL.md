@@ -29,6 +29,9 @@ Audit SwiftUI view performance from instrumentation and baselining to root-cause
 - Layout thrash (deep stacks, `GeometryReader`, preference chains)
 - Large images without downsampling
 - Over-animated hierarchies (implicit animations on large trees)
+- Non-lazy containers (`VStack`/`HStack`) holding large collections instead of `LazyVStack`/`LazyHStack`
+- Async work in `.task` without relying on its automatic cancellation when the view disappears
+- Closures that may run off the main thread (`Shape.path(in:)`, `visualEffect`, `Layout` protocol methods, `onGeometryChange`) touching `@MainActor` state directly instead of capturing values
 
 ### Provide
 - Likely root causes with code references
@@ -36,6 +39,8 @@ Audit SwiftUI view performance from instrumentation and baselining to root-cause
 - Minimal repro or instrumentation suggestion if needed
 
 ## 2. Guide User to Profile
+
+Before reaching for Instruments, a cheaper first step: ask the user to add `Self._printChanges()` (prints to stdout) or `Self._logChanges()` (iOS 17+, logs to the `com.apple.SwiftUI` subsystem under "Changed Body Properties") as the first line of the suspect view's `body`. Both print `@self` when the view value itself changed and `@identity` when the view's persistent data was recycled -- this often narrows down the offending state before a trace is needed. Remove these calls before shipping.
 
 If code review is inconclusive, explain how to collect data:
 
@@ -157,6 +162,61 @@ var body: some View {
 // Granular view models or per-item state to reduce update fan-out
 ```
 
+### Non-POD views in hot paths
+
+A view is POD (Plain Old Data) when it only holds simple value types and no property wrappers -- SwiftUI diffs it with fast `memcmp` instead of reflection. Wrap an expensive non-POD view in a POD parent so the fast comparison gates the expensive one:
+
+**Bad:**
+```swift
+struct ExpensiveView: View {
+    let value: Int
+    @State private var item: Item?  // property wrapper makes this non-POD
+
+    var body: some View {
+        // expensive rendering, re-diffed via reflection every time
+    }
+}
+```
+
+**Good:**
+```swift
+// POD wrapper -- fast memcmp diffing gates the expensive internal view
+struct ExpensiveView: View {
+    let value: Int
+
+    var body: some View {
+        ExpensiveViewInternal(value: value)
+    }
+}
+
+private struct ExpensiveViewInternal: View {
+    let value: Int
+    @State private var item: Item?
+
+    var body: some View {
+        // expensive rendering, only diffed when `value` changes
+    }
+}
+```
+
+### Off-main-thread closures touching `@MainActor` state
+
+SwiftUI may invoke `Shape.path(in:)`, the `visualEffect` closure, `Layout` protocol methods, and the `onGeometryChange` transform closure on a background thread. They must be `Sendable` and should capture needed values instead of reading `@MainActor`-isolated state directly:
+
+**Bad:**
+```swift
+.visualEffect { content, geometry in
+    content.blur(radius: self.pulse ? 5 : 0)  // compiler error: @MainActor isolated
+}
+```
+
+**Good:**
+```swift
+.visualEffect { [pulse] content, geometry in
+    content.blur(radius: pulse ? 5 : 0)
+}
+```
+
 ## 4. Remediation Strategies
 
 | Issue | Fix |
@@ -164,9 +224,12 @@ var body: some View {
 | Broad state changes | Narrow scope with `@State`/`@Observable` closer to leaves |
 | Unstable identities | Use stable, unique IDs for `ForEach` |
 | Heavy work in body | Precompute, cache, move to `@State` |
-| Expensive subtrees | Use `equatable()` or value wrappers |
+| Expensive subtrees | Use `equatable()` or value wrappers, or a POD wrapper view |
 | Large images | Downsample before rendering |
 | Layout complexity | Reduce nesting, use fixed sizing where possible |
+| Large collections in eager containers | Use `LazyVStack`/`LazyHStack`/`LazyVGrid`/`LazyHGrid` |
+| Unnecessary derived state | Compute via a `var` instead of storing a second `@State` that must be kept in sync |
+| Off-main-thread closures reading `@MainActor` state | Capture values in the closure's capture list instead |
 
 ## 5. Verify
 
