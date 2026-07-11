@@ -133,8 +133,52 @@ jobs:
             cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
           fi
 
-      - name: Cache SPM packages
+      - name: Check for a valid local SPM cache
+        id: local-spm
+        run: |
+          # {{COMPONENT_PREFIX}}DerivedData persists on this dedicated runner's
+          # local disk between runs (see "Clean stale build intermediates" below,
+          # which exists precisely because it does) — actions/cache is redundant
+          # whenever local disk already has a valid SPM cache from the prior run,
+          # and it isn't free: it still tars/uploads/downloads through GitHub's
+          # cache backend on every invocation. Check local disk first; only fall
+          # back to actions/cache when it's cold (first run on this box, or after
+          # a disk wipe/runner replacement).
+          DIR="{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
+          if [ ! -d "$DIR/artifacts" ]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Validate every binary package has at least one xcframework with inner
+          # arch-specific .framework bundles — local disk can be left corrupted by
+          # a prior run that was cancelled mid-download, same risk as a cache hit.
+          CORRUPT=""
+          for pkg_dir in "$DIR"/artifacts/*/; do
+            [ -d "$pkg_dir" ] || continue
+            xcfw_count=$(find "$pkg_dir" -name '*.xcframework' -type d -maxdepth 5 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$xcfw_count" -eq 0 ]; then
+              CORRUPT="$pkg_dir (no xcframework found)"
+              break
+            fi
+            while IFS= read -r xcfw; do
+              if [ -z "$(find "$xcfw" -name '*.framework' -type d -maxdepth 3 2>/dev/null | head -1)" ]; then
+                CORRUPT="$xcfw (no inner framework bundle)"
+                break 2
+              fi
+            done < <(find "$pkg_dir" -name '*.xcframework' -type d -maxdepth 5 2>/dev/null)
+          done
+          if [ -n "$CORRUPT" ]; then
+            echo "Corrupt local SPM cache: $CORRUPT — clearing, falling back to actions/cache."
+            rm -rf "$DIR"
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Local SPM cache looks valid — skipping actions/cache."
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cache SPM packages (cold-start fallback)
         id: spm-cache
+        if: steps.local-spm.outputs.valid != 'true'
         uses: actions/cache@v4.3.0
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
@@ -142,7 +186,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Validate SPM cache
+      - name: Validate restored SPM cache
+        if: steps.local-spm.outputs.valid != 'true'
         run: |
           if [ ! -d "{{COMPONENT_PREFIX}}DerivedData/SourcePackages/artifacts" ]; then
             exit 0
@@ -153,9 +198,9 @@ jobs:
             rm -rf {{COMPONENT_PREFIX}}DerivedData/SourcePackages
             exit 0
           fi
-          # Exact hit: validate every binary package has at least one xcframework
-          # with inner arch-specific .framework bundles. A cache can be saved in a
-          # corrupted state if a prior run was cancelled mid-download.
+          # Exact hit: same corruption check as the local-disk case above — a
+          # cache can be saved in a corrupted state if a prior run was cancelled
+          # mid-download.
           CORRUPT=""
           for pkg_dir in {{COMPONENT_PREFIX}}DerivedData/SourcePackages/artifacts/*/; do
             [ -d "$pkg_dir" ] || continue
@@ -227,8 +272,52 @@ jobs:
             cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
           fi
 
-      - name: Cache SPM packages
+      - name: Check for a valid local SPM cache
+        id: local-spm
+        run: |
+          # {{COMPONENT_PREFIX}}DerivedData persists on this dedicated runner's
+          # local disk between runs (see "Clean stale build intermediates" below,
+          # which exists precisely because it does) — actions/cache is redundant
+          # whenever local disk already has a valid SPM cache from the prior run,
+          # and it isn't free: it still tars/uploads/downloads through GitHub's
+          # cache backend on every invocation. Check local disk first; only fall
+          # back to actions/cache when it's cold (first run on this box, or after
+          # a disk wipe/runner replacement).
+          DIR="{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
+          if [ ! -d "$DIR/artifacts" ]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Validate every binary package has at least one xcframework with inner
+          # arch-specific .framework bundles — local disk can be left corrupted by
+          # a prior run that was cancelled mid-download, same risk as a cache hit.
+          CORRUPT=""
+          for pkg_dir in "$DIR"/artifacts/*/; do
+            [ -d "$pkg_dir" ] || continue
+            xcfw_count=$(find "$pkg_dir" -name '*.xcframework' -type d -maxdepth 5 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$xcfw_count" -eq 0 ]; then
+              CORRUPT="$pkg_dir (no xcframework found)"
+              break
+            fi
+            while IFS= read -r xcfw; do
+              if [ -z "$(find "$xcfw" -name '*.framework' -type d -maxdepth 3 2>/dev/null | head -1)" ]; then
+                CORRUPT="$xcfw (no inner framework bundle)"
+                break 2
+              fi
+            done < <(find "$pkg_dir" -name '*.xcframework' -type d -maxdepth 5 2>/dev/null)
+          done
+          if [ -n "$CORRUPT" ]; then
+            echo "Corrupt local SPM cache: $CORRUPT — clearing, falling back to actions/cache."
+            rm -rf "$DIR"
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Local SPM cache looks valid — skipping actions/cache."
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cache SPM packages (cold-start fallback)
         id: spm-cache
+        if: steps.local-spm.outputs.valid != 'true'
         uses: actions/cache@v4.3.0
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
@@ -236,7 +325,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Validate SPM cache
+      - name: Validate restored SPM cache
+        if: steps.local-spm.outputs.valid != 'true'
         run: |
           if [ ! -d "{{COMPONENT_PREFIX}}DerivedData/SourcePackages/artifacts" ]; then
             exit 0
@@ -247,9 +337,9 @@ jobs:
             rm -rf {{COMPONENT_PREFIX}}DerivedData/SourcePackages
             exit 0
           fi
-          # Exact hit: validate every binary package has at least one xcframework
-          # with inner arch-specific .framework bundles. A cache can be saved in a
-          # corrupted state if a prior run was cancelled mid-download.
+          # Exact hit: same corruption check as the local-disk case above — a
+          # cache can be saved in a corrupted state if a prior run was cancelled
+          # mid-download.
           CORRUPT=""
           for pkg_dir in {{COMPONENT_PREFIX}}DerivedData/SourcePackages/artifacts/*/; do
             [ -d "$pkg_dir" ] || continue
