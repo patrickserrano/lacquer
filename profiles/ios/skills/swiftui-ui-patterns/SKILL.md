@@ -1,5 +1,5 @@
 ---
-name: ui-patterns
+name: swiftui-ui-patterns
 description: Best practices and patterns for building SwiftUI views and components. Use when creating or refactoring SwiftUI UI, designing tab architecture, composing screens, or needing component-specific guidance.
 ---
 
