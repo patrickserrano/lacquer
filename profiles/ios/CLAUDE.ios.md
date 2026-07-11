@@ -139,6 +139,13 @@ that doesn't need it; that's slower and starves the build queue. The test is
 simply: *does this job invoke `xcodebuild` / the simulator / signing?* If yes,
 dedicated; if no, `ubuntu-latest`.
 
+**macOS-only or hybrid iOS+macOS app CI** — the synced `ios-ci.yml` assumes an
+iOS Simulator destination and doesn't cover a macOS target. See the
+`macos-ci-recipes` skill for copy-in recipes (a macOS-only workflow, and a job
+to add to a hybrid project's own `ios-ci.yml`) — not auto-synced; two fleet
+projects have needed this so far, not yet enough signal for the harness to
+distribute it automatically.
+
 ## Build & Test Tooling (flowdeck)
 
 **Use `flowdeck` for ALL Apple-platform work** — build, run, test, simulator, device, logs, UI automation. Do NOT use `xcodebuild`, `xcrun`, `simctl`, or `devicectl` directly (raw `simctl`/`devicectl` are typically hook-blocked).
