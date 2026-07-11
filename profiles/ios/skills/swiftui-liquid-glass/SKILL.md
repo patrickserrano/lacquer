@@ -150,6 +150,24 @@ GlassEffectContainer(spacing: 20) {
 - `.rect(cornerRadius: CGFloat)`
 - `.circle`
 
+## Fallback Materials
+
+When gating with `#available(iOS 26, *)`, fall back to a `Material`, ordered from closest to glass appearance to most opaque:
+
+- `.ultraThinMaterial` -- closest to glass appearance
+- `.thinMaterial` -- slightly more opaque
+- `.regularMaterial` -- standard blur
+- `.thickMaterial` -- more opaque
+- `.ultraThickMaterial` -- most opaque
+
+## System Design Notes
+
+- **Toolbar icons** render monochrome by default in the new design. The monochrome palette reduces visual noise and maintains legibility -- use `tint(_:)` only to convey meaning (e.g. a call to action), not for visual effect.
+- **Partial-height sheets** use a Liquid Glass background by default. If a custom `presentationBackground(_:)` was previously applied, consider removing it to let the new material shine. Sheets can morph out of the glass controls that present them using `navigationZoomTransition`.
+- **Scroll edge effects** automatically blur and fade content under system toolbars to keep controls legible. Remove any custom background-darkening effects behind bar items -- they interfere with the automatic effect.
+
+> Source: "Build a SwiftUI app with the new design" (WWDC25, session 323)
+
 ## Best Practices
 
 1. **Container Usage**: Always use `GlassEffectContainer` for multiple glass views
