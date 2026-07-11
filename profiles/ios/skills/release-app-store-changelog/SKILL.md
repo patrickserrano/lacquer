@@ -1,5 +1,5 @@
 ---
-name: app-store-changelog
+name: release-app-store-changelog
 description: Create user-facing App Store release notes from git history. Use when asked to generate release changelog, App Store "What's New" text, or release notes based on git tags.
 ---
 
