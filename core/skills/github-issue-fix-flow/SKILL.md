@@ -1,6 +1,6 @@
 ---
-name: issue-fix-flow
-description: End-to-end GitHub issue fix workflow using gh CLI, local code changes, builds/tests, and git push. Use when asked to take an issue number, implement a fix, run builds/tests, commit with a closing message, and push.
+name: github-issue-fix-flow
+description: Use when asked to take a GitHub issue number, implement a fix, run builds/tests, commit with a closing message, and push. End-to-end workflow using gh CLI, local code changes, and git.
 ---
 
 # GitHub Issue Fix Flow
