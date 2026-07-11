@@ -5,110 +5,142 @@ description: Build, run, and debug iOS apps on a simulator. Use when asked to ru
 
 # iOS Debugger Agent
 
+Build and run iOS projects on a booted simulator, interact with the UI, and capture logs for debugging — via the `flowdeck` skill, which is this harness's canonical source of truth for exact FlowDeck syntax. This skill is a thin, scenario-specific wrapper around it, not a competing source of commands. If a command below errors or you're unsure of a flag, consult `flowdeck`'s `resources/` docs or run `flowdeck <command> --help` rather than guessing — never fall back to `xcrun`/`simctl`/`xcodebuild`.
+
 ## Overview
 
-Build and run iOS projects on a booted simulator, interact with the UI, and capture logs for debugging.
+FlowDeck ties build, install, and launch together (`flowdeck run`), and streams logs from the running app rather than querying the OS unified log. There is no need to discover DerivedData paths, hand-construct `xcodebuild` destinations, or spawn `log stream` predicates — FlowDeck's config-first workflow and app-tracking model replace all of that.
 
 ## Prerequisites
 
-- Xcode installed with command-line tools
-- A booted iOS simulator (check with `xcrun simctl list devices`)
+- FlowDeck CLI installed (`flowdeck --version`)
 - Project with `.xcodeproj` or `.xcworkspace`
+- A saved FlowDeck config, or enough context to create one (`flowdeck context --json`)
 
 ## Core Workflow
 
-### 1) Discover the booted simulator
+### 1) Check for a saved config first
 
 ```bash
-xcrun simctl list devices | grep -E "Booted"
+flowdeck config get --json
 ```
 
-If none are booted, ask the user to boot one:
+If a config exists, use bare commands (`flowdeck build`, `flowdeck run`, etc.) for the rest of this workflow. If not, discover and create one:
+
 ```bash
-xcrun simctl boot "iPhone 15 Pro"
+flowdeck context --json
+flowdeck config set -w <workspace> -s <scheme> -S "<simulator>"
 ```
 
-### 2) Build the project
+### 2) Discover the booted simulator (if you need a specific one)
 
-For a workspace:
 ```bash
-xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -destination 'platform=iOS Simulator,name=iPhone 15 Pro' build
+flowdeck simulator list --json
 ```
 
-For a project:
+Check each entry's `state` field for `"Booted"`. If none are booted and you need a specific device, boot one by UDID (boot takes a UDID, not a name):
+
 ```bash
-xcodebuild -project MyApp.xcodeproj -scheme MyApp -destination 'platform=iOS Simulator,name=iPhone 15 Pro' build
+flowdeck simulator boot <udid>
 ```
 
-### 3) Install and launch the app
+### 3) Build the project
 
-Find the built app:
 ```bash
-find ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*Debug-iphonesimulator*" | head -1
+flowdeck build
 ```
 
-Install on simulator:
+Add `-w <workspace> -s <scheme> -S "<simulator>"` only if no config is saved and you're not overriding it.
+
+### 4) Install and launch the app
+
 ```bash
-xcrun simctl install booted /path/to/MyApp.app
+flowdeck run
 ```
 
-Launch the app:
+This builds, installs, and launches in one step, returning an **App ID**. To launch an existing build without rebuilding:
+
 ```bash
-xcrun simctl launch booted com.example.MyApp
+flowdeck run --no-build
 ```
 
-### 4) Capture logs
+There is no standalone "install only" verb for simulators — FlowDeck ties install to launch by design. (Physical devices are the exception: `flowdeck device install <udid> <path-to-app>` installs without launching — see `resources/device.md` in the `flowdeck` skill.)
 
-Stream logs from the app:
+### 5) Capture logs
+
+Either launch with logs streaming immediately:
+
 ```bash
-xcrun simctl spawn booted log stream --predicate 'subsystem == "com.example.MyApp"' --level debug
+flowdeck run --log     # run with run_in_background: true
 ```
 
-Or capture all simulator logs:
+Or attach to an already-running app:
+
 ```bash
-xcrun simctl spawn booted log stream --level debug
+flowdeck apps                 # find the App ID
+flowdeck logs <app-id>        # run with run_in_background: true — this is a continuous stream
 ```
+
+Never use `xcrun simctl spawn … log`, `log show`, or `log stream` — FlowDeck captures all `print()` and `OSLog` output in this one stream.
 
 ## UI Interaction
 
 ### Take a screenshot
+
+Screenshots are primarily session-based, not one-off:
+
 ```bash
-xcrun simctl io booted screenshot screenshot.png
+flowdeck ui simulator session start -S "<sim>" --json
+# Read the `latest_screenshot` path from the JSON response with the Read tool
+```
+
+For a single one-off capture when no session is running:
+
+```bash
+flowdeck ui simulator screen -S "<sim>" --output /tmp/screenshot.png
 ```
 
 ### Record video
+
 ```bash
-xcrun simctl io booted recordVideo video.mp4
-# Press Ctrl+C to stop recording
+flowdeck simulator record -S "<sim>"                      # record until Ctrl+C, or add --duration 10s
 ```
+
+For frame-by-frame capture (e.g. validating an animation) instead of a video file, use `flowdeck simulator frames -S "<sim>"` (contact sheet by default, `--images` for full-res PNGs per frame).
 
 ### Open a URL in the simulator
+
 ```bash
-xcrun simctl openurl booted "myapp://deeplink"
+flowdeck ui simulator open-url "myapp://deeplink" -S "<sim>"
 ```
 
-### Send push notification
+### Send a push notification
+
 ```bash
-xcrun simctl push booted com.example.MyApp notification.apns
+flowdeck simulator push notification.apns -b com.example.MyApp -S "<sim>"
 ```
+
+`notification.apns` must contain an `aps` key. `-b/--bundle-id` is optional if the payload includes a `Simulator Target Bundle` key.
 
 ## Troubleshooting
 
-- **Build fails**: Check scheme name with `xcodebuild -list`
-- **App won't launch**: Verify bundle ID with `defaults read /path/to/MyApp.app/Info.plist CFBundleIdentifier`
-- **Simulator not found**: List available simulators with `xcrun simctl list devices available`
-- **Clean build**: `xcodebuild clean` or delete DerivedData
+- **Build fails**: Run `flowdeck context --json` or `flowdeck project schemes` to confirm the scheme name. On failure, `flowdeck build` prints the extracted reason and a `Full log: <path>` line — read that file rather than rerunning with `-v/--verbose`.
+- **App won't launch**: Check `flowdeck simulator app info <bundle-id> -S "<sim>"` for bundle metadata, or `flowdeck apps` to see what FlowDeck currently has tracked.
+- **Simulator not found**: `flowdeck simulator list --available-only`; create one with `flowdeck simulator create -n "<name>" --device-type "<type>" --runtime "<runtime>"` if needed.
+- **Clean build**: `flowdeck clean`, or `flowdeck clean --all` to clear all caches.
 
 ## Common Commands Reference
 
-| Task | Command |
-|------|---------|
-| List simulators | `xcrun simctl list devices` |
-| Boot simulator | `xcrun simctl boot "iPhone 15 Pro"` |
-| Shutdown simulator | `xcrun simctl shutdown booted` |
-| Erase simulator | `xcrun simctl erase booted` |
-| Install app | `xcrun simctl install booted /path/to/App.app` |
-| Uninstall app | `xcrun simctl uninstall booted com.example.app` |
-| Launch app | `xcrun simctl launch booted com.example.app` |
-| Terminate app | `xcrun simctl terminate booted com.example.app` |
-| Get app container | `xcrun simctl get_app_container booted com.example.app` |
+| Task | FlowDeck Command | Notes |
+|------|-------------------|-------|
+| List simulators | `flowdeck simulator list --json` | Check `state` field for `"Booted"`/`"Shutdown"` |
+| Boot simulator | `flowdeck simulator boot <udid>` | Positional UDID only, not a name — resolve via `simulator list --json` first |
+| Shutdown simulator | `flowdeck simulator shutdown <udid>` | |
+| Erase simulator | `flowdeck simulator erase <udid>` | Simulator must be shut down first |
+| Install app | `flowdeck run` (build+install+launch), or `flowdeck run --no-build` (install+launch an existing build) | No standalone simulator-only "install" verb exists in FlowDeck |
+| Uninstall app | `flowdeck uninstall <app-id-or-bundle-id>` | Destructive — requires explicit user consent; not part of FlowDeck's automatic validation loop |
+| Launch app | `flowdeck run` for apps FlowDeck built; `flowdeck simulator launch <bundle-id> -S <udid>` for apps FlowDeck did not build (system apps, pre-installed builds) | |
+| Terminate app | `flowdeck stop <app-id-or-bundle-id>` | Targets an app FlowDeck is tracking (launched via `run` or `simulator launch`) — see `flowdeck apps` for identifiers. `--force` sends `SIGKILL` for a stuck app. |
+| Get app container | `flowdeck simulator app container <bundle-id> [-c app\|data\|groups\|<group-id>] -S <udid>` | `-c/--container` defaults to `app` |
+
+For anything not covered above — hardware buttons, appearance, Dynamic Type, privacy grants, keychain, pasteboard, watch/phone pairing — see `resources/simulator.md` and `resources/ui.md` in the `flowdeck` skill.

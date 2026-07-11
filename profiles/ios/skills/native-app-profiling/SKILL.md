@@ -1,183 +1,27 @@
 ---
 name: native-app-profiling
-description: Profile native macOS/iOS apps using Time Profiler via CLI (xctrace). Use when asked to identify performance hotspots, profile CPU usage, or diagnose slow code paths without opening Instruments.
+description: Profile native macOS/iOS apps for CPU hotspots, hangs, and hitches using Instruments traces. Use when asked to identify performance hotspots, profile CPU usage, or diagnose slow code paths without opening Instruments.
 ---
 
-# Native App Performance Profiling (CLI)
+# Native App Performance Profiling
 
-## Overview
+**This is a redirect skill.** This harness's Instruments trace recording and analysis workflow lives in `swiftui-expert-skill` — see its "Record a new Instruments trace" and "Trace-driven improvement" task-workflow sections, backed by `scripts/record_trace.py` and `scripts/analyze_trace.py` and documented in full in `references/trace-recording.md` and `references/trace-analysis.md`. That workflow already covers everything this skill used to teach manually: template selection by device kind, attach/launch/stop-file recording modes, and analysis with automatic symbolication, window scoping, main-thread coverage (`main_running_coverage_pct`), and SwiftUI cause-graph fan-in (`--fanin-for`).
 
-Record Time Profiler via `xctrace`, extract samples, symbolicate, and identify hotspots without opening Instruments.
+Do not use raw `xcrun xctrace`, `atos`, `vmmap`, or `pgrep` for this. FlowDeck's ban on raw Apple CLI tools (`xcodebuild`, `xcrun`, `simctl`, `devicectl`) extends to Instruments tooling in this harness for the same reason — `record_trace.py`/`analyze_trace.py` wrap `xctrace` and handle symbolication automatically, so the manual `atos`/`vmmap` load-address dance this skill used to document is no longer part of the workflow.
 
-## Quick Start
+## When this applies
 
-### 1) Record Time Profiler
+Any request to profile CPU usage, find performance hotspots, or diagnose hangs/hitches in a native iOS/macOS app — whether or not the code under investigation is SwiftUI. `swiftui-expert-skill`'s trace workflow is not SwiftUI-specific for recording or the Time Profiler/Hangs/Animation Hitches lanes: only the `swiftui` and `swiftui-causes` analysis lanes are SwiftUI-specific, and they simply report `available: false` on non-SwiftUI code paths.
 
-**Attach to running process:**
-```bash
-# Get the PID first
-pgrep -x "AppName"
+## Gotchas not covered elsewhere
 
-# Record for 90 seconds
-xcrun xctrace record \
-    --template 'Time Profiler' \
-    --time-limit 90s \
-    --output /tmp/App.trace \
-    --attach <pid>
-```
+These are the two items from the old manual workflow that remain relevant and aren't already documented in `swiftui-expert-skill`'s trace references:
 
-**Launch and record:**
-```bash
-xcrun xctrace record \
-    --template 'Time Profiler' \
-    --time-limit 90s \
-    --output /tmp/App.trace \
-    --launch -- /path/to/App.app/Contents/MacOS/App
-```
+- **Idle time produces empty data.** Trigger the slow code path *during* the recording window — profiling an idle app yields empty or low-signal traces regardless of capture duration.
+- **Instruments permissions.** `xctrace` (wrapped by `record_trace.py`) may prompt for Developer Tools access or Full Disk Access on first use on a given machine, or require elevated privileges for certain system-wide captures. This is separate from the per-device signing/trust failure mode already documented in `references/trace-recording.md`.
 
-### 2) Export Time Samples
+Everything else — device/template selection, starting or stopping a recording, scoping analysis to a time window, interpreting coverage percentages, and mapping findings back to source files — is `swiftui-expert-skill`'s job. Follow its workflow directly rather than duplicating it here.
 
-List available schemas in the trace:
-```bash
-xcrun xctrace export --input /tmp/App.trace --toc
-```
+## Deprecation note
 
-Export time profile data:
-```bash
-xcrun xctrace export \
-    --input /tmp/App.trace \
-    --xpath '/trace-toc/run/data/table[@schema="time-profile"]' \
-    --output /tmp/time-profile.xml
-```
-
-### 3) Get Load Address for Symbolication
-
-While the app is running, get the `__TEXT` segment load address:
-```bash
-vmmap <pid> | grep "__TEXT"
-```
-
-Look for the load address (typically starts with `0x1...`).
-
-### 4) Symbolicate Stack Frames
-
-Use `atos` to symbolicate addresses:
-```bash
-atos -o /path/to/App.app/Contents/MacOS/App -l 0x100000000 <address>
-```
-
-## Workflow Notes
-
-- **Correct binary**: Confirm you're profiling the right build (local vs /Applications)
-- **Trigger the slow path**: During capture, perform the action that's slow
-- **Capture duration**: If stacks are empty, capture longer or avoid idle time
-- **Symbol matching**: Binary symbols must match the trace (same build)
-
-## Available Templates
-
-List all profiling templates:
-```bash
-xcrun xctrace list templates
-```
-
-Common templates:
-- `Time Profiler` - CPU sampling
-- `Allocations` - Memory allocations
-- `Leaks` - Memory leak detection
-- `System Trace` - System-level activity
-- `Animation Hitches` - UI performance
-
-## Common Commands
-
-| Task | Command |
-|------|---------|
-| List templates | `xcrun xctrace list templates` |
-| List devices | `xcrun xctrace list devices` |
-| Record help | `xcrun xctrace help record` |
-| Export help | `xcrun xctrace help export` |
-| Get PID | `pgrep -x "AppName"` |
-| Get load address | `vmmap <pid> \| grep __TEXT` |
-| Symbolicate | `atos -o <binary> -l <load-addr> <address>` |
-
-## Analyzing Results
-
-### Manual Analysis
-
-1. Export the trace to XML
-2. Parse the call tree data
-3. Look for frames with high sample counts
-4. Focus on your app's code (filter out system frameworks)
-
-### Identify Hotspots
-
-Look for:
-- Functions with high self-time (time spent in function itself)
-- Deep call stacks indicating inefficient algorithms
-- Repeated patterns suggesting optimization opportunities
-
-## Gotchas
-
-- **ASLR**: Runtime `__TEXT` load address changes each launch - get it from `vmmap`
-- **Build mismatch**: Symbols must match the exact build that was profiled
-- **Idle time**: Profiling idle app produces empty/useless data
-- **Permissions**: May need to run with `sudo` for some operations
-
-## iOS Profiling
-
-For iOS apps on simulator:
-```bash
-xcrun xctrace record \
-    --template 'Time Profiler' \
-    --device <simulator-udid> \
-    --time-limit 60s \
-    --output /tmp/iOS-App.trace \
-    --launch -- <bundle-id>
-```
-
-Get simulator UDID:
-```bash
-xcrun simctl list devices | grep Booted
-```
-
-## Automation Script
-
-Basic recording script:
-```bash
-#!/bin/bash
-set -e
-
-APP_NAME="$1"
-DURATION="${2:-60}"
-OUTPUT="${3:-/tmp/$APP_NAME.trace}"
-
-if [ -z "$APP_NAME" ]; then
-    echo "Usage: $0 <app-name> [duration-seconds] [output-path]"
-    exit 1
-fi
-
-PID=$(pgrep -x "$APP_NAME" || true)
-
-if [ -n "$PID" ]; then
-    echo "Attaching to running $APP_NAME (PID: $PID)"
-    xcrun xctrace record \
-        --template 'Time Profiler' \
-        --time-limit "${DURATION}s" \
-        --output "$OUTPUT" \
-        --attach "$PID"
-else
-    echo "App not running. Please start $APP_NAME first."
-    exit 1
-fi
-
-echo "Trace saved to: $OUTPUT"
-echo "To analyze: xcrun xctrace export --input $OUTPUT --toc"
-```
-
-## Checklist
-
-- [ ] Correct binary path identified
-- [ ] App running or launch command ready
-- [ ] Slow path reproducible
-- [ ] Trace recorded during problematic behavior
-- [ ] Load address captured for symbolication
-- [ ] Results analyzed for hotspots
+Every capability this skill used to teach (record, export, symbolicate, analyze) now has a strictly better equivalent in `swiftui-expert-skill`. This skill was kept as a short redirect rather than deleted outright, since removing a skill entirely is a bigger call than trimming its content — flagged here for a human decision on whether to fully retire `native-app-profiling` in a future pass.
