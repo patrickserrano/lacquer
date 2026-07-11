@@ -115,6 +115,108 @@ func TestPlanFansSkillsAcrossTools(t *testing.T) {
 	}
 }
 
+func TestPlanAgentsCategory(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "core", "agents", "software-architect.md"), "core agent")
+	write(t, filepath.Join(h, "profiles", "ios", "agents", "ios-swift-engineer.md"), "profile agent")
+
+	cfg := &config.Config{Components: []config.Component{
+		{Path: "ios", Profiles: []string{"ios"}},
+	}}
+	got, err := Plan(h, cfg)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	dests := map[string]string{}
+	for _, a := range got {
+		dests[a.Dest] = a.Src
+	}
+
+	// A core agent lands flat at .claude/agents/<name>.md.
+	coreDest := filepath.Join(".claude", "agents", "software-architect.md")
+	if _, ok := dests[coreDest]; !ok {
+		t.Errorf("core agent missing at %q; got %v", coreDest, dests)
+	}
+	// A profile agent lands at the same flat destination shape, not nested
+	// under the profile name.
+	profileDest := filepath.Join(".claude", "agents", "ios-swift-engineer.md")
+	if _, ok := dests[profileDest]; !ok {
+		t.Errorf("profile agent missing at %q; got %v", profileDest, dests)
+	}
+}
+
+// TestPlanAgentsStayClaudeOnly proves the key behavioral difference from
+// skills: unlike SKILL.md, custom agent definitions are a Claude-Code-specific
+// mechanism, so they must never fan out to other enabled tools' dirs.
+func TestPlanAgentsStayClaudeOnly(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "core", "agents", "software-architect.md"), "core agent")
+	write(t, filepath.Join(h, "profiles", "ios", "agents", "ios-swift-engineer.md"), "profile agent")
+
+	cfg := &config.Config{
+		Project:    config.Project{Tools: []string{"claude", "codex", "antigravity"}},
+		Components: []config.Component{{Path: "ios", Profiles: []string{"ios"}}},
+	}
+	got, err := Plan(h, cfg)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	dests := map[string]bool{}
+	for _, a := range got {
+		dests[a.Dest] = true
+	}
+
+	if !dests[filepath.Join(".claude", "agents", "software-architect.md")] {
+		t.Error("core agent missing from .claude/agents")
+	}
+	if !dests[filepath.Join(".claude", "agents", "ios-swift-engineer.md")] {
+		t.Error("profile agent missing from .claude/agents")
+	}
+	for _, bad := range []string{
+		filepath.Join(".codex", "agents", "software-architect.md"),
+		filepath.Join(".agents", "agents", "software-architect.md"),
+		filepath.Join(".codex", "agents", "ios-swift-engineer.md"),
+		filepath.Join(".agents", "agents", "ios-swift-engineer.md"),
+	} {
+		if dests[bad] {
+			t.Errorf("agents must not fan out to non-Claude tools, but found %q", bad)
+		}
+	}
+}
+
+// TestPlanAgentCoreWinsOverProfile proves the same "first writer wins"
+// collision rule that applies to skills/commands also applies to agents: a
+// core agent takes precedence over a same-named profile agent.
+func TestPlanAgentCoreWinsOverProfile(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "core", "agents", "dup.md"), "CORE VERSION")
+	write(t, filepath.Join(h, "profiles", "ios", "agents", "dup.md"), "PROFILE VERSION")
+
+	cfg := &config.Config{Components: []config.Component{
+		{Path: "ios", Profiles: []string{"ios"}},
+	}}
+	got, err := Plan(h, cfg)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	var src string
+	for _, a := range got {
+		if a.Dest == filepath.Join(".claude", "agents", "dup.md") {
+			src = a.Src
+		}
+	}
+	if src == "" {
+		t.Fatal("dup.md agent not planned")
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "CORE VERSION" {
+		t.Errorf("core agent should win a same-named collision, got src content %q", data)
+	}
+}
+
 func TestPlanSkipsCruft(t *testing.T) {
 	h := t.TempDir()
 	write(t, filepath.Join(h, "core", "skills", "git.md"), "x")

@@ -41,7 +41,9 @@ func MissingTokens(plan []Asset, proj config.Project) ([]string, error) {
 // Antigravity, Cursor, and Gemini CLI — only the directory differs — so the same
 // skill package is copied verbatim into each enabled tool's dir. Commands are NOT
 // fanned out: each tool's prompt/command mechanism differs, so commands stay
-// Claude-only (.claude/commands).
+// Claude-only (.claude/commands). Custom subagent definitions (agents) are the
+// same story as commands: there is no cross-tool standard for them, so they
+// stay Claude-only too (.claude/agents).
 var toolSkillsDir = map[string]string{
 	"claude":      ".claude/skills",
 	"codex":       ".codex/skills",
@@ -60,9 +62,9 @@ type Asset struct {
 }
 
 // Plan returns every asset to copy for core plus the profiles named by the
-// project's components. Skills/commands/workflows are root-scoped (deduped by
-// destination across profiles); config is copied into each component that lists
-// the owning profile.
+// project's components. Skills/commands/agents/workflows are root-scoped
+// (deduped by destination across profiles); config is copied into each
+// component that lists the owning profile.
 //
 // On a destination collision the first writer wins: core is walked before
 // profiles, so a core skill/command takes precedence over a same-named profile
@@ -108,6 +110,10 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 		func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), "") }); err != nil {
 		return nil, err
 	}
+	if err := walkInto(filepath.Join(harnessRoot, "core", "agents"),
+		func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), "") }); err != nil {
+		return nil, err
+	}
 	if err := walkInto(filepath.Join(harnessRoot, "core", "root"),
 		func(src, rel string) { add(src, rel, "") }); err != nil {
 		return nil, err
@@ -141,6 +147,10 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 		}
 		if err := walkInto(filepath.Join(base, "commands"),
 			func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), prefix) }); err != nil {
+			return nil, err
+		}
+		if err := walkInto(filepath.Join(base, "agents"),
+			func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), prefix) }); err != nil {
 			return nil, err
 		}
 		// workflows -> .github/workflows/<p>-<file> (stack-prefixed; flat)
