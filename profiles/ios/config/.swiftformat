@@ -24,3 +24,24 @@
 --disable acronyms
 --disable modifierOrder
 --disable swiftTestingTestCaseNames
+
+# SwiftFormat 0.62.0 (2026-07-06) shipped several semantic auto-rewrite rules
+# enabled by default (isEmpty, preferContains, preferFirstWhere, preferCountWhere,
+# preferMinOverSorted, preferFlatMap) that duplicate SwiftLint opt-in rules this
+# config already enables (empty_count, contains_over_filter_count) — two tools
+# independently deciding the same rewrite, one silently, one as a warning a
+# developer can judge. 0.62.1 (the next day) walked all of these back to
+# disabled-by-default, but Homebrew's Brewfile syntax has no clean way to pin
+# swiftformat/swiftlint to an exact version (no versioned formulae exist for
+# either), so a future release re-enabling any of these by default would land
+# in every project's CI with no review. Disable them explicitly so behavior is
+# deterministic regardless of which SwiftFormat version runs, not just the
+# current one. SwiftLint owns this class of decision going forward — if a
+# corresponding SwiftLint opt-in rule is ever added for one of these, keep the
+# SwiftFormat side disabled.
+--disable isEmpty
+--disable preferContains
+--disable preferFirstWhere
+--disable preferCountWhere
+--disable preferMinOverSorted
+--disable preferFlatMap
