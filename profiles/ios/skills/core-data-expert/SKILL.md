@@ -1,6 +1,6 @@
 ---
 name: core-data-expert
-description: 'Expert Core Data guidance (iOS/macOS): stack setup, fetch requests & NSFetchedResultsController, saving/merge conflicts, threading & Swift Concurrency, batch operations & persistent history, migrations, performance, and NSPersistentCloudKitContainer/CloudKit sync.'
+description: 'Expert Core Data guidance (iOS/macOS) covering stack setup, fetch requests & NSFetchedResultsController, saving/merge conflicts, threading & Swift Concurrency, batch operations & persistent history, migrations, performance, and NSPersistentCloudKitContainer/CloudKit sync. Use when setting up a Core Data stack, debugging threading/concurrency crashes, resolving NSMergeConflict or constraint violations, planning a schema migration, integrating CloudKit sync, or diagnosing Core Data performance/memory issues.'
 ---
 # Core Data Expert
 

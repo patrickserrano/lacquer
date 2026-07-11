@@ -1,5 +1,5 @@
 ---
-name: concurrency-expert
+name: swift-concurrency-expert
 description: Swift Concurrency review and remediation for Swift 6.2+. Use when asked to review Swift Concurrency usage, improve concurrency compliance, or fix Swift concurrency compiler errors.
 ---
 
