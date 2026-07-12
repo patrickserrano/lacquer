@@ -45,19 +45,19 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 func TestRowsReportBehindAndUpToDate(t *testing.T) {
-	harness := t.TempDir()
+	lacquer := t.TempDir()
 	project := t.TempDir()
-	writeFile(t, filepath.Join(harness, "VERSION"), "5\n")
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "5\n")
 
-	writeFile(t, filepath.Join(project, ".harness.toml"),
+	writeFile(t, filepath.Join(project, ".lacquer.toml"),
 		"[project]\nname=\"acme\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 	// core stamped at v5 (current), ios stamped at v3 (behind).
 	writeFile(t, filepath.Join(project, "CLAUDE.md"),
-		"<!-- harness:core:start v5 -->\nx\n<!-- harness:core:end -->\n")
+		"<!-- lacquer:core:start v5 -->\nx\n<!-- lacquer:core:end -->\n")
 	writeFile(t, filepath.Join(project, "ios", "CLAUDE.md"),
-		"<!-- harness:ios:start v3 -->\nx\n<!-- harness:ios:end -->\n")
+		"<!-- lacquer:ios:start v3 -->\nx\n<!-- lacquer:ios:end -->\n")
 
-	rows, err := Rows(harness, project)
+	rows, err := Rows(lacquer, project)
 	if err != nil {
 		t.Fatalf("Rows: %v", err)
 	}

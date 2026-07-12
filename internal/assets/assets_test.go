@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/patrickserrano/harness/internal/config"
+	"github.com/patrickserrano/lacquer/internal/config"
 )
 
 func write(t *testing.T, path, content string) {
@@ -220,7 +220,7 @@ func TestPlanAgentCoreWinsOverProfile(t *testing.T) {
 func TestPlanSkipsCruft(t *testing.T) {
 	h := t.TempDir()
 	write(t, filepath.Join(h, "core", "skills", "git.md"), "x")
-	// Build/tool junk that may sit on the harness disk must never be planned.
+	// Build/tool junk that may sit on the lacquer disk must never be planned.
 	write(t, filepath.Join(h, "core", "skills", "__pycache__", "git.cpython-314.pyc"), "x")
 	write(t, filepath.Join(h, "core", "skills", "helper.pyc"), "x")
 	write(t, filepath.Join(h, "core", "skills", ".DS_Store"), "x")

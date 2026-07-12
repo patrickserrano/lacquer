@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/patrickserrano/harness/internal/audit"
-	"github.com/patrickserrano/harness/internal/initcmd"
-	"github.com/patrickserrano/harness/internal/onboardcmd"
-	"github.com/patrickserrano/harness/internal/status"
-	syncpkg "github.com/patrickserrano/harness/internal/sync"
-	"github.com/patrickserrano/harness/internal/version"
+	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/initcmd"
+	"github.com/patrickserrano/lacquer/internal/onboardcmd"
+	"github.com/patrickserrano/lacquer/internal/status"
+	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
+	"github.com/patrickserrano/lacquer/internal/version"
 )
 
 func main() {
@@ -21,7 +21,7 @@ func main() {
 
 // run is the testable entry point: it dispatches one CLI invocation and returns
 // the process exit code. args is os.Args[1:]; getenv resolves environment (chiefly
-// HARNESS_ROOT); stdout/stderr receive command output. main() is a thin wrapper.
+// LACQUER_ROOT); stdout/stderr receive command output. main() is a thin wrapper.
 func run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
 		usage(stderr)
@@ -29,18 +29,18 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	}
 
 	// help is answered before anything else: print to STDOUT and exit 0, so
-	// `harness --help` isn't a non-zero "unknown command" with output on stderr.
+	// `lacquer --help` isn't a non-zero "unknown command" with output on stderr.
 	switch args[0] {
 	case "-h", "--help", "help":
 		usage(stdout)
 		return 0
 	}
 
-	// harnessRoot is the directory holding this repo's VERSION/core/profiles,
-	// resolved from HARNESS_ROOT and defaulting to ".".
-	harnessRoot := getenv("HARNESS_ROOT")
-	if harnessRoot == "" {
-		harnessRoot = "."
+	// lacquerRoot is the directory holding this repo's VERSION/core/profiles,
+	// resolved from LACQUER_ROOT and defaulting to ".".
+	lacquerRoot := getenv("LACQUER_ROOT")
+	if lacquerRoot == "" {
+		lacquerRoot = "."
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -49,78 +49,78 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 
 	switch args[0] {
 	case "init":
-		// init reads harnessRoot to gate detected profiles to those that ship;
+		// init reads lacquerRoot to gate detected profiles to those that ship;
 		// with it unset (default ".") every profile would be silently dropped.
-		if err := requireHarnessRoot(harnessRoot); err != nil {
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
-		summary, err := initcmd.Run(harnessRoot, projectRoot)
+		summary, err := initcmd.Run(lacquerRoot, projectRoot)
 		if err != nil {
 			return fail(stderr, err)
 		}
 		fmt.Fprintln(stdout, summary)
 	case "onboard":
-		// onboard invokes init, which reads harnessRoot (see init above).
-		if err := requireHarnessRoot(harnessRoot); err != nil {
+		// onboard invokes init, which reads lacquerRoot (see init above).
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
 		fs := flag.NewFlagSet("onboard", flag.ContinueOnError)
 		fs.SetOutput(stderr)
-		// No default org: the harness must not bake in any one org's identity, so
+		// No default org: the lacquer must not bake in any one org's identity, so
 		// repo creation requires an explicit --org (see onboardcmd.Run).
 		org := fs.String("org", "", "GitHub org for repo creation (required unless --no-repo)")
 		noRepo := fs.Bool("no-repo", false, "do not create a repo even if no remote exists")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
-		summary, err := onboardcmd.Run(harnessRoot, projectRoot, *org, !*noRepo)
+		summary, err := onboardcmd.Run(lacquerRoot, projectRoot, *org, !*noRepo)
 		if err != nil {
 			return fail(stderr, err)
 		}
 		fmt.Fprintln(stdout, summary)
 	case "sync":
-		if err := requireHarnessRoot(harnessRoot); err != nil {
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
 		fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 		fs.SetOutput(stderr)
-		force := fs.Bool("force", false, "overwrite local changes the harness did not make (see `harness audit`)")
+		force := fs.Bool("force", false, "overwrite local changes the lacquer did not make (see `lacquer audit`)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
-		res, err := syncpkg.Run(harnessRoot, projectRoot, *force)
+		res, err := syncpkg.Run(lacquerRoot, projectRoot, *force)
 		if err != nil {
 			return fail(stderr, err)
 		}
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
 	case "audit":
-		if err := requireHarnessRoot(harnessRoot); err != nil {
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
-		rows, ver, err := audit.Classify(harnessRoot, projectRoot)
+		rows, ver, err := audit.Classify(lacquerRoot, projectRoot)
 		if err != nil {
 			return fail(stderr, err)
 		}
 		fmt.Fprint(stdout, audit.Format(rows, ver))
-		// Exit 3 when a project change would be clobbered, so `harness audit` is
+		// Exit 3 when a project change would be clobbered, so `lacquer audit` is
 		// usable as a CI drift gate (documented in usage()).
 		if len(audit.Clobbered(rows)) > 0 {
 			return 3
 		}
 	case "status":
-		if err := requireHarnessRoot(harnessRoot); err != nil {
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
-		rows, err := status.Rows(harnessRoot, projectRoot)
+		rows, err := status.Rows(lacquerRoot, projectRoot)
 		if err != nil {
 			return fail(stderr, err)
 		}
 		fmt.Fprint(stdout, status.Format(rows))
 	case "version":
-		if err := requireHarnessRoot(harnessRoot); err != nil {
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
-		v, err := version.Read(harnessRoot)
+		v, err := version.Read(lacquerRoot)
 		if err != nil {
 			return fail(stderr, err)
 		}
@@ -133,16 +133,16 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	return 0
 }
 
-// requireHarnessRoot checks that harnessRoot looks like a harness checkout — the
+// requireLacquerRoot checks that lacquerRoot looks like a lacquer checkout — the
 // VERSION file and profiles/ dir both exist — so commands that read them fail
 // with an actionable message instead of an opaque "open VERSION: no such file"
-// when HARNESS_ROOT is unset and the cwd is not the harness repo.
-func requireHarnessRoot(harnessRoot string) error {
-	if isFile(filepath.Join(harnessRoot, "VERSION")) && isDir(filepath.Join(harnessRoot, "profiles")) {
+// when LACQUER_ROOT is unset and the cwd is not the lacquer repo.
+func requireLacquerRoot(lacquerRoot string) error {
+	if isFile(filepath.Join(lacquerRoot, "VERSION")) && isDir(filepath.Join(lacquerRoot, "profiles")) {
 		return nil
 	}
-	return fmt.Errorf("%q is not a harness checkout (no VERSION file and/or profiles/ dir); "+
-		"set HARNESS_ROOT to your harness repo, e.g. `HARNESS_ROOT=~/Developer/harness harness <command>`", harnessRoot)
+	return fmt.Errorf("%q is not a lacquer checkout (no VERSION file and/or profiles/ dir); "+
+		"set LACQUER_ROOT to your lacquer repo, e.g. `LACQUER_ROOT=~/Developer/lacquer lacquer <command>`", lacquerRoot)
 }
 
 func isFile(path string) bool {
@@ -156,16 +156,16 @@ func isDir(path string) bool {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: harness <command>")
+	fmt.Fprintln(w, "usage: lacquer <command>")
 	fmt.Fprintln(w, "commands:")
-	fmt.Fprintln(w, "  init                         detect components and write .harness.toml")
+	fmt.Fprintln(w, "  init                         detect components and write .lacquer.toml")
 	fmt.Fprintln(w, "  onboard --org O [--no-repo]  init, then create a private GitHub repo")
-	fmt.Fprintln(w, "  sync [--force]               render harness content into the project")
+	fmt.Fprintln(w, "  sync [--force]               render lacquer content into the project")
 	fmt.Fprintln(w, "  status                       show each region's stamped vs latest version")
 	fmt.Fprintln(w, "  audit                        classify project drift (exit 3 if sync would clobber a local change)")
-	fmt.Fprintln(w, "  version                      print the harness version")
+	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
-	fmt.Fprintln(w, "env: HARNESS_ROOT (path to the harness checkout, default '.')")
+	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
 }
 
 func fail(w io.Writer, err error) int {

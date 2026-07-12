@@ -1,5 +1,5 @@
-// Package initcmd implements `harness init`: detect a project's components and
-// write a .harness.toml stub for the operator to complete.
+// Package initcmd implements `lacquer init`: detect a project's components and
+// write a .lacquer.toml stub for the operator to complete.
 package initcmd
 
 import (
@@ -8,24 +8,24 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/patrickserrano/harness/internal/detect"
-	"github.com/patrickserrano/harness/internal/safepath"
+	"github.com/patrickserrano/lacquer/internal/detect"
+	"github.com/patrickserrano/lacquer/internal/safepath"
 )
 
-// Run detects components under root and writes a .harness.toml. It refuses to
+// Run detects components under root and writes a .lacquer.toml. It refuses to
 // overwrite an existing manifest. It returns a human-readable summary of what it
 // wrote and which [project] values still need filling.
 //
-// harnessRoot is the harness checkout: a detected profile is only written into
+// lacquerRoot is the lacquer checkout: a detected profile is only written into
 // the manifest when it actually ships there (profiles/<p>/CLAUDE.<p>.md exists).
 // A detected stack with no shipping profile (e.g. rust/go today) would otherwise
-// make the next `harness sync` fail with an opaque "no such file" — so its
+// make the next `lacquer sync` fail with an opaque "no such file" — so its
 // component is still recorded (with an empty profiles list) and a notice is
 // printed instead.
-func Run(harnessRoot, root string) (string, error) {
-	manifest, err := safepath.Resolve(root, ".harness.toml")
+func Run(lacquerRoot, root string) (string, error) {
+	manifest, err := safepath.Resolve(root, ".lacquer.toml")
 	if err != nil {
-		return "", fmt.Errorf("resolve .harness.toml: %w", err)
+		return "", fmt.Errorf("resolve .lacquer.toml: %w", err)
 	}
 	// Lstat (not Stat): a dangling symlink must read as "present" so os.WriteFile
 	// can never follow it and create a file outside the project root.
@@ -33,7 +33,7 @@ func Run(harnessRoot, root string) (string, error) {
 		if fi.Mode()&os.ModeSymlink != 0 {
 			return "", fmt.Errorf("refusing to write through symlink: %s", manifest)
 		}
-		return "", fmt.Errorf(".harness.toml already exists at %s; refusing to overwrite", manifest)
+		return "", fmt.Errorf(".lacquer.toml already exists at %s; refusing to overwrite", manifest)
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
@@ -43,18 +43,18 @@ func Run(harnessRoot, root string) (string, error) {
 		return "", fmt.Errorf("detect components: %w", err)
 	}
 
-	// Keep only profiles the harness actually ships; collect a notice for each
+	// Keep only profiles the lacquer actually ships; collect a notice for each
 	// dropped one so the operator knows why a detected stack isn't wired up.
 	var notices []string
 	for i := range comps {
 		kept := comps[i].Profiles[:0:0]
 		for _, p := range comps[i].Profiles {
-			if profileShips(harnessRoot, p) {
+			if profileShips(lacquerRoot, p) {
 				kept = append(kept, p)
 				continue
 			}
 			notices = append(notices, fmt.Sprintf(
-				"NOTE: component %q detected as %q — no harness profile ships for it yet; add one under profiles/%s/.",
+				"NOTE: component %q detected as %q — no lacquer profile ships for it yet; add one under profiles/%s/.",
 				comps[i].Path, p, p))
 		}
 		comps[i].Profiles = kept
@@ -114,16 +114,16 @@ func Run(harnessRoot, root string) (string, error) {
 		s.WriteString(n)
 		s.WriteString("\n")
 	}
-	s.WriteString("Fill any blank [project] values (e.g. bundle_id, asc_app_id), then run `harness sync`.")
+	s.WriteString("Fill any blank [project] values (e.g. bundle_id, asc_app_id), then run `lacquer sync`.")
 	return s.String(), nil
 }
 
-// profileShips reports whether harnessRoot actually ships profile p — i.e. the
+// profileShips reports whether lacquerRoot actually ships profile p — i.e. the
 // CLAUDE body that sync/audit read (profiles/<p>/CLAUDE.<p>.md) exists. This is
-// the exact file whose absence makes a later `harness sync` fail, so it is the
+// the exact file whose absence makes a later `lacquer sync` fail, so it is the
 // precise gate for whether a detected profile should be written into the manifest.
-func profileShips(harnessRoot, p string) bool {
-	body := filepath.Join(harnessRoot, "profiles", p, "CLAUDE."+p+".md")
+func profileShips(lacquerRoot, p string) bool {
+	body := filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md")
 	if _, err := os.Stat(body); err == nil {
 		return true
 	}

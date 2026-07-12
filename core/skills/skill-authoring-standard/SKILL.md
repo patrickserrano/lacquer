@@ -1,7 +1,7 @@
 ---
 name: skill-authoring-standard
 description: >
-  The bar a SKILL.md must clear before it ships in this harness — tight
+  The bar a SKILL.md must clear before it ships in this lacquer — tight
   trigger-oriented frontmatter, single responsibility, no padding, companion
   files only when genuinely needed. Use when writing a new skill, reviewing
   an existing one, or auditing the skill set for quality.
@@ -16,7 +16,7 @@ use it or tells them exactly what to do — nothing else survives review.
 ## Frontmatter
 
 - **`name`** matches the directory name exactly (`core/skills/<name>/SKILL.md`,
-  `name: <name>`). A mismatch (seen and fixed in this harness before) breaks
+  `name: <name>`). A mismatch (seen and fixed in this lacquer before) breaks
   discovery silently — the skill loads, but nothing points a reader at it by
   the name they'd search for.
 - **`description`** is a trigger, not a summary. State *when* to reach for
@@ -37,7 +37,7 @@ one of the two jobs shouldn't have to read past the other to find it.
 
 Lead with the rubric or process, not throat-clearing about why the topic
 matters. Cut anything a competent reader already knows (don't explain what a
-git branch is; do explain the specific branching convention this harness
+git branch is; do explain the specific branching convention this lacquer
 uses). If a sentence would be true of any skill on any topic, it's filler —
 remove it.
 

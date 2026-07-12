@@ -5,7 +5,7 @@ description: Build, run, and debug iOS apps on a simulator. Use when asked to ru
 
 # iOS Debugger Agent
 
-Build and run iOS projects on a booted simulator, interact with the UI, and capture logs for debugging — via the `flowdeck` skill, which is this harness's canonical source of truth for exact FlowDeck syntax. This skill is a thin, scenario-specific wrapper around it, not a competing source of commands. If a command below errors or you're unsure of a flag, consult `flowdeck`'s `resources/` docs or run `flowdeck <command> --help` rather than guessing — never fall back to `xcrun`/`simctl`/`xcodebuild`.
+Build and run iOS projects on a booted simulator, interact with the UI, and capture logs for debugging — via the `flowdeck` skill, which is this lacquer's canonical source of truth for exact FlowDeck syntax. This skill is a thin, scenario-specific wrapper around it, not a competing source of commands. If a command below errors or you're unsure of a flag, consult `flowdeck`'s `resources/` docs or run `flowdeck <command> --help` rather than guessing — never fall back to `xcrun`/`simctl`/`xcodebuild`.
 
 ## Overview
 

@@ -5,7 +5,7 @@ description: >
   profile — either a macOS-only app with no iOS target, or a hybrid app that
   also ships a separate macOS scheme sharing code with an iOS target. Use
   when scaffolding CI for a new macOS app, or adding a macOS target/scheme to
-  an existing iOS project. The harness does not auto-sync macOS CI (only two
+  an existing iOS project. The lacquer does not auto-sync macOS CI (only two
   fleet projects have needed it so far — not enough signal to justify
   conditional asset sync yet); these are reference recipes you copy into your
   project's own workflow files, adapted from two real, working
@@ -15,7 +15,7 @@ description: >
 # macOS CI Recipes
 
 Two shapes, depending on whether an iOS target coexists in the same project.
-Both reuse the harness's existing iOS CI conventions (dedicated runner,
+Both reuse the lacquer's existing iOS CI conventions (dedicated runner,
 `CODE_SIGNING_ALLOWED=NO` for non-release jobs, the exit-65 spurious-failure
 handling, the error-tail grep on real failures) — nothing here is a new
 pattern, just the iOS pattern applied to `-destination 'platform=macOS'`.
@@ -24,8 +24,8 @@ pattern, just the iOS pattern applied to `-destination 'platform=macOS'`.
 
 - **No iOS target at all** (a macOS-only app on the `ios` profile): use
   "macOS-only app" below. It replaces the synced `ios-ci.yml` outright —
-  `exclude` it in `.harness.toml` and add this file to your project's `root/`
-  tree instead (the harness already supports excluding a synced file; this
+  `exclude` it in `.lacquer.toml` and add this file to your project's `root/`
+  tree instead (the lacquer already supports excluding a synced file; this
   is that mechanism, just pointed at CI instead of release/testflight).
 - **An iOS target plus a separate macOS scheme sharing code** (e.g. a shared
   `Core/`+`Shared/` compiled into both an iOS app and a `MenuBarExtra`/full
@@ -35,7 +35,7 @@ pattern, just the iOS pattern applied to `-destination 'platform=macOS'`.
 
 ## macOS-only app
 
-Lint, build, and test jobs mirroring the harness's iOS shape, with no
+Lint, build, and test jobs mirroring the lacquer's iOS shape, with no
 simulator involved anywhere:
 
 ```yaml
@@ -76,7 +76,7 @@ jobs:
       # disk. actions/cache still tars+uploads+downloads on every run
       # regardless of whether anything changed — one fleet project measured
       # this at ~25 minutes of overhead against a 16-second compile. This is
-      # an open question for the harness's OWN iOS ci.yml too (it still uses
+      # an open question for the lacquer's OWN iOS ci.yml too (it still uses
       # actions/cache on the same runner class) — verify your runner is
       # actually the same persistent box across runs before dropping the
       # cache step; if it's ephemeral/rotating, keep it.
@@ -142,7 +142,7 @@ can run macOS ones for free.
 
 ## Hybrid: add a macOS job to an existing `ios-ci.yml`
 
-For a project that already syncs the harness's `ios-ci.yml` for its iOS
+For a project that already syncs the lacquer's `ios-ci.yml` for its iOS
 target and adds a macOS scheme alongside it (shared `Core`/`Shared` code,
 `PRODUCT_MODULE_NAME` matching so `@testable import` resolves to whichever
 target owns the test bundle). Add this job to your project's copy of
@@ -250,12 +250,12 @@ question applies here).
 
 ### Living with a hand-edited managed file
 
-`ios-ci.yml` is a harness-managed asset — normally synced verbatim. Adding a
-job to your own copy means `harness audit` will show it as
-`locally-modified` from then on, and a plain `harness sync` will refuse to
+`ios-ci.yml` is a lacquer-managed asset — normally synced verbatim. Adding a
+job to your own copy means `lacquer audit` will show it as
+`locally-modified` from then on, and a plain `lacquer sync` will refuse to
 overwrite it (the clobber guard) rather than silently dropping your job.
-When you want to pull in a harness update to the rest of the file, either
+When you want to pull in a lacquer update to the rest of the file, either
 re-apply the `macos` job after `sync --force`, or promote this pattern into
-the harness properly once a third project needs it (see
+the lacquer properly once a third project needs it (see
 `skill-authoring-standard`'s placement guidance) so it stops being a
 per-project patch.

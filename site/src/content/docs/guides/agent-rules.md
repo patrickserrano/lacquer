@@ -1,10 +1,10 @@
 ---
 title: Agent rules
-description: The engineering rules synced into every harnessed project's CLAUDE.md.
+description: The engineering rules synced into every lacquered project's CLAUDE.md.
 ---
 
 :::note
-This page mirrors `core/CLAUDE.core.md` — the stack-agnostic rules the harness
+This page mirrors `core/CLAUDE.core.md` — the stack-agnostic rules the lacquer
 syncs into every project's root `CLAUDE.md`. It applies equally to iOS, web,
 Supabase, and any other stack; stack specifics live in the matching profile body.
 :::
@@ -46,7 +46,7 @@ doesn't. Manage context so it never happens mid-task:
 ## Docs taxonomy
 
 A project starts from a **brief** at `docs/brief.md` — the pitch, scope, and
-roadmap, the human-authored source of truth for what's being built. `harness
+roadmap, the human-authored source of truth for what's being built. `lacquer
 init` scaffolds a stub; paste the real brief there first. Feature work then flows
 through three dated doc types named `YYYY-MM-DD-<feature>-<type>.md`:
 

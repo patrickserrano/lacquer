@@ -1,4 +1,4 @@
-// Package sync applies harness core + profile CLAUDE.md content into a project.
+// Package sync applies lacquer core + profile CLAUDE.md content into a project.
 package sync
 
 import (
@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/patrickserrano/harness/internal/assets"
-	"github.com/patrickserrano/harness/internal/audit"
-	"github.com/patrickserrano/harness/internal/config"
-	"github.com/patrickserrano/harness/internal/lock"
-	"github.com/patrickserrano/harness/internal/region"
-	"github.com/patrickserrano/harness/internal/safepath"
-	"github.com/patrickserrano/harness/internal/tokens"
-	"github.com/patrickserrano/harness/internal/version"
+	"github.com/patrickserrano/lacquer/internal/assets"
+	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/lock"
+	"github.com/patrickserrano/lacquer/internal/region"
+	"github.com/patrickserrano/lacquer/internal/safepath"
+	"github.com/patrickserrano/lacquer/internal/tokens"
+	"github.com/patrickserrano/lacquer/internal/version"
 )
 
 // Result summarizes what a sync wrote: the number of CLAUDE.md regions merged
@@ -39,26 +39,26 @@ type regionWrite struct {
 // The asset copy phase is not atomic across files (a mid-copy I/O fault may leave
 // some assets written); region/asset writes are otherwise guarded and idempotent,
 // so a corrected re-run heals a partial sync.
-func Run(harnessRoot, projectRoot string, force bool) (Result, error) {
-	ver, err := version.Read(harnessRoot)
+func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
+	ver, err := version.Read(lacquerRoot)
 	if err != nil {
 		return Result{}, fmt.Errorf("read version: %w", err)
 	}
-	cfg, err := config.Load(filepath.Join(projectRoot, ".harness.toml"))
+	cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 	if err != nil {
 		return Result{}, fmt.Errorf("load manifest: %w", err)
 	}
 
 	// Gather region bodies (core + each component profile) without writing yet.
 	var regions []regionWrite
-	coreBody, err := os.ReadFile(filepath.Join(harnessRoot, "core", "CLAUDE.core.md"))
+	coreBody, err := os.ReadFile(filepath.Join(lacquerRoot, "core", "CLAUDE.core.md"))
 	if err != nil {
 		return Result{}, fmt.Errorf("read core body: %w", err)
 	}
 	regions = append(regions, regionWrite{"CLAUDE.md", "core", string(coreBody), ""})
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
-			body, err := os.ReadFile(filepath.Join(harnessRoot, "profiles", p, "CLAUDE."+p+".md"))
+			body, err := os.ReadFile(filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md"))
 			if err != nil {
 				return Result{}, fmt.Errorf("read profile %s body: %w", p, err)
 			}
@@ -82,7 +82,7 @@ func Run(harnessRoot, projectRoot string, force bool) (Result, error) {
 		regions = append(regions, mirror...)
 	}
 
-	plan, err := assets.Plan(harnessRoot, cfg)
+	plan, err := assets.Plan(lacquerRoot, cfg)
 	if err != nil {
 		return Result{}, fmt.Errorf("plan assets: %w", err)
 	}
@@ -102,21 +102,21 @@ func Run(harnessRoot, projectRoot string, force bool) (Result, error) {
 	}
 	missing = append(missing, assetMissing...)
 	if len(missing) > 0 {
-		return Result{}, fmt.Errorf("missing [project] values for placeholders (add them to .harness.toml [project], then re-run):\n  %s",
+		return Result{}, fmt.Errorf("missing [project] values for placeholders (add them to .lacquer.toml [project], then re-run):\n  %s",
 			strings.Join(missing, "\n  "))
 	}
 
 	// Clobber guard: refuse to overwrite a managed unit the project has locally
-	// changed (and the harness has not), unless forced. This is detectable only
-	// with a .harness.lock baseline, so a project syncing for the first time is
+	// changed (and the lacquer has not), unless forced. This is detectable only
+	// with a .lacquer.lock baseline, so a project syncing for the first time is
 	// never blocked — the lock bootstraps below. See internal/audit.
 	if !force {
-		rows, _, err := audit.Classify(harnessRoot, projectRoot)
+		rows, _, err := audit.Classify(lacquerRoot, projectRoot)
 		if err != nil {
 			return Result{}, fmt.Errorf("audit before sync: %w", err)
 		}
 		if clob := audit.Clobbered(rows); len(clob) > 0 {
-			return Result{}, fmt.Errorf("refusing to overwrite local changes the harness did not make — run `harness audit` to review, then either promote the change into the harness or re-sync with --force to take the harness version:\n  %s",
+			return Result{}, fmt.Errorf("refusing to overwrite local changes the lacquer did not make — run `lacquer audit` to review, then either promote the change into the lacquer or re-sync with --force to take the lacquer version:\n  %s",
 				strings.Join(clob, "\n  "))
 		}
 	}
@@ -129,7 +129,7 @@ func Run(harnessRoot, projectRoot string, force bool) (Result, error) {
 		}
 	}
 
-	// Whole-file assets. Only run when the harness has assets, so a region-only
+	// Whole-file assets. Only run when the lacquer has assets, so a region-only
 	// sync into a non-git directory still works (assets.Copy requires git).
 	if len(plan) > 0 {
 		if err := assets.Copy(projectRoot, plan, cfg.Project); err != nil {
@@ -138,9 +138,9 @@ func Run(harnessRoot, projectRoot string, force bool) (Result, error) {
 	}
 
 	// Record the baseline so the next audit/sync can tell a project's edits apart
-	// from harness updates. Fail loud if it can't be written — a missing or stale
+	// from lacquer updates. Fail loud if it can't be written — a missing or stale
 	// lock would silently disable the clobber guard.
-	lk, err := audit.LockFor(harnessRoot, projectRoot)
+	lk, err := audit.LockFor(lacquerRoot, projectRoot)
 	if err != nil {
 		return Result{}, fmt.Errorf("compute lock: %w", err)
 	}

@@ -1,5 +1,5 @@
-// Package onboardcmd implements `harness onboard`: init + (when no git remote
-// exists) create a private GitHub repo. This is the one harness command with an
+// Package onboardcmd implements `lacquer onboard`: init + (when no git remote
+// exists) create a private GitHub repo. This is the one lacquer command with an
 // outward side effect; init/sync stay filesystem-only.
 package onboardcmd
 
@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/patrickserrano/harness/internal/config"
-	"github.com/patrickserrano/harness/internal/initcmd"
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/initcmd"
 )
 
 // ghCreate creates a private repo and wires it as origin. Injectable for tests.
@@ -25,15 +25,15 @@ var ghCreate = func(dir, org, name string) error {
 	return nil
 }
 
-// Run ensures a .harness.toml exists, then (if createRepo and no origin remote)
-// creates a private repo under org. It does not sync. harnessRoot is threaded to
-// initcmd so profile detection only records profiles the harness actually ships.
-func Run(harnessRoot, projectRoot, org string, createRepo bool) (string, error) {
+// Run ensures a .lacquer.toml exists, then (if createRepo and no origin remote)
+// creates a private repo under org. It does not sync. lacquerRoot is threaded to
+// initcmd so profile detection only records profiles the lacquer actually ships.
+func Run(lacquerRoot, projectRoot, org string, createRepo bool) (string, error) {
 	var out strings.Builder
 
-	manifest := filepath.Join(projectRoot, ".harness.toml")
+	manifest := filepath.Join(projectRoot, ".lacquer.toml")
 	if _, err := os.Stat(manifest); os.IsNotExist(err) {
-		summary, err := initcmd.Run(harnessRoot, projectRoot)
+		summary, err := initcmd.Run(lacquerRoot, projectRoot)
 		if err != nil {
 			return "", err
 		}
@@ -42,20 +42,20 @@ func Run(harnessRoot, projectRoot, org string, createRepo bool) (string, error) 
 	} else if err != nil {
 		return "", err
 	} else {
-		out.WriteString("Using existing .harness.toml\n")
+		out.WriteString("Using existing .lacquer.toml\n")
 	}
 
 	if createRepo {
 		if org == "" {
 			// Fall back to the manifest's github_org so the org is declared once
-			// (in .harness.toml) and reused by repo creation and the {{GITHUB_ORG}}
+			// (in .lacquer.toml) and reused by repo creation and the {{GITHUB_ORG}}
 			// token. A freshly init-stubbed manifest leaves it blank → still errors.
 			if cfg, err := config.Load(manifest); err == nil {
 				org = cfg.Project.GithubOrg
 			}
 		}
 		if org == "" {
-			return "", fmt.Errorf("no org to create the repo under (the harness has no default); pass --org <login>, set github_org in .harness.toml, or use --no-repo")
+			return "", fmt.Errorf("no org to create the repo under (the lacquer has no default); pass --org <login>, set github_org in .lacquer.toml, or use --no-repo")
 		}
 		if !config.ValidGithubOrg(org) {
 			return "", fmt.Errorf("invalid org %q (expected a GitHub org/user login)", org)
@@ -74,7 +74,7 @@ func Run(harnessRoot, projectRoot, org string, createRepo bool) (string, error) 
 		}
 	}
 
-	out.WriteString("Next: fill any blank [project] values in .harness.toml, then run `harness sync`.")
+	out.WriteString("Next: fill any blank [project] values in .lacquer.toml, then run `lacquer sync`.")
 	return out.String(), nil
 }
 
@@ -111,7 +111,7 @@ func repoName(projectRoot, manifest string) (string, error) {
 	// Defense in depth: the dir basename isn't manifest-validated, and it is
 	// passed to `gh`. Refuse anything outside the safe name charset.
 	if !config.ValidProjectName(name) {
-		return "", fmt.Errorf("cannot derive a safe repo name from dir %q; set [project].name in .harness.toml", name)
+		return "", fmt.Errorf("cannot derive a safe repo name from dir %q; set [project].name in .lacquer.toml", name)
 	}
 	return name, nil
 }

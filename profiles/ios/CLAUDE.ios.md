@@ -36,7 +36,7 @@ Two separate buckets — never mix them.
 
 Service keys the app needs at runtime (RevenueCat, Aptabase, …) live in a
 gitignored `Secrets.xcconfig`, never in source or the committed `project.yml`.
-The harness syncs a `Secrets.xcconfig.example` template into the component dir.
+The lacquer syncs a `Secrets.xcconfig.example` template into the component dir.
 
 1. **Copy & ignore:** `cp Secrets.xcconfig.example Secrets.xcconfig`, fill in real
    values, and add `Secrets.xcconfig` to `.gitignore`. The example is committed;
@@ -143,7 +143,7 @@ dedicated; if no, `ubuntu-latest`.
 iOS Simulator destination and doesn't cover a macOS target. See the
 `macos-ci-recipes` skill for copy-in recipes (a macOS-only workflow, and a job
 to add to a hybrid project's own `ios-ci.yml`) — not auto-synced; two fleet
-projects have needed this so far, not yet enough signal for the harness to
+projects have needed this so far, not yet enough signal for the lacquer to
 distribute it automatically.
 
 ## Build & Test Tooling (flowdeck)

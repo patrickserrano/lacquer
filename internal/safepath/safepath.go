@@ -2,7 +2,7 @@
 // path that escapes the root through a symlinked component. It complements the
 // lexical validation in package config (which catches ".." and absolute paths)
 // by catching symlinks planted in the filesystem — e.g. a symlink committed into
-// a repo the user clones and then runs `harness sync` against.
+// a repo the user clones and then runs `lacquer sync` against.
 package safepath
 
 import (

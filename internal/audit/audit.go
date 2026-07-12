@@ -1,12 +1,12 @@
-// Package audit detects how a project has diverged from what the harness would
+// Package audit detects how a project has diverged from what the lacquer would
 // produce now, and classifies each managed unit so deviations are scrutinized
 // (adopted up, reset down, or accepted) instead of silently overwritten.
 //
 // It is the read side of the bidirectional loop: sync pushes the baseline down;
 // audit surfaces where a project has pushed back. Classification is three-way —
-// the project's on-disk content, the .harness.lock baseline (what harness last
-// wrote), and what harness would render now — which is what tells "the project
-// edited this" apart from "the harness moved on".
+// the project's on-disk content, the .lacquer.lock baseline (what lacquer last
+// wrote), and what lacquer would render now — which is what tells "the project
+// edited this" apart from "the lacquer moved on".
 package audit
 
 import (
@@ -16,28 +16,28 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/patrickserrano/harness/internal/assets"
-	"github.com/patrickserrano/harness/internal/config"
-	"github.com/patrickserrano/harness/internal/lock"
-	"github.com/patrickserrano/harness/internal/region"
-	"github.com/patrickserrano/harness/internal/tokens"
-	"github.com/patrickserrano/harness/internal/version"
+	"github.com/patrickserrano/lacquer/internal/assets"
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/lock"
+	"github.com/patrickserrano/lacquer/internal/region"
+	"github.com/patrickserrano/lacquer/internal/tokens"
+	"github.com/patrickserrano/lacquer/internal/version"
 )
 
 // Status is the classification of one managed unit.
 type Status string
 
 const (
-	OK        Status = "ok"               // on-disk matches what harness would write now
-	Add       Status = "add"              // harness has it; the project doesn't (sync would create it)
-	Behind    Status = "behind"           // project matches the lock; harness advanced (sync updates it)
-	Modified  Status = "locally-modified" // project changed from the lock; harness didn't (a deviation)
-	Conflict  Status = "conflict"         // project AND harness both changed from the lock
-	Untracked Status = "untracked"        // differs from harness-now, but no lock baseline to attribute it
+	OK        Status = "ok"               // on-disk matches what lacquer would write now
+	Add       Status = "add"              // lacquer has it; the project doesn't (sync would create it)
+	Behind    Status = "behind"           // project matches the lock; lacquer advanced (sync updates it)
+	Modified  Status = "locally-modified" // project changed from the lock; lacquer didn't (a deviation)
+	Conflict  Status = "conflict"         // project AND lacquer both changed from the lock
+	Untracked Status = "untracked"        // differs from lacquer-now, but no lock baseline to attribute it
 )
 
 // Clobbers reports whether syncing over this status would overwrite a local
-// change the harness did not make. Only Modified and Conflict qualify — they are
+// change the lacquer did not make. Only Modified and Conflict qualify — they are
 // detectable only with a lock baseline, so an Untracked (no-lock) project never
 // blocks and the lock simply bootstraps on the next sync.
 func (s Status) Clobbers() bool { return s == Modified || s == Conflict }
@@ -51,26 +51,26 @@ type Row struct {
 	Stamped int // region: version in the on-disk start marker (0 if absent/asset)
 }
 
-// unit is one thing the harness manages: a region body merged into a file, or a
-// whole-file asset. Content is what the harness would write now (post-token).
+// unit is one thing the lacquer manages: a region body merged into a file, or a
+// whole-file asset. Content is what the lacquer would write now (post-token).
 type unit struct {
-	lockKey   string // ".harness.lock" key
+	lockKey   string // ".lacquer.lock" key
 	dest      string // project-relative path
 	kind      string // "region" | "asset"
 	regionKey string // marker key (regions only)
-	content   string // rendered content the harness would produce
+	content   string // rendered content the lacquer would produce
 }
 
-// managed re-derives every unit the harness would write for this project: the
+// managed re-derives every unit the lacquer would write for this project: the
 // core + per-profile CLAUDE.md regions (mirrored into AGENTS.md when a tool that
 // reads it is enabled), then the whole-file assets. It mirrors sync's set exactly
 // so the lock written by sync and the units audited here line up.
-func managed(harnessRoot, projectRoot string) ([]unit, int, error) {
-	ver, err := version.Read(harnessRoot)
+func managed(lacquerRoot, projectRoot string) ([]unit, int, error) {
+	ver, err := version.Read(lacquerRoot)
 	if err != nil {
 		return nil, 0, fmt.Errorf("read version: %w", err)
 	}
-	cfg, err := config.Load(filepath.Join(projectRoot, ".harness.toml"))
+	cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 	if err != nil {
 		return nil, 0, fmt.Errorf("load manifest: %w", err)
 	}
@@ -79,14 +79,14 @@ func managed(harnessRoot, projectRoot string) ([]unit, int, error) {
 		dest, key, body, prefix string
 	}
 	var srcs []regionSrc
-	coreBody, err := os.ReadFile(filepath.Join(harnessRoot, "core", "CLAUDE.core.md"))
+	coreBody, err := os.ReadFile(filepath.Join(lacquerRoot, "core", "CLAUDE.core.md"))
 	if err != nil {
 		return nil, 0, fmt.Errorf("read core body: %w", err)
 	}
 	srcs = append(srcs, regionSrc{"CLAUDE.md", "core", string(coreBody), ""})
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
-			body, err := os.ReadFile(filepath.Join(harnessRoot, "profiles", p, "CLAUDE."+p+".md"))
+			body, err := os.ReadFile(filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md"))
 			if err != nil {
 				return nil, 0, fmt.Errorf("read profile %s body: %w", p, err)
 			}
@@ -115,7 +115,7 @@ func managed(harnessRoot, projectRoot string) ([]unit, int, error) {
 		})
 	}
 
-	plan, err := assets.Plan(harnessRoot, cfg)
+	plan, err := assets.Plan(lacquerRoot, cfg)
 	if err != nil {
 		return nil, 0, fmt.Errorf("plan assets: %w", err)
 	}
@@ -130,10 +130,10 @@ func managed(harnessRoot, projectRoot string) ([]unit, int, error) {
 	return units, ver, nil
 }
 
-// Classify audits projectRoot against harnessRoot, returning one Row per managed
+// Classify audits projectRoot against lacquerRoot, returning one Row per managed
 // unit sorted by destination. The current version is returned for reporting.
-func Classify(harnessRoot, projectRoot string) ([]Row, int, error) {
-	units, ver, err := managed(harnessRoot, projectRoot)
+func Classify(lacquerRoot, projectRoot string) ([]Row, int, error) {
+	units, ver, err := managed(lacquerRoot, projectRoot)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -148,14 +148,14 @@ func Classify(harnessRoot, projectRoot string) ([]Row, int, error) {
 		onDisk, present, stamped := readUnit(projectRoot, u)
 		row.Stamped = stamped
 
-		harnessHash := lock.Hash(u.content)
+		lacquerHash := lock.Hash(u.content)
 		switch {
 		case !present:
 			row.Status = Add
-		case lock.Hash(onDisk) == harnessHash:
+		case lock.Hash(onDisk) == lacquerHash:
 			row.Status = OK
 		default:
-			row.Status = classifyDivergence(lk, locked, u.lockKey, lock.Hash(onDisk), harnessHash)
+			row.Status = classifyDivergence(lk, locked, u.lockKey, lock.Hash(onDisk), lacquerHash)
 		}
 		rows = append(rows, row)
 	}
@@ -169,8 +169,8 @@ func Classify(harnessRoot, projectRoot string) ([]Row, int, error) {
 }
 
 // classifyDivergence resolves a unit whose on-disk content differs from what the
-// harness would write now, using the lock baseline to attribute the change.
-func classifyDivergence(lk *lock.Lock, locked bool, key, projectHash, harnessHash string) Status {
+// lacquer would write now, using the lock baseline to attribute the change.
+func classifyDivergence(lk *lock.Lock, locked bool, key, projectHash, lacquerHash string) Status {
 	if !locked {
 		return Untracked
 	}
@@ -180,9 +180,9 @@ func classifyDivergence(lk *lock.Lock, locked bool, key, projectHash, harnessHas
 	}
 	switch {
 	case projectHash == base:
-		return Behind // project untouched since the lock; harness advanced
-	case harnessHash == base:
-		return Modified // project changed; harness did not
+		return Behind // project untouched since the lock; lacquer advanced
+	case lacquerHash == base:
+		return Modified // project changed; lacquer did not
 	default:
 		return Conflict // both changed from the baseline
 	}
@@ -207,11 +207,11 @@ func readUnit(projectRoot string, u unit) (content string, present bool, stamped
 	return string(data), true, 0
 }
 
-// LockFor builds the lockfile contents for projectRoot from what the harness
+// LockFor builds the lockfile contents for projectRoot from what the lacquer
 // would write now. sync calls this after a successful write so the baseline
 // reflects exactly what landed on disk.
-func LockFor(harnessRoot, projectRoot string) (*lock.Lock, error) {
-	units, ver, err := managed(harnessRoot, projectRoot)
+func LockFor(lacquerRoot, projectRoot string) (*lock.Lock, error) {
+	units, ver, err := managed(lacquerRoot, projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -239,12 +239,12 @@ var statusOrder = []Status{Conflict, Modified, Untracked, Behind, Add, OK}
 
 // statusNote explains what each status means for the operator.
 var statusNote = map[Status]string{
-	Conflict:  "both you and the harness changed it — reconcile",
-	Modified:  "you changed it, the harness didn't — adopt up or reset with --force",
+	Conflict:  "both you and the lacquer changed it — reconcile",
+	Modified:  "you changed it, the lacquer didn't — adopt up or reset with --force",
 	Untracked: "differs, but no lock baseline yet — re-sync to start tracking",
-	Behind:    "harness advanced — sync updates it",
-	Add:       "harness has it, project doesn't — sync creates it",
-	OK:        "matches the harness",
+	Behind:    "lacquer advanced — sync updates it",
+	Add:       "lacquer has it, project doesn't — sync creates it",
+	OK:        "matches the lacquer",
 }
 
 // Format renders a human-readable audit report: a per-status summary, then the
@@ -256,7 +256,7 @@ func Format(rows []Row, ver int) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "harness audit — project vs harness v%d\n\n", ver)
+	fmt.Fprintf(&b, "lacquer audit — project vs lacquer v%d\n\n", ver)
 	for _, s := range statusOrder {
 		fmt.Fprintf(&b, "  %-16s %3d   %s\n", s, len(groups[s]), statusNote[s])
 	}
@@ -274,7 +274,7 @@ func Format(rows []Row, ver int) string {
 		}
 	}
 	if n := len(Clobbered(rows)); n > 0 {
-		fmt.Fprintf(&b, "\n%d unit(s) would be overwritten by sync — review before adopting (sync --force) or promote into the harness.\n", n)
+		fmt.Fprintf(&b, "\n%d unit(s) would be overwritten by sync — review before adopting (sync --force) or promote into the lacquer.\n", n)
 	}
 	return b.String()
 }

@@ -1,4 +1,4 @@
-// Package config parses and validates a project's .harness.toml manifest.
+// Package config parses and validates a project's .lacquer.toml manifest.
 package config
 
 import (
@@ -43,7 +43,7 @@ func ValidGithubOrg(s string) bool { return orgVal.MatchString(s) }
 // A pattern matches the path itself or anything beneath it: "x/y" excludes
 // "x/y" and "x/y/z", but not "x/yz".
 //
-// An excluded path is opted out of harness oversight entirely — it is neither
+// An excluded path is opted out of lacquer oversight entirely — it is neither
 // distributed by sync nor reported by audit (audit derives its unit set from the
 // same filtered plan). That is the intended tradeoff for keeping a path local.
 func (p Project) Excludes(dest string) bool {
@@ -56,7 +56,7 @@ func (p Project) Excludes(dest string) bool {
 	return false
 }
 
-// knownTools is the set of agent tools the harness can provision skills for.
+// knownTools is the set of agent tools the lacquer can provision skills for.
 // A tool name maps (in the assets package) to that tool's project-level skills
 // directory. Restricted to a strict allowlist because it would otherwise route
 // file writes to an attacker-named directory.
@@ -180,7 +180,7 @@ type Config struct {
 	Components []Component `toml:"component"`
 }
 
-// Load reads, parses, and validates the .harness.toml at path. It rejects any
+// Load reads, parses, and validates the .lacquer.toml at path. It rejects any
 // component path that is absolute or escapes the project root, and any profile
 // name that is not a simple lowercase identifier — both are used to build
 // filesystem paths, so untrusted manifests must not be able to reach outside the

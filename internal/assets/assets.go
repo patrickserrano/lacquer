@@ -1,5 +1,5 @@
 // Package assets enumerates the whole-file assets (skills, commands, CI
-// workflows, stack configs) that sync copies from the harness into a project,
+// workflows, stack configs) that sync copies from the lacquer into a project,
 // applying the design's placement rules.
 package assets
 
@@ -11,10 +11,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/patrickserrano/harness/internal/config"
-	"github.com/patrickserrano/harness/internal/gitguard"
-	"github.com/patrickserrano/harness/internal/safepath"
-	"github.com/patrickserrano/harness/internal/tokens"
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitguard"
+	"github.com/patrickserrano/lacquer/internal/safepath"
+	"github.com/patrickserrano/lacquer/internal/tokens"
 )
 
 // MissingTokens returns "<token> (<dest>)" for every registered placeholder that
@@ -71,7 +71,7 @@ type Asset struct {
 // one. Profiles are visited in sorted order and the returned slice is sorted by
 // Dest, so the output (and the winning Src on any same-named profile collision)
 // is deterministic.
-func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
+func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 	var out []Asset
 	seen := map[string]bool{}
 
@@ -80,9 +80,9 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 			return
 		}
 		seen[dest] = true
-		// Project-declared exclusions stay project-owned: the harness neither
+		// Project-declared exclusions stay project-owned: the lacquer neither
 		// distributes nor (via audit) tracks them. Used to keep a project's
-		// hand-tuned CI/config local while still adopting the rest of the harness.
+		// hand-tuned CI/config local while still adopting the rest of the lacquer.
 		if cfg.Project.Excludes(dest) {
 			return
 		}
@@ -101,20 +101,20 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 			// root if the two ever drift.
 			return nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
 		}
-		if err := walkInto(filepath.Join(harnessRoot, "core", "skills"),
+		if err := walkInto(filepath.Join(lacquerRoot, "core", "skills"),
 			func(src, rel string) { add(src, filepath.Join(dir, rel), "") }); err != nil {
 			return nil, err
 		}
 	}
-	if err := walkInto(filepath.Join(harnessRoot, "core", "commands"),
+	if err := walkInto(filepath.Join(lacquerRoot, "core", "commands"),
 		func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), "") }); err != nil {
 		return nil, err
 	}
-	if err := walkInto(filepath.Join(harnessRoot, "core", "agents"),
+	if err := walkInto(filepath.Join(lacquerRoot, "core", "agents"),
 		func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), "") }); err != nil {
 		return nil, err
 	}
-	if err := walkInto(filepath.Join(harnessRoot, "core", "root"),
+	if err := walkInto(filepath.Join(lacquerRoot, "core", "root"),
 		func(src, rel string) { add(src, rel, "") }); err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 	sort.Strings(profiles)
 
 	for _, p := range profiles {
-		base := filepath.Join(harnessRoot, "profiles", p)
+		base := filepath.Join(lacquerRoot, "profiles", p)
 		prefix := tokens.Prefix(profileDir[p])
 		for _, tool := range tools {
 			dir, ok := toolSkillsDir[tool]
@@ -171,7 +171,7 @@ func Plan(harnessRoot string, cfg *config.Config) ([]Asset, error) {
 	for _, c := range cfg.Components {
 		prefix := tokens.Prefix(c.Path)
 		for _, p := range c.Profiles {
-			if err := walkInto(filepath.Join(harnessRoot, "profiles", p, "config"),
+			if err := walkInto(filepath.Join(lacquerRoot, "profiles", p, "config"),
 				func(src, rel string) { add(src, filepath.Join(c.Path, rel), prefix) }); err != nil {
 				return nil, err
 			}
@@ -289,7 +289,7 @@ func walkInto(dir string, fn func(src, rel string)) error {
 			return err
 		}
 		if d.IsDir() {
-			// Never distribute build/tool cruft that may sit on the harness disk
+			// Never distribute build/tool cruft that may sit on the lacquer disk
 			// (e.g. a stray __pycache__ from running a synced script during dev).
 			// walkInto walks the filesystem, not git, so .gitignore won't stop it.
 			if d.Name() == "__pycache__" || d.Name() == "node_modules" {
