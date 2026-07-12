@@ -28,12 +28,12 @@ import (
 type Status string
 
 const (
-	OK        Status = "ok"              // on-disk matches what harness would write now
-	Add       Status = "add"             // harness has it; the project doesn't (sync would create it)
-	Behind    Status = "behind"          // project matches the lock; harness advanced (sync updates it)
+	OK        Status = "ok"               // on-disk matches what harness would write now
+	Add       Status = "add"              // harness has it; the project doesn't (sync would create it)
+	Behind    Status = "behind"           // project matches the lock; harness advanced (sync updates it)
 	Modified  Status = "locally-modified" // project changed from the lock; harness didn't (a deviation)
-	Conflict  Status = "conflict"        // project AND harness both changed from the lock
-	Untracked Status = "untracked"       // differs from harness-now, but no lock baseline to attribute it
+	Conflict  Status = "conflict"         // project AND harness both changed from the lock
+	Untracked Status = "untracked"        // differs from harness-now, but no lock baseline to attribute it
 )
 
 // Clobbers reports whether syncing over this status would overwrite a local
