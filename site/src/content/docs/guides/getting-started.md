@@ -31,7 +31,7 @@ lacquer sync                    # render core + per-profile content into the pro
 ```
 
 `lacquer init` also writes a `docs/brief.md` stub — paste the real project brief
-there before doing anything else. See [Agent rules](/guides/agent-rules/) for the
+there before doing anything else. See [Agent rules](/lacquer/guides/agent-rules/) for the
 docs taxonomy that flows from it (brief → PRD → PCD → plan).
 
 ## Updating a project already on lacquer
@@ -57,4 +57,4 @@ this" from "the lacquer moved on" and only blocks on the former.
 A component detected as an unshipped stack (e.g. Rust/Go) is recorded in the
 manifest with an empty profile list and a notice — it doesn't break `sync`.
 
-See the full [command reference](/reference/commands/) and [skills catalog](/reference/skills/).
+See the full [command reference](/lacquer/reference/commands/) and [skills catalog](/lacquer/reference/skills/).
