@@ -6,12 +6,12 @@ import starlightThemeFlexoki from 'starlight-theme-flexoki';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://patrickserrano.github.io',
-	base: '/harness',
+	base: '/lacquer',
 	integrations: [
 		starlight({
-			title: 'harness',
+			title: 'lacquer',
 			plugins: [starlightThemeFlexoki()],
-			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/patrickserrano/harness' }],
+			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/patrickserrano/lacquer' }],
 			sidebar: [
 				{
 					label: 'Guides',

@@ -1,49 +1,49 @@
 ---
 title: Getting started
-description: Install harness and sync it into a project for the first time.
+description: Install lacquer and sync it into a project for the first time.
 ---
 
 ## Build the CLI
 
 ```sh
-go build ./cmd/harness
+go build ./cmd/lacquer
 ```
 
-## HARNESS_ROOT
+## LACQUER_ROOT
 
 Every command that reads shipped content (`sync`, `status`, `audit`, `version`)
-resolves the harness checkout from the `HARNESS_ROOT` env var (default `.`):
+resolves the lacquer checkout from the `LACQUER_ROOT` env var (default `.`):
 
 ```sh
-HARNESS_ROOT=~/Developer/harness harness sync
+LACQUER_ROOT=~/Developer/lacquer lacquer sync
 ```
 
-If `HARNESS_ROOT` is unset and the current directory isn't a harness checkout
+If `LACQUER_ROOT` is unset and the current directory isn't a lacquer checkout
 (no `VERSION` file / `profiles/` dir), those commands fail with an actionable
 message rather than an opaque missing-file error.
 
 ## Onboard a new project
 
 ```sh
-harness init                    # detect components, write a .harness.toml stub
-harness onboard --org O         # init, then create a private GitHub repo under O
-harness sync                    # render core + per-profile content into the project
+lacquer init                    # detect components, write a .lacquer.toml stub
+lacquer onboard --org O         # init, then create a private GitHub repo under O
+lacquer sync                    # render core + per-profile content into the project
 ```
 
-`harness init` also writes a `docs/brief.md` stub — paste the real project brief
+`lacquer init` also writes a `docs/brief.md` stub — paste the real project brief
 there before doing anything else. See [Agent rules](/guides/agent-rules/) for the
 docs taxonomy that flows from it (brief → PRD → PCD → plan).
 
-## Updating a project already on harness
+## Updating a project already on lacquer
 
 ```sh
-harness audit           # see what drifted; exit 3 means sync would overwrite a local edit
-harness sync            # apply; refuses to clobber a locally-modified managed unit
-harness sync --force    # adopt the harness version over a local change
+lacquer audit           # see what drifted; exit 3 means sync would overwrite a local edit
+lacquer sync            # apply; refuses to clobber a locally-modified managed unit
+lacquer sync --force    # adopt the lacquer version over a local change
 ```
 
-Sync writes a `.harness.lock` baseline so `audit` can tell "the project edited
-this" from "the harness moved on" and only blocks on the former.
+Sync writes a `.lacquer.lock` baseline so `audit` can tell "the project edited
+this" from "the lacquer moved on" and only blocks on the former.
 
 ## Profiles that ship
 

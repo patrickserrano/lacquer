@@ -1,4 +1,4 @@
-// Package status reports each project region's stamped version vs the harness latest.
+// Package status reports each project region's stamped version vs the lacquer latest.
 package status
 
 import (
@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/patrickserrano/harness/internal/config"
-	"github.com/patrickserrano/harness/internal/region"
-	"github.com/patrickserrano/harness/internal/safepath"
-	"github.com/patrickserrano/harness/internal/version"
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/region"
+	"github.com/patrickserrano/lacquer/internal/safepath"
+	"github.com/patrickserrano/lacquer/internal/version"
 )
 
 type Row struct {
@@ -23,12 +23,12 @@ type Row struct {
 }
 
 // Rows computes a status row for core and for each component profile.
-func Rows(harnessRoot, projectRoot string) ([]Row, error) {
-	latest, err := version.Read(harnessRoot)
+func Rows(lacquerRoot, projectRoot string) ([]Row, error) {
+	latest, err := version.Read(lacquerRoot)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(filepath.Join(projectRoot, ".harness.toml"))
+	cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 	if err != nil {
 		return nil, err
 	}

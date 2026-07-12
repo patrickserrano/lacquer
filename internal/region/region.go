@@ -1,4 +1,4 @@
-// Package region implements the managed-region merge that lets harness sync
+// Package region implements the managed-region merge that lets lacquer sync
 // shared content into a file between markers without touching project-owned text.
 package region
 
@@ -11,11 +11,11 @@ import (
 
 // startRe matches a start marker for the given key, capturing the version int.
 func startRe(key string) *regexp.Regexp {
-	return regexp.MustCompile(`<!-- harness:` + regexp.QuoteMeta(key) + `:start v(\d+) -->`)
+	return regexp.MustCompile(`<!-- lacquer:` + regexp.QuoteMeta(key) + `:start v(\d+) -->`)
 }
 
 func endMarker(key string) string {
-	return fmt.Sprintf("<!-- harness:%s:end -->", key)
+	return fmt.Sprintf("<!-- lacquer:%s:end -->", key)
 }
 
 // StampedVersion returns the version recorded in the key's start marker, and
@@ -37,14 +37,14 @@ func StampedVersion(content, key string) (int, bool) {
 // follows the start marker and the one preceding the end marker.
 func bodyRe(key string) *regexp.Regexp {
 	return regexp.MustCompile(
-		`(?s)<!-- harness:` + regexp.QuoteMeta(key) + `:start v\d+ -->\n(.*)\n` +
+		`(?s)<!-- lacquer:` + regexp.QuoteMeta(key) + `:start v\d+ -->\n(.*)\n` +
 			regexp.QuoteMeta(endMarker(key)))
 }
 
 // ExtractBody returns the current body of the key's managed block in content
 // (the text between its markers, exactly as render() would have written it), and
 // whether such a block was found. It lets a caller compare a project's on-disk
-// region body against what the harness would render now.
+// region body against what the lacquer would render now.
 func ExtractBody(content, key string) (string, bool) {
 	m := bodyRe(key).FindStringSubmatch(content)
 	if m == nil {
@@ -55,7 +55,7 @@ func ExtractBody(content, key string) (string, bool) {
 
 // render produces a complete managed block for the key/version/body.
 func render(key string, version int, body string) string {
-	return fmt.Sprintf("<!-- harness:%s:start v%d -->\n%s\n<!-- harness:%s:end -->",
+	return fmt.Sprintf("<!-- lacquer:%s:start v%d -->\n%s\n<!-- lacquer:%s:end -->",
 		key, version, body, key)
 }
 
@@ -63,7 +63,7 @@ func render(key string, version int, body string) string {
 // marker, inclusive) for the given key.
 func blockRe(key string) *regexp.Regexp {
 	return regexp.MustCompile(
-		`(?s)<!-- harness:` + regexp.QuoteMeta(key) + `:start v\d+ -->.*?` +
+		`(?s)<!-- lacquer:` + regexp.QuoteMeta(key) + `:start v\d+ -->.*?` +
 			regexp.QuoteMeta(endMarker(key)))
 }
 
@@ -72,7 +72,7 @@ func blockRe(key string) *regexp.Regexp {
 // appended. Project-owned text outside the block is never touched.
 //
 // Merge fails loud (returns an error, writes nothing) on any input it cannot
-// represent safely: a body that itself contains a harness marker for this key
+// represent safely: a body that itself contains a lacquer marker for this key
 // (which would truncate on the next parse), an unbalanced number of start/end
 // markers (a dangling marker), an end marker that precedes its start, or more
 // than one block for the same key.
@@ -83,13 +83,13 @@ func Merge(content, key string, version int, body string) (string, error) {
 	// A body containing this key's markers is unrepresentable and would corrupt
 	// the file on the next parse. Refuse rather than silently truncate.
 	if strings.Contains(body, endM) || startRegex.MatchString(body) {
-		return "", fmt.Errorf("harness:%s body contains a harness marker literal", key)
+		return "", fmt.Errorf("lacquer:%s body contains a lacquer marker literal", key)
 	}
 
 	startLocs := startRegex.FindAllStringIndex(content, -1)
 	endCount := strings.Count(content, endM)
 	if len(startLocs) != endCount {
-		return "", fmt.Errorf("malformed harness:%s region (%d start markers, %d end markers)",
+		return "", fmt.Errorf("malformed lacquer:%s region (%d start markers, %d end markers)",
 			key, len(startLocs), endCount)
 	}
 
@@ -100,11 +100,11 @@ func Merge(content, key string, version int, body string) (string, error) {
 		loc := blockRe(key).FindStringIndex(content)
 		if loc == nil {
 			// Both markers present but not in start-before-end order.
-			return "", fmt.Errorf("malformed harness:%s region (end marker precedes start)", key)
+			return "", fmt.Errorf("malformed lacquer:%s region (end marker precedes start)", key)
 		}
 		return content[:loc[0]] + render(key, version, body) + content[loc[1]:], nil
 	default:
-		return "", fmt.Errorf("malformed harness:%s region (%d duplicate blocks)", key, len(startLocs))
+		return "", fmt.Errorf("malformed lacquer:%s region (%d duplicate blocks)", key, len(startLocs))
 	}
 }
 

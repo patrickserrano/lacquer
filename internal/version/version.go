@@ -1,4 +1,4 @@
-// Package version reads the harness repo's current version from its VERSION file.
+// Package version reads the lacquer repo's current version from its VERSION file.
 package version
 
 import (
@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// Read returns the integer version recorded in <harnessRoot>/VERSION.
-func Read(harnessRoot string) (int, error) {
-	raw, err := os.ReadFile(filepath.Join(harnessRoot, "VERSION"))
+// Read returns the integer version recorded in <lacquerRoot>/VERSION.
+func Read(lacquerRoot string) (int, error) {
+	raw, err := os.ReadFile(filepath.Join(lacquerRoot, "VERSION"))
 	if err != nil {
 		return 0, err
 	}

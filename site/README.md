@@ -1,8 +1,8 @@
-# harness docs
+# lacquer docs
 
 [Astro Starlight](https://starlight.astro.build) site with the
 [Flexoki theme](https://delucis.github.io/starlight-theme-flexoki/), documenting
-the harness CLI, its agent rules, and its skill catalog for both humans and
+the lacquer CLI, its agent rules, and its skill catalog for both humans and
 Claude Code sessions.
 
 Content lives in `src/content/docs/`; pages are `.md`/`.mdx` files routed by
@@ -15,7 +15,7 @@ those change upstream — this site does not read them dynamically.
 | Command | Action |
 |---------|--------|
 | `npm install` | Install dependencies |
-| `npm run dev` | Local dev server at `localhost:4321/harness/` |
+| `npm run dev` | Local dev server at `localhost:4321/lacquer/` |
 | `npm run build` | Build to `./dist/` |
 | `npm run preview` | Preview the production build locally |
 

@@ -1,4 +1,4 @@
-module github.com/patrickserrano/harness
+module github.com/patrickserrano/lacquer
 
 go 1.23
 

@@ -29,6 +29,6 @@ pre-commit:
 commit-msg:
   commands:
     # Conventional Commits — the same shared check the iOS/web profiles use
-    # (scripts/check-commit-msg.sh is synced from the harness core).
+    # (scripts/check-commit-msg.sh is synced from the lacquer core).
     conventional:
       run: scripts/check-commit-msg.sh {1}

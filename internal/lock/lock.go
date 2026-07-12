@@ -1,7 +1,7 @@
-// Package lock reads and writes .harness.lock, the per-project baseline that
-// records the content the harness last wrote. It is the third point in the
+// Package lock reads and writes .lacquer.lock, the per-project baseline that
+// records the content the lacquer last wrote. It is the third point in the
 // three-way comparison the audit uses to tell "the project edited this" apart
-// from "the harness moved on" — without it, sync can only see that on-disk
+// from "the lacquer moved on" — without it, sync can only see that on-disk
 // content differs from what it would write now, not who changed it.
 package lock
 
@@ -15,10 +15,10 @@ import (
 )
 
 // Name is the lockfile's filename at the project root.
-const Name = ".harness.lock"
+const Name = ".lacquer.lock"
 
-// Lock is the recorded baseline: the harness version that wrote it, and a map
-// from managed-unit key to the sha256 of the content the harness produced.
+// Lock is the recorded baseline: the lacquer version that wrote it, and a map
+// from managed-unit key to the sha256 of the content the lacquer produced.
 // Region keys are "<dest>#<regionKey>" (e.g. "CLAUDE.md#core"); asset keys are
 // the destination path (e.g. ".github/workflows/ios-ci.yml").
 type Lock struct {
@@ -54,9 +54,9 @@ func Read(projectRoot string) (*Lock, bool, error) {
 	return &l, true, nil
 }
 
-// Write saves l to projectRoot/.harness.lock as indented JSON with a trailing
+// Write saves l to projectRoot/.lacquer.lock as indented JSON with a trailing
 // newline (stable, diff-friendly, committable like a package lock). It refuses to
-// write through a symlink, so a planted .harness.lock symlink can't redirect the
+// write through a symlink, so a planted .lacquer.lock symlink can't redirect the
 // write outside the project root (consistent with sync's other writes).
 func Write(projectRoot string, l *Lock) error {
 	target := filepath.Join(projectRoot, Name)

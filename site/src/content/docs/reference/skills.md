@@ -6,7 +6,7 @@ description: Every skill shipped by core and each profile, and when it fires.
 Skills are Claude Code `SKILL.md` files synced into a project's `.claude/skills/`.
 `core` skills apply everywhere; profile skills only reach projects with that
 profile enabled. Source lives at `core/skills/<name>/SKILL.md` or
-`profiles/<profile>/skills/<name>/SKILL.md` in the harness repo.
+`profiles/<profile>/skills/<name>/SKILL.md` in the lacquer repo.
 
 ## core
 

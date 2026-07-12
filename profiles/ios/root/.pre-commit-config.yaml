@@ -44,7 +44,7 @@ repos:
         pass_filenames: false
         files: ^{{COMPONENT_PREFIX}}.*\.swift$
 
-      # Conventional Commits — enforced by a LOCAL script (the harness keeps every
+      # Conventional Commits — enforced by a LOCAL script (the lacquer keeps every
       # hook local: no remote pre-commit repo runs on every commit = no supply
       # chain to trust).
       - id: conventional-commit

@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/patrickserrano/harness/internal/config"
+	"github.com/patrickserrano/lacquer/internal/config"
 )
 
 // swiftVersionRe extracts a SWIFT_VERSION value from an XcodeGen project.yml.

@@ -3,7 +3,7 @@ package tokens
 import (
 	"testing"
 
-	"github.com/patrickserrano/harness/internal/config"
+	"github.com/patrickserrano/lacquer/internal/config"
 )
 
 func TestPrefix(t *testing.T) {

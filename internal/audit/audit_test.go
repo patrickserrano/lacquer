@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/patrickserrano/harness/internal/audit"
-	syncpkg "github.com/patrickserrano/harness/internal/sync"
+	"github.com/patrickserrano/lacquer/internal/audit"
+	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
 )
 
 func TestFormatReportsAndSummarizesClobbers(t *testing.T) {
@@ -19,7 +19,7 @@ func TestFormatReportsAndSummarizesClobbers(t *testing.T) {
 	}
 	out := audit.Format(rows, 7)
 
-	if !strings.Contains(out, "harness audit — project vs harness v7") {
+	if !strings.Contains(out, "lacquer audit — project vs lacquer v7") {
 		t.Errorf("missing header:\n%s", out)
 	}
 	// The Modified unit is listed under its status section by bare dest...
@@ -58,26 +58,26 @@ func git(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// setup builds a minimal harness + a git project, syncs once, and commits the
+// setup builds a minimal lacquer + a git project, syncs once, and commits the
 // result so the working tree is clean (isolating the audit guard from gitguard).
-func setup(t *testing.T) (harness, project string) {
+func setup(t *testing.T) (lacquer, project string) {
 	t.Helper()
-	harness = t.TempDir()
+	lacquer = t.TempDir()
 	project = t.TempDir()
-	writeFile(t, filepath.Join(harness, "VERSION"), "1\n")
-	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE RULES")
-	writeFile(t, filepath.Join(harness, "core", "skills", "git.md"), "GIT SKILL")
-	writeFile(t, filepath.Join(project, ".harness.toml"), "[project]\nname=\"x\"\n")
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE RULES")
+	writeFile(t, filepath.Join(lacquer, "core", "skills", "git.md"), "GIT SKILL")
+	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"x\"\n")
 	git(t, project, "init", "-q")
 	git(t, project, "add", "-A")
 	git(t, project, "commit", "-q", "-m", "init")
 
-	if _, err := syncpkg.Run(harness, project, false); err != nil {
+	if _, err := syncpkg.Run(lacquer, project, false); err != nil {
 		t.Fatalf("initial sync: %v", err)
 	}
 	git(t, project, "add", "-A")
 	git(t, project, "commit", "-q", "-m", "sync")
-	return harness, project
+	return lacquer, project
 }
 
 func statusOf(rows []audit.Row, dest string) audit.Status {
@@ -90,8 +90,8 @@ func statusOf(rows []audit.Row, dest string) audit.Status {
 }
 
 func TestAuditRoundTripAllOK(t *testing.T) {
-	harness, project := setup(t)
-	rows, _, err := audit.Classify(harness, project)
+	lacquer, project := setup(t)
+	rows, _, err := audit.Classify(lacquer, project)
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
@@ -106,15 +106,15 @@ func TestAuditRoundTripAllOK(t *testing.T) {
 }
 
 func TestAuditDetectsLocallyModified(t *testing.T) {
-	harness, project := setup(t)
-	// Commit a local edit to a harness-managed asset (clean tree, so gitguard
+	lacquer, project := setup(t)
+	// Commit a local edit to a lacquer-managed asset (clean tree, so gitguard
 	// would NOT catch it — only the lock-based audit can).
 	skill := filepath.Join(project, ".claude", "skills", "git.md")
 	writeFile(t, skill, "HACKED")
 	git(t, project, "add", "-A")
 	git(t, project, "commit", "-q", "-m", "local edit")
 
-	rows, _, err := audit.Classify(harness, project)
+	rows, _, err := audit.Classify(lacquer, project)
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
@@ -127,57 +127,57 @@ func TestAuditDetectsLocallyModified(t *testing.T) {
 }
 
 func TestSyncRefusesToClobberWithoutForce(t *testing.T) {
-	harness, project := setup(t)
+	lacquer, project := setup(t)
 	skill := filepath.Join(project, ".claude", "skills", "git.md")
 	writeFile(t, skill, "HACKED")
 	git(t, project, "add", "-A")
 	git(t, project, "commit", "-q", "-m", "local edit")
 
 	// Without --force, sync must refuse and leave the local content intact.
-	if _, err := syncpkg.Run(harness, project, false); err == nil {
+	if _, err := syncpkg.Run(lacquer, project, false); err == nil {
 		t.Fatal("expected sync to refuse clobbering a local change")
 	}
 	if got, _ := os.ReadFile(skill); string(got) != "HACKED" {
 		t.Errorf("local change was overwritten despite no --force: %q", got)
 	}
 
-	// With --force, sync adopts the harness version.
-	if _, err := syncpkg.Run(harness, project, true); err != nil {
+	// With --force, sync adopts the lacquer version.
+	if _, err := syncpkg.Run(lacquer, project, true); err != nil {
 		t.Fatalf("forced sync: %v", err)
 	}
 	if got, _ := os.ReadFile(skill); string(got) != "GIT SKILL" {
-		t.Errorf("forced sync did not reset to harness content: %q", got)
+		t.Errorf("forced sync did not reset to lacquer content: %q", got)
 	}
 }
 
-func TestAuditReportsBehindWhenHarnessAdvances(t *testing.T) {
-	harness, project := setup(t)
-	// Harness evolves the core rules; the project is untouched.
-	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE RULES V2")
-	writeFile(t, filepath.Join(harness, "VERSION"), "2\n")
+func TestAuditReportsBehindWhenLacquerAdvances(t *testing.T) {
+	lacquer, project := setup(t)
+	// Lacquer evolves the core rules; the project is untouched.
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE RULES V2")
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "2\n")
 
-	rows, _, err := audit.Classify(harness, project)
+	rows, _, err := audit.Classify(lacquer, project)
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
 	if got := statusOf(rows, "CLAUDE.md"); got != audit.Behind {
-		t.Errorf("status = %s, want behind (project clean, harness advanced)", got)
+		t.Errorf("status = %s, want behind (project clean, lacquer advanced)", got)
 	}
 	// Behind must NOT block a normal sync.
-	if _, err := syncpkg.Run(harness, project, false); err != nil {
+	if _, err := syncpkg.Run(lacquer, project, false); err != nil {
 		t.Errorf("behind unit should sync without --force: %v", err)
 	}
 }
 
 func TestAuditUntrackedWithoutLock(t *testing.T) {
-	harness, project := setup(t)
+	lacquer, project := setup(t)
 	// Drop the lock (simulate a project synced before locking existed) and edit.
-	if err := os.Remove(filepath.Join(project, ".harness.lock")); err != nil {
+	if err := os.Remove(filepath.Join(project, ".lacquer.lock")); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(project, ".claude", "skills", "git.md"), "DIFFERENT")
 
-	rows, _, err := audit.Classify(harness, project)
+	rows, _, err := audit.Classify(lacquer, project)
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}

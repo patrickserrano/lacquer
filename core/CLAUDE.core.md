@@ -1,6 +1,6 @@
 # Core engineering rules (all projects)
 
-These rules are synced by the harness into every project's root `CLAUDE.md`. They
+These rules are synced by the lacquer into every project's root `CLAUDE.md`. They
 are stack-agnostic: they apply equally to iOS, web, Rust, and Go work. Stack
 specifics (Swift, SwiftUI, Node, etc.) live in the matching profile body.
 
@@ -58,7 +58,7 @@ doesn't. Manage context so it never happens mid-task:
 ## Docs Taxonomy
 
 A project starts from a **brief** at `docs/brief.md` — the pitch, scope, and
-roadmap, the human-authored source of truth for what's being built. `harness
+roadmap, the human-authored source of truth for what's being built. `lacquer
 init` scaffolds a stub; paste the real brief there first. Feature work then flows
 through three dated doc types named `YYYY-MM-DD-<feature>-<type>.md`:
 

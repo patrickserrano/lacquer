@@ -8,7 +8,7 @@ import (
 
 func TestLoad(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".harness.toml")
+	path := filepath.Join(dir, ".lacquer.toml")
 	data := `
 [project]
 name = "journalcast"
@@ -43,11 +43,11 @@ profiles = ["web"]
 	}
 }
 
-// loadString writes data to a temp .harness.toml and loads it.
+// loadString writes data to a temp .lacquer.toml and loads it.
 func loadString(t *testing.T, data string) (*Config, error) {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".harness.toml")
+	path := filepath.Join(dir, ".lacquer.toml")
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,7 @@ package tokens
 import (
 	"strings"
 
-	"github.com/patrickserrano/harness/internal/config"
+	"github.com/patrickserrano/lacquer/internal/config"
 )
 
 // Token names.

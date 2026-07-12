@@ -1,18 +1,18 @@
 version: 2
 
-project_name: harness
+project_name: lacquer
 
 builds:
-  - id: harness
-    main: ./cmd/harness
-    binary: harness
+  - id: lacquer
+    main: ./cmd/lacquer
+    binary: lacquer
     goos: [darwin]
     goarch: [amd64, arm64]
     env:
       - CGO_ENABLED=0
 
 archives:
-  - id: harness
+  - id: lacquer
     formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
@@ -40,4 +40,4 @@ changelog:
 release:
   github:
     owner: patrickserrano
-    name: harness
+    name: lacquer

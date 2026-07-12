@@ -6,7 +6,7 @@ description: >
   vulnerabilities", "is this safe to merge", or before merging anything that touches a
   trust boundary — auth/authz, input parsing, secrets/keychains, file writes, shelling out,
   untrusted-input-into-shell/YAML, CI workflows that run on privileged runners, or
-  generated LLM instructions. Also the standing gate this repo runs on every harness PR.
+  generated LLM instructions. Also the standing gate this repo runs on every lacquer PR.
 ---
 
 Review the change adversarially — assume the diff is hostile until proven safe. Report

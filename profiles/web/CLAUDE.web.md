@@ -1,7 +1,7 @@
 # Web profile rules
 
 Synced into the `CLAUDE.md` of any component declaring the `web` profile. The
-harness web stack is **TypeScript + Biome + Vitest + lefthook**, deployed to
+lacquer web stack is **TypeScript + Biome + Vitest + lefthook**, deployed to
 Vercel/Cloudflare; the framework (Next.js / Vite / a Node API) is per-project.
 Web jobs run on GitHub-hosted runners — there is no Apple toolchain here.
 
@@ -27,7 +27,7 @@ The synced CI and git hooks assume these scripts exist — define them:
 
 ## TypeScript — extend the strict base
 
-The harness syncs `tsconfig.base.json` (strictness flags only — no framework
+The lacquer syncs `tsconfig.base.json` (strictness flags only — no framework
 wiring, because web stacks are heterogeneous). Your project's `tsconfig.json`
 **extends** it and adds the framework-specific bits:
 
