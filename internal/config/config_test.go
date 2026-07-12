@@ -92,12 +92,12 @@ func TestLoadAcceptsValidNames(t *testing.T) {
 }
 
 func TestLoadProjectValues(t *testing.T) {
-	cfg, err := loadString(t, "[project]\nname=\"rail\"\nproject_name=\"Rail\"\nscheme=\"Rail\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"6451234567\"\n")
+	cfg, err := loadString(t, "[project]\nname=\"acme\"\nproject_name=\"Acme\"\nscheme=\"Acme\"\nbundle_id=\"com.me.acme\"\nasc_app_id=\"6451234567\"\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	p := cfg.Project
-	if p.ProjectName != "Rail" || p.Scheme != "Rail" || p.BundleID != "com.me.rail" || p.AscAppID != "6451234567" {
+	if p.ProjectName != "Acme" || p.Scheme != "Acme" || p.BundleID != "com.me.acme" || p.AscAppID != "6451234567" {
 		t.Errorf("project = %+v", p)
 	}
 }
@@ -136,11 +136,11 @@ func TestLoadRejectsUnknownTool(t *testing.T) {
 }
 
 func TestLoadGithubOrg(t *testing.T) {
-	cfg, err := loadString(t, "[project]\nname=\"x\"\ngithub_org=\"PixelFoxStudio\"\n")
+	cfg, err := loadString(t, "[project]\nname=\"x\"\ngithub_org=\"AcmeOrg\"\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Project.GithubOrg != "PixelFoxStudio" {
+	if cfg.Project.GithubOrg != "AcmeOrg" {
 		t.Errorf("github_org = %q", cfg.Project.GithubOrg)
 	}
 }
@@ -180,9 +180,9 @@ func TestLoadRejectsUnsafeExclude(t *testing.T) {
 
 func TestLoadRejectsInjectionInProjectValues(t *testing.T) {
 	cases := []string{
-		"[project]\nname=\"x\"\nscheme=\"Rail\\n  evil: true\"\n",
+		"[project]\nname=\"x\"\nscheme=\"Acme\\n  evil: true\"\n",
 		"[project]\nname=\"x\"\nbundle_id=\"com.me.$(whoami)\"\n",
-		"[project]\nname=\"x\"\nproject_name=\"Rail`id`\"\n",
+		"[project]\nname=\"x\"\nproject_name=\"Acme`id`\"\n",
 		"[project]\nname=\"x\"\nasc_app_id=\"12a34\"\n",
 		"[project]\nname=\"x\"\nscheme=\"a\\\"b\"\n",
 	}
@@ -262,7 +262,7 @@ func TestLoadRejectsUnsafeProjectName(t *testing.T) {
 			t.Errorf("expected rejection for project name %q", n)
 		}
 	}
-	if _, err := loadString(t, "[project]\nname=\"ShelfLife\"\n"); err != nil {
+	if _, err := loadString(t, "[project]\nname=\"Acme\"\n"); err != nil {
 		t.Errorf("valid name rejected: %v", err)
 	}
 }

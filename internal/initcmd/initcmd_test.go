@@ -33,7 +33,7 @@ func harnessWith(t *testing.T, profiles ...string) string {
 
 func TestInitWritesManifest(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "ios", "Rail.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
 
 	if _, err := Run(harnessWith(t, "ios"), root); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -45,7 +45,7 @@ func TestInitWritesManifest(t *testing.T) {
 	}
 	s := string(data)
 	for _, want := range []string{
-		"[project]", `project_name = "Rail"`, `scheme = "Rail"`,
+		"[project]", `project_name = "Acme"`, `scheme = "Acme"`,
 		"[[component]]", `path = "ios"`, `profiles = ["ios"]`,
 	} {
 		if !strings.Contains(s, want) {

@@ -41,17 +41,17 @@ func harnessIOS(t *testing.T) string {
 func TestOnboardCreatesRepoWhenNoRemote(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
-	mk(t, filepath.Join(root, "ShelfLife.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Acme.xcodeproj", "project.pbxproj"))
 
 	var gotOrg, gotName, gotDir string
 	orig := ghCreate
 	ghCreate = func(dir, org, name string) error { gotDir, gotOrg, gotName = dir, org, name; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(harnessIOS(t), root, "PixelFoxStudio", true); err != nil {
+	if _, err := Run(harnessIOS(t), root, "AcmeOrg", true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if gotOrg != "PixelFoxStudio" || gotName != "ShelfLife" || gotDir != root {
+	if gotOrg != "AcmeOrg" || gotName != "Acme" || gotDir != root {
 		t.Errorf("ghCreate called with dir=%q org=%q name=%q", gotDir, gotOrg, gotName)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".harness.toml")); err != nil {
@@ -69,7 +69,7 @@ func TestOnboardSkipsRepoWhenRemoteExists(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(harnessIOS(t), root, "PixelFoxStudio", true); err != nil {
+	if _, err := Run(harnessIOS(t), root, "AcmeOrg", true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if called {
@@ -85,7 +85,7 @@ func TestOnboardNoRepoFlag(t *testing.T) {
 	orig := ghCreate
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
-	if _, err := Run(harnessIOS(t), root, "PixelFoxStudio", false); err != nil {
+	if _, err := Run(harnessIOS(t), root, "AcmeOrg", false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if called {
@@ -214,7 +214,7 @@ func TestOnboardSurfacesMalformedManifest(t *testing.T) {
 	orig := ghCreate
 	ghCreate = func(dir, org, name string) error { return nil }
 	defer func() { ghCreate = orig }()
-	if _, err := Run(harnessIOS(t), root, "PixelFoxStudio", true); err == nil {
+	if _, err := Run(harnessIOS(t), root, "AcmeOrg", true); err == nil {
 		t.Fatal("expected error surfacing the malformed manifest, got nil")
 	}
 }

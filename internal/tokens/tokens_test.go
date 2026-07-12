@@ -19,20 +19,20 @@ func TestPrefix(t *testing.T) {
 }
 
 func TestSubstituteValues(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.me.rail", AscAppID: "9"}, "ios/")
+	vals := Values(config.Project{ProjectName: "Acme", Scheme: "Acme", BundleID: "com.me.acme", AscAppID: "9"}, "ios/")
 	in := "p: {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj\nf: '{{COMPONENT_PREFIX}}**'\nga: ${{ github.ref }}\n"
 	out, missing := Substitute(in, vals)
 	if len(missing) != 0 {
 		t.Fatalf("missing: %v", missing)
 	}
-	want := "p: ios/Rail.xcodeproj\nf: 'ios/**'\nga: ${{ github.ref }}\n"
+	want := "p: ios/Acme.xcodeproj\nf: 'ios/**'\nga: ${{ github.ref }}\n"
 	if out != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
 	}
 }
 
 func TestSubstituteEmptyPrefixIsValid(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "b", AscAppID: "9"}, "")
+	vals := Values(config.Project{ProjectName: "Acme", Scheme: "Acme", BundleID: "b", AscAppID: "9"}, "")
 	out, missing := Substitute("f: '{{COMPONENT_PREFIX}}**'\nd: {{COMPONENT_PREFIX}}DerivedData\n", vals)
 	if len(missing) != 0 {
 		t.Fatalf("empty prefix must not be 'missing': %v", missing)
@@ -43,7 +43,7 @@ func TestSubstituteEmptyPrefixIsValid(t *testing.T) {
 }
 
 func TestSubstituteReportsMissingProjectValue(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Rail"}, "ios/") // scheme blank
+	vals := Values(config.Project{ProjectName: "Acme"}, "ios/") // scheme blank
 	_, missing := Substitute("{{SCHEME}} {{PROJECT_NAME}}", vals)
 	if len(missing) != 1 || missing[0] != "{{SCHEME}}" {
 		t.Fatalf("missing = %v", missing)
@@ -83,9 +83,9 @@ func TestSubstituteSwiftVersion(t *testing.T) {
 }
 
 func TestSubstituteGithubOrg(t *testing.T) {
-	vals := Values(config.Project{GithubOrg: "PixelFoxStudio"}, "")
+	vals := Values(config.Project{GithubOrg: "AcmeOrg"}, "")
 	out, missing := Substitute("gh secret set X --org {{GITHUB_ORG}}", vals)
-	if len(missing) != 0 || out != "gh secret set X --org PixelFoxStudio" {
+	if len(missing) != 0 || out != "gh secret set X --org AcmeOrg" {
 		t.Fatalf("out=%q missing=%v", out, missing)
 	}
 	// github_org is NOT required: a blank value renders empty, never fails closed.

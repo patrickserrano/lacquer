@@ -18,7 +18,7 @@ func mk(t *testing.T, path string) {
 
 func TestComponents(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "ios", "Rail.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "dashboard", "package.json"))
 	mk(t, filepath.Join(root, "cli", "Cargo.toml"))
 
@@ -33,7 +33,7 @@ func TestComponents(t *testing.T) {
 	if got["ios"] != "ios" || got["dashboard"] != "web" || got["cli"] != "rust" {
 		t.Errorf("components = %+v", comps)
 	}
-	if derived.ProjectName != "Rail" || derived.Scheme != "Rail" {
+	if derived.ProjectName != "Acme" || derived.Scheme != "Acme" {
 		t.Errorf("derived = %+v", derived)
 	}
 }
@@ -78,7 +78,7 @@ func TestComponentsIgnoresCocoaPodsCarthage(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "Pods", "Pods.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "Carthage", "Checkouts", "Dep", "Dep.xcodeproj", "project.pbxproj"))
-	mk(t, filepath.Join(root, "ios", "Rail.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
 
 	comps, derived, err := Components(root)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestComponentsIgnoresCocoaPodsCarthage(t *testing.T) {
 	if len(comps) != 1 || comps[0].Path != "ios" {
 		t.Errorf("expected only the ios component, got %+v", comps)
 	}
-	if derived.ProjectName != "Rail" {
+	if derived.ProjectName != "Acme" {
 		t.Errorf("derived name corrupted by Pods/Carthage: %+v", derived)
 	}
 }
