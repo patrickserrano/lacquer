@@ -50,7 +50,7 @@ func TestRowsReportBehindAndUpToDate(t *testing.T) {
 	writeFile(t, filepath.Join(harness, "VERSION"), "5\n")
 
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"acme\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 	// core stamped at v5 (current), ios stamped at v3 (behind).
 	writeFile(t, filepath.Join(project, "CLAUDE.md"),
 		"<!-- harness:core:start v5 -->\nx\n<!-- harness:core:end -->\n")

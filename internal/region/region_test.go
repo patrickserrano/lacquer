@@ -60,12 +60,12 @@ func TestMergeReplacesExistingBlock(t *testing.T) {
 }
 
 func TestMergeAppendsWhenAbsent(t *testing.T) {
-	content := "# CLAUDE.md\n\nProject Identity: rail\n"
+	content := "# CLAUDE.md\n\nProject Identity: acme\n"
 	got, err := Merge(content, "ios", 2, "iOS shared rules")
 	if err != nil {
 		t.Fatalf("Merge returned error: %v", err)
 	}
-	want := "# CLAUDE.md\n\nProject Identity: rail\n\n" +
+	want := "# CLAUDE.md\n\nProject Identity: acme\n\n" +
 		"<!-- harness:ios:start v2 -->\niOS shared rules\n<!-- harness:ios:end -->\n"
 	if got != want {
 		t.Fatalf("Merge append mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)

@@ -30,8 +30,8 @@ func TestSyncMergesCoreAndProfile(t *testing.T) {
 
 	// Project fixtures.
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
-	writeFile(t, filepath.Join(project, "CLAUDE.md"), "# rail\n\nlocal note\n")
+		"[project]\nname=\"acme\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+	writeFile(t, filepath.Join(project, "CLAUDE.md"), "# acme\n\nlocal note\n")
 
 	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -64,10 +64,10 @@ func TestSyncMirrorsAgentsMd(t *testing.T) {
 	writeFile(t, filepath.Join(harness, "core", "CLAUDE.core.md"), "CORE RULES")
 	writeFile(t, filepath.Join(harness, "profiles", "ios", "CLAUDE.ios.md"), "IOS RULES")
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"rail\"\ntools=[\"claude\",\"codex\",\"antigravity\"]\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"acme\"\ntools=[\"claude\",\"codex\",\"antigravity\"]\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 	// Pre-existing project-owned text in AGENTS.md must be preserved (managed
 	// region merge, not whole-file overwrite).
-	writeFile(t, filepath.Join(project, "AGENTS.md"), "# rail agents\n\nkeep me\n")
+	writeFile(t, filepath.Join(project, "AGENTS.md"), "# acme agents\n\nkeep me\n")
 
 	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -247,13 +247,13 @@ func TestSyncSubstitutesTokens(t *testing.T) {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"x\"\nscheme=\"Rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"x\"\nscheme=\"Acme\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 
 	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(project, ".x.yml"))
-	if string(got) != "scheme: Rail\n" {
+	if string(got) != "scheme: Acme\n" {
 		t.Errorf("token not substituted: %q", got)
 	}
 }
@@ -298,7 +298,7 @@ func TestSyncRootLayoutEmptyPrefix(t *testing.T) {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"x\"\nproject_name=\"Rail\"\nscheme=\"Rail\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"x\"\nproject_name=\"Acme\"\nscheme=\"Acme\"\nbundle_id=\"com.me.acme\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
 
 	if _, err := Run(harness, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
