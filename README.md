@@ -59,11 +59,22 @@ harness sync --force   # adopt the harness version over a local change
 Sync writes a `.harness.lock` baseline so `audit` can tell "the project edited
 this" from "the harness moved on" and only blocks on the former.
 
-## Building
+## Installing
+
+```sh
+go install github.com/patrickserrano/harness/cmd/harness@latest
+```
+
+Or build from a checkout:
 
 ```sh
 go build ./cmd/harness
 ```
+
+Tagged releases (with prebuilt darwin/amd64 and darwin/arm64 binaries and
+changelogs) are published automatically on [GitHub
+Releases](https://github.com/patrickserrano/harness/releases) whenever
+`VERSION` changes on `main`.
 
 ## Docs
 
