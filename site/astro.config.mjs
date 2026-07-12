@@ -10,7 +10,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'lacquer',
-			plugins: [starlightThemeFlexoki()],
+			plugins: [starlightThemeFlexoki({ accentColor: 'purple' })],
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/patrickserrano/lacquer' }],
 			sidebar: [
 				{
