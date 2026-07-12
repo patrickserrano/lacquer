@@ -1,0 +1,45 @@
+---
+title: harness
+description: A Go CLI plus profile templates that standardize how Claude Code works across every project.
+template: splash
+hero:
+  tagline: One set of rules, skills, and CI, rendered into every project instead of copy-pasted and left to rot.
+  actions:
+    - text: Getting started
+      link: /guides/getting-started/
+      icon: right-arrow
+    - text: Agent rules
+      link: /guides/agent-rules/
+      icon: document
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What it does
+
+harness is a Go CLI plus a set of profile templates that standardize how Claude Code
+works across every project in `~/Developer`. It renders shared content —
+`CLAUDE.md` rules, skills, commands, CI workflows, git hooks, tool configs — into
+each project and tracks how far each project has drifted, so a lesson pinned once
+propagates everywhere instead of being copy-pasted and left to rot.
+
+A project opts in per **component** (a subdirectory) via a `.harness.toml`
+manifest. Each component declares one or more **profiles**; `core` applies to
+every project regardless.
+
+<CardGrid stagger>
+	<Card title="Getting started" icon="rocket">
+		Install, `harness init`, and `harness sync` a project for the first time.
+	</Card>
+	<Card title="Agent rules" icon="document">
+		The engineering rules every Claude Code session in a harnessed project
+		inherits — worktrees, TDD, CI hygiene, review gates.
+	</Card>
+	<Card title="Commands" icon="setting">
+		Full CLI reference: `init`, `onboard`, `sync`, `status`, `audit`.
+	</Card>
+	<Card title="Skills catalog" icon="open-book">
+		Every skill that ships in `core` and each profile, and when it fires.
+	</Card>
+</CardGrid>
