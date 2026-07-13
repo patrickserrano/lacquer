@@ -176,4 +176,4 @@ gh pr create --fill
 - [ ] Changes pushed
 - [ ] Summary provided
 
-Source: ported from ios-template (private), a predecessor repo of this fleet.
+Source: ported from ios-template (now archived), a predecessor repo of this fleet.

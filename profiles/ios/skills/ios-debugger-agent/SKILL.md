@@ -145,4 +145,4 @@ flowdeck simulator push notification.apns -b com.example.MyApp -S "<sim>"
 
 For anything not covered above — hardware buttons, appearance, Dynamic Type, privacy grants, keychain, pasteboard, watch/phone pairing — see `resources/simulator.md` and `resources/ui.md` in the `flowdeck` skill.
 
-Source: ported from ios-template (private), a predecessor repo of this fleet.
+Source: ported from ios-template (now archived), a predecessor repo of this fleet.
