@@ -8,52 +8,77 @@ Skills are Claude Code `SKILL.md` files synced into a project's `.claude/skills/
 profile enabled. Source lives at `core/skills/<name>/SKILL.md` or
 `profiles/<profile>/skills/<name>/SKILL.md` in the lacquer repo.
 
+Skills marked **original** were authored directly in this repo. Everything
+else was vendored (copied in, then adapted to this repo's conventions) from a
+named upstream — see [Notes on vendored skills](#notes-on-vendored-skills)
+below each table for anything a short link can't capture.
+
 ## core
 
 | Skill | Fires when | Source |
 |-------|-----------|--------|
 | `advisor-checkpoint` | Consulting a stronger model mid-task for a second opinion — stuck, before committing to an approach, or before declaring a non-trivial task done. | original |
-| `caveman` | User says "caveman mode", "less tokens", "be brief", or invokes `/caveman` — token-efficient terse replies. | original |
-| `claude-rescue` | Running under Codex CLI, stuck, and wanting a second opinion from Claude Code via a real subprocess — forwards the task and returns its output verbatim. | mirror of `codex-rescue` in [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc/blob/main/plugins/codex/agents/codex-rescue.md), reversed |
+| `caveman` | User says "caveman mode", "less tokens", "be brief", or invokes `/caveman` — token-efficient terse replies. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `claude-rescue` | Running under Codex CLI, stuck, and wanting a second opinion from Claude Code via a real subprocess — forwards the task and returns its output verbatim. | [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc/blob/main/plugins/codex/agents/codex-rescue.md) (`codex-rescue`, reversed) |
 | `evaluator-optimizer` | Generate a solution, evaluate against explicit pass/fail criteria, refine, repeat until it passes or a round cap is hit. | original |
-| `github-ci-fix` | PR checks fail, CI is red, or a GitHub Actions workflow breaks — inspects failing checks via `gh`, pulls logs, scopes external checks, builds a fix plan. | original |
-| `github-issue-fix-flow` | Given a GitHub issue number: implement a fix, run builds/tests, commit with a closing message, push. | original |
+| `github-ci-fix` | PR checks fail, CI is red, or a GitHub Actions workflow breaks — inspects failing checks via `gh`, pulls logs, scopes external checks, builds a fix plan. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `github-issue-fix-flow` | Given a GitHub issue number: implement a fix, run builds/tests, commit with a closing message, push. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
 | `manager-loop` | Running a large batch of independent work items (fleet-wide harvest, multi-repo sync-down, overnight backlog) as a persistent coordinator. | original |
-| `nameplate-attention` | Grabbing the human's attention (topmost message card + pulsating screen borders) before a password-manager prompt or whenever blocked on them. | adopted from [steipete/nameplate](https://github.com/steipete/nameplate/blob/main/skills/nameplate-attention/SKILL.md) |
+| `nameplate-attention` | Grabbing the human's attention (topmost message card + pulsating screen borders) before a password-manager prompt or whenever blocked on them. | [steipete/nameplate](https://github.com/steipete/nameplate/blob/main/skills/nameplate-attention/SKILL.md) |
 | `security-review` | Adversarial security review of a branch diff, PR, or working tree before merge. | original |
 | `skill-authoring-standard` | Writing or reviewing a `SKILL.md` — the bar it must clear: tight trigger-oriented frontmatter, single responsibility, no padding. | original |
 
 ## ios
 
+Most of this profile was absorbed from `patrickserrano/ios-template` (a
+private predecessor repo) in one migration; several of *those* skills turned
+out to themselves be vendored from public, per-topic "Agent Skill" repos by
+[AvdLee](https://github.com/AvdLee) (Antoine van der Lee — SwiftLee). See the
+notes below the table.
+
 | Skill | Fires when | Source |
 |-------|-----------|--------|
-| `app-store-screenshots` | Capturing App Store/TestFlight screenshots from the simulator at native resolution and uploading via helm-asc. | original |
-| `core-data-expert` | Setting up a Core Data stack, debugging threading/merge conflicts, planning a migration, integrating CloudKit sync, or diagnosing performance/memory issues. | original |
-| `ios-debugger-agent` | Running an iOS app, interacting with the simulator UI, capturing logs, or diagnosing runtime behavior. | original |
-| `macos-ci-recipes` | Adding macOS build/test/lint CI to a project on the ios profile (macOS-only or hybrid with an iOS target). | original |
-| `native-app-profiling` | Profiling native macOS/iOS apps for CPU hotspots, hangs, and hitches via Instruments traces. | original |
-| `release-app-store-changelog` | Generating user-facing App Store "What's New" release notes from git history. | original |
-| `release-macos-spm-packaging` | Scaffolding, building, and packaging SwiftPM-based macOS apps without an Xcode project. | original |
-| `rocketsim` | Interacting with iOS Simulator apps via RocketSim — reading accessibility elements, tapping, swiping, typing, hardware buttons. | integrates with [RocketSim](https://www.rocketsim.app) (third-party paid app, not bundled) |
-| `swift-concurrency` | Diagnosing data races, converting callbacks to async/await, actor isolation, `Sendable` conformance, Swift 6 migration. | based on the Swift Concurrency Course by Antoine van der Lee (link deliberately omitted — scrubbed from the synced skill itself to avoid shipping course marketing fleet-wide; see git history) |
-| `swift-testing-expert` | Writing or modernizing Swift Testing suites — `#expect`/`#require`, traits/tags, parameterized tests, XCTest migration. | original |
-| `swiftui-expert-skill` | Writing, reviewing, or improving SwiftUI code — state management, view composition, performance, Liquid Glass adoption; also analyzes Instruments `.trace` files. | original |
-| `swiftui-liquid-glass` | Adopting or reviewing the iOS 26+ Liquid Glass API in SwiftUI. | original; cites Apple's WWDC25 session 323 for one design note |
-| `swiftui-performance-audit` | Diagnosing slow rendering, janky scrolling, high CPU/memory, or excessive view updates in SwiftUI. | original |
-| `swiftui-ui-patterns` | Creating or refactoring SwiftUI UI, tab architecture, screen composition. | original |
-| `swiftui-view-refactor` | Cleaning up a SwiftUI view's structure, dependency injection, and Observation usage. | original |
-| `update-swiftui-apis` | Scanning Apple's SwiftUI docs for deprecated APIs and refreshing the swiftui-expert-skill with replacements (requires the Sosumi MCP). | original |
-| `xcode-build-benchmark` | Benchmarking clean/incremental Xcode builds with repeatable inputs and timestamped artifacts. | original |
-| `xcode-build-fixer` | Applying an approved Xcode build optimization plan, then re-benchmarking. | original |
-| `xcode-build-orchestrator` | End-to-end build optimization: benchmark, run specialist analyzers, prioritize, get approval, delegate fixes, re-benchmark. | original |
-| `xcode-compilation-analyzer` | Analyzing Swift compile hotspots and type-checking cost from build timing summaries. | original |
-| `xcode-project-analyzer` | Auditing Xcode project config, build settings, schemes, and script phases for build-time improvements. | original |
+| `app-store-screenshots` | Capturing App Store/TestFlight screenshots from the simulator at native resolution and uploading via helm-asc. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `core-data-expert` | Setting up a Core Data stack, debugging threading/merge conflicts, planning a migration, integrating CloudKit sync, or diagnosing performance/memory issues. | [AvdLee/Core-Data-Agent-Skill](https://github.com/AvdLee/Core-Data-Agent-Skill) |
+| `ios-debugger-agent` | Running an iOS app, interacting with the simulator UI, capturing logs, or diagnosing runtime behavior. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `macos-ci-recipes` | Adding macOS build/test/lint CI to a project on the ios profile (macOS-only or hybrid with an iOS target). | adapted from windsock's and mindmint's own CI (own fleet) |
+| `native-app-profiling` | Profiling native macOS/iOS apps for CPU hotspots, hangs, and hitches via Instruments traces. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `release-app-store-changelog` | Generating user-facing App Store "What's New" release notes from git history. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `release-macos-spm-packaging` | Scaffolding, building, and packaging SwiftPM-based macOS apps without an Xcode project. | harvested from kit (own fleet) |
+| `rocketsim` | Interacting with iOS Simulator apps via RocketSim — reading accessibility elements, tapping, swiping, typing, hardware buttons. | [AvdLee/RocketSim-Agent-Skill](https://github.com/AvdLee/RocketSim-Agent-Skill) |
+| `swift-concurrency` | Diagnosing data races, converting callbacks to async/await, actor isolation, `Sendable` conformance, Swift 6 migration. | [AvdLee/Swift-Concurrency-Agent-Skill](https://github.com/AvdLee/Swift-Concurrency-Agent-Skill) |
+| `swift-testing-expert` | Writing or modernizing Swift Testing suites — `#expect`/`#require`, traits/tags, parameterized tests, XCTest migration. | [AvdLee/Swift-Testing-Agent-Skill](https://github.com/AvdLee/Swift-Testing-Agent-Skill) |
+| `swiftui-expert-skill` | Writing, reviewing, or improving SwiftUI code — state management, view composition, performance, Liquid Glass adoption; also analyzes Instruments `.trace` files. | [AvdLee/SwiftUI-Agent-Skill](https://github.com/AvdLee/SwiftUI-Agent-Skill) |
+| `swiftui-liquid-glass` | Adopting or reviewing the iOS 26+ Liquid Glass API in SwiftUI. | split from [AvdLee/SwiftUI-Agent-Skill](https://github.com/AvdLee/SwiftUI-Agent-Skill)'s reference material |
+| `swiftui-performance-audit` | Diagnosing slow rendering, janky scrolling, high CPU/memory, or excessive view updates in SwiftUI. | split from [AvdLee/SwiftUI-Agent-Skill](https://github.com/AvdLee/SwiftUI-Agent-Skill)'s reference material |
+| `swiftui-ui-patterns` | Creating or refactoring SwiftUI UI, tab architecture, screen composition. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `swiftui-view-refactor` | Cleaning up a SwiftUI view's structure, dependency injection, and Observation usage. | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `update-swiftui-apis` | Scanning Apple's SwiftUI docs for deprecated APIs and refreshing the swiftui-expert-skill with replacements (requires the Sosumi MCP). | [ios-template](https://github.com/patrickserrano/ios-template) (private) |
+| `xcode-build-benchmark` | Benchmarking clean/incremental Xcode builds with repeatable inputs and timestamped artifacts. | [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill) |
+| `xcode-build-fixer` | Applying an approved Xcode build optimization plan, then re-benchmarking. | [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill) |
+| `xcode-build-orchestrator` | End-to-end build optimization: benchmark, run specialist analyzers, prioritize, get approval, delegate fixes, re-benchmark. | [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill) |
+| `xcode-compilation-analyzer` | Analyzing Swift compile hotspots and type-checking cost from build timing summaries. | [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill) |
+| `xcode-project-analyzer` | Auditing Xcode project config, build settings, schemes, and script phases for build-time improvements. | [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill) |
+
+#### Notes on vendored skills
+
+- `swift-concurrency` is also based on Antoine van der Lee's paid [Swift
+  Concurrency Course](https://www.swiftconcurrencycourse.com) — the skill
+  body itself only carries a plain-text attribution line, no link:
+  commit `a228d797` deliberately scrubbed `swiftconcurrencycourse.com`/UTM
+  links from the *synced* skill to avoid shipping course marketing
+  fleet-wide. That decision stands here too — see the git history rather
+  than expecting a link inside the skill.
+- `rocketsim` also *integrates with* the third-party [RocketSim](https://www.rocketsim.app)
+  app itself (paid, not bundled) — distinct from the skill's own source above.
+- `swiftui-liquid-glass` additionally cites Apple's WWDC25 session 323 for
+  one design note.
 
 ## supabase
 
 | Skill | Fires when | Source |
 |-------|-----------|--------|
-| `supabase-postgres-best-practices` | Writing, reviewing, or optimizing Postgres queries, schema, indexing, connection pooling, RLS policies, or locking. | original |
+| `supabase-postgres-best-practices` | Writing, reviewing, or optimizing Postgres queries, schema, indexing, connection pooling, RLS policies, or locking. | [supabase/agent-skills](https://github.com/supabase/agent-skills/tree/main/skills/supabase-postgres-best-practices) (official, MIT) |
 
 ## Third-party skills
 

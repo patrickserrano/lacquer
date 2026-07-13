@@ -175,3 +175,5 @@ gh pr create --fill
 - [ ] Commit message includes `Closes #<id>`
 - [ ] Changes pushed
 - [ ] Summary provided
+
+Source: ported from ios-template (private), a predecessor repo of this fleet.

@@ -136,3 +136,5 @@ git log v1.1.0..v1.2.0 --oneline --no-merges
 - Drop changes that are clearly internal-only
 - When in doubt, describe as "small improvement" only if user-visible
 - Respect storefront character limits if provided
+
+Source: ported from ios-template (private), a predecessor repo of this fleet.

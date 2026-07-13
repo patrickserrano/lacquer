@@ -77,3 +77,5 @@ Use this skill to write, review, migrate, and debug Swift tests with modern Swif
 - `references/async-testing-and-waiting.md`
 - `references/migration-from-xctest.md`
 - `references/xcode-workflows.md`
+
+Source: [AvdLee/Swift-Testing-Agent-Skill](https://github.com/AvdLee/Swift-Testing-Agent-Skill), adapted.

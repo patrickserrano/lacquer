@@ -154,3 +154,5 @@ python3 scripts/generate_optimization_report.py \
 - For benchmark artifact requirements, see [references/benchmark-artifacts.md](references/benchmark-artifacts.md)
 - For the recommendation format, see [references/recommendation-format.md](references/recommendation-format.md)
 - For build settings best practices, see [references/build-settings-best-practices.md](references/build-settings-best-practices.md)
+
+Source: [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill), adapted.

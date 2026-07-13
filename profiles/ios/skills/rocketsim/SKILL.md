@@ -92,3 +92,5 @@ pgrep -x RocketSim >/dev/null && echo "Running" || echo "Not running"
 If not running, ask the user to launch RocketSim before proceeding.
 
 If RocketSim is running from a different app bundle than the `APP_PATH` you resolved, restart discovery and prefer the running app bundle.
+
+Source: [AvdLee/RocketSim-Agent-Skill](https://github.com/AvdLee/RocketSim-Agent-Skill), adapted. Integrates with the third-party [RocketSim](https://www.rocketsim.app) app itself (paid, not bundled).
