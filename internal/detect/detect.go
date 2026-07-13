@@ -12,18 +12,11 @@ import (
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/skipdirs"
 )
 
 // swiftVersionRe extracts a SWIFT_VERSION value from an XcodeGen project.yml.
 var swiftVersionRe = regexp.MustCompile(`SWIFT_VERSION:\s*"?([0-9]+(?:\.[0-9]+)*)"?`)
-
-// skip names that should never be treated as project source. Pods/Carthage hold
-// dependency .xcodeproj files that would otherwise be mis-detected as components.
-var skipDirs = map[string]bool{
-	".git": true, ".worktrees": true, "node_modules": true,
-	"DerivedData": true, ".build": true, "vendor": true, ".agents": true,
-	"Pods": true, "Carthage": true,
-}
 
 // markerProfile maps a marker filename to the profile it implies.
 var markerProfile = map[string]string{
@@ -53,7 +46,7 @@ func Components(root string) ([]config.Component, config.Project, error) {
 			return err
 		}
 		if d.IsDir() {
-			if path != root && skipDirs[d.Name()] {
+			if path != root && skipdirs.Skip(d.Name()) {
 				return filepath.SkipDir
 			}
 			if strings.HasSuffix(d.Name(), ".xcodeproj") {
