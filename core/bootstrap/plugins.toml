@@ -1,0 +1,49 @@
+# Machine-level Claude Code plugins this fleet relies on, applied by
+# `lacquer plugins`. Unlike [project].skills (per-project, in .lacquer.toml),
+# plugins install once at user scope and are shared across every project —
+# so this manifest lives in the lacquer repo itself, not a project manifest.
+#
+# Only plugins actually enabled on the reference machine are listed; a
+# plugin installed-but-disabled there (a deliberate, not accidental, state)
+# is left out rather than silently re-enabled on a fresh machine.
+
+[[marketplace]]
+name = "superpowers-marketplace"
+source = "obra/superpowers-marketplace"
+
+[[marketplace]]
+name = "claude-plugins-official"
+source = "anthropics/claude-plugins-official"
+
+[[marketplace]]
+name = "openai-codex"
+source = "openai/codex-plugin-cc"
+
+[[marketplace]]
+name = "telemetrydeck-analytics"
+source = "agenkin/telemetrydeck-analytics"
+
+[[plugin]]
+# TDD, brainstorming, writing-plans, code-reviewer, git-worktree workflows.
+name = "superpowers@superpowers-marketplace"
+
+[[plugin]]
+# /review, /adversarial-review, /rescue -- a live Codex subprocess for a
+# genuine second opinion, distinct from Claude's own self-review.
+name = "codex@openai-codex"
+
+[[plugin]]
+# Up-to-date library/framework docs, fetched on demand.
+name = "context7@claude-plugins-official"
+
+[[plugin]]
+# Figma design-to-code / code-to-design bridge.
+name = "figma@claude-plugins-official"
+
+[[plugin]]
+# Injection/secrets/workflow-security guidance surfaced on relevant edits.
+name = "security-guidance@claude-plugins-official"
+
+[[plugin]]
+# Session/usage analytics.
+name = "telemetrydeck-analytics@telemetrydeck-analytics"

@@ -11,6 +11,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
+	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
 	"github.com/patrickserrano/lacquer/internal/skillsync"
 	"github.com/patrickserrano/lacquer/internal/status"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
@@ -131,6 +132,31 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if len(res.Failed) > 0 {
 			return 1
 		}
+	case "plugins":
+		// plugins installs the machine-level manifest shipped in the lacquer
+		// repo itself (core/bootstrap/plugins.toml) — unlike skills, this is
+		// not project-scoped, so it needs lacquerRoot but not projectRoot.
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
+			return fail(stderr, err)
+		}
+		manifestPath := filepath.Join(lacquerRoot, "core", "bootstrap", "plugins.toml")
+		manifest, err := pluginbootstrap.Load(manifestPath)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("load %s: %w", manifestPath, err))
+		}
+		res := pluginbootstrap.Apply(manifest)
+		for _, name := range res.Marketplaces {
+			fmt.Fprintf(stdout, "marketplace: %s\n", name)
+		}
+		for _, name := range res.Plugins {
+			fmt.Fprintf(stdout, "installed: %s\n", name)
+		}
+		for name, out := range res.Failed {
+			fmt.Fprintf(stderr, "failed: %s\n%s\n", name, out)
+		}
+		if len(res.Failed) > 0 {
+			return 1
+		}
 	case "audit":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -200,6 +226,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  onboard --org O [--no-repo]  init, then create a private GitHub repo")
 	fmt.Fprintln(w, "  sync [--force]               render lacquer content into the project")
 	fmt.Fprintln(w, "  skills                       install [project].skills via the `skills` CLI (vercel-labs/skills)")
+	fmt.Fprintln(w, "  plugins                      install core/bootstrap/plugins.toml via `claude plugin` (machine-level)")
 	fmt.Fprintln(w, "  status                       show each region's stamped vs latest version")
 	fmt.Fprintln(w, "  audit                        classify project drift (exit 3 if sync would clobber a local change)")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
