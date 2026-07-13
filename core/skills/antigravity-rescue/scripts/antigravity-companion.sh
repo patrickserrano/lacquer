@@ -14,8 +14,10 @@ options:
   --resume         continue the most recent Antigravity conversation (agy -c)
   --fresh          start a new conversation (default)
   --write          allow edits (--dangerously-skip-permissions) (default)
-  --read-only      ask for diagnosis/review only -- advisory, not enforced (see
-                    Read-only caveat below)
+  --read-only      ask for diagnosis/review only -- prompt-compliance only, not
+                    CLI-enforced: agy has no permission gating in headless (-p)
+                    mode at all, with or without --dangerously-skip-permissions
+                    (verified live -- see SKILL.md's Security section)
   --timeout <dur>  override the default 10m print-timeout (agy's own default is 5m)
 EOF
   exit 2
@@ -57,6 +59,8 @@ fi
 # --add-dir is not optional: without it, agy operates in its own internal
 # scratch sandbox (~/.gemini/antigravity-cli/scratch), disconnected from the
 # real project -- confirmed live, this is not a hypothetical edge case.
+# It is a workspace default hint, not an access boundary: agy can still
+# read/write/delete outside it in headless mode (verified live).
 args=(--add-dir "$(pwd)" --print-timeout "$print_timeout")
 [ -n "$model" ] && args+=(--model "$model")
 [ -n "$resume_flag" ] && args+=("$resume_flag")
