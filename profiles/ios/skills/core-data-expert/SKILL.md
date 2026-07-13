@@ -80,3 +80,5 @@ Fast, production-oriented guidance for building **correct**, **performant** Core
 - `references/performance.md`
 - `references/testing.md`
 - `references/glossary.md`
+
+Source: [AvdLee/Core-Data-Agent-Skill](https://github.com/AvdLee/Core-Data-Agent-Skill), adapted.

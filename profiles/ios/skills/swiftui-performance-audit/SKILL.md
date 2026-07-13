@@ -263,3 +263,5 @@ open -a Instruments
 - [ ] Look at SwiftUI timeline for body evaluations
 - [ ] Check Time Profiler for hot spots
 - [ ] Note frame rate drops in Animation timeline
+
+Source: split from [AvdLee/SwiftUI-Agent-Skill](https://github.com/AvdLee/SwiftUI-Agent-Skill)'s reference material.

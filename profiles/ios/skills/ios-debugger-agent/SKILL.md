@@ -144,3 +144,5 @@ flowdeck simulator push notification.apns -b com.example.MyApp -S "<sim>"
 | Get app container | `flowdeck simulator app container <bundle-id> [-c app\|data\|groups\|<group-id>] -S <udid>` | `-c/--container` defaults to `app` |
 
 For anything not covered above — hardware buttons, appearance, Dynamic Type, privacy grants, keychain, pasteboard, watch/phone pairing — see `resources/simulator.md` and `resources/ui.md` in the `flowdeck` skill.
+
+Source: ported from ios-template (private), a predecessor repo of this fleet.

@@ -176,3 +176,5 @@ When gating with `#available(iOS 26, *)`, fall back to a `Material`, ordered fro
 4. **Animation**: Use animations when changing view hierarchies for smooth morphing
 5. **Interactivity**: Add `.interactive()` only to touchable elements
 6. **Consistency**: Maintain consistent shapes and styles across your app
+
+Source: split from [AvdLee/SwiftUI-Agent-Skill](https://github.com/AvdLee/SwiftUI-Agent-Skill)'s reference material; also cites Apple's WWDC25 session 323 for one design note.

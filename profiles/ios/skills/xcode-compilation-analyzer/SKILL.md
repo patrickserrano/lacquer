@@ -87,3 +87,5 @@ If the evidence points to project configuration instead of source, hand off to [
 - For the detailed audit checklist, see [references/code-compilation-checks.md](references/code-compilation-checks.md)
 - For the shared recommendation structure, see [references/recommendation-format.md](references/recommendation-format.md)
 - For source citations, see [references/build-optimization-sources.md](references/build-optimization-sources.md)
+
+Source: [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill), adapted.

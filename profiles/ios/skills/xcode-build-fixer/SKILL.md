@@ -216,3 +216,5 @@ If during implementation you discover issues outside this skill's scope:
 - For concrete before/after fix patterns, see [references/fix-patterns.md](references/fix-patterns.md)
 - For build settings best practices, see [references/build-settings-best-practices.md](references/build-settings-best-practices.md)
 - For the recommendation format, see [references/recommendation-format.md](references/recommendation-format.md)
+
+Source: [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill), adapted.

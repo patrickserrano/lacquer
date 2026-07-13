@@ -86,3 +86,5 @@ Stop after measurement if the user only asked for benchmarking. If they want opt
 - For the benchmark contract, see [references/benchmarking-workflow.md](references/benchmarking-workflow.md)
 - For the shared artifact format, see [references/benchmark-artifacts.md](references/benchmark-artifacts.md)
 - For the JSON schema, see [schemas/build-benchmark.schema.json](schemas/build-benchmark.schema.json)
+
+Source: [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill), adapted.

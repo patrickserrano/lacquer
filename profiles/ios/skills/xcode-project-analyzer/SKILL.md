@@ -74,3 +74,5 @@ If the evidence points to package graph or build plugins, hand off to [`spm-buil
 - For build settings best practices, see [references/build-settings-best-practices.md](references/build-settings-best-practices.md)
 - For the shared recommendation structure, see [references/recommendation-format.md](references/recommendation-format.md)
 - For Apple-aligned source summaries, see [references/build-optimization-sources.md](references/build-optimization-sources.md)
+
+Source: [AvdLee/Xcode-Build-Optimization-Agent-Skill](https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill), adapted.
