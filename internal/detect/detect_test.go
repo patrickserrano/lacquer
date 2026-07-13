@@ -92,6 +92,27 @@ func TestComponentsIgnoresCocoaPodsCarthage(t *testing.T) {
 	}
 }
 
+func TestComponentsIgnoresSuffixedDerivedData(t *testing.T) {
+	root := t.TempDir()
+	// This fleet's own convention is a unique per-worktree derived-data path
+	// like DerivedData-<feature>, never bare "DerivedData" — an exact-name
+	// skip check misses these, letting Xcode's cached SPM checkout
+	// .xcodeprojs (e.g. RevenueCat.xcodeproj) leak in as phantom components.
+	mk(t, filepath.Join(root, "DerivedData-shots", "SourcePackages", "checkouts", "purchases-ios", "RevenueCat.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
+
+	comps, derived, err := Components(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comps) != 1 || comps[0].Path != "ios" {
+		t.Errorf("expected only the ios component, got %+v", comps)
+	}
+	if derived.ProjectName != "Acme" {
+		t.Errorf("derived name corrupted by a suffixed DerivedData-* dir: %+v", derived)
+	}
+}
+
 func TestComponentsConfigDirAndXcodeproj(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))

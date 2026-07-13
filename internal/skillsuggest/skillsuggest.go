@@ -11,15 +11,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-)
 
-// skipDirs mirrors internal/detect's skip list: these never hold project
-// source worth scanning for imports.
-var skipDirs = map[string]bool{
-	".git": true, ".worktrees": true, "node_modules": true,
-	"DerivedData": true, ".build": true, "vendor": true, ".agents": true,
-	"Pods": true, "Carthage": true,
-}
+	"github.com/patrickserrano/lacquer/internal/skipdirs"
+)
 
 // frameworkSkills maps a Swift import's module name to the third-party skill
 // package that documents it, sourced from dpearson2699/swift-ios-skills (the
@@ -71,7 +65,7 @@ func Suggest(componentRoot string) ([]string, error) {
 			return nil // best-effort: skip what we can't stat
 		}
 		if info.IsDir() {
-			if skipDirs[info.Name()] {
+			if skipdirs.Skip(info.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

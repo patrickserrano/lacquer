@@ -81,6 +81,25 @@ func TestSuggestSkipsDependencyDirs(t *testing.T) {
 	}
 }
 
+func TestSuggestSkipsSuffixedDerivedDataDirs(t *testing.T) {
+	root := t.TempDir()
+	// This fleet's own convention is a unique per-worktree derived-data path
+	// like DerivedData-<feature> (see profiles/ios's "Working in worktrees"
+	// guidance), never bare "DerivedData". A StoreKit import inside Xcode's
+	// cached SPM checkout under a suffixed DerivedData dir must not surface —
+	// it's third-party dependency source, not this project's own usage.
+	write(t, filepath.Join(root, "DerivedData-shots", "SourcePackages", "checkouts", "purchases-ios", "File.swift"), "import StoreKit\n")
+	write(t, filepath.Join(root, "Model.swift"), "import Foundation\n")
+
+	got, err := Suggest(root)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want no suggestions from a suffixed DerivedData-* dependency checkout", got)
+	}
+}
+
 func TestSuggestHandlesTestableImport(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "Tests.swift"), "@testable import StoreKit\n")
