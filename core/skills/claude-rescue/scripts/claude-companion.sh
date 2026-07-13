@@ -45,14 +45,24 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+case "$model" in
+  -*) echo "claude-companion.sh: --model value must not start with '-': $model" >&2; exit 2 ;;
+esac
+
+# `claude` re-parses the value of -p/--background as an option if it starts
+# with '-', so the task text is appended last, after a `--` that terminates
+# option parsing -- this is the only thing standing between task text and
+# argument injection (e.g. a task starting with "--dangerously-skip-permissions").
 if [ "$mode" = "background" ]; then
-  args=(--background "$task" --permission-mode "$permission_mode")
+  args=(--background --permission-mode "$permission_mode")
   [ -n "$model" ] && args+=(--model "$model")
   [ -n "$resume_flag" ] && args+=("$resume_flag")
+  args+=(-- "$task")
   exec claude "${args[@]}"
 fi
 
-args=(-p "$task" --permission-mode "$permission_mode" --output-format text)
+args=(-p --permission-mode "$permission_mode" --output-format text)
 [ -n "$model" ] && args+=(--model "$model")
 [ -n "$resume_flag" ] && args+=("$resume_flag")
+args+=(-- "$task")
 exec claude "${args[@]}"
