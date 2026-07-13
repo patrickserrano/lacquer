@@ -181,6 +181,21 @@ security default-keychain -s dev-signing.keychain
 
 ## Notarization and Release
 
+**One-time setup.** Notarization needs the full Xcode.app, not the lightweight
+Command Line Tools package — CLT omits `notarytool`/`stapler`. Store credentials
+once so scripts never carry a plaintext password:
+
+```bash
+xcrun notarytool store-credentials "AC_PASSWORD" \
+    --apple-id "your@email.com" \
+    --team-id "TEAM_ID"
+# Prompts interactively for an app-specific password (appleid.apple.com,
+# Sign-In and Security -> App-Specific Passwords). Stored in the login
+# keychain under the given profile name; `--keychain-profile "AC_PASSWORD"`
+# below reads it back. Regenerate if the Apple ID password ever changes --
+# app-specific passwords go stale silently, with no warning at submit time.
+```
+
 Create `Scripts/sign-and-notarize.sh`:
 
 ```bash
@@ -198,11 +213,11 @@ codesign --force --options runtime --sign "Developer ID Application: Your Name" 
 # Create zip for notarization
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
-# Submit for notarization
+# Submit for notarization (--keychain-profile reads the credentials stored
+# above by `store-credentials` -- notarytool does not take a literal
+# --password value or the altool-style "@keychain:" reference syntax)
 xcrun notarytool submit "$ZIP_PATH" \
-    --apple-id "your@email.com" \
-    --team-id "TEAM_ID" \
-    --password "@keychain:AC_PASSWORD" \
+    --keychain-profile "AC_PASSWORD" \
     --wait
 
 # Staple the ticket
@@ -213,6 +228,17 @@ rm "$ZIP_PATH"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
 echo "Release ready: $ZIP_PATH"
+```
+
+### Verify the release
+
+Run all three before shipping — each catches a different failure mode (wrong
+signing identity, Gatekeeper rejection, missing/unstapled ticket):
+
+```bash
+codesign -dv --verbose=4 "$APP_PATH"      # confirms who signed it and with what identity
+spctl -a -vvv -t exec "$APP_PATH"         # confirms Gatekeeper will actually accept it
+xcrun stapler validate "$APP_PATH"        # confirms the notarization ticket is attached
 ```
 
 ## Sparkle Updates (Optional)
@@ -279,5 +305,6 @@ gh release create "v$VERSION" \
 ### Release
 - [ ] Code signed with Developer ID
 - [ ] Notarized and stapled
+- [ ] Verified with `codesign -dv`, `spctl -a -vvv -t exec`, and `stapler validate`
 - [ ] Zip created for distribution
 - [ ] (Optional) Sparkle appcast updated
