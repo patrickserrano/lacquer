@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
 )
 
@@ -40,7 +41,15 @@ type Result struct {
 // After installing, it reads the project's skills-lock.json (written by the
 // `skills` CLI) and flags any installed skill the manifest no longer
 // declares — informational only; nothing is auto-removed.
-func Install(projectRoot string, entries []config.SkillEntry) (Result, error) {
+//
+// tools is the project's EffectiveTools() list. `skills add` only writes the
+// canonical .agents/skills/<name> plus a Claude Code symlink — it does not
+// reach every tool a project may declare. Codex is the confirmed gap:
+// openai/codex's own repository dogfoods .codex/skills as its real
+// project-level skill directory, but `skills add` never writes there, even
+// with an explicit --agent codex flag. Install bridges that gap with a
+// symlink for every declared tool `skills add` doesn't already cover.
+func Install(projectRoot string, entries []config.SkillEntry, tools []string) (Result, error) {
 	res := Result{Failed: map[string]string{}}
 	declared := map[string]bool{}
 
@@ -49,6 +58,10 @@ func Install(projectRoot string, entries []config.SkillEntry) (Result, error) {
 		out, err := Runner(projectRoot, "add", e.Source, "-s", e.Name, "-p", "-y")
 		if err != nil {
 			res.Failed[e.Name] = fmt.Sprintf("%v\n%s", err, out)
+			continue
+		}
+		if err := bridgeToolDirs(projectRoot, e.Name, tools); err != nil {
+			res.Failed[e.Name] = fmt.Sprintf("installed but failed to bridge to declared tool dirs: %v", err)
 			continue
 		}
 		res.Installed = append(res.Installed, e.Name)
@@ -64,6 +77,48 @@ func Install(projectRoot string, entries []config.SkillEntry) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// bridgeToolDirs makes skillName reachable from every tool dir in tools that
+// `skills add` doesn't already cover natively (the canonical
+// .agents/skills/<name> it always writes, and the Claude Code symlink it
+// creates itself). It walks every declared tool rather than hardcoding
+// "codex", so a future tool needing the same treatment is covered
+// automatically. An already-present target (a prior bridge run, or a
+// same-named lacquer-synced skill) is left untouched — never overwritten.
+func bridgeToolDirs(projectRoot, skillName string, tools []string) error {
+	canonical := filepath.Join(projectRoot, assets.ToolSkillsDir["antigravity"], skillName)
+	if _, err := os.Lstat(canonical); err != nil {
+		// Nothing to bridge from. `skills add` either failed silently or used
+		// a layout this package doesn't recognize; Install's own error
+		// handling around the Runner call is the authoritative signal for
+		// that, so treat this as a no-op rather than a second failure mode.
+		return nil
+	}
+	for _, tool := range tools {
+		if tool == "antigravity" || tool == "claude" {
+			continue // already covered by `skills add` itself
+		}
+		dir, ok := assets.ToolSkillsDir[tool]
+		if !ok {
+			continue
+		}
+		target := filepath.Join(projectRoot, dir, skillName)
+		if _, err := os.Lstat(target); err == nil {
+			continue // already present -- never clobber
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(filepath.Dir(target), canonical)
+		if err != nil {
+			return err
+		}
+		if err := os.Symlink(rel, target); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // lockFile is the subset of the `skills` CLI's project-scoped

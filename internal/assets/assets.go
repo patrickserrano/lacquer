@@ -36,7 +36,7 @@ func MissingTokens(plan []Asset, proj config.Project) ([]string, error) {
 	return out, nil
 }
 
-// toolSkillsDir maps a configured agent tool to its project-level skills
+// ToolSkillsDir maps a configured agent tool to its project-level skills
 // directory. SKILL.md is an open standard shared across Claude Code, Codex,
 // Antigravity, Cursor, and Gemini CLI — only the directory differs — so the same
 // skill package is copied verbatim into each enabled tool's dir. Commands are NOT
@@ -44,7 +44,14 @@ func MissingTokens(plan []Asset, proj config.Project) ([]string, error) {
 // Claude-only (.claude/commands). Custom subagent definitions (agents) are the
 // same story as commands: there is no cross-tool standard for them, so they
 // stay Claude-only too (.claude/agents).
-var toolSkillsDir = map[string]string{
+//
+// Exported so internal/skillsync can bridge third-party skill installs (from
+// the `skills` CLI, which writes only to the canonical .agents/skills/<name>
+// plus a Claude Code symlink) into every other tool a project declares —
+// notably .codex/skills, which openai/codex's own repository dogfoods as its
+// real project-level skill directory but which `skills add` does not write to
+// even with an explicit --agent codex flag.
+var ToolSkillsDir = map[string]string{
 	"claude":      ".claude/skills",
 	"codex":       ".codex/skills",
 	"antigravity": ".agents/skills",
@@ -94,7 +101,7 @@ func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 	// core assets are stack-agnostic: no component prefix. Skills fan out to each
 	// enabled tool's skills dir; commands stay Claude-only.
 	for _, tool := range tools {
-		dir, ok := toolSkillsDir[tool]
+		dir, ok := ToolSkillsDir[tool]
 		if !ok {
 			// Defense in depth: config.Load allowlists tool names, and every known
 			// tool has a dir here. Fail loud rather than write skills to the project
@@ -136,7 +143,7 @@ func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 		base := filepath.Join(lacquerRoot, "profiles", p)
 		prefix := tokens.Prefix(profileDir[p])
 		for _, tool := range tools {
-			dir, ok := toolSkillsDir[tool]
+			dir, ok := ToolSkillsDir[tool]
 			if !ok {
 				return nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
 			}
