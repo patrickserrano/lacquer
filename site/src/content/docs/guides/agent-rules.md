@@ -6,7 +6,10 @@ description: The engineering rules synced into every lacquered project's CLAUDE.
 :::note
 This page mirrors `core/CLAUDE.core.md` — the stack-agnostic rules the lacquer
 syncs into every project's root `CLAUDE.md`. It applies equally to iOS, web,
-Supabase, and any other stack; stack specifics live in the matching profile body.
+Supabase, and any other stack; stack specifics live in the matching profile
+body — see [iOS rules](/lacquer/guides/ios-rules/), [Web
+rules](/lacquer/guides/web-rules/), and [Supabase
+rules](/lacquer/guides/supabase-rules/).
 :::
 
 ## Fundamental rules

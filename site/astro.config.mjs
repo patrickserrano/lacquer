@@ -18,6 +18,9 @@ export default defineConfig({
 					items: [
 						{ label: 'Getting started', slug: 'guides/getting-started' },
 						{ label: 'Agent rules', slug: 'guides/agent-rules' },
+						{ label: 'iOS rules', slug: 'guides/ios-rules' },
+						{ label: 'Web rules', slug: 'guides/web-rules' },
+						{ label: 'Supabase rules', slug: 'guides/supabase-rules' },
 					],
 				},
 				{
