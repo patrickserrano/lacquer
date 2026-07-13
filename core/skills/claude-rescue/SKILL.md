@@ -46,3 +46,5 @@ scripts/claude-companion.sh task "<the task, verbatim>" [--background|--wait] [-
 - Return the script's output exactly as printed. No added commentary before
   or after it. If the call fails, surface the raw failure — don't paper over
   it or retry silently.
+
+Source: mirror of the `codex-rescue` agent in [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc/blob/main/plugins/codex/agents/codex-rescue.md), direction reversed (Claude → Codex becomes Codex → Claude) and adapted to Codex's skill-based extensibility model.

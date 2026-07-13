@@ -65,10 +65,15 @@ this" from "the lacquer moved on" and only blocks on the former.
 
 `lacquer sync` distributes this repo's own skills (`core/skills/`,
 `profiles/*/skills/`) — that's a solved problem, versioned and drift-audited.
-Third-party skills (Apple framework references, etc.) are a different concern:
-one global install shared across every project, kept up to date by
-[`vercel-labs/skills`](https://github.com/vercel-labs/skills), a real package
-manager for agent skills — not something lacquer reimplements.
+Third-party skills are a different concern: one global install shared across
+every project, kept up to date by [`vercel-labs/skills`](https://github.com/vercel-labs/skills),
+a real package manager for agent skills — not something lacquer reimplements.
+The packages this fleet actually pulls in (with source links, and which is
+suggested from which Swift import) are cataloged in [Skills
+reference](https://patrickserrano.github.io/lacquer/reference/skills/#third-party-skills) —
+currently [`dpearson2699/swift-ios-skills`](https://github.com/dpearson2699/swift-ios-skills)
+(Apple framework references) and [`HunterHillegas/mac-assed-mac-app-skill`](https://github.com/HunterHillegas/mac-assed-mac-app-skill)
+(AppKit/macOS conventions).
 
 `[project].skills` in `.lacquer.toml` declares which packages *this* project
 needs, mixing lacquer's own skills and third-party ones uniformly:
