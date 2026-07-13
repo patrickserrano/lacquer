@@ -65,5 +65,3 @@ Example — destructive op:
 ## Boundaries
 
 Code/commits/PRs: write normal. "stop caveman" or "normal mode": revert. Level persist until changed or session end.
-
-Source: ported from ios-template (now archived), a predecessor repo of this fleet.
