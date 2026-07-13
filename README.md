@@ -99,16 +99,19 @@ offline and deterministic (its whole test suite depends on that), while
 
 ## Plugins (machine-level bootstrap)
 
-Claude Code plugins (`superpowers`, `codex` for adversarial review via a real
-Codex subprocess, `context7`, etc.) install once at **user** scope and are
-shared across every project on a machine — a different shape of problem than
-`[project].skills`, which is per-project. `core/bootstrap/plugins.toml` lists
-the marketplaces and plugins this fleet relies on; `lacquer plugins` applies
-it via `claude plugin marketplace add` / `claude plugin install`, both
-confirmed idempotent (an already-configured marketplace or already-installed
-plugin is a clean no-op). Only plugins actually *enabled* on the reference
-machine are listed — one installed-but-disabled there is a deliberate choice,
-not silently re-enabled on a fresh machine.
+Claude Code plugins install once at **user** scope and are shared across every
+project on a machine — a different shape of problem than `[project].skills`,
+which is per-project. `core/bootstrap/plugins.toml` lists the marketplaces and
+six plugins this fleet relies on — `superpowers`, `codex` (adversarial review
+via a real Codex subprocess), `context7`, `figma`, `security-guidance`, and
+`telemetrydeck-analytics` — cataloged with source links in [Plugins
+catalog](https://patrickserrano.github.io/lacquer/reference/plugins/).
+`lacquer plugins` applies the manifest via `claude plugin marketplace add` /
+`claude plugin install`, both confirmed idempotent (an already-configured
+marketplace or already-installed plugin is a clean no-op). Only plugins
+actually *enabled* on the reference machine are listed — one
+installed-but-disabled there is a deliberate choice, not silently re-enabled
+on a fresh machine.
 
 ```sh
 lacquer plugins
