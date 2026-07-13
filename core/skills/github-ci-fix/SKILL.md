@@ -106,5 +106,3 @@ gh run rerun <run-id> --failed
 
 **Before:** Changes without seeing errors, confusion on check scope, inline plans
 **After:** Auth verification, systematic logs, proper boundaries, plan workflow integration
-
-Source: ported from ios-template (now archived), a predecessor repo of this fleet.

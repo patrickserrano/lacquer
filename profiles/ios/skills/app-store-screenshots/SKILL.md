@@ -43,5 +43,3 @@ helm-asc version <version-id> screenshots upload --path "$INBOX/<dir>"
 - **You cannot CLI-screenshot a physical device.** Network-connected devices route through CoreDevice; `idevicescreenshot`/libimobiledevice only speak legacy usbmuxd and won't see them, and the RocketSim/flowdeck CLIs are simulator-only. For real-device shots (e.g. a signed-in premium account), have the user take them on-device and AirDrop them (they land in `~/Downloads`, native 1320×2868).
 - **Gated screens:** in signed-out "Explore"/guest mode the player shows a premium error and Stats/streaks does nothing. The **paywall** is reachable signed-out via Settings → Subscribe. A clean "playing" player and real Stats need a signed-in account — either sign one into the sim or use AirDropped device shots.
 - Real-device shots carry a real status bar (time/battery), not 9:41 — acceptable for App Store, but note the inconsistency vs the sim's 9:41 shots; RocketSim's GUI can overlay a clean status bar on device captures if needed.
-
-Source: ported from ios-template (now archived), a predecessor repo of this fleet.

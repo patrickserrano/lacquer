@@ -153,5 +153,3 @@ private extension LargeView {
 - [ ] Dependencies injected via `@Environment`
 - [ ] File organized with MARK comments if >300 lines
 - [ ] Behavior unchanged unless explicitly requested
-
-Source: ported from ios-template (now archived), a predecessor repo of this fleet.

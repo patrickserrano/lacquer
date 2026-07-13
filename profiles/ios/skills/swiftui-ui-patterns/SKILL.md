@@ -183,5 +183,3 @@ SwiftUI was designed without ViewModels in mind:
 - Put business logic in services/models injected via `@Environment`
 - Test services and models, not views
 - Use SwiftUI Previews for visual regression testing
-
-Source: ported from ios-template (now archived), a predecessor repo of this fleet.
