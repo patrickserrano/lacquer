@@ -8,27 +8,26 @@ Skills are Claude Code `SKILL.md` files synced into a project's `.claude/skills/
 profile enabled. Source lives at `core/skills/<name>/SKILL.md` or
 `profiles/<profile>/skills/<name>/SKILL.md` in the lacquer repo.
 
-Skills marked **original** were authored directly in this repo. A Source
-that links to a skill's own file here predates this repo's current form but
-has no further attributable external source. Everything else was vendored
-(copied in, then adapted to this repo's conventions) from the named upstream
-it links to — see [Notes on vendored skills](#notes-on-vendored-skills)
-below each table for anything a short link can't capture.
+Every Source links somewhere: a skill's own file in this repo (authored here,
+or with no further attributable external source), or the named upstream it
+was vendored from (copied in, then adapted to this repo's conventions) — see
+[Notes on vendored skills](#notes-on-vendored-skills) below each table for
+anything a short link can't capture.
 
 ## core
 
 | Skill | Fires when | Source |
 |-------|-----------|--------|
-| `advisor-checkpoint` | Consulting a stronger model mid-task for a second opinion — stuck, before committing to an approach, or before declaring a non-trivial task done. | original |
+| `advisor-checkpoint` | Consulting a stronger model mid-task for a second opinion — stuck, before committing to an approach, or before declaring a non-trivial task done. | [advisor-checkpoint](https://github.com/patrickserrano/lacquer/blob/main/core/skills/advisor-checkpoint/SKILL.md) |
 | `caveman` | User says "caveman mode", "less tokens", "be brief", or invokes `/caveman` — token-efficient terse replies. | [caveman](https://github.com/patrickserrano/lacquer/blob/main/core/skills/caveman/SKILL.md) |
 | `claude-rescue` | Running under Codex CLI, stuck, and wanting a second opinion from Claude Code via a real subprocess — forwards the task and returns its output verbatim. | [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc/blob/main/plugins/codex/agents/codex-rescue.md) (`codex-rescue`, reversed) |
-| `evaluator-optimizer` | Generate a solution, evaluate against explicit pass/fail criteria, refine, repeat until it passes or a round cap is hit. | original |
+| `evaluator-optimizer` | Generate a solution, evaluate against explicit pass/fail criteria, refine, repeat until it passes or a round cap is hit. | [evaluator-optimizer](https://github.com/patrickserrano/lacquer/blob/main/core/skills/evaluator-optimizer/SKILL.md) |
 | `github-ci-fix` | PR checks fail, CI is red, or a GitHub Actions workflow breaks — inspects failing checks via `gh`, pulls logs, scopes external checks, builds a fix plan. | [github-ci-fix](https://github.com/patrickserrano/lacquer/blob/main/core/skills/github-ci-fix/SKILL.md) |
 | `github-issue-fix-flow` | Given a GitHub issue number: implement a fix, run builds/tests, commit with a closing message, push. | [github-issue-fix-flow](https://github.com/patrickserrano/lacquer/blob/main/core/skills/github-issue-fix-flow/SKILL.md) |
-| `manager-loop` | Running a large batch of independent work items (fleet-wide harvest, multi-repo sync-down, overnight backlog) as a persistent coordinator. | original |
+| `manager-loop` | Running a large batch of independent work items (fleet-wide harvest, multi-repo sync-down, overnight backlog) as a persistent coordinator. | [manager-loop](https://github.com/patrickserrano/lacquer/blob/main/core/skills/manager-loop/SKILL.md) |
 | `nameplate-attention` | Grabbing the human's attention (topmost message card + pulsating screen borders) before a password-manager prompt or whenever blocked on them. | [steipete/nameplate](https://github.com/steipete/nameplate/blob/main/skills/nameplate-attention/SKILL.md) |
-| `security-review` | Adversarial security review of a branch diff, PR, or working tree before merge. | original |
-| `skill-authoring-standard` | Writing or reviewing a `SKILL.md` — the bar it must clear: tight trigger-oriented frontmatter, single responsibility, no padding. | original |
+| `security-review` | Adversarial security review of a branch diff, PR, or working tree before merge. | [security-review](https://github.com/patrickserrano/lacquer/blob/main/core/skills/security-review/SKILL.md) |
+| `skill-authoring-standard` | Writing or reviewing a `SKILL.md` — the bar it must clear: tight trigger-oriented frontmatter, single responsibility, no padding. | [skill-authoring-standard](https://github.com/patrickserrano/lacquer/blob/main/core/skills/skill-authoring-standard/SKILL.md) |
 
 ## ios
 
@@ -41,10 +40,10 @@ SwiftLee); others are original to this repo. See the notes below the table.
 | `app-store-screenshots` | Capturing App Store/TestFlight screenshots from the simulator at native resolution and uploading via helm-asc. | [app-store-screenshots](https://github.com/patrickserrano/lacquer/blob/main/profiles/ios/skills/app-store-screenshots/SKILL.md) |
 | `core-data-expert` | Setting up a Core Data stack, debugging threading/merge conflicts, planning a migration, integrating CloudKit sync, or diagnosing performance/memory issues. | [AvdLee/Core-Data-Agent-Skill](https://github.com/AvdLee/Core-Data-Agent-Skill) |
 | `ios-debugger-agent` | Running an iOS app, interacting with the simulator UI, capturing logs, or diagnosing runtime behavior. | [ios-debugger-agent](https://github.com/patrickserrano/lacquer/blob/main/profiles/ios/skills/ios-debugger-agent/SKILL.md) |
-| `macos-ci-recipes` | Adding macOS build/test/lint CI to a project on the ios profile (macOS-only or hybrid with an iOS target). | adapted from windsock's and mindmint's own CI (own fleet) |
+| `macos-ci-recipes` | Adding macOS build/test/lint CI to a project on the ios profile (macOS-only or hybrid with an iOS target). | [macos-ci-recipes](https://github.com/patrickserrano/lacquer/blob/main/profiles/ios/skills/macos-ci-recipes/SKILL.md); adapted from windsock's and mindmint's own CI (own fleet) |
 | `native-app-profiling` | Profiling native macOS/iOS apps for CPU hotspots, hangs, and hitches via Instruments traces. | [native-app-profiling](https://github.com/patrickserrano/lacquer/blob/main/profiles/ios/skills/native-app-profiling/SKILL.md) |
 | `release-app-store-changelog` | Generating user-facing App Store "What's New" release notes from git history. | [release-app-store-changelog](https://github.com/patrickserrano/lacquer/blob/main/profiles/ios/skills/release-app-store-changelog/SKILL.md) |
-| `release-macos-spm-packaging` | Scaffolding, building, and packaging SwiftPM-based macOS apps without an Xcode project. | harvested from kit (own fleet) |
+| `release-macos-spm-packaging` | Scaffolding, building, and packaging SwiftPM-based macOS apps without an Xcode project. | [release-macos-spm-packaging](https://github.com/patrickserrano/lacquer/blob/main/profiles/ios/skills/release-macos-spm-packaging/SKILL.md); harvested from kit (own fleet) |
 | `rocketsim` | Interacting with iOS Simulator apps via RocketSim — reading accessibility elements, tapping, swiping, typing, hardware buttons. | [AvdLee/RocketSim-Agent-Skill](https://github.com/AvdLee/RocketSim-Agent-Skill) |
 | `swift-concurrency` | Diagnosing data races, converting callbacks to async/await, actor isolation, `Sendable` conformance, Swift 6 migration. | [AvdLee/Swift-Concurrency-Agent-Skill](https://github.com/AvdLee/Swift-Concurrency-Agent-Skill) |
 | `swift-testing-expert` | Writing or modernizing Swift Testing suites — `#expect`/`#require`, traits/tags, parameterized tests, XCTest migration. | [AvdLee/Swift-Testing-Agent-Skill](https://github.com/AvdLee/Swift-Testing-Agent-Skill) |
