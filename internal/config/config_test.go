@@ -281,3 +281,46 @@ func TestLoadSwiftVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSkills(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\nskills=[\"dpearson2699/swift-ios-skills@healthkit\", \"patrickserrano/lacquer@security-review\"]\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	entries, err := cfg.Project.ParsedSkills()
+	if err != nil {
+		t.Fatalf("ParsedSkills: %v", err)
+	}
+	want := []SkillEntry{
+		{Source: "dpearson2699/swift-ios-skills", Name: "healthkit"},
+		{Source: "patrickserrano/lacquer", Name: "security-review"},
+	}
+	if len(entries) != len(want) {
+		t.Fatalf("got %d entries, want %d", len(entries), len(want))
+	}
+	for i, w := range want {
+		if entries[i] != w {
+			t.Errorf("entry[%d] = %+v, want %+v", i, entries[i], w)
+		}
+	}
+	if got := entries[0].String(); got != "dpearson2699/swift-ios-skills@healthkit" {
+		t.Errorf("String() = %q", got)
+	}
+}
+
+func TestLoadRejectsMalformedSkillEntries(t *testing.T) {
+	cases := []string{
+		"norepo@skill",                    // owner/repo missing a slash
+		"owner/repo",                      // missing "@skill"
+		"owner/repo@Skill-Name",           // skill name must be lowercase
+		"owner/repo@-leading-hyphen",      // skill name can't start with a hyphen
+		"-flag/repo@skill",                // owner can't start with a hyphen (flag injection)
+		"owner/repo@skill; rm -rf /",      // shell metacharacters
+		"owner/repo@skill\\n  evil: true", // newline injection
+	}
+	for _, c := range cases {
+		if _, err := loadString(t, "[project]\nname=\"x\"\nskills=[\""+c+"\"]\n"); err == nil {
+			t.Errorf("expected rejection for skills entry %q", c)
+		}
+	}
+}

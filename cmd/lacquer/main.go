@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
+	"github.com/patrickserrano/lacquer/internal/skillsync"
 	"github.com/patrickserrano/lacquer/internal/status"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
 	"github.com/patrickserrano/lacquer/internal/version"
@@ -93,6 +95,42 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, err)
 		}
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
+	case "skills":
+		// skills only reads the project's own .lacquer.toml — it needs no
+		// lacquerRoot (unlike sync/audit/status, which render/compare against
+		// this checkout's shipped content).
+		manifest := filepath.Join(projectRoot, ".lacquer.toml")
+		cfg, err := config.Load(manifest)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("load %s: %w", manifest, err))
+		}
+		entries, err := cfg.Project.ParsedSkills()
+		if err != nil {
+			return fail(stderr, err)
+		}
+		if len(entries) == 0 {
+			fmt.Fprintln(stdout, "no [project].skills declared in .lacquer.toml; nothing to install")
+			return 0
+		}
+		res, err := skillsync.Install(projectRoot, entries)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		for _, name := range res.Installed {
+			fmt.Fprintf(stdout, "installed: %s\n", name)
+		}
+		for name, out := range res.Failed {
+			fmt.Fprintf(stderr, "failed: %s\n%s\n", name, out)
+		}
+		if len(res.Undeclared) > 0 {
+			fmt.Fprintln(stdout, "installed but not declared in [project].skills (review, then `skills remove` if unwanted):")
+			for _, name := range res.Undeclared {
+				fmt.Fprintf(stdout, "  %s\n", name)
+			}
+		}
+		if len(res.Failed) > 0 {
+			return 1
+		}
 	case "audit":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -161,6 +199,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  init                         detect components and write .lacquer.toml")
 	fmt.Fprintln(w, "  onboard --org O [--no-repo]  init, then create a private GitHub repo")
 	fmt.Fprintln(w, "  sync [--force]               render lacquer content into the project")
+	fmt.Fprintln(w, "  skills                       install [project].skills via the `skills` CLI (vercel-labs/skills)")
 	fmt.Fprintln(w, "  status                       show each region's stamped vs latest version")
 	fmt.Fprintln(w, "  audit                        classify project drift (exit 3 if sync would clobber a local change)")
 	fmt.Fprintln(w, "  version                      print the lacquer version")

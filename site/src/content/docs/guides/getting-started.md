@@ -45,6 +45,42 @@ lacquer sync --force    # adopt the lacquer version over a local change
 Sync writes a `.lacquer.lock` baseline so `audit` can tell "the project edited
 this" from "the lacquer moved on" and only blocks on the former.
 
+## Third-party skills
+
+`lacquer sync` distributes this repo's own skills (`core/skills/`,
+`profiles/*/skills/`) — versioned and drift-audited, same as everything else
+`sync` renders. Third-party skills (Apple framework references, etc.) are a
+different concern: one global install shared across every project, kept up to
+date by [`skills`](https://github.com/vercel-labs/skills), a real package
+manager for agent skills, rather than something lacquer reimplements.
+
+`[project].skills` in `.lacquer.toml` declares which packages *this* project
+needs, mixing lacquer's own skills and third-party ones uniformly:
+
+```toml
+skills = [
+  "patrickserrano/lacquer@security-review",
+  "dpearson2699/swift-ios-skills@healthkit",
+  "dpearson2699/swift-ios-skills@storekit",
+]
+```
+
+`lacquer init` seeds this list automatically by scanning the project's actual
+Swift imports — review and trim it, then:
+
+```sh
+lacquer skills   # installs exactly what's declared, project-scoped
+```
+
+This shells out to `npx skills add <source> -s <name> -p -y` per entry.
+Idempotent — re-running only adds what's missing — and it flags any
+*installed* skill no longer declared in the manifest (informational only;
+nothing is auto-removed).
+
+`skills` is deliberately separate from `sync`: `sync` stays fully offline and
+deterministic, while `skills` is the one lacquer command that reaches the
+network.
+
 ## Profiles that ship
 
 | Profile | Covers |

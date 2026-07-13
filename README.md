@@ -17,6 +17,7 @@ every project regardless.
 | `lacquer init` | Detect components, write a `.lacquer.toml` stub (and a `docs/brief.md` stub). |
 | `lacquer onboard --org O [--no-repo]` | `init`, then create a private GitHub repo under `O` when the repo has no `origin`. |
 | `lacquer sync [--force]` | Render core + per-profile content into the project (managed regions + whole-file assets). |
+| `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
 | `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change (usable as a CI gate). |
 | `lacquer version` | Print the lacquer version. |
@@ -58,6 +59,37 @@ lacquer sync --force   # adopt the lacquer version over a local change
 
 Sync writes a `.lacquer.lock` baseline so `audit` can tell "the project edited
 this" from "the lacquer moved on" and only blocks on the former.
+
+## Third-party skills
+
+`lacquer sync` distributes this repo's own skills (`core/skills/`,
+`profiles/*/skills/`) — that's a solved problem, versioned and drift-audited.
+Third-party skills (Apple framework references, etc.) are a different concern:
+one global install shared across every project, kept up to date by
+[`vercel-labs/skills`](https://github.com/vercel-labs/skills), a real package
+manager for agent skills — not something lacquer reimplements.
+
+`[project].skills` in `.lacquer.toml` declares which packages *this* project
+needs, mixing lacquer's own skills and third-party ones uniformly:
+
+```toml
+skills = [
+  "patrickserrano/lacquer@security-review",
+  "dpearson2699/swift-ios-skills@healthkit",
+  "dpearson2699/swift-ios-skills@storekit",
+]
+```
+
+`lacquer init` seeds this list automatically by scanning the project's actual
+Swift imports (see `internal/skillsuggest`) — review and trim before running
+`lacquer skills`, which installs exactly what's declared, project-scoped, via
+`npx skills add <source> -s <name> -p -y`. Idempotent: re-running only adds
+what's missing. It also flags any *installed* skill no longer declared in the
+manifest (informational — nothing is auto-removed).
+
+This is deliberately a separate command from `sync`: `sync` stays fully
+offline and deterministic (its whole test suite depends on that), while
+`skills` is the one command that reaches the network.
 
 ## Installing
 

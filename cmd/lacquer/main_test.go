@@ -6,7 +6,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/skillsync"
 )
+
+// chdir switches the process cwd to dir for the duration of the test (run()
+// resolves projectRoot via os.Getwd()) and restores it afterward.
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+}
 
 // noEnv resolves every environment lookup to "" — the CLI then defaults
 // LACQUER_ROOT to ".".
@@ -103,3 +119,99 @@ func TestMissingLacquerRootIsFriendly(t *testing.T) {
 		})
 	}
 }
+
+// skills does not require LACQUER_ROOT — it only reads the project's own
+// .lacquer.toml, unlike sync/audit/status/init/onboard above.
+func TestSkillsDoesNotRequireLacquerRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".lacquer.toml"), []byte("[project]\nname=\"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"skills"}, noEnv, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "nothing to install") {
+		t.Errorf("stdout = %q", out.String())
+	}
+}
+
+func TestSkillsMissingManifestFails(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"skills"}, noEnv, &out, &errb)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errb.String(), ".lacquer.toml") {
+		t.Errorf("stderr = %q", errb.String())
+	}
+}
+
+func TestSkillsInstallsDeclaredEntries(t *testing.T) {
+	dir := t.TempDir()
+	data := "[project]\nname=\"x\"\nskills=[\"owner/repo@some-skill\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, ".lacquer.toml"), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+
+	orig := skillsync.Runner
+	var gotArgs []string
+	skillsync.Runner = func(d string, args ...string) ([]byte, error) {
+		gotArgs = args
+		return []byte("ok"), nil
+	}
+	defer func() { skillsync.Runner = orig }()
+
+	var out, errb bytes.Buffer
+	code := run([]string{"skills"}, noEnv, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "installed: some-skill") {
+		t.Errorf("stdout = %q", out.String())
+	}
+	want := []string{"add", "owner/repo", "-s", "some-skill", "-p", "-y"}
+	if len(gotArgs) != len(want) {
+		t.Fatalf("Runner args = %v, want %v", gotArgs, want)
+	}
+	for i := range want {
+		if gotArgs[i] != want[i] {
+			t.Errorf("Runner args[%d] = %q, want %q", i, gotArgs[i], want[i])
+		}
+	}
+}
+
+func TestSkillsReportsFailureAndExitsNonZero(t *testing.T) {
+	dir := t.TempDir()
+	data := "[project]\nname=\"x\"\nskills=[\"owner/repo@bad-skill\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, ".lacquer.toml"), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+
+	orig := skillsync.Runner
+	skillsync.Runner = func(d string, args ...string) ([]byte, error) {
+		return []byte("boom"), errFake{}
+	}
+	defer func() { skillsync.Runner = orig }()
+
+	var out, errb bytes.Buffer
+	code := run([]string{"skills"}, noEnv, &out, &errb)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errb.String(), "failed: bad-skill") {
+		t.Errorf("stderr = %q", errb.String())
+	}
+}
+
+type errFake struct{}
+
+func (errFake) Error() string { return "boom" }
