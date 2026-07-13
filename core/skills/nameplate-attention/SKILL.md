@@ -21,3 +21,5 @@ Grab the human's attention at the Mac: a topmost message card plus pulsating col
 - `nameplate splash` — replay the identity splash (which Mac is this?).
 - `nameplate settings` — open Nameplate settings.
 - No CLI at hand? `notifyutil -p com.steipete.nameplate.splash` works from any shell, including SSH.
+
+Source: [steipete/nameplate](https://github.com/steipete/nameplate/blob/main/skills/nameplate-attention/SKILL.md), adopted as-is.
