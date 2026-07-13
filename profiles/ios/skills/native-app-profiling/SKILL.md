@@ -26,4 +26,4 @@ Everything else — device/template selection, starting or stopping a recording,
 
 Every capability this skill used to teach (record, export, symbolicate, analyze) now has a strictly better equivalent in `swiftui-expert-skill`. This skill was kept as a short redirect rather than deleted outright, since removing a skill entirely is a bigger call than trimming its content — flagged here for a human decision on whether to fully retire `native-app-profiling` in a future pass.
 
-Source: ported from ios-template (private), a predecessor repo of this fleet.
+Source: ported from ios-template (now archived), a predecessor repo of this fleet.

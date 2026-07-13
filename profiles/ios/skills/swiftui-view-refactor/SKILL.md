@@ -154,4 +154,4 @@ private extension LargeView {
 - [ ] File organized with MARK comments if >300 lines
 - [ ] Behavior unchanged unless explicitly requested
 
-Source: ported from ios-template (private), a predecessor repo of this fleet.
+Source: ported from ios-template (now archived), a predecessor repo of this fleet.

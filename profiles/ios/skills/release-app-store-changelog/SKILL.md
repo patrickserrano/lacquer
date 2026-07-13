@@ -137,4 +137,4 @@ git log v1.1.0..v1.2.0 --oneline --no-merges
 - When in doubt, describe as "small improvement" only if user-visible
 - Respect storefront character limits if provided
 
-Source: ported from ios-template (private), a predecessor repo of this fleet.
+Source: ported from ios-template (now archived), a predecessor repo of this fleet.

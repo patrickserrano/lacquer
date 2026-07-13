@@ -184,4 +184,4 @@ SwiftUI was designed without ViewModels in mind:
 - Test services and models, not views
 - Use SwiftUI Previews for visual regression testing
 
-Source: ported from ios-template (private), a predecessor repo of this fleet.
+Source: ported from ios-template (now archived), a predecessor repo of this fleet.
