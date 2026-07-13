@@ -112,7 +112,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			fmt.Fprintln(stdout, "no [project].skills declared in .lacquer.toml; nothing to install")
 			return 0
 		}
-		res, err := skillsync.Install(projectRoot, entries)
+		res, err := skillsync.Install(projectRoot, entries, cfg.Project.EffectiveTools())
 		if err != nil {
 			return fail(stderr, err)
 		}
