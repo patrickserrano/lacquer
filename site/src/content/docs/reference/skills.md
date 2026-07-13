@@ -19,6 +19,7 @@ anything a short link can't capture.
 | Skill | Fires when | Source |
 |-------|-----------|--------|
 | `advisor-checkpoint` | Consulting a stronger model mid-task for a second opinion — stuck, before committing to an approach, or before declaring a non-trivial task done. | [advisor-checkpoint](https://github.com/patrickserrano/lacquer/blob/main/core/skills/advisor-checkpoint/SKILL.md) |
+| `antigravity-rescue` | Stuck, and wanting a second opinion from Google's Antigravity CLI (`agy`) via a real subprocess — forwards the task and returns its output verbatim. | [antigravity-rescue](https://github.com/patrickserrano/lacquer/blob/main/core/skills/antigravity-rescue/SKILL.md) |
 | `caveman` | User says "caveman mode", "less tokens", "be brief", or invokes `/caveman` — token-efficient terse replies. | [caveman](https://github.com/patrickserrano/lacquer/blob/main/core/skills/caveman/SKILL.md) |
 | `claude-rescue` | Running under Codex CLI, stuck, and wanting a second opinion from Claude Code via a real subprocess — forwards the task and returns its output verbatim. | [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc/blob/main/plugins/codex/agents/codex-rescue.md) (`codex-rescue`, reversed) |
 | `evaluator-optimizer` | Generate a solution, evaluate against explicit pass/fail criteria, refine, repeat until it passes or a round cap is hit. | [evaluator-optimizer](https://github.com/patrickserrano/lacquer/blob/main/core/skills/evaluator-optimizer/SKILL.md) |
