@@ -143,3 +143,10 @@ Releases](https://github.com/patrickserrano/lacquer/releases) whenever
 `docs/plans/` holds the design and build plans. The design doc
 (`docs/plans/2026-06-15-lacquer-design.md`) carries an "Implementation status"
 note distinguishing what's built from what's still aspirational.
+
+## About
+
+Built by [Patrick Serrano](https://patrickserrano.com), an iOS engineer
+building apps under [PixelFox Studio](https://pixelfoxstudio.com). lacquer is
+the internal tooling that keeps engineering practice consistent across the
+whole fleet.
