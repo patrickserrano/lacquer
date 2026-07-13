@@ -81,6 +81,27 @@ nothing is auto-removed).
 deterministic, while `skills` is the one lacquer command that reaches the
 network.
 
+## Plugins (machine-level bootstrap)
+
+Claude Code plugins (`superpowers`, `codex` for adversarial review via a real
+Codex subprocess, `context7`, etc.) install once at **user** scope and are
+shared across every project on a machine — a different shape of problem than
+`[project].skills`, which is per-project. `core/bootstrap/plugins.toml` lists
+the marketplaces and plugins this fleet relies on:
+
+```sh
+lacquer plugins
+```
+
+This shells out to `claude plugin marketplace add` / `claude plugin install`,
+both confirmed idempotent — an already-configured marketplace or
+already-installed plugin is a clean no-op, not an error. Only plugins
+actually *enabled* on the reference machine are listed in the manifest; one
+installed-but-disabled there is a deliberate choice, not silently
+re-enabled on a fresh machine. This closes the same "bootstrap a machine
+with none of this preconfigured" gap `[project].skills` closes for
+per-project skills, just at the machine level instead.
+
 ## Profiles that ship
 
 | Profile | Covers |

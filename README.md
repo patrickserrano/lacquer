@@ -18,6 +18,7 @@ every project regardless.
 | `lacquer onboard --org O [--no-repo]` | `init`, then create a private GitHub repo under `O` when the repo has no `origin`. |
 | `lacquer sync [--force]` | Render core + per-profile content into the project (managed regions + whole-file assets). |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
+| `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
 | `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change (usable as a CI gate). |
 | `lacquer version` | Print the lacquer version. |
@@ -90,6 +91,27 @@ manifest (informational — nothing is auto-removed).
 This is deliberately a separate command from `sync`: `sync` stays fully
 offline and deterministic (its whole test suite depends on that), while
 `skills` is the one command that reaches the network.
+
+## Plugins (machine-level bootstrap)
+
+Claude Code plugins (`superpowers`, `codex` for adversarial review via a real
+Codex subprocess, `context7`, etc.) install once at **user** scope and are
+shared across every project on a machine — a different shape of problem than
+`[project].skills`, which is per-project. `core/bootstrap/plugins.toml` lists
+the marketplaces and plugins this fleet relies on; `lacquer plugins` applies
+it via `claude plugin marketplace add` / `claude plugin install`, both
+confirmed idempotent (an already-configured marketplace or already-installed
+plugin is a clean no-op). Only plugins actually *enabled* on the reference
+machine are listed — one installed-but-disabled there is a deliberate choice,
+not silently re-enabled on a fresh machine.
+
+```sh
+lacquer plugins
+```
+
+This is how a fresh machine picks up the same plugin set an existing one
+already has, closing the same "bootstrap a machine with none of this
+preconfigured" gap that `[project].skills` closes for per-project skills.
 
 ## Installing
 

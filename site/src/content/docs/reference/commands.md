@@ -9,6 +9,7 @@ description: Every lacquer CLI subcommand.
 | `lacquer onboard --org O [--no-repo]` | `init`, then create a private GitHub repo under `O` when the repo has no `origin`. |
 | `lacquer sync [--force]` | Render core + per-profile content into the project (managed regions + whole-file assets). |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). See [Third-party skills](/lacquer/guides/getting-started/#third-party-skills). |
+| `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. See [Plugins](/lacquer/guides/getting-started/#plugins-machine-level-bootstrap). |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
 | `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change (usable as a CI gate). |
 | `lacquer version` | Print the lacquer version. |

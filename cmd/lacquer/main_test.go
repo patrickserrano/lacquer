@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
 	"github.com/patrickserrano/lacquer/internal/skillsync"
 )
 
@@ -105,7 +106,7 @@ func TestMissingLacquerRootIsFriendly(t *testing.T) {
 	// unset/wrong LACQUER_ROOT would otherwise silently drop every shipping
 	// profile (write an empty profiles list) with exit 0 instead of erroring.
 	empty := t.TempDir() // no VERSION, no profiles/
-	for _, cmd := range []string{"version", "sync", "status", "audit", "init", "onboard"} {
+	for _, cmd := range []string{"version", "sync", "status", "audit", "init", "onboard", "plugins"} {
 		t.Run(cmd, func(t *testing.T) {
 			var out, errb bytes.Buffer
 			code := run([]string{cmd}, envMap(map[string]string{"LACQUER_ROOT": empty}), &out, &errb)
@@ -215,3 +216,92 @@ func TestSkillsReportsFailureAndExitsNonZero(t *testing.T) {
 type errFake struct{}
 
 func (errFake) Error() string { return "boom" }
+
+// lacquerRootWithPlugins builds a minimal lacquer checkout (VERSION,
+// profiles/, core/bootstrap/plugins.toml) so `plugins` finds a manifest.
+func lacquerRootWithPlugins(t *testing.T, manifest string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "VERSION"), []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "profiles"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bootstrapDir := filepath.Join(dir, "core", "bootstrap")
+	if err := os.MkdirAll(bootstrapDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bootstrapDir, "plugins.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestPluginsAppliesManifest(t *testing.T) {
+	hr := lacquerRootWithPlugins(t, `
+[[marketplace]]
+name = "mp"
+source = "owner/repo"
+
+[[plugin]]
+name = "plugin@mp"
+`)
+	orig := pluginbootstrap.Runner
+	var calls [][]string
+	pluginbootstrap.Runner = func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		return []byte("ok"), nil
+	}
+	defer func() { pluginbootstrap.Runner = orig }()
+
+	var out, errb bytes.Buffer
+	code := run([]string{"plugins"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "marketplace: mp") || !strings.Contains(out.String(), "installed: plugin@mp") {
+		t.Errorf("stdout = %q", out.String())
+	}
+	if len(calls) != 2 {
+		t.Fatalf("got %d claude invocations, want 2", len(calls))
+	}
+}
+
+func TestPluginsReportsFailureAndExitsNonZero(t *testing.T) {
+	hr := lacquerRootWithPlugins(t, "[[plugin]]\nname=\"bad@mp\"\n")
+
+	orig := pluginbootstrap.Runner
+	pluginbootstrap.Runner = func(args ...string) ([]byte, error) {
+		return []byte("boom"), errFake{}
+	}
+	defer func() { pluginbootstrap.Runner = orig }()
+
+	var out, errb bytes.Buffer
+	code := run([]string{"plugins"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errb.String(), "failed: bad@mp") {
+		t.Errorf("stderr = %q", errb.String())
+	}
+}
+
+func TestPluginsMissingManifestFails(t *testing.T) {
+	hr := t.TempDir()
+	if err := os.WriteFile(filepath.Join(hr, "VERSION"), []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(hr, "profiles"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := run([]string{"plugins"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errb.String(), "plugins.toml") {
+		t.Errorf("stderr = %q", errb.String())
+	}
+}
