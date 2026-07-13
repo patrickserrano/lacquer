@@ -27,6 +27,52 @@ type Project struct {
 	GithubOrg    string   `toml:"github_org"`
 	Tools        []string `toml:"tools"`
 	Exclude      []string `toml:"exclude"`
+	Skills       []string `toml:"skills"`
+}
+
+// SkillEntry is a parsed "<owner>/<repo>@<skill-name>" entry from
+// [project].skills — a third-party (or this lacquer's own) skill package to
+// install via `lacquer skills` / the `skills` CLI (vercel-labs/skills).
+type SkillEntry struct {
+	Source string // "<owner>/<repo>", e.g. "dpearson2699/swift-ios-skills"
+	Name   string // "<skill-name>", e.g. "healthkit"
+}
+
+// String renders back the "<source>@<name>" manifest form.
+func (s SkillEntry) String() string { return s.Source + "@" + s.Name }
+
+// skillSourceVal restricts the "<owner>/<repo>" half to GitHub's safe charset.
+// skillNameVal restricts the skill name to the lowercase-kebab convention
+// every skill in this fleet uses. Both entries are passed to `npx skills add`
+// as separate argv elements (never shell-interpolated), but are still
+// charset-validated so a malformed entry fails at `lacquer init`/`skills`
+// time with a clear error instead of a confusing third-party CLI failure —
+// and so a value can never be mistaken for a flag (no leading "-").
+var (
+	skillSourceVal = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	skillNameVal   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+)
+
+// ParseSkillEntry validates and splits a "<owner>/<repo>@<skill-name>" string.
+func ParseSkillEntry(raw string) (SkillEntry, error) {
+	source, name, ok := strings.Cut(raw, "@")
+	if !ok || !skillSourceVal.MatchString(source) || !skillNameVal.MatchString(name) {
+		return SkillEntry{}, fmt.Errorf("invalid [project].skills entry %q (expected \"<owner>/<repo>@<skill-name>\")", raw)
+	}
+	return SkillEntry{Source: source, Name: name}, nil
+}
+
+// ParsedSkills validates and parses every [project].skills entry.
+func (p Project) ParsedSkills() ([]SkillEntry, error) {
+	entries := make([]SkillEntry, 0, len(p.Skills))
+	for _, raw := range p.Skills {
+		e, err := ParseSkillEntry(raw)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
 }
 
 // orgVal matches a GitHub org/user login (alphanumeric, single internal hyphens,
@@ -146,6 +192,9 @@ func validateProject(p Project) error {
 		if err := validateComponentPath(e); err != nil {
 			return fmt.Errorf("invalid [project].exclude entry: %w", err)
 		}
+	}
+	if _, err := p.ParsedSkills(); err != nil {
+		return err
 	}
 	return validateXcodeproj(p.Xcodeproj)
 }

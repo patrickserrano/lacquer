@@ -58,6 +58,60 @@ func TestInitWritesManifest(t *testing.T) {
 	}
 }
 
+func TestInitSuggestsSkillsFromImports(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
+	if err := os.WriteFile(filepath.Join(root, "ios", "Model.swift"),
+		[]byte("import HealthKit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := Run(lacquerWith(t, "ios"), root)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(summary, "dpearson2699/swift-ios-skills@healthkit") {
+		t.Errorf("summary missing skill suggestion:\n%s", summary)
+	}
+
+	manifest := filepath.Join(root, ".lacquer.toml")
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `skills = ["dpearson2699/swift-ios-skills@healthkit"]`) {
+		t.Errorf("manifest missing skills line:\n%s", data)
+	}
+	cfg, err := config.Load(manifest)
+	if err != nil {
+		t.Fatalf("generated manifest does not load: %v", err)
+	}
+	entries, err := cfg.Project.ParsedSkills()
+	if err != nil || len(entries) != 1 || entries[0].Name != "healthkit" {
+		t.Errorf("ParsedSkills() = %+v, err=%v", entries, err)
+	}
+}
+
+func TestInitOmitsSkillsLineWhenNoneSuggested(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
+	if err := os.WriteFile(filepath.Join(root, "ios", "Model.swift"),
+		[]byte("import Foundation\nimport SwiftUI\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "skills =") {
+		t.Errorf("manifest should have no skills line when nothing was suggested:\n%s", data)
+	}
+}
+
 func TestInitRefusesExistingManifest(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".lacquer.toml"), []byte("[project]\n"), 0o644); err != nil {

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/safepath"
+	"github.com/patrickserrano/lacquer/internal/skillsuggest"
 )
 
 // Run detects components under root and writes a .lacquer.toml. It refuses to
@@ -65,6 +67,25 @@ func Run(lacquerRoot, root string) (string, error) {
 		name = filepath.Base(root)
 	}
 
+	// Suggest third-party skill packages by scanning each component's actual
+	// Swift imports (see internal/skillsuggest) — a starting point for
+	// [project].skills, not a decision; trim or extend it freely.
+	var suggested []string
+	seen := map[string]bool{}
+	for _, c := range comps {
+		found, err := skillsuggest.Suggest(filepath.Join(root, c.Path))
+		if err != nil {
+			continue // best-effort: a suggestion failure never blocks init
+		}
+		for _, s := range found {
+			if !seen[s] {
+				seen[s] = true
+				suggested = append(suggested, s)
+			}
+		}
+	}
+	sort.Strings(suggested)
+
 	var b strings.Builder
 	b.WriteString("[project]\n")
 	fmt.Fprintf(&b, "name = %q\n", name)
@@ -78,6 +99,12 @@ func Run(lacquerRoot, root string) (string, error) {
 	// Agent tools to provision skills for. New projects default to all supported
 	// tools; trim this list to opt out (an omitted field means claude-only).
 	b.WriteString("tools = [\"claude\", \"codex\", \"antigravity\"]\n")
+	if len(suggested) > 0 {
+		// Third-party skill packages, installed via `lacquer skills` (the
+		// `skills` CLI, https://github.com/vercel-labs/skills). Suggested from
+		// this project's actual imports — review before running `lacquer skills`.
+		fmt.Fprintf(&b, "skills = [%s]\n", quoteList(suggested))
+	}
 	for _, c := range comps {
 		b.WriteString("\n[[component]]\n")
 		fmt.Fprintf(&b, "path = %q\n", c.Path)
@@ -109,6 +136,12 @@ func Run(lacquerRoot, root string) (string, error) {
 	fmt.Fprintf(&s, "Wrote %s\n", manifest)
 	if briefWritten {
 		s.WriteString("Wrote docs/brief.md (stub) — paste the project brief there.\n")
+	}
+	if len(suggested) > 0 {
+		fmt.Fprintf(&s, "Suggested %d skill(s) from actual imports (review, then `lacquer skills`):\n", len(suggested))
+		for _, sk := range suggested {
+			fmt.Fprintf(&s, "  %s\n", sk)
+		}
 	}
 	for _, n := range notices {
 		s.WriteString(n)
