@@ -16,7 +16,7 @@ Build the {{PROJECT_NAME}} iOS app using flowdeck (see CLAUDE.md "Build & Test T
 
 2. Build:
    ```
-   flowdeck build -w {{XCODEPROJ}} -s {{SCHEME}} -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
+   flowdeck build -w "{{XCODEPROJ}}" -s "{{SCHEME}}" -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
    ```
 
 3. Report build result (success or failure with errors)

@@ -152,8 +152,8 @@ distribute it automatically.
 
 ```bash
 flowdeck simulator list           # find an available simulator UDID (names are ambiguous across OS versions)
-flowdeck build -w {{XCODEPROJ}} -s <YourScheme> -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
-flowdeck test  -w {{XCODEPROJ}} -s <YourScheme> -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
+flowdeck build -w "{{XCODEPROJ}}" -s "<YourScheme>" -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
+flowdeck test  -w "{{XCODEPROJ}}" -s "<YourScheme>" -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
 flowdeck project packages update  # bump SPM deps within constraints (no .pbxproj edit)
 ```
 

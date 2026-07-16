@@ -21,7 +21,7 @@ Run tests for {{PROJECT_NAME}} using flowdeck (see CLAUDE.md "Build & Test Tooli
 
 2. Run tests:
    ```
-   flowdeck test -w {{XCODEPROJ}} -s {{SCHEME}} -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
+   flowdeck test -w "{{XCODEPROJ}}" -s "{{SCHEME}}" -S <udid> -d {{COMPONENT_PREFIX}}DerivedData
    ```
    - If no argument: run the command above as-is (all tests).
    - If `$ARGUMENTS` is provided: append `--only <TargetName>/<ClassName>` (or

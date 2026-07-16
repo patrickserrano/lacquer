@@ -175,10 +175,10 @@ jobs:
           set -o pipefail
           EXIT_CODE=0
           xcodebuild archive \
-            -project {{XCODEPROJ}} \
-            -scheme {{SCHEME}} \
+            -project "{{XCODEPROJ}}" \
+            -scheme "{{SCHEME}}" \
             -configuration Release \
-            -archivePath {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive \
+            -archivePath "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive" \
             -allowProvisioningUpdates \
             2>&1 | xcpretty || EXIT_CODE=$?
           # Exit code 65 is a known spurious xcodebuild failure. Treat as success
@@ -194,7 +194,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -exportArchive \
-            -archivePath {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive \
+            -archivePath "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive" \
             -exportOptionsPlist {{COMPONENT_PREFIX}}ExportOptions.plist \
             -exportPath {{COMPONENT_PREFIX}}build/ \
             2>&1 | xcpretty
@@ -242,7 +242,7 @@ jobs:
           NOTES_FILE: ${{ steps.whats_new.outputs.notes_file }}
         run: |
           app-store-connect publish \
-            --path {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa \
+            --path "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa" \
             --whats-new "$(cat "$NOTES_FILE")"
 
       - name: Upload IPA artifact

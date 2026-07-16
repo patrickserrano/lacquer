@@ -139,10 +139,13 @@ func (p Project) WantsAgentsMd() bool {
 // manifest from injecting structure or commands. A blank value is allowed (init
 // stubs them); sync fails closed if a blank value's placeholder is actually used.
 var (
-	projNameVal    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]*$`)
-	projBundleVal  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
-	projAscVal     = regexp.MustCompile(`^[0-9]+$`)
-	projVersionVal = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
+	projNameVal         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]*$`)
+	projBundleVal       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
+	projAscVal          = regexp.MustCompile(`^[0-9]+$`)
+	projVersionVal      = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
+	xcodeprojSegmentVal = regexp.MustCompile(
+		`^[A-Za-z0-9._](?:[A-Za-z0-9 ._-]*[A-Za-z0-9._-])?$`,
+	)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -200,8 +203,9 @@ func validateProject(p Project) error {
 }
 
 // validateXcodeproj accepts a blank value, or a relative, non-escaping,
-// charset-safe path ending in ".xcodeproj" (it is substituted into CI -project
-// args via {{XCODEPROJ}}).
+// charset-safe path ending in ".xcodeproj". Spaces are valid in Xcode project
+// names; shipped command templates quote {{XCODEPROJ}} wherever it is used as
+// a shell argument.
 func validateXcodeproj(p string) error {
 	if p == "" {
 		return nil
@@ -213,8 +217,13 @@ func validateXcodeproj(p string) error {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("[project].xcodeproj %q escapes the project root", p)
 	}
-	if !componentPathVal.MatchString(filepath.ToSlash(clean)) || !strings.HasSuffix(clean, ".xcodeproj") {
+	if !strings.HasSuffix(clean, ".xcodeproj") {
 		return fmt.Errorf("[project].xcodeproj %q is not a valid .xcodeproj path", p)
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(clean), "/") {
+		if !xcodeprojSegmentVal.MatchString(segment) {
+			return fmt.Errorf("[project].xcodeproj %q is not a valid .xcodeproj path", p)
+		}
 	}
 	return nil
 }

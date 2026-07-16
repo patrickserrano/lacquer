@@ -234,6 +234,16 @@ func TestLoadXcodeproj(t *testing.T) {
 	}
 }
 
+func TestLoadXcodeprojAllowsSpaces(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"q\"\nxcodeproj=\"A Bible Verse Each Day.xcodeproj\"\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Project.Xcodeproj != "A Bible Verse Each Day.xcodeproj" {
+		t.Errorf("xcodeproj = %q", cfg.Project.Xcodeproj)
+	}
+}
+
 func TestLoadRejectsUnsafeXcodeproj(t *testing.T) {
 	cases := []string{
 		"[project]\nname=\"x\"\nxcodeproj=\"/abs/App.xcodeproj\"\n",
