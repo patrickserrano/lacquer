@@ -27,6 +27,14 @@ export default defineConfig({
 					label: 'Reference',
 					items: [{ autogenerate: { directory: 'reference' } }],
 				},
+				{
+					label: 'Skills',
+					items: [
+						{ label: 'core', items: [{ autogenerate: { directory: 'skills/core' } }] },
+						{ label: 'ios', items: [{ autogenerate: { directory: 'skills/ios' } }] },
+						{ label: 'supabase', items: [{ autogenerate: { directory: 'skills/supabase' } }] },
+					],
+				},
 			],
 		}),
 	],

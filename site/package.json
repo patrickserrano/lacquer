@@ -3,9 +3,10 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
-    "build": "astro build",
+    "generate-skill-docs": "node scripts/generate-skill-docs.mjs",
+    "dev": "npm run generate-skill-docs && astro dev",
+    "start": "npm run generate-skill-docs && astro dev",
+    "build": "npm run generate-skill-docs && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },
