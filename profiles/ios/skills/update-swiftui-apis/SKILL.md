@@ -5,18 +5,19 @@ description: Scan Apple's SwiftUI documentation for deprecated APIs and update t
 
 # Update SwiftUI APIs
 
-Systematically scan Apple's developer documentation via the Sosumi MCP, identify deprecated SwiftUI APIs and their modern replacements, and update `swiftui-expert-skill/references/latest-apis.md`.
+Systematically scan Apple's developer documentation via the Sosumi MCP, identify deprecated SwiftUI APIs and their modern replacements, and update `../swiftui-expert-skill/references/latest-apis.md` (sibling skill directory, relative to this skill's own directory).
 
 ## Prerequisites
 
-- **Sosumi MCP** must be enabled and available (provides `searchAppleDocumentation`, `fetchAppleDocumentation`, `fetchAppleVideoTranscript`, `fetchExternalDocumentation`)
+- **Sosumi MCP** must be enabled and available (provides `searchAppleDocumentation`, `fetchAppleDocumentation`, `fetchAppleVideoTranscript`, `fetchExternalDocumentation`). Verify before starting by calling `searchAppleDocumentation` with a trivial query (e.g. `SwiftUI`); if the tool is unavailable or errors, Sosumi is not usable.
+- **If Sosumi is unavailable**: stop and tell the user it's required. As a fallback, manually browse https://developer.apple.com/documentation/swiftui and relevant WWDC session pages for deprecation notices, citing them the same way Sosumi output would be cited, then continue from Step 4.
 - Write access to this repository (or a fork)
 
 ## Workflow
 
 ### 1. Understand current coverage
 
-Read `swiftui-expert-skill/references/latest-apis.md` to understand:
+Read `../swiftui-expert-skill/references/latest-apis.md` to understand:
 - Which deprecated-to-modern transitions are already documented
 - The version segments in use (iOS 15+, 16+, 17+, 18+, 26+)
 - The Quick Lookup Table at the bottom
@@ -44,7 +45,7 @@ Compare findings against existing entries. Categorize results:
 - **Corrections**: Existing entries that need updating (wrong version, better replacement available)
 - **New version segments**: If a new iOS version introduces deprecations, add a new section
 
-### 5. Update latest-apis.md
+### 5. Update ../swiftui-expert-skill/references/latest-apis.md
 
 Follow the established format exactly. Each entry must include:
 
@@ -79,9 +80,11 @@ Keep the attribution line at the top of the file:
 
 ### 6. Open a pull request
 
-1. Create a branch from `main` named `update/latest-apis-YYYY-MM` (use current year and month).
-2. Commit changes to `swiftui-expert-skill/references/latest-apis.md`.
-3. Open a PR via `gh pr create` with:
+1. Run `git status` to confirm a clean working tree before starting (no unrelated uncommitted changes).
+2. Create and switch to a branch from `main` named `update/latest-apis-YYYY-MM` (use current year and month): `git checkout -b update/latest-apis-YYYY-MM main`.
+3. Commit changes to `../swiftui-expert-skill/references/latest-apis.md`.
+4. Confirm the branch is ahead of `main` (`git log main..HEAD`) before opening the PR.
+5. Open a PR via `gh pr create` with:
    - **Title**: "Update latest SwiftUI APIs (Month Year)"
    - **Body**: Summary of new/changed entries, attribution to Sosumi MCP
 

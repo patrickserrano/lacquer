@@ -7,6 +7,8 @@ description: "Use RocketSim to inspect visible UI and interact with iOS Simulato
 
 This skill lets agents use RocketSim as a reliable Simulator interaction layer. It finds a valid RocketSim app bundle, loads the matching bundled CLI reference, and hands off to the installed RocketSim version so simulator automation stays version-aware and in sync with the app on disk.
 
+**There is no vendored copy of RocketSim's own usage docs in this repo.** The RocketSim.app bundle ships its own Agent-Skill file (`Contents/Resources/Agent-Skill/SKILL.md`) and CLI binary (`Contents/Helpers/rocketsim`) — this skill's entire job is locating the installed app and handing off to whatever that bundled file says, so guidance always matches the exact RocketSim build on disk instead of drifting out of sync with a copy pinned in this repo. If you're replicating this fleet's setup elsewhere: this is why `rocketsim` is a thin discovery/delegation wrapper rather than a full reference skill like the others in this profile — the real content lives in the paid app itself (https://www.rocketsim.app), not here.
+
 ## Step 1: Locate and validate RocketSim.app
 
 Developer machines can have multiple RocketSim installs side-by-side, such as an App Store build plus a locally built or renamed copy. Do not assume `/Applications/RocketSim.app` is the right app, and do not continue unless you validate the bundled skill and CLI paths first.
@@ -93,4 +95,4 @@ If not running, ask the user to launch RocketSim before proceeding.
 
 If RocketSim is running from a different app bundle than the `APP_PATH` you resolved, restart discovery and prefer the running app bundle.
 
-Source: [AvdLee/RocketSim-Agent-Skill](https://github.com/AvdLee/RocketSim-Agent-Skill), adapted. Integrates with the third-party [RocketSim](https://www.rocketsim.app) app itself (paid, not bundled).
+Integrates with the third-party [RocketSim](https://www.rocketsim.app) app itself (paid, not bundled) — this discovery/delegation logic is this repo's own, not vendored from anywhere.

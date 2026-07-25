@@ -132,7 +132,9 @@ For detailed migration steps, see `references/migration.md`.
 
 ## Reference Router
 
-Open the smallest reference that matches the question:
+- `swift-concurrency-pro` is a separate skill that reviews already-written concurrency code for correctness and modern API usage. It is a Skill, not a subagent — invoke it with the Skill tool (`skill: swift-concurrency-pro`), never as a Task `subagent_type`. Reach for it when the developer wants a review/audit pass over existing code; use this skill for diagnosing, fixing, and migrating.
+
+These references live in this skill's own `references/` directory, alongside this SKILL.md — open the listed path directly (e.g. `references/actors.md`). This list is exhaustive; do not assume an unlisted filename exists in this skill. Open the smallest reference that matches the question:
 
 - Foundations
   - `references/async-await-basics.md` — async/await syntax, execution order, async let, URLSession patterns

@@ -13,13 +13,8 @@ description: >
 
 # Advisor Checkpoint
 
-Most of a task is mechanical — reading, editing, running commands — and only a
-few moments are load-bearing: picking an approach, recovering from being
-stuck, deciding something is actually done. Spend the expensive model only at
-those moments; let a cheaper/faster model do the rest. This mirrors
-Anthropic's `advisor` API primitive (a stronger model consulted mid-generation
-via a server-side sub-inference), but Claude Code doesn't expose that raw
-tool — this skill is the equivalent built from the tools you already have.
+Spend the expensive model only at a task's few load-bearing moments; let a
+cheaper/faster model handle the rest.
 
 ## When to consult
 
@@ -93,9 +88,3 @@ This is a named instance of the Workflow tool's existing judge-panel/pipeline
 patterns — nothing new is being invented, just this specific shape (propose →
 advise → refine) is worth reaching for whenever a workflow's early stages are
 cheap and mechanical but a later stage is a real decision.
-
-## Why this over always using the strong model
-
-Cost concentrates in a few load-bearing moments, not uniform per-token spend.
-Reserve the strong model for the decision points; let the cheap model do the
-volume.
