@@ -1,6 +1,6 @@
 ---
 name: swiftui-expert-skill
-description: Write, review, or improve SwiftUI code following best practices for state management, view composition, performance, macOS-specific APIs, and iOS 26+ Liquid Glass adoption. Use when building new SwiftUI features, refactoring existing views, reviewing code quality, or adopting modern SwiftUI patterns. Also triggers whenever an Xcode Instruments `.trace` file is referenced (to analyse it) or the user asks to **record** a new trace — attach to a running app, launch one fresh, or capture a manually-stopped session with the bundled `record_trace.py`. A target SwiftUI source file is optional; if provided it grounds recommendations in specific lines, but a trace alone is enough to diagnose hangs, hitches, CPU hotspots, and high-severity SwiftUI updates.
+description: Use when writing, reviewing, or refactoring SwiftUI code — state management, view composition, performance, macOS-specific APIs, or iOS 26+ Liquid Glass adoption. Also triggers whenever an Xcode Instruments `.trace` file is referenced (to analyse it) or the user asks to **record** a new trace — attach to a running app, launch one fresh, or capture a manually-stopped session with the bundled `record_trace.py`.
 ---
 
 # SwiftUI Expert Skill
@@ -8,15 +8,10 @@ description: Write, review, or improve SwiftUI code following best practices for
 ## Operating Rules
 
 - Consult `references/latest-apis.md` at the start of every task to avoid deprecated APIs
-- Prefer native SwiftUI APIs over UIKit/AppKit bridging unless bridging is necessary
-- Focus on correctness and performance; do not enforce specific architectures (MVVM, VIPER, etc.)
-- Encourage separating business logic from views for testability without mandating how
-- Follow Apple's Human Interface Guidelines and API design patterns
 - Only adopt Liquid Glass when explicitly requested by the user (use the `swiftui-liquid-glass` skill)
-- Present performance optimizations as suggestions, not requirements
 - Use `#available` gating with sensible fallbacks for version-specific APIs
 
-## Task Workflow
+## SwiftUI Code Workflow
 
 ### Review existing SwiftUI code
 - Read the code under review and identify which topics apply
@@ -37,6 +32,8 @@ description: Write, review, or improve SwiftUI code following best practices for
 - Apply correct animation patterns (implicit vs explicit, transitions)
 - Use `Button` for all tappable elements; add accessibility grouping and labels
 - Gate version-specific APIs with `#available` and provide fallbacks
+
+## Instruments Trace Workflow
 
 ### Record a new Instruments trace
 Trigger when the user asks to "record a trace", "profile the app", "capture a session", etc. Full reference: `references/trace-recording.md`.
@@ -87,35 +84,35 @@ Full reference: `references/trace-analysis.md`. Summary of the composition patte
 7. **Return a prioritised plan.** Cite evidence (coverage %, hot symbol, overlapping view, log timestamp, cause-graph edges) and route each recommendation to a Topic Router reference.
 8. Only edit code if the user asked for edits.
 
-### Topic Router
+## Topic Router
 
 Consult the reference file for each topic relevant to the current task:
 
-| Topic | Reference |
-|-------|-----------|
-| State management | `references/state-management.md` |
-| View composition | `references/view-structure.md` |
-| Performance | Use the `swiftui-performance-audit` skill |
-| Lists and ForEach | `references/list-patterns.md` |
-| Layout | `references/layout-best-practices.md` |
-| Sheets and navigation | `references/sheet-navigation-patterns.md` |
-| ScrollView | `references/scroll-patterns.md` |
-| Focus management | `references/focus-patterns.md` |
-| Animations (basics) | `references/animation-basics.md` |
-| Animations (transitions) | `references/animation-transitions.md` |
-| Animations (advanced) | `references/animation-advanced.md` |
-| Accessibility | `references/accessibility-patterns.md` |
-| Swift Charts | `references/charts.md` |
-| Charts accessibility | `references/charts-accessibility.md` |
-| Image optimization | `references/image-optimization.md` |
-| Liquid Glass (iOS 26+) | Use the `swiftui-liquid-glass` skill |
-| macOS scenes | `references/macos-scenes.md` |
-| macOS window styling | `references/macos-window-styling.md` |
-| macOS views | `references/macos-views.md` |
-| Text patterns | `references/text-patterns.md` |
-| Deprecated API lookup | `references/latest-apis.md` |
-| Instruments trace analysis | `references/trace-analysis.md` |
-| Instruments trace recording | `references/trace-recording.md` |
+| Topic | When it applies | Reference |
+|-------|-----------|-----------|
+| State management | Property wrapper choice, data flow design | `references/state-management.md` |
+| View composition | Extracting subviews, container patterns | `references/view-structure.md` |
+| Performance | Diagnosing hangs, hitches, excessive updates | Use the `swiftui-performance-audit` skill |
+| Lists and ForEach | List rendering, identity, filtering | `references/list-patterns.md` |
+| Layout | GeometryReader alternatives, layout containers | `references/layout-best-practices.md` |
+| Sheets and navigation | Sheets, NavigationSplitView, Inspector | `references/sheet-navigation-patterns.md` |
+| ScrollView | Programmatic scrolling, ScrollViewReader | `references/scroll-patterns.md` |
+| Focus management | `@FocusState`, focusable views | `references/focus-patterns.md` |
+| Animations (basics) | Implicit/explicit animations, timing | `references/animation-basics.md` |
+| Animations (transitions) | View transitions, `matchedGeometryEffect` | `references/animation-transitions.md` |
+| Animations (advanced) | Phase/keyframe animations, `@Animatable` | `references/animation-advanced.md` |
+| Accessibility | VoiceOver, Dynamic Type, grouping, traits | `references/accessibility-patterns.md` |
+| Swift Charts | Chart marks, axes, selection, styling | `references/charts.md` |
+| Charts accessibility | Charts VoiceOver, Audio Graph | `references/charts-accessibility.md` |
+| Image optimization | AsyncImage, downsampling, caching | `references/image-optimization.md` |
+| Liquid Glass (iOS 26+) | Adopting or reviewing Liquid Glass | Use the `swiftui-liquid-glass` skill |
+| macOS scenes | Settings, MenuBarExtra, multi-window | `references/macos-scenes.md` |
+| macOS window styling | Toolbar styles, window sizing, Commands | `references/macos-window-styling.md` |
+| macOS views | HSplitView, Table, AppKit interop | `references/macos-views.md` |
+| Text patterns | Text initializer choice, localization | `references/text-patterns.md` |
+| Deprecated API lookup | Checking if an API is deprecated | `references/latest-apis.md` |
+| Instruments trace analysis | Given a `.trace` file to interpret | `references/trace-analysis.md` |
+| Instruments trace recording | Asked to record a new trace | `references/trace-recording.md` |
 
 ## Correctness Checklist
 

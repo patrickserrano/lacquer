@@ -1,15 +1,9 @@
 ---
 name: swiftui-view-refactor
-description: Refactor SwiftUI view files for consistent structure, dependency injection, and Observation usage. Use when asked to clean up a SwiftUI view's layout, handle view models safely, or standardize how dependencies are initialized and passed.
+description: Refactor a SwiftUI view file for consistent property ordering, MV patterns, view model handling, and Observation usage; split an oversized body via same-file computed view properties or MARK-organized extensions. Use when asked to clean up a SwiftUI view's layout, reorder its properties, or standardize dependency/view-model initialization. For extracting reusable subviews, @ViewBuilder, container patterns, AnyView, or ZStack vs overlay/background composition, use swiftui-expert-skill instead.
 ---
 
 # SwiftUI View Refactor
-
-## Overview
-
-Apply consistent structure and dependency patterns to SwiftUI views, focusing on ordering, MV patterns, careful view model handling, and correct Observation usage.
-
-For composition concerns beyond reordering an existing file -- extracting subviews, `@ViewBuilder` usage, container patterns, `AnyView`, `ZStack` vs `overlay`/`background` -- use the `swiftui-expert-skill` skill's view composition reference instead.
 
 ## View Ordering (top to bottom)
 
@@ -33,7 +27,7 @@ For composition concerns beyond reordering an existing file -- extracting subvie
 
 ### 2) Split Large Bodies
 
-If `body` grows beyond a screen or has multiple logical sections, split it:
+If `body` grows beyond a screen or has multiple logical sections, split it within this file:
 
 ```swift
 var body: some View {
@@ -142,6 +136,8 @@ private extension LargeView {
     }
 }
 ```
+
+Keep extracted sections in this file. Once a section needs its own `@ViewBuilder` API, container/composition logic, or reuse across files, move it out and hand off to the `swiftui-expert-skill` skill.
 
 ## Checklist
 

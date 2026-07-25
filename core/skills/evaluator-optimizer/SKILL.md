@@ -59,6 +59,14 @@ evaluator. Make it explicit when the criteria are less obvious than
 evaluation step (yours or a dispatched `Agent` call) has something concrete
 to check against instead of re-deriving what "done" means each round.
 
+For a single session converging toward one checkable condition, `/goal
+<condition>` is the native version of this loop — it re-evaluates the
+condition after every turn and keeps the session going until it holds,
+without hand-rolling the round-and-check bookkeeping yourself. Reach for it
+when the loop lives entirely in one conversation; reach for the Workflow
+script below when you need custom evaluator logic, multiple candidates, or
+the loop spans more than this one session.
+
 ## In a Workflow script
 
 ```js

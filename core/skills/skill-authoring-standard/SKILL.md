@@ -25,6 +25,12 @@ use it or tells them exactly what to do — nothing else survives review.
   actionable; "use before merging, when the user says 'is this safe', or when
   a change touches auth/secrets/exec" tells them exactly when to load it.
   Keep it to the trigger conditions — the body is where the how-to lives.
+- **`disable-model-invocation: true`** for a skill with real side effects
+  (it ships a release, pushes somewhere, deletes something) that should only
+  ever run because a human explicitly typed `/<name>`, never because Claude's
+  own judgment matched the description to a task. Without it, the description
+  above is the only thing standing between an ambiguous prompt and an
+  unintended side effect.
 
 ## Single responsibility
 
@@ -71,6 +77,16 @@ Stack-agnostic guidance (applies regardless of iOS/web/supabase) belongs in
 belongs in that profile's `skills/` — mixing the two either leaks
 iOS-specific advice into a web project's synced skill set, or forces a
 generalization vague enough to lose the concrete-and-checkable bar above.
+
+Not every stack-specific rule belongs in a skill, though — a skill loads on
+Claude's judgment (or `/<name>`), which is wrong for guidance that should load
+automatically whenever a matching file is opened. For that shape, a project's
+synced `CLAUDE.*.md` should point authors at `.claude/rules/` (path-scoped
+files that load only when Claude touches matching paths) instead of growing
+the profile body further. A profile `CLAUDE.*.md` pushing toward or past ~200
+lines is the signal to split: move the parts that only matter for a specific
+directory or file type into a rule, and reserve the profile body for what
+every task in that stack needs regardless of which files it touches.
 
 ## Before shipping a skill
 

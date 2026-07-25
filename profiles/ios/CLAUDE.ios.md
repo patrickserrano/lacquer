@@ -37,42 +37,10 @@ Two separate buckets — never mix them.
 Service keys the app needs at runtime (RevenueCat, Aptabase, …) live in a
 gitignored `Secrets.xcconfig`, never in source or the committed `project.yml`.
 The lacquer syncs a `Secrets.xcconfig.example` template into the component dir.
-
-1. **Copy & ignore:** `cp Secrets.xcconfig.example Secrets.xcconfig`, fill in real
-   values, and add `Secrets.xcconfig` to `.gitignore`. The example is committed;
-   the real file never is. (The committed `project.yml` must also stay key-free.)
-2. **Wire into the build (`project.yml`):** point the target's configs at the
-   xcconfig and surface each key into `Info.plist`:
-   ```yaml
-   targets:
-     <App>:
-       configFiles:
-         Debug: Secrets.xcconfig
-         Release: Secrets.xcconfig
-       info:
-         path: App/Info.plist
-         properties:
-           REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
-           APTABASE_APP_KEY: $(APTABASE_APP_KEY)
-   ```
-3. **Read at runtime** from the Info dictionary — fail loud if a required key is
-   blank rather than shipping a broken SDK init:
-   ```swift
-   enum Secrets {
-       static func required(_ key: String) -> String {
-           guard let v = Bundle.main.object(forInfoDictionaryKey: key) as? String,
-                 !v.isEmpty else {
-               fatalError("Missing \(key) — copy Secrets.xcconfig.example to Secrets.xcconfig and fill it in")
-           }
-           return v
-       }
-       static var revenueCatAPIKey: String { required("REVENUECAT_API_KEY") }
-       static var aptabaseAppKey: String { required("APTABASE_APP_KEY") }
-   }
-   ```
-   `Secrets.xcconfig` values are **build-time** — they are baked into the binary,
-   so treat them as obfuscated, not secret. A truly sensitive secret belongs on a
-   server, never in the app.
+See the `ios-secrets-setup` skill for wiring a new key through `project.yml`
+into `Info.plist` and reading it at runtime. `Secrets.xcconfig` values are
+**build-time** — they are baked into the binary, so treat them as obfuscated,
+not secret. A truly sensitive secret belongs on a server, never in the app.
 
 > **RevenueCat ships two different keys — do not confuse them.** The
 > `REVENUECAT_API_KEY` above is the **public SDK key** (`appl_…`), safe to compile
@@ -111,40 +79,19 @@ and it runs on a GitHub-hosted runner, so it must never carry the signing key.
 
 ## CI Runners
 
-Split jobs by whether they actually touch Xcode.
+Every synced workflow already sets the correct runner per job — when editing
+an existing job, keep whatever `runs-on` it already has; don't re-derive it.
+The rule below matters only when authoring a **brand-new** job:
 
-**iOS / Xcode work → the dedicated self-hosted runner.** Every job that builds,
-tests, lints, archives, signs, releases, or runs a periphery/dead-code scan:
+Xcode-touching work (build/test/lint/archive/sign/release) uses
+`runs-on: [self-hosted, macOS, ARM64, dedicated]` — never a GitHub-hosted
+macOS runner (`macos-latest`) or a stray self-hosted label like `mac-mini`. A
+pure script/REST-call job with no Xcode dependency (merge gates, a
+TestFlight-feedback fetch, a deploy) uses `ubuntu-latest` instead — don't tie
+up the Mac for work that doesn't need it.
 
-```yaml
-runs-on: [self-hosted, macOS, ARM64, dedicated]
-```
-
-**Never use a GitHub-hosted macOS runner** (`macos-latest`, `macos-*`) for this
-work — and never run it on a stray self-hosted label like `mac-mini`; use the
-exact `[self-hosted, macOS, ARM64, dedicated]` set. The reasons are non-negotiable:
-
-- **Signing & secrets:** release jobs hold App Store Connect keys and unlock the
-  login keychain (re-locking it when the job ends) — those must only ever exist
-  on infrastructure we control.
-- **Correctness:** the pinned Xcode + simulator runtime lives on the dedicated
-  runner; GitHub-hosted macOS images drift and lack our setup.
-- **Cost:** GitHub-hosted macOS minutes are billed; the dedicated runner is not.
-
-**Lightweight / non-Xcode jobs → a GitHub-hosted runner (`ubuntu-latest`).** A
-merge gate (wait-on-checks), a TestFlight-feedback fetch, a report upload, a wiki
-sync, a Vercel/Supabase deploy — anything that's a pure script or REST call with
-no Xcode dependency — runs on `ubuntu-latest`. **Don't tie up the Mac** for work
-that doesn't need it; that's slower and starves the build queue. The test is
-simply: *does this job invoke `xcodebuild` / the simulator / signing?* If yes,
-dedicated; if no, `ubuntu-latest`.
-
-**macOS-only or hybrid iOS+macOS app CI** — the synced `ios-ci.yml` assumes an
-iOS Simulator destination and doesn't cover a macOS target. See the
-`macos-ci-recipes` skill for copy-in recipes (a macOS-only workflow, and a job
-to add to a hybrid project's own `ios-ci.yml`) — not auto-synced; two fleet
-projects have needed this so far, not yet enough signal for the lacquer to
-distribute it automatically.
+See the `macos-ci-recipes` skill for the reasoning and copy-in recipes when
+the new job is a macOS-only or hybrid iOS+macOS workflow.
 
 ## Build & Test Tooling (flowdeck)
 
@@ -204,21 +151,12 @@ View (SwiftUI) → ViewModel (@Observable, @MainActor) → Service → Repositor
 
 **Layer rule:** ViewModels MUST NOT depend directly on Repository protocols. Inject Service protocols instead.
 
-## SwiftData + CloudKit Rules (when syncing to CloudKit)
+## SwiftData + CloudKit
 
-If a SwiftData store syncs via CloudKit (`ModelConfiguration(cloudKitDatabase:)` /
-`NSPersistentCloudKitContainer`), the schema MUST stay CloudKit-compatible at all
-times — CloudKit imposes hard constraints, and violating them fails store setup
-or silently drops data:
-
-- **No `@Attribute(.unique)`** — CloudKit has no cross-device uniqueness; enforce uniqueness in code.
-- **Every property is optional OR has a default value** — CloudKit records can arrive partially; non-optional, non-defaulted properties are rejected.
-- **Relationships must be optional** — a `@Relationship` is allowed but the property must be optional (CloudKit requirement); avoid `.deny` delete rules. Set inverse relationships.
-- **Migrations are add-only once CloudKit is enabled** — do NOT delete or rename existing entities/attributes (CloudKit treats a rename as delete-then-add → data loss). Lightweight migration only.
-
-Optional stricter convention (some apps adopt this to sidestep relationship-sync
-complexity): keep the schema **flat** and JSON-encode complex children into a
-`Data` property (e.g. `songsJSON: Data`) instead of modeling them as relationships.
+If this project imports `SwiftData`, `lacquer sync` suggests the
+`dpearson2699/swift-ios-skills@swiftdata` skill (see `internal/skillsuggest`) —
+it covers CloudKit-compatible schema constraints. Install it with `skills add`
+if it wasn't suggested.
 
 ## Testing
 
@@ -248,82 +186,16 @@ During RED/GREEN, run **targeted** tests only (`-only-testing:<YourApp>Tests/Som
 
 ### Test support: `waitUntil` (no `Task.sleep` in tests)
 
-The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in tests — they cause flaky failures. Wait for the actual state change instead. Add this `TestHelpers.swift` to your test target (the lint rules already exclude `*TestHelpers.swift`):
-
-```swift
-import Foundation
-
-/// Thrown by `waitUntil` when the condition never became true within the timeout.
-struct WaitTimeoutError: Error, CustomStringConvertible {
-    let timeout: Duration
-    var description: String { "waitUntil timed out after \(timeout)" }
-}
-
-/// Polls `condition` until true, throwing on timeout. Runs on the caller's actor
-/// (via `#isolation`) so the closure may read `@MainActor` fixtures safely.
-func waitUntil(
-    timeout: Duration = .seconds(2),
-    pollInterval: Duration = .milliseconds(10),
-    isolation _: isolated (any Actor)? = #isolation,
-    _ condition: () -> Bool
-) async throws {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: timeout)
-    while !condition() {
-        guard clock.now < deadline else { throw WaitTimeoutError(timeout: timeout) }
-        try await Task.sleep(for: pollInterval)
-    }
-}
-```
-
-Usage: `try await waitUntil { viewModel.isLoaded }` instead of `try await Task.sleep(for: .seconds(1))`.
+The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in
+tests — they cause flaky failures. See the `swift-testing-wait-until` skill
+for the polling helper to add to your test target instead.
 
 ## Battery & Performance Patterns
 
-Apply these whenever touching widgets, animations, networking, or background work.
-
-### Widgets
-- Limit `Timeline` entries to **≤ 2** (current + one next-day refresh). More entries run the provider repeatedly and drain battery.
-- Use `.atEnd` reload policy — let WidgetKit decide when to refresh.
-
-### Animations
-- Always stop animations in `.onDisappear`. Animations left running off-screen still consume CPU/GPU.
-- Bind repeating animations to a `@State var isAnimating = false`: set `true` in `.onAppear`, `false` in `.onDisappear`, and pass `value: isAnimating` to `withAnimation`.
-- Use `.repeatCount(N)` instead of `.repeatForever` for attention animations.
-
-### Low Power Mode
-Guard expensive operations before they start:
-```swift
-guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
-```
-Apply to: image preloading, background downloads, video prefetch, heavy sync.
-
-### Network
-```swift
-let config = URLSessionConfiguration.default
-config.allowsConstrainedNetworkAccess = false  // respect Low Data Mode
-config.allowsExpensiveNetworkAccess = false    // avoid cellular when Wi-Fi preferred
-config.waitsForConnectivity = true             // queue rather than fail when offline
-```
-
-### Observer & Task Cleanup
-`@Observable` macro-generated storage prevents `nonisolated deinit` from removing `NotificationCenter` observers. Use reference-type boxes instead:
-
-```swift
-final class NotificationObserverBox {
-    private var tokens: [NSObjectProtocol] = []
-    func add(_ token: NSObjectProtocol) { tokens.append(token) }
-    deinit { tokens.forEach { NotificationCenter.default.removeObserver($0) } }
-}
-
-final class TaskBox {
-    private var cancel: (() -> Void)?
-    func store<Success, Failure>(_ task: Task<Success, Failure>) { cancel = { task.cancel() } }
-    deinit { cancel?() }
-}
-```
-
-For `MPRemoteCommandCenter`: store `addTarget` return values; call `removeTarget(nil)` on each in `deinit`.
+Apply these whenever touching widgets, animations, networking, or background
+work — see the `ios-performance-battery-patterns` skill for the concrete
+patterns (Timeline entry limits, animation cleanup, Low Power Mode guards,
+constrained-network config, observer/task cleanup under `@Observable`).
 
 ## Swift 6 Concurrency & Default Actor Isolation
 
@@ -341,29 +213,9 @@ If the app target sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (approachable
 
 ## URL Validation Security Posture
 
-Validate **every** user-provided URL through a positive-allowlist validator before it reaches `AVPlayer`, `URLSession`, or a `WKWebView`. Validate at **both** the manager and service boundaries (the duplication is intentional defense-in-depth). Known limitation: homograph / IDN look-alike hosts are not detected.
-
-The validator parses once via `URLComponents` and asserts: http/https scheme only, non-empty host, no userinfo (credentials), a UTF-8 **byte-length** cap, and rejection of C0 controls / DEL / literal & percent-encoded null bytes. The dangerous-scheme denylist is redundant belt-and-suspenders.
-
-```swift
-enum SecureURLValidator {
-    /// Returns true only when the URL satisfies every required property.
-    /// Known limitation: homograph / IDN look-alike hosts are not detected.
-    nonisolated static func validate(_ urlString: String) -> Bool {
-        guard !urlString.isEmpty else { return false }
-        guard urlString.utf8.count <= 2048 else { return false }
-        guard !urlString.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) else { return false }
-        guard !urlString.contains("\0"), !urlString.lowercased().contains("%00") else { return false }
-        let dangerous = ["javascript:", "data:", "file:", "vbscript:"]
-        guard !dangerous.contains(where: { urlString.lowercased().hasPrefix($0) }) else { return false }
-        guard let components = URLComponents(string: urlString) else { return false }
-        guard let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return false }
-        guard components.user == nil, components.password == nil else { return false }
-        guard let host = components.host, !host.isEmpty else { return false }
-        return true
-    }
-}
-```
+Validate every user-provided URL before it reaches `AVPlayer`, `URLSession`,
+or a `WKWebView` — see the `url-validation-security` skill for the
+positive-allowlist validator and where to apply it.
 
 ## Accessibility & Design-Token Contrast (WCAG 1.4.11)
 
@@ -378,9 +230,7 @@ Other rules:
 
 ## Premium / Subscription Gating (if monetized)
 
-When gating features behind a subscription, keep the seam clean and testable:
-
-- Inject a `SubscriptionService` with an `isPremium` property — never read a singleton inline.
-- One **shared paywall presenter** and one **reusable lock badge** — don't reimplement per feature.
-- Gate logic lives in **pure, fail-closed** functions: `func canUseX(isPremium: Bool, ...) -> Bool` that default to denying access on any ambiguity.
-- Keep the apply/perform logic in a **view-free, testable controller** with an **injectable apply-seam**, so gating decisions are unit-tested without SwiftUI.
+If this project imports `StoreKit`, `lacquer sync` suggests the
+`dpearson2699/swift-ios-skills@storekit` skill (see `internal/skillsuggest`) —
+it covers paywall/entitlement architecture. Install it with `skills add` if it
+wasn't suggested.
