@@ -3,16 +3,17 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
-    "build": "astro build",
+    "generate-skill-docs": "node scripts/generate-skill-docs.mjs",
+    "dev": "npm run generate-skill-docs && astro dev",
+    "start": "npm run generate-skill-docs && astro dev",
+    "build": "npm run generate-skill-docs && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.3",
     "astro": "^7.0.2",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.3",
     "starlight-theme-flexoki": "^0.2.2"
   }
 }
