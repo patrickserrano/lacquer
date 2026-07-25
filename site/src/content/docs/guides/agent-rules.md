@@ -25,14 +25,55 @@ rules](/lacquer/guides/supabase-rules/).
 9. **Pre-existing failures are your failures.** If tests fail or builds break — even if the issue predates your changes — it's your responsibility to fix it. If you genuinely can't, stop and ask for guidance rather than working around it.
 10. **Always update related tests when modifying code.** Tests are part of the deliverable, not optional maintenance.
 
-## Extended thinking
+## Response style
 
-| Keyword | Token budget | Use for |
-|---------|-------------|---------|
-| `think` | ~4K | Simple planning, quick decisions |
-| `think hard` | ~10K | Feature implementation, debugging |
-| `think harder` | ~16K | Complex architecture, tricky bugs |
-| `ultrathink` | ~32K | Major architecture decisions, critical debugging |
+Match response length to what the task needs — calibrate, don't default to verbose.
+Lead with the outcome before supporting detail; skip options you won't pursue, and
+don't restate context already established in the session. This is the baseline for
+every response; `core/skills/caveman` is a separate, user-invoked, much more
+aggressive compression style for when the user explicitly asks for it — it doesn't
+substitute for calibrating normally the rest of the time.
+
+## Effort and thinking
+
+Current-generation Claude models run with adaptive thinking on by default. The old
+`think` / `think hard` / `think harder` / `ultrathink` keyword-to-token-budget
+mapping is from the prior manual extended-thinking API and no longer reflects how
+these models scale reasoning — Claude Sonnet 5 rejects a manual `budget_tokens`
+outright. The lever that matters now is **effort** (`low` / `medium` / `high` /
+`xhigh` / `max`), set via `/config`, an `Agent`/`Task` call's model options, or a
+`Workflow` script's `opts.effort`:
+
+| Effort | Use for |
+|--------|---------|
+| `high` | Default for most work; leave it unless you have a reason to move |
+| `xhigh` | The hardest coding and agentic tasks — what you'd have reached for `ultrathink` for previously |
+| `medium` / `low` | Cost- and latency-sensitive work where quality holds at the lower tier |
+
+If a task is under-thinking at its current effort, raise the effort level rather
+than adding a "think harder" instruction to the prompt — that no longer does
+anything on current models.
+
+## Agent delegation
+
+Delegate genuinely independent, sizeable work — not everything. A subagent adds
+latency and cost; reserve it for tracks large enough that parallelizing or isolating
+context actually pays for itself. Don't spin one up to double-check work you already
+verified, and don't delegate a task you can finish yourself in a handful of tool
+calls.
+
+| Scope | Pattern |
+|-------|---------|
+| One task, sequential subtasks in this session | `superpowers:subagent-driven-development` |
+| One artifact converging against a checkable bar | `evaluator-optimizer` |
+| One strategic decision needing a second opinion | `advisor-checkpoint` |
+| A batch of genuinely independent units (fleet-wide, multi-repo, overnight) | `manager-loop` |
+| Several angles on the same problem that should challenge each other (competing-hypothesis debugging, parallel review from different lenses) | Agent teams — teammates message each other and self-coordinate; a subagent only reports back, it can't debate a peer |
+
+On any run long enough to report progress partway through, ground the report in
+actual tool output — state only what you can point to evidence for from this
+session, and say plainly when something is unverified, failing, or skipped, rather
+than asserting it's done.
 
 ## Context management
 
@@ -45,6 +86,7 @@ doesn't. Manage context so it never happens mid-task:
 - **Offload exploration to subagents.** Broad searches and surveys should run in a subagent so only their output lands in the main thread.
 - **Use `/compact` proactively** with preservation instructions, and **`/clear` between unrelated tasks** when this file provides sufficient context.
 - **Front-load, don't rebuild, on resume.** Read the last plan/PR/commit and state the next action instead of reconstructing context by re-reading everything.
+- **Two failed corrections means the context is the problem, not the next attempt.** If the same issue has been corrected twice in one session and is still wrong, stop retrying — `/clear` and restart with a prompt that incorporates what you learned. A clean session with a better prompt outperforms a long one carrying failed approaches.
 
 ## Docs taxonomy
 
@@ -68,9 +110,11 @@ its dated file so history stays auditable.
 For high-risk changes — anything touching **security or trust boundaries**,
 **concurrency / data-race safety**, **authentication / authorization**, or
 **data-integrity boundaries** — implement, then run a **separate adversarial
-review of the diff before merging**: a fresh agent or session given only the
-diff, no implementation context, prompted to find regressions. This catches bug
-classes the implementer's own tests miss.
+review of the diff before merging**: the bundled `/code-review` skill, or a
+fresh agent/session given only the diff and no implementation context, prompted
+to find regressions. This catches bug classes the implementer's own tests
+miss. Reserve this for the categories above — bolting a review step onto
+every task adds cost without benefit; current models already self-check.
 
 ## CI hygiene
 

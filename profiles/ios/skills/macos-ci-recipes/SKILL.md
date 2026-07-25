@@ -20,6 +20,16 @@ Both reuse the lacquer's existing iOS CI conventions (dedicated runner,
 handling, the error-tail grep on real failures) — nothing here is a new
 pattern, just the iOS pattern applied to `-destination 'platform=macOS'`.
 
+**Why the dedicated runner, not a GitHub-hosted macOS one:** these jobs (and
+any other Xcode-touching job you add) must run on
+`runs-on: [self-hosted, macOS, ARM64, dedicated]` — never `macos-latest` or a
+stray label like `mac-mini`. Release jobs hold App Store Connect keys and
+unlock the login keychain, so signing must only ever happen on infrastructure
+you control; the pinned Xcode + simulator runtime lives only on the dedicated
+runner (GitHub-hosted macOS images drift); and GitHub-hosted macOS minutes are
+billed while the dedicated runner isn't. A pure script/REST-call job with no
+Xcode dependency uses `ubuntu-latest` instead.
+
 ## Which recipe
 
 - **No iOS target at all** (a macOS-only app on the `ios` profile): use

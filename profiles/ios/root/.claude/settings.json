@@ -30,6 +30,15 @@
             "command": "bash -c 'FP=$(jq -r \".tool_input.file_path // empty\"); if echo \"$FP\" | grep -qE \"\\.entitlements$\"; then echo \"BLOCKED: Do not modify .entitlements files without explicit user permission.\" >&2; exit 2; fi'"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'CMD=$(jq -r \".tool_input.command // empty\"); if echo \"$CMD\" | grep -qE \"\\b(git|gh)\\b.*--(force-with-lease|force|no-verify|admin)\\b\"; then echo \"BLOCKED: --force/--force-with-lease/--no-verify/--admin bypass safety checks (core rule 8). If truly necessary, stop and ask the user first.\" >&2; exit 2; fi'"
+          }
+        ]
       }
     ],
     "PostToolUse": [

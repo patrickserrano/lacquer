@@ -30,6 +30,14 @@ with one thread of work (there's nothing to coordinate), or units so
 interdependent that running them one at a time, in order, with full context
 carried forward is actually required.
 
+For a single feature-level task with several sequential subtasks (one branch,
+one PR, tasks that build on each other) rather than a batch of independent
+units, use `superpowers:subagent-driven-development` instead — same session,
+fresh subagent per subtask, code review between each. Reach for this skill
+only once the work is actually a multi-unit batch; standing up worktrees,
+branches, and PRs per subtask for what is really one feature is the heavier
+tool for the wrong job.
+
 ## The shape
 
 1. **Dispatch.** For each unit of work, spin up a worker on its own
@@ -45,7 +53,10 @@ carried forward is actually required.
    actually moves — checking in-flight PRs, build status, and whether a
    worker is stuck, the same way you'd poll CI. This is what turns "dispatch
    one thing, wait for a message, dispatch the next" into a loop that keeps
-   moving on its own between check-ins.
+   moving on its own between check-ins. When you report batch status at a
+   heartbeat, ground it in what you actually checked this cycle (PR state,
+   CI status, the worker's own report) — don't assert a unit is done or
+   still on track without a result from this session backing that claim.
 3. **Route feedback back to the worker, don't re-implement it yourself.**
    When a PR needs a change (a review finding, a failed check), resume the
    *same* worker via `SendMessage` with the specific feedback, rather than
