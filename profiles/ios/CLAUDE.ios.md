@@ -199,6 +199,8 @@ constrained-network config, observer/task cleanup under `@Observable`).
 
 ## Swift 6 Concurrency & Default Actor Isolation
 
+**Swift 6 language mode is the baseline, in every build configuration — not just the app target.** `SWIFT_VERSION = 6` and `SWIFT_TREAT_WARNINGS_AS_ERRORS = YES` are asserted by the lacquer and checked two ways: `lacquer audit` reads the pbxproj statically across every configuration, and the CI `Baseline` job reads the effective settings via `xcodebuild -showBuildSettings`. Below Swift 6, data-race diagnostics are warnings rather than errors, so violations accrue invisibly until the migration has to happen as one large risky change. A target left behind (tests, widget, watch app) reports as a coverage ratio like `4/12`, not as a pass. Genuine exceptions go in `[baseline.relax]` with a reason and an expiry.
+
 If the app target sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (approachable concurrency), classes without an explicit isolation annotation — **including services** — are implicitly `@MainActor`.
 
 - `await urlSession.data(for:)` still does its network I/O **off** the main thread; the suspension yields. Only the synchronous work around it (e.g. JSON decoding) runs on the main actor — fine at small payload sizes.

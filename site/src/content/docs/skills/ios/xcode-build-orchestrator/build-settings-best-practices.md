@@ -11,7 +11,7 @@ Generated from [`profiles/ios/skills/xcode-build-orchestrator/references/build-s
 
 This reference lists Xcode build settings that affect build performance. Use it to audit a project and produce a pass/fail checklist.
 
-The scope is strictly **build performance**. Do not flag language-migration settings like `SWIFT_STRICT_CONCURRENCY` or `SWIFT_UPCOMING_FEATURE_*` -- those are developer adoption choices unrelated to build speed.
+The scope is strictly **build performance**. Do not report language-migration settings like `SWIFT_STRICT_CONCURRENCY` or `SWIFT_UPCOMING_FEATURE_*` as build-performance findings -- they do not affect build speed. That is a scope boundary, NOT permission to ignore them: `SWIFT_VERSION` and `SWIFT_TREAT_WARNINGS_AS_ERRORS` are enforced by the project baseline (`lacquer audit` and the CI `Baseline` job). If you notice one is missing or inconsistent across build configurations, say so and point at the baseline -- just do not score it as a performance issue.
 
 ## How To Read This Reference
 
@@ -194,7 +194,7 @@ Check for drift in:
 
 Do **not** flag the following as build-performance issues:
 
-- `SWIFT_STRICT_CONCURRENCY` -- language migration choice
+- `SWIFT_STRICT_CONCURRENCY` -- language migration choice (enforced by the project baseline, not by this audit)
 - `SWIFT_UPCOMING_FEATURE_*` -- language migration choice
 - `SWIFT_APPROACHABLE_CONCURRENCY` -- language migration choice
 - `SWIFT_ACTIVE_COMPILATION_CONDITIONS` values beyond `DEBUG` (e.g., `WIDGETS`, `APPCLIP`) -- intentional per-target customization

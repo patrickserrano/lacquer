@@ -157,3 +157,12 @@ every task adds cost without benefit; current models already self-check.
 
 Treat compiler and linter warnings as errors — ship zero-warning builds. Don't
 suppress a warning; fix the code (see Fundamental Rule #7).
+
+This is mechanically enforced, not left to judgement: the project baseline
+(`lacquer audit`, plus the stack's CI `Baseline` job) requires warnings-as-errors
+in **every** build configuration and fails the build when it is missing from any
+of them. Setting it on the main target and leaving it off the tests or extensions
+reports as a violation with the ratio, not as a pass. If a project genuinely
+cannot comply yet, add a time-boxed `[baseline.relax]` entry to `.lacquer.toml`
+with a reason — an expired relaxation is a hard failure, so the debt stays
+visible rather than becoming policy by default.
