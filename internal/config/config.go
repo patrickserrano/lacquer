@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/patrickserrano/lacquer/internal/baseline"
 )
 
 // profileNameRe restricts profile names to a strict allowlist. Profile names are
@@ -224,9 +226,18 @@ type Component struct {
 	Profiles []string `toml:"profiles"`
 }
 
+// Baseline is a project's stance on the lacquer-owned project baseline. A project
+// may only RELAX the standard, never restate or redefine it — the standard itself
+// lives in the lacquer (profiles/<profile>/baseline.toml), so every project
+// inherits it by default and a fresh init cannot scaffold a stale one.
+type Baseline struct {
+	Relax map[string]baseline.Relax `toml:"relax"`
+}
+
 type Config struct {
 	Project    Project     `toml:"project"`
 	Components []Component `toml:"component"`
+	Baseline   Baseline    `toml:"baseline"`
 }
 
 // Load reads, parses, and validates the .lacquer.toml at path. It rejects any
@@ -240,6 +251,9 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	if err := validateProject(cfg.Project); err != nil {
+		return nil, err
+	}
+	if err := validateBaseline(cfg.Baseline); err != nil {
 		return nil, err
 	}
 	seenProfile := map[string]string{} // profile -> first component path that declared it
@@ -258,6 +272,37 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	return &cfg, nil
+}
+
+// validateBaseline checks every [baseline.relax] entry.
+//
+// All three failures below are hard errors rather than warnings, because each one
+// silently produces a permanent exemption if tolerated: an unknown key never
+// matches a finding, a missing reason makes the debt unattributable, and a
+// missing or unparseable expiry makes it unbounded. A relaxation that cannot
+// expire is not a relaxation, it is a redefinition of the standard.
+func validateBaseline(b Baseline) error {
+	keys := make([]string, 0, len(b.Relax))
+	for k := range b.Relax {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // deterministic error for a manifest with several problems
+	for _, k := range keys {
+		r := b.Relax[k]
+		if !baseline.ValidKey(k) {
+			return fmt.Errorf("unknown [baseline.relax] key %q (known keys: %s)", k, strings.Join(baseline.KnownKeys(), ", "))
+		}
+		if strings.TrimSpace(r.Reason) == "" {
+			return fmt.Errorf("[baseline.relax].%s needs a non-empty reason (the debt must be attributable)", k)
+		}
+		if r.Until == "" {
+			return fmt.Errorf("[baseline.relax].%s needs an until date (YYYY-MM-DD); a relaxation without an expiry is a redefinition of the standard", k)
+		}
+		if _, err := r.UntilDate(); err != nil {
+			return fmt.Errorf("[baseline.relax].%s has an invalid until %q (want YYYY-MM-DD)", k, r.Until)
+		}
+	}
+	return nil
 }
 
 // componentPathVal allows "." or slash-separated segments of safe characters
