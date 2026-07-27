@@ -1,0 +1,45 @@
+# The project baseline this lacquer asserts for every iOS component.
+#
+# Unlike [project] values in a project's own .lacquer.toml, these are NOT
+# observations of what a project happens to declare — they are the standard a
+# project must meet. `lacquer audit` reports violations and exits 4; the iOS CI
+# `baseline` job independently verifies the *effective* build settings via
+# `xcodebuild -showBuildSettings`.
+#
+# Why this file exists: swift_version used to be scraped from each project and
+# fed to nothing but swiftformat's --swiftversion, so a project could sit on a
+# stale language mode indefinitely, and could migrate without the manifest
+# noticing. A slot that asks "tell me what you are" can never say "you're wrong".
+#
+# A project that genuinely cannot comply yet does NOT edit this file. It adds a
+# time-boxed, justified relaxation to its own manifest:
+#
+#   [baseline.relax]
+#   swift_version = { until = "2026-09-01", reason = "pre-Swift-6 audio engine, #142" }
+#
+# Both fields are required and an expired relaxation is a hard failure, so the
+# debt stays visible and greppable instead of becoming permanent policy.
+#
+# Profiles without a baseline.toml (web, supabase) run no baseline checks.
+
+[baseline]
+# Swift 6 language mode. Below this, data-race diagnostics are warnings rather
+# than errors, which lets violations accrue silently until a migration has to be
+# done as one large, risky change.
+swift_version = "6"
+
+# Zero-warning builds, enforced by the compiler rather than by asking an agent
+# nicely. core/CLAUDE.core.md has instructed "treat warnings as errors" since the
+# ios-template absorption, but nothing mechanically backed it — the only
+# enforcement was SwiftLint --strict, which says nothing about compiler warnings.
+#
+# Checked per build configuration, not per project: setting this on the app
+# target and leaving it off the tests, widget, and watch targets is the normal
+# shape of a half-finished migration, and it reports as "4/12", not as a pass.
+warnings_as_errors = true
+
+# Complete strict concurrency checking. Satisfied by implication once the
+# language mode is 6 or newer (Swift 6 already enforces it), so this is only
+# load-bearing for a project still below Swift 6 — it is what keeps such a
+# project's data-race diagnostics visible while it migrates.
+strict_concurrency = "complete"
