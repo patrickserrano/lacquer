@@ -10,18 +10,32 @@ propagating whatever a project already happens to declare.
 
 ## Why this exists
 
-throughline was onboarded onto lacquer on 2026-07-13 and has been building in
-Swift 5 language mode ever since, accruing Swift 6 violations as warnings while
-CI reported green. Its `ios/Throughline.xcodeproj/project.pbxproj` declares
-`SWIFT_VERSION = 5.0` in all 12 build configurations, while simultaneously
-setting `SWIFT_APPROACHABLE_CONCURRENCY = YES` and
-`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` — the Swift 6 ergonomics switched on
-underneath a language mode where every diagnostic they produce is a warning.
+throughline was onboarded onto lacquer on 2026-07-13 and built in Swift 5
+language mode for the next two weeks of active development. It moved to Swift 6
+on 2026-07-26 in `f156c28` — *"build(ios): Swift 6 language mode on every target
+(#127)"* — as a single manual big-bang change. That migration is the churn.
+
+Nothing in the harness ever asked for the move, and nothing noticed it happened.
+As of this design, the project's actual state is:
+
+| Setting | State |
+| --- | --- |
+| `SWIFT_VERSION` | `6` in all 12 target build configurations |
+| `SWIFT_TREAT_WARNINGS_AS_ERRORS` | `YES` in only **4 of 12** configs (2 of 6 targets) — the migration was partial and nothing flagged the rest |
+| `SWIFT_STRICT_CONCURRENCY` | unset everywhere (correct — Swift 6 mode already enforces it) |
+| `.lacquer.toml` `swift_version` | still **`"5.0"`** |
+
+That last row is a live bug, not a cosmetic one: `{{SWIFT_VERSION}}` feeds
+`--swiftversion` in `.swiftformat`, so SwiftFormat is currently applying Swift 5
+rules to Swift 6 sources. The manifest recorded a fact, the fact changed, and
+lacquer had no mechanism to notice — which is the whole thesis of this design.
 
 Five whys:
 
-1. **Why is throughline on Swift 5?** The pbxproj said `5.0` at scaffold time and
-   nothing ever changed it.
+1. **Why did throughline sit on Swift 5 for two weeks, and why did the manifest
+   keep saying `5.0` afterward?** The pbxproj said `5.0` at scaffold time,
+   nothing in the harness ever asserted otherwise, and once the project moved,
+   nothing re-checked.
 2. **Why did nothing change it?** `swift_version` is a *detected observation* in
    lacquer, not an asserted standard. Its only consumer in the entire harness is
    `profiles/ios/config/.swiftformat:1` → `--swiftversion {{SWIFT_VERSION}}`. It
@@ -91,6 +105,17 @@ strict_concurrency = "complete"
 
 Every project inherits this by default, which is what makes a fresh
 `lacquer init` unable to scaffold Swift 5 ever again.
+
+**`strict_concurrency` is satisfied by implication when the language mode is ≥ 6**,
+since Swift 6 mode already enforces complete strict concurrency. It is only
+checked below that. Requiring the explicit setting on a Swift 6 project would
+nag every compliant project into writing a no-op — the kind of noise that gets a
+check disabled.
+
+**Coverage is per build configuration, not per project.** A setting present in
+some configurations and absent in others is a violation reported as "4 of 12", not
+a pass. throughline's warnings-as-errors state is exactly this case, and it is the
+single most valuable thing the checker does on day one.
 
 ### Projects may relax, never redefine
 
