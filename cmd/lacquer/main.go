@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
@@ -166,10 +168,26 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, err)
 		}
 		fmt.Fprint(stdout, audit.Format(rows, ver))
+
+		reports, err := baselineReports(lacquerRoot, projectRoot)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		if out := baseline.FormatReports(reports); out != "" {
+			fmt.Fprint(stdout, "\n"+out)
+		}
+
 		// Exit 3 when a project change would be clobbered, so `lacquer audit` is
-		// usable as a CI drift gate (documented in usage()).
+		// usable as a CI drift gate (documented in usage()). Clobbering takes
+		// precedence over a baseline violation when both fire: losing a local
+		// change is destructive, a policy violation is not.
 		if len(audit.Clobbered(rows)) > 0 {
 			return 3
+		}
+		// Exit 4 on a baseline violation — a distinct code so a CI gate can tell
+		// "sync would destroy work" apart from "this project is out of standard".
+		if baseline.Blocking(reports) > 0 {
+			return 4
 		}
 	case "status":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
@@ -180,6 +198,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, err)
 		}
 		fmt.Fprint(stdout, status.Format(rows))
+		// Informational here: status reports, audit is the gate.
+		reports, err := baselineReports(lacquerRoot, projectRoot)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		if out := baseline.FormatReports(reports); out != "" {
+			fmt.Fprint(stdout, "\n"+out)
+		}
 	case "version":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -232,6 +258,17 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
+}
+
+// baselineReports loads the project manifest and checks every component against
+// its profile's asserted baseline. Shared by `audit` (which gates on it) and
+// `status` (which only reports it).
+func baselineReports(lacquerRoot, projectRoot string) ([]baseline.Report, error) {
+	cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
+	if err != nil {
+		return nil, fmt.Errorf("load manifest: %w", err)
+	}
+	return baseline.Run(lacquerRoot, projectRoot, cfg.BaselineTargets(), cfg.Baseline.Relax, time.Now())
 }
 
 func fail(w io.Writer, err error) int {

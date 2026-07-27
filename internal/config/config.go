@@ -274,6 +274,36 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// BaselineTargets returns one baseline target per (component, profile) pair, with
+// the project's xcodeproj attached to the component that actually contains it.
+//
+// Attaching it to the owning component rather than to all of them matters for a
+// multi-component project: handing a Supabase component the iOS project would
+// have it checked — and reported — against the wrong standard.
+func (c *Config) BaselineTargets() []baseline.Target {
+	var out []baseline.Target
+	xc := filepath.ToSlash(c.Project.Xcodeproj)
+	for _, comp := range c.Components {
+		for _, p := range comp.Profiles {
+			t := baseline.Target{Profile: p, Component: comp.Path}
+			if xc != "" && componentOwns(comp.Path, xc) {
+				t.Xcodeproj = xc
+			}
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// componentOwns reports whether a component path contains the given
+// project-relative path. "." (a root layout) contains everything.
+func componentOwns(component, path string) bool {
+	if component == "." || component == "" {
+		return true
+	}
+	return strings.HasPrefix(path, component+"/")
+}
+
 // validateBaseline checks every [baseline.relax] entry.
 //
 // All three failures below are hard errors rather than warnings, because each one

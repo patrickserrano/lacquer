@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/patrickserrano/lacquer/internal/baseline"
+	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/safepath"
 	"github.com/patrickserrano/lacquer/internal/skillsuggest"
@@ -67,6 +69,19 @@ func Run(lacquerRoot, root string) (string, error) {
 		name = filepath.Base(root)
 	}
 
+	// swift_version is ASSERTED, not observed. It used to be whatever the project
+	// already declared, which meant onboarding a project on a stale language mode
+	// recorded the stale mode and then fed it to swiftformat's --swiftversion
+	// forever. Detection now answers only "does the project already agree?" — a
+	// diagnostic printed for the operator, never the value written.
+	swiftVersion := derived.SwiftVersion
+	if asserted, note := assertedSwiftVersion(lacquerRoot, comps, derived.SwiftVersion); asserted != "" {
+		swiftVersion = asserted
+		if note != "" {
+			notices = append(notices, note)
+		}
+	}
+
 	// Suggest third-party skill packages by scanning each component's actual
 	// Swift imports (see internal/skillsuggest) — a starting point for
 	// [project].skills, not a decision; trim or extend it freely.
@@ -92,7 +107,7 @@ func Run(lacquerRoot, root string) (string, error) {
 	fmt.Fprintf(&b, "project_name = %q\n", derived.ProjectName)
 	fmt.Fprintf(&b, "scheme = %q\n", derived.Scheme)
 	fmt.Fprintf(&b, "xcodeproj = %q\n", derived.Xcodeproj)
-	fmt.Fprintf(&b, "swift_version = %q\n", derived.SwiftVersion)
+	fmt.Fprintf(&b, "swift_version = %q\n", swiftVersion)
 	b.WriteString("bundle_id = \"\"\n")
 	b.WriteString("asc_app_id = \"\"\n")
 	b.WriteString("github_org = \"\"\n")
@@ -254,3 +269,29 @@ const briefTemplate = `# %s — Product Brief
 
 <v1 / v1.5 / v2 phasing.>
 `
+
+// assertedSwiftVersion returns the Swift language mode the lacquer asserts for
+// this project, plus a notice when the project currently declares something else.
+//
+// It returns "" when no detected profile asserts a baseline, in which case the
+// caller keeps the detected value — a profile that asserts nothing must behave
+// exactly as it did before this existed.
+func assertedSwiftVersion(lacquerRoot string, comps []config.Component, detected string) (asserted, notice string) {
+	for _, c := range comps {
+		for _, p := range c.Profiles {
+			spec, ok, err := baseline.LoadSpec(lacquerRoot, p)
+			if err != nil || !ok || spec.SwiftVersion == "" {
+				continue
+			}
+			if detected != "" && detected != spec.SwiftVersion {
+				notice = fmt.Sprintf(
+					"NOTE: this project declares Swift %s but the lacquer baseline asserts Swift %s — "+
+						"the manifest records %s. Migrate the project, or add a time-boxed "+
+						"[baseline.relax].swift_version entry with a reason. See `lacquer audit`.",
+					detected, spec.SwiftVersion, spec.SwiftVersion)
+			}
+			return spec.SwiftVersion, notice
+		}
+	}
+	return "", ""
+}
