@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -322,5 +323,175 @@ func TestLoadRejectsMalformedSkillEntries(t *testing.T) {
 		if _, err := loadString(t, "[project]\nname=\"x\"\nskills=[\""+c+"\"]\n"); err == nil {
 			t.Errorf("expected rejection for skills entry %q", c)
 		}
+	}
+}
+
+func loadWith(t *testing.T, body string) (*Config, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), ".lacquer.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return Load(path)
+}
+
+func TestLoadBaselineRelax(t *testing.T) {
+	cfg, err := loadWith(t, `
+[project]
+name = "throughline"
+
+[baseline.relax]
+swift_version = { until = "2026-09-01", reason = "pre-Swift-6 audio engine, #142" }
+`)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	r, ok := cfg.Baseline.Relax["swift_version"]
+	if !ok {
+		t.Fatalf("no relaxation parsed, got %+v", cfg.Baseline.Relax)
+	}
+	if r.Until != "2026-09-01" || r.Reason != "pre-Swift-6 audio engine, #142" {
+		t.Errorf("relaxation = %+v", r)
+	}
+}
+
+// An unknown relax key must be rejected. Silently ignoring a typo like
+// "swift_verison" would create a permanent invisible exemption — the exact
+// failure mode the baseline exists to prevent, in a new costume.
+func TestLoadBaselineRelaxRejectsUnknownKey(t *testing.T) {
+	_, err := loadWith(t, `
+[project]
+name = "throughline"
+
+[baseline.relax]
+swift_verison = { until = "2026-09-01", reason = "typo" }
+`)
+	if err == nil {
+		t.Fatal("want error for an unknown relax key, got nil")
+	}
+	if !strings.Contains(err.Error(), "swift_verison") {
+		t.Errorf("error should name the offending key, got: %v", err)
+	}
+}
+
+func TestLoadBaselineRelaxRequiresReason(t *testing.T) {
+	if _, err := loadWith(t, `
+[project]
+name = "throughline"
+
+[baseline.relax]
+swift_version = { until = "2026-09-01" }
+`); err == nil {
+		t.Fatal("want error for a relaxation with no reason, got nil")
+	}
+}
+
+func TestLoadBaselineRelaxRequiresUntil(t *testing.T) {
+	if _, err := loadWith(t, `
+[project]
+name = "throughline"
+
+[baseline.relax]
+swift_version = { reason = "no expiry" }
+`); err == nil {
+		t.Fatal("want error for a relaxation with no expiry, got nil")
+	}
+}
+
+func TestLoadBaselineRelaxRejectsMalformedDate(t *testing.T) {
+	if _, err := loadWith(t, `
+[project]
+name = "throughline"
+
+[baseline.relax]
+swift_version = { until = "Sept 1st", reason = "r" }
+`); err == nil {
+		t.Fatal("want error for an unparseable until date, got nil")
+	}
+}
+
+// No [baseline.relax] block at all is the normal case: the standard applies.
+func TestLoadNoBaselineBlock(t *testing.T) {
+	cfg, err := loadWith(t, "[project]\nname = \"throughline\"\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Baseline.Relax) != 0 {
+		t.Errorf("Relax = %+v, want empty", cfg.Baseline.Relax)
+	}
+}
+
+func TestBaselineTargets(t *testing.T) {
+	cfg, err := loadWith(t, `
+[project]
+name = "throughline"
+xcodeproj = "ios/Throughline.xcodeproj"
+
+[[component]]
+path = "ios"
+profiles = ["ios"]
+
+[[component]]
+path = "server"
+profiles = ["supabase"]
+`)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := cfg.BaselineTargets()
+	if len(got) != 2 {
+		t.Fatalf("got %d targets, want 2: %+v", len(got), got)
+	}
+	// The xcodeproj belongs to the component that contains it, not to every
+	// component — a server component must not be handed the iOS project.
+	for _, tgt := range got {
+		switch tgt.Component {
+		case "ios":
+			if tgt.Xcodeproj != "ios/Throughline.xcodeproj" {
+				t.Errorf("ios target xcodeproj = %q", tgt.Xcodeproj)
+			}
+		case "server":
+			if tgt.Xcodeproj != "" {
+				t.Errorf("server target should carry no xcodeproj, got %q", tgt.Xcodeproj)
+			}
+		}
+	}
+}
+
+// A root-layout project (component ".") still owns its xcodeproj.
+func TestBaselineTargetsRootLayout(t *testing.T) {
+	cfg, err := loadWith(t, `
+[project]
+name = "app"
+xcodeproj = "App.xcodeproj"
+
+[[component]]
+path = "."
+profiles = ["ios"]
+`)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := cfg.BaselineTargets()
+	if len(got) != 1 || got[0].Xcodeproj != "App.xcodeproj" {
+		t.Errorf("targets = %+v", got)
+	}
+}
+
+// A component with no profiles produces no target.
+func TestBaselineTargetsSkipsProfilelessComponent(t *testing.T) {
+	cfg, err := loadWith(t, `
+[project]
+name = "app"
+
+[[component]]
+path = "server"
+profiles = []
+`)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.BaselineTargets(); len(got) != 0 {
+		t.Errorf("targets = %+v, want none", got)
 	}
 }

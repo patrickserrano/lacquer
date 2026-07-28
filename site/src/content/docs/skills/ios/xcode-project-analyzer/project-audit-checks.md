@@ -73,7 +73,7 @@ Key settings to verify:
 - `SWIFT_USE_INTEGRATED_DRIVER` -- recommended `YES`; uses the integrated driver for better scheduling
 - `CLANG_ENABLE_MODULES` -- recommended `YES`; caches module maps on disk for C/ObjC
 
-Do not flag language-migration settings (`SWIFT_STRICT_CONCURRENCY`, `SWIFT_UPCOMING_FEATURE_*`) as build performance issues.
+Do not flag language-migration settings (`SWIFT_STRICT_CONCURRENCY`, `SWIFT_UPCOMING_FEATURE_*`) as build performance issues. They are enforced separately by the project baseline (`lacquer audit`, CI `Baseline` job); note them if inconsistent, but do not score them here.
 
 ## Module And Header Checks
 

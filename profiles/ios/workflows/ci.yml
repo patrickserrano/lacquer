@@ -673,6 +673,92 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+  baseline:
+    name: Baseline
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
+    needs: changes
+    # Skip on docs-only PRs, same gate as Lint. A skipped job counts as passing
+    # for the CI OK aggregator.
+    # SECURITY: same-repo guard — fork-PR code must not run on the self-hosted runner.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Create Secrets.xcconfig (build-time placeholder)
+        run: |
+          # -showBuildSettings evaluates the project the same way a build does, so
+          # a missing base config fails it exactly as it fails the build jobs.
+          if [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ]; then
+            cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
+          fi
+
+      - name: Assert the project baseline
+        run: |
+          set -o pipefail
+          # This checks the EFFECTIVE build settings, deliberately a different
+          # fidelity from `lacquer audit`, which reads the pbxproj statically.
+          # xcconfig layering and inherited values are invisible to a static read;
+          # they are visible here. Two independent checks at different fidelity —
+          # the same shape as the SPM cache validation above.
+          #
+          # -showBuildSettings resolves per target for every target in the
+          # scheme's build action — so a half-finished migration where the app is
+          # compliant but a widget or watch target is not shows up here. Targets
+          # OUTSIDE the scheme are not covered by this job; `lacquer audit`'s
+          # static read walks every build configuration in the project and covers
+          # exactly that gap. Neither check subsumes the other, which is the point
+          # of running both.
+          settings=$(xcodebuild -showBuildSettings \
+            -project {{XCODEPROJ}} \
+            -scheme {{SCHEME}} \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            2>/dev/null) || {
+            echo "::error::xcodebuild -showBuildSettings failed; cannot verify the baseline."
+            exit 1
+          }
+
+          fail=0
+
+          # Guard: if the grep below matches nothing, an absent setting would read
+          # as "no violations" — the silent-pass failure mode the SwiftLint step
+          # guards against too. Require at least one SWIFT_VERSION line.
+          if ! printf '%s\n' "$settings" | grep -q 'SWIFT_VERSION'; then
+            echo "::error::No SWIFT_VERSION in -showBuildSettings output — the baseline check is silently doing nothing."
+            exit 1
+          fi
+
+          # Every resolved SWIFT_VERSION must be 6 or newer.
+          # $1+0 forces a numeric comparison: a bare string compare would make an
+          # empty or non-numeric value sort below "6" and fail spuriously.
+          bad=$(printf '%s\n' "$settings" | grep 'SWIFT_VERSION = ' \
+            | sed 's/.*SWIFT_VERSION = //' | tr -d ' ' | sort -u \
+            | awk -F. 'NF && $1+0 < 6 { print }')
+          if [ -n "$bad" ]; then
+            echo "::error::SWIFT_VERSION below 6 in at least one target: $(printf '%s' "$bad" | tr '\n' ' ')"
+            fail=1
+          fi
+
+          # Warnings-as-errors must be on everywhere Swift is compiled. A target
+          # that never sets it resolves to NO, which is exactly the gap this job
+          # exists to catch.
+          if printf '%s\n' "$settings" | grep 'SWIFT_TREAT_WARNINGS_AS_ERRORS = ' \
+            | sed 's/.*= //' | tr -d ' ' | sort -u | grep -qv '^YES$'; then
+            echo "::error::SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every target."
+            fail=1
+          fi
+          if ! printf '%s\n' "$settings" | grep -q 'SWIFT_TREAT_WARNINGS_AS_ERRORS'; then
+            echo "::error::SWIFT_TREAT_WARNINGS_AS_ERRORS is unset — warnings are not errors."
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Project baseline not met. See profiles/ios/baseline.toml in the lacquer, or add a time-boxed [baseline.relax] entry to .lacquer.toml."
+            exit 1
+          fi
+          echo "Project baseline met."
+
   ci-ok:
     name: CI OK
     # Just aggregates the needs[] results — no Xcode — so it runs on a
@@ -684,16 +770,17 @@ jobs:
     # never gets stuck "pending" and docs PRs merge without an admin bypass.
     # Fails only if a required job actually FAILED or was CANCELLED; a skipped
     # job counts as OK.
-    needs: [changes, lint, build-release, test]
+    needs: [changes, lint, baseline, build-release, test]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}"
+          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} baseline=${{ needs.baseline.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.lint.result }}" \
+            "${{ needs.baseline.result }}" \
             "${{ needs.build-release.result }}" \
             "${{ needs.test.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then

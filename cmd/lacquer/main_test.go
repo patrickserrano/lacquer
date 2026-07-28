@@ -305,3 +305,151 @@ func TestPluginsMissingManifestFails(t *testing.T) {
 		t.Errorf("stderr = %q", errb.String())
 	}
 }
+
+// auditFixture builds a lacquer root and a project that is fully in sync with it
+// (so nothing is clobbered and audit's exit 3 does not fire), carrying the given
+// pbxproj so the baseline outcome is the only thing under test.
+func auditFixture(t *testing.T, pbxproj, extraManifest string) (lacquerRoot, projectRoot string) {
+	t.Helper()
+	lacquerRoot, projectRoot = t.TempDir(), t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(lacquerRoot, "VERSION"), []byte("71\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	iosDir := filepath.Join(lacquerRoot, "profiles", "ios")
+	if err := os.MkdirAll(iosDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(iosDir, "CLAUDE.ios.md"), []byte("ios rules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(iosDir, "baseline.toml"),
+		[]byte("[baseline]\nswift_version = \"6\"\nwarnings_as_errors = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(lacquerRoot, "core"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lacquerRoot, "core", "CLAUDE.core.md"), []byte("core rules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	xc := filepath.Join(projectRoot, "ios", "App.xcodeproj")
+	if err := os.MkdirAll(xc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xc, "project.pbxproj"), []byte(pbxproj), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := `
+[project]
+name = "app"
+xcodeproj = "ios/App.xcodeproj"
+tools = ["claude"]
+
+[[component]]
+path = "ios"
+profiles = ["ios"]
+` + extraManifest
+	if err := os.WriteFile(filepath.Join(projectRoot, ".lacquer.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return lacquerRoot, projectRoot
+}
+
+const pbxCompliant = `
+/* Begin XCBuildConfiguration section */
+		APP1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+`
+
+const pbxPartialWerror = `
+/* Begin XCBuildConfiguration section */
+		APP1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6;
+			};
+			name = Debug;
+		};
+		EXT1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_VERSION = 6;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+`
+
+// The headline behavior: a baseline violation makes `lacquer audit` exit 4, so a
+// CI gate can distinguish it from exit 3 ("sync would destroy work").
+func TestAuditExits4OnBaselineViolation(t *testing.T) {
+	hr, pr := auditFixture(t, pbxPartialWerror, "")
+	chdir(t, pr)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 4 {
+		t.Fatalf("exit code = %d, want 4\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "warnings_as_errors") || !strings.Contains(out.String(), "1/2") {
+		t.Errorf("report should name the key and the ratio:\n%s", out.String())
+	}
+}
+
+func TestAuditExits0WhenBaselineMet(t *testing.T) {
+	hr, pr := auditFixture(t, pbxCompliant, "")
+	chdir(t, pr)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "baseline: ok") {
+		t.Errorf("want a baseline ok line:\n%s", out.String())
+	}
+}
+
+// An unexpired relaxation clears the gate, which is what makes the escape hatch
+// usable in practice rather than in theory.
+func TestAuditExits0UnderRelaxation(t *testing.T) {
+	relax := "\n[baseline.relax]\nwarnings_as_errors = { until = \"2099-01-01\", reason = \"tracked in #142\" }\n"
+	hr, pr := auditFixture(t, pbxPartialWerror, relax)
+	chdir(t, pr)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "RELAXED") || !strings.Contains(out.String(), "#142") {
+		t.Errorf("report should show the relaxation and its reason:\n%s", out.String())
+	}
+}
+
+// An expired relaxation must NOT clear the gate.
+func TestAuditExits4OnExpiredRelaxation(t *testing.T) {
+	relax := "\n[baseline.relax]\nwarnings_as_errors = { until = \"2020-01-01\", reason = \"stale\" }\n"
+	hr, pr := auditFixture(t, pbxPartialWerror, relax)
+	chdir(t, pr)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 4 {
+		t.Fatalf("exit code = %d, want 4\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "EXPIRED") {
+		t.Errorf("report should mark the relaxation expired:\n%s", out.String())
+	}
+}

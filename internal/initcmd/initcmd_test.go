@@ -281,3 +281,79 @@ func TestInitKeepsShippingProfile(t *testing.T) {
 		t.Errorf("ios profile was dropped despite shipping:\n%s", data)
 	}
 }
+
+// lacquerWithBaseline builds a lacquer root that ships the ios profile AND an
+// asserted baseline.
+func lacquerWithBaseline(t *testing.T, swiftVersion string) string {
+	t.Helper()
+	hr := lacquerWith(t, "ios")
+	spec := "[baseline]\nswift_version = \"" + swiftVersion + "\"\nwarnings_as_errors = true\n"
+	if err := os.WriteFile(filepath.Join(hr, "profiles", "ios", "baseline.toml"), []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return hr
+}
+
+// init must write the ASSERTED swift_version, not the one scraped from the
+// project. Deriving it is what let throughline's manifest say "5.0": detection
+// answers "what are you", which can never answer "what should you be".
+func TestInitWritesAssertedSwiftVersion(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
+	// The project declares an older mode via XcodeGen.
+	if err := os.WriteFile(filepath.Join(root, "ios", "project.yml"),
+		[]byte("settings:\n  base:\n    SWIFT_VERSION: \"5.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := Run(lacquerWithBaseline(t, "6"), root)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
+	if !strings.Contains(string(data), `swift_version = "6"`) {
+		t.Errorf("manifest should carry the asserted 6, got:\n%s", data)
+	}
+	if strings.Contains(string(data), `swift_version = "5.0"`) {
+		t.Error("manifest must not carry the scraped 5.0")
+	}
+	// The disagreement is the interesting part of the onboarding: say so.
+	if !strings.Contains(summary, "5.0") || !strings.Contains(summary, "6") {
+		t.Errorf("summary should warn that the project declares 5.0 but the standard is 6, got:\n%s", summary)
+	}
+}
+
+// When the project already agrees with the standard there is nothing to warn about.
+func TestInitSilentWhenProjectMatchesStandard(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
+	if err := os.WriteFile(filepath.Join(root, "ios", "project.yml"),
+		[]byte("settings:\n  base:\n    SWIFT_VERSION: \"6\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := Run(lacquerWithBaseline(t, "6"), root)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.Contains(summary, "declares Swift") {
+		t.Errorf("no warning expected when project matches the standard, got:\n%s", summary)
+	}
+}
+
+// A lacquer with no baseline for the profile falls back to the detected value, so
+// a profile that asserts nothing behaves exactly as before.
+func TestInitFallsBackToDetectedWithoutBaseline(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
+	if err := os.WriteFile(filepath.Join(root, "ios", "project.yml"),
+		[]byte("settings:\n  base:\n    SWIFT_VERSION: \"5.9\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
+	if !strings.Contains(string(data), `swift_version = "5.9"`) {
+		t.Errorf("want the detected 5.9 when no baseline is asserted, got:\n%s", data)
+	}
+}
