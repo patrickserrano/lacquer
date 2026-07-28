@@ -56,6 +56,25 @@ anything on current models.
 
 ## Agent delegation
 
+**A skill is not a subagent.** They are separate tools with separate name spaces,
+and this fleet's names collide badly: skills named `*-expert`, `*-pro`,
+`*-analyzer`, `*-orchestrator` — and one literally named `ios-debugger-agent` —
+read exactly like the agents in `.claude/agents/`, which use the same `-expert`
+and `-engineer` suffixes. You cannot tell which is which from the name.
+
+Passing a skill name as a Task `subagent_type` fails with
+`Agent type '<name>' not found`. Before delegating by name, check which it is:
+
+- Listed in `.claude/agents/` → `Task` with that `subagent_type`.
+- Listed in `.claude/skills/` (or `.agents/skills/`, `.codex/skills/`) → the
+  **Skill** tool. Never a `subagent_type`.
+
+Concretely: `swift-testing-expert`, `core-data-expert`, `swiftui-expert-skill`,
+`ios-debugger-agent`, and the `xcode-*` family are **skills**. The agent for
+Swift work is `ios-swift-engineer`; for tests it is `test-automation-engineer`.
+When in doubt, invoke it as a skill — a wrong Skill call is a no-op, a wrong
+Task call is a hard error.
+
 Delegate genuinely independent, sizeable work — not everything. A subagent adds
 latency and cost; reserve it for tracks large enough that parallelizing or isolating
 context actually pays for itself. Don't spin one up to double-check work you already
