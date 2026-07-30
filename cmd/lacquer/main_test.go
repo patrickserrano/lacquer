@@ -93,8 +93,9 @@ func TestVersionPrints(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errb.String())
 	}
-	if strings.TrimSpace(out.String()) != "31" {
-		t.Errorf("version output = %q, want 31", out.String())
+	// A legacy bare VERSION renders in canonical semver form: 31 -> 0.31.0.
+	if strings.TrimSpace(out.String()) != "0.31.0" {
+		t.Errorf("version output = %q, want 0.31.0", out.String())
 	}
 }
 

@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/patrickserrano/lacquer/internal/version"
 )
 
 // Name is the lockfile's filename at the project root.
@@ -21,8 +23,12 @@ const Name = ".lacquer.lock"
 // from managed-unit key to the sha256 of the content the lacquer produced.
 // Region keys are "<dest>#<regionKey>" (e.g. "CLAUDE.md#core"); asset keys are
 // the destination path (e.g. ".github/workflows/ios-ci.yml").
+// Version is written as a semver string ("0.73.0"). A lockfile written before
+// semver holds a bare number; version.Version's UnmarshalJSON accepts that and
+// reads it as 0.N.0, so an existing project's lock keeps loading rather than
+// erroring out and taking audit's three-way comparison offline.
 type Lock struct {
-	Version int               `json:"version"`
+	Version version.Version   `json:"version"`
 	Files   map[string]string `json:"files"`
 }
 

@@ -155,7 +155,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 // against symlinked directories), reads the target (a missing file is treated as
 // empty), merges the managed region, and writes it back, creating parent
 // directories as needed.
-func mergeInto(projectRoot, rel, key string, ver int, body string) error {
+func mergeInto(projectRoot, rel, key string, ver version.Version, body string) error {
 	target, err := safepath.Resolve(projectRoot, rel)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", rel, err)

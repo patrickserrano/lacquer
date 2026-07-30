@@ -14,6 +14,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # VERSION is machine-assigned (see .github/workflows/version.yml). Rejecting
+  # hand edits in a PR is what makes collisions impossible to author: two open PRs
+  # both bumping 70 -> 71 merge CLEANLY, because both sides made the identical
+  # change, and nothing else would ever complain.
+  version-guard:
+    name: VERSION is machine-assigned
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Reject manual VERSION edits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # -qx: an exact whole-line match, so a path like docs/VERSION.md can't
+          # trip this.
+          if git diff --name-only "$BASE" "$HEAD" | grep -qx 'VERSION'; then
+            echo "::error::Remove the VERSION edit — it is bumped automatically on merge to main from conventional commits (.github/workflows/version.yml). Hand-picked numbers are how two PRs end up claiming the same version, which git merges without complaint. To set it deliberately (e.g. graduating to 1.0.0), push to main directly."
+            exit 1
+          fi
+          echo "VERSION untouched."
+
   test:
     runs-on: ubuntu-latest
     steps:

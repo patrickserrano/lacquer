@@ -138,6 +138,40 @@ changelogs) are published automatically on [GitHub
 Releases](https://github.com/patrickserrano/lacquer/releases) whenever
 `VERSION` changes on `main`.
 
+## Versioning
+
+`VERSION` is semver and **machine-assigned — never edit it in a PR.** CI rejects
+that, because two open PRs both bumping to the same number merge cleanly (both
+sides make the identical change) and produce two different contents sharing one
+version. Hand-picking also produced a permanent gap: `v0.69.0` does not exist,
+because two bumps were missed and had to be corrected at once.
+
+On merge to `main`, if anything under `core/` or `profiles/` changed,
+[`version.yml`](.github/workflows/version.yml) derives the next version from
+conventional commits with [svu](https://github.com/caarlos0/svu), writes
+`VERSION`, and dispatches the release. `release.yml` tags `v<VERSION>` verbatim,
+so the file and the tag cannot drift.
+
+| Commit | Bump |
+|--------|------|
+| `feat:` | minor |
+| `fix:` | patch |
+| `docs:`, `chore:`, `ci:`, `refactor:` | patch (via `--always`) |
+| `feat!:` / `BREAKING CHANGE:` | minor — **clamped**, see below |
+
+`--always` matters: svu bumps *nothing* for `docs:`/`chore:` by default, and
+shipped-prose changes are usually exactly those, so without it a real content
+change would produce no new version.
+
+This project stays in `0.x`, so a breaking change is clamped to a minor bump
+rather than graduating to `1.0.0` — that should be deliberate, not a side effect
+of one commit's punctuation. To graduate: set `VERSION` to `1.0.0` in a direct
+push to `main` (the workflow leaves a hand-set value alone) and drop the clamp.
+
+The version is stamped into each managed region's marker so `lacquer status` can
+report stamped-vs-latest. A project last synced before semver carries the old
+integer form (`v70`); that reads as `0.70.0` and is re-stamped on its next sync.
+
 ## Docs
 
 `docs/plans/` holds the design and build plans. The design doc

@@ -5,6 +5,12 @@ on:
     branches: [main]
     paths:
       - "VERSION"
+  # version.yml bumps VERSION and pushes with GITHUB_TOKEN, and such a push does
+  # NOT trigger workflows (GitHub's recursion guard) — so the push trigger above
+  # never fires for an automated bump. version.yml dispatches this workflow
+  # explicitly instead. Keep both: the push trigger still covers a human editing
+  # VERSION directly. The tag check below makes a duplicate run a no-op.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,7 +32,17 @@ jobs:
       - id: check
         run: |
           version=$(tr -d '[:space:]' < VERSION)
-          tag="v0.${version}.0"
+          # VERSION is semver, so the tag is it verbatim — one value, so the file
+          # and the tag cannot drift. It used to be the formula v0.${VERSION}.0
+          # over an integer counter; a bare integer is still normalized that way so
+          # this keeps working if VERSION is ever set to a legacy value.
+          case "$version" in
+            *.*.*) ;;
+            '') echo "::error::VERSION is empty"; exit 1 ;;
+            *[!0-9]*) echo "::error::VERSION is not a version: '$version'"; exit 1 ;;
+            *) version="0.${version}.0" ;;
+          esac
+          tag="v${version}"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           if git rev-parse "refs/tags/${tag}" >/dev/null 2>&1; then
             echo "should_release=false" >> "$GITHUB_OUTPUT"

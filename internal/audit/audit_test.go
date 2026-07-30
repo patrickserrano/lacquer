@@ -9,6 +9,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/audit"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
+	"github.com/patrickserrano/lacquer/internal/version"
 )
 
 func TestFormatReportsAndSummarizesClobbers(t *testing.T) {
@@ -17,9 +18,9 @@ func TestFormatReportsAndSummarizesClobbers(t *testing.T) {
 		{Dest: ".claude/skills/git.md", Kind: "asset", Status: audit.Modified},
 		{Dest: "ios/CLAUDE.md", Kind: "region", Detail: "ios", Status: audit.Behind},
 	}
-	out := audit.Format(rows, 7)
+	out := audit.Format(rows, version.Version{Minor: 7})
 
-	if !strings.Contains(out, "lacquer audit — project vs lacquer v7") {
+	if !strings.Contains(out, "lacquer audit — project vs lacquer v0.7.0") {
 		t.Errorf("missing header:\n%s", out)
 	}
 	// The Modified unit is listed under its status section by bare dest...
