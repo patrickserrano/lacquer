@@ -22,11 +22,12 @@ on:
     # internal/ deserves a release just as much as a change under core/. Combined
     # with --always below, that means every merge produces exactly one new version.
     #
-    # This cannot loop. A push made with GITHUB_TOKEN does not trigger workflows
-    # (GitHub's recursion guard — the same rule that forces the explicit release
-    # dispatch at the end of this file), so the bump commit never re-runs this. The
-    # "already set by this push" check below is a second, independent guard that
-    # holds even if this ever ran under a PAT.
+    # LOOP SAFETY — read before changing the push token. This pushes with a PAT
+    # (RELEASE_TOKEN), and unlike GITHUB_TOKEN a PAT push DOES trigger workflows.
+    # So GitHub's recursion guard does not apply here: the bump commit re-runs this
+    # workflow. The "was VERSION set by this push?" check in the first step is what
+    # terminates it — that run exits without bumping. One extra no-op run per
+    # release is the cost. If that check is ever weakened, this loops forever.
 
 permissions:
   contents: write # commit and push the bump
@@ -45,6 +46,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # svu reads tags and history; a shallow clone gives wrong answers
+          # A PAT, not GITHUB_TOKEN: branch protection requires a pull request, and
+          # GitHub rejects an app bypass on a user-owned repo ("must be part of the
+          # ruleset source or owner organization"). This token acts as the repo
+          # admin, whom classic protection lets through via enforce_admins: false.
+          # See LOOP SAFETY above — this is also why the bump re-triggers this
+          # workflow.
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -148,11 +156,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # release.yml triggers on a push to main touching VERSION — but a push
-          # made with GITHUB_TOKEN does NOT trigger workflows (GitHub's recursion
-          # guard). Without this explicit dispatch the bump would land and the
-          # release would never be cut, which is strictly worse than the missed
-          # bumps this workflow replaces. release.yml skips when the tag already
-          # exists, so a duplicate dispatch is a no-op.
+          # Belt and braces. Pushing with a PAT does trigger release.yml's own push
+          # trigger, so this dispatch is usually redundant — but it is what makes the
+          # pipeline correct if the token is ever swapped back to GITHUB_TOKEN, whose
+          # pushes trigger nothing and would leave the bump landed with no release
+          # ever cut. release.yml skips when the tag already exists, so the duplicate
+          # run is a no-op.
           gh workflow run release.yml --ref main
           echo "dispatched release.yml"
