@@ -83,6 +83,37 @@ jobs:
           fi
           echo "PR title OK."
 
+      # Squash-merge puts the PR BODY into the commit message, and svu decides
+      # "breaking" by substring-searching that body:
+      #
+      #   breakingBody = regexp.MustCompile("(?m).*BREAKING[ -]CHANGE:.*")
+      #   func isBreaking(c git.Commit) bool {
+      #       return breakingBody.MatchString(c.Body) || breaking.MatchString(c.Title)
+      #   }
+      #
+      # It is not a footer check and it is not anchored, so merely *quoting* the
+      # convention declares it. #89 shipped a table row reading
+      # "| `feat!:` / `BREAKING CHANGE:` | major |" as documentation, and svu
+      # proposed 1.0.0 off a 0.72.0 base — a major release authored by a legend
+      # in a markdown table. Note the asymmetry that makes this a trap: breaking
+      # is the ONLY check that reads the body; feat:/fix: are title-only, so
+      # nothing else in a PR description can move the version.
+      - name: Reject a stray breaking-change marker in the PR body
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          # Case-sensitive and the same character class svu uses, so this
+          # matches exactly what svu will match — no more, no less.
+          if printf '%s' "$BODY" | grep -qE 'BREAKING[ -]CHANGE:'; then
+            if ! printf '%s' "$TITLE" | grep -qE '^[a-z]+(\([^)]+\))?!: '; then
+              echo "::error::The PR body contains a breaking-change marker, and the body becomes the squash commit message — svu will read it as a declaration and bump the MAJOR version, even if it only appears inside a code span or a table. If the change really is breaking, say so in the title with '!' (e.g. 'feat!: ...'). If you are only referring to the convention, break up the string so it no longer matches, or drop the trailing colon."
+              exit 1
+            fi
+          fi
+          echo "No stray breaking-change marker."
+
   test:
     runs-on: ubuntu-latest
     steps:
