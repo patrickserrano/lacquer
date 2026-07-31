@@ -40,6 +40,49 @@ jobs:
           fi
           echo "VERSION untouched."
 
+  # The version is derived from commit messages, so it is only as good as they
+  # are — and this repo squash-merges, which makes the PR TITLE the commit subject
+  # on main. At the time this was added, 3 of the last 12 subjects on main were
+  # not conventional (e.g. "Assert a project baseline instead of observing one
+  # (#87)"). Each of those merges would compute no bump and silently release
+  # nothing, which is the missed-bump bug returning through the one door the rest
+  # of this design leaves open.
+  commit-convention:
+    name: PR title is a conventional commit
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check the PR title
+        env:
+          # Untrusted input: read via env, never interpolated into the script.
+          TITLE: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          types='feat|fix|docs|chore|ci|build|refactor|perf|style|test|revert'
+
+          if ! printf '%s' "$TITLE" | grep -qE "^(${types})(\([^)]+\))?!?: .+"; then
+            echo "::error::PR title must be a conventional commit — it becomes the squash-merge subject on main, and the release version is derived from it. Expected '<type>(<scope>)?: <description>', e.g. 'feat(core): add X'. Types: ${types}."
+            exit 1
+          fi
+
+          # Material change = content this repo ships into projects. Such a change
+          # must release, or `lacquer status` keeps telling projects they are
+          # current while the content has moved. docs:/chore:/ci: do NOT release,
+          # so they are not allowed to carry one. (#88 was `docs(core):` and
+          # changed core/CLAUDE.core.md — exactly this mistake.)
+          if git diff --name-only "$BASE" "$HEAD" | grep -qE '^(core|profiles)/'; then
+            if ! printf '%s' "$TITLE" | grep -qE "^(feat|fix)(\([^)]+\))?!?: |^(${types})(\([^)]+\))?!: "; then
+              echo "::error::This PR changes shipped content under core/ or profiles/, which projects consume — so it must produce a release. Use 'feat:' or 'fix:' (or a breaking '!'), not a non-releasing type. Prose counts: a rule change in CLAUDE.core.md is material even though it reads like docs."
+              exit 1
+            fi
+          fi
+          echo "PR title OK."
+
   test:
     runs-on: ubuntu-latest
     steps:

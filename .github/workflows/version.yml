@@ -83,25 +83,27 @@ jobs:
             * ) cur="0.${cur}.0" ;;
           esac
 
-          # --always is REQUIRED, not cosmetic. svu bumps nothing for docs:,
-          # chore:, ci:, or refactor: — and shipped-prose changes are usually
-          # exactly those (#88 was `docs(core):`). Without it a content change
-          # produces no new version, which is the missed-bump bug through a new
-          # door. Verified against svu v3.4.1: docs: -> no bump, docs: --always ->
-          # patch. (A `.svu.yaml` with `always: true` was tried and had NO effect
-          # in v3.4.1, so the flag is the only mechanism relied on here.)
+          # svu's default table governs, deliberately WITHOUT --always: only
+          # feat:, fix:, and a breaking marker produce a release. docs:, chore:,
+          # ci:, refactor:, style: and test: do not — a README or docs-site edit
+          # ships nothing to a project, so it should not mint a version.
+          #
+          # The corollary matters: a change under core/ or profiles/ IS material
+          # even when it is prose, because projects consume it. Such a change must
+          # be committed as feat:/fix:, not docs:. ci.yml enforces that on PRs
+          # rather than leaving it to discipline (#88 was `docs(core):` and changed
+          # shipped content — under this rule it would have released nothing).
+          #
           # svu's own major/minor/patch decision is taken as-is, including the jump
-          # to 1.0.0 on a `feat!:`/BREAKING CHANGE. That marker is the standardized,
-          # explicit way to declare a breaking change — someone typed the `!` on
-          # purpose — so it is exactly the deliberate signal that should graduate
-          # the major. The project sits in 0.x until such a commit lands, and then
-          # it should not.
+          # to 1.0.0 on a `feat!:`/BREAKING CHANGE: that marker is the standardized,
+          # explicit way to declare a breaking change, so it is exactly the
+          # deliberate signal that should graduate the major.
+          #
           # Pinned, not @latest: this runs with contents:write, so an unpinned
           # dependency would execute whatever was published most recently. It also
           # keeps the computation reproducible, and matches how every action in
-          # this repo is SHA-pinned. v3.4.1 is the version the behavior above was
-          # verified against; bump it deliberately.
-          cand=$(go run github.com/caarlos0/svu/v3@v3.4.1 next --always)
+          # this repo is SHA-pinned. Bump it deliberately.
+          cand=$(go run github.com/caarlos0/svu/v3@v3.4.1 next)
           cand=${cand#v}
           echo "svu proposed: ${cand} (current: ${cur})"
 

@@ -146,7 +146,7 @@ sides make the identical change) and produce two different contents sharing one
 version. Hand-picking also produced a permanent gap: `v0.69.0` does not exist,
 because two bumps were missed and had to be corrected at once.
 
-**Every merge to `main` releases.** [`version.yml`](.github/workflows/version.yml)
+**Every merge with a material change releases.** [`version.yml`](.github/workflows/version.yml)
 derives the next version from conventional commits with
 [svu](https://github.com/caarlos0/svu) (pinned), writes `VERSION`, pushes, and
 dispatches the release. `release.yml` tags `v<VERSION>` verbatim, so the file and
@@ -158,12 +158,21 @@ with `GITHUB_TOKEN` does not trigger workflows.
 |--------|------|
 | `feat:` | minor |
 | `fix:` | patch |
-| `docs:`, `chore:`, `ci:`, `refactor:` | patch (via `--always`) |
 | `feat!:` / `BREAKING CHANGE:` | major |
+| `docs:`, `chore:`, `ci:`, `refactor:`, `style:`, `test:` | **no release** |
 
-`--always` matters: svu bumps *nothing* for `docs:`/`chore:` by default, and
-shipped-prose changes are usually exactly those, so without it a real content
-change would produce no new version.
+A README or docs-site edit ships nothing to a project, so it mints no version.
+
+**But prose under `core/` or `profiles/` is material** — projects consume it, so it
+must release, and `docs:` would leave `lacquer status` telling them they're current
+while the content moved. Commit those as `feat:`/`fix:` even though they read like
+docs. CI enforces this rather than leaving it to discipline: a PR touching
+`core/**` or `profiles/**` with a non-releasing type is rejected.
+
+Because the repo squash-merges, **the PR title becomes the commit subject on
+`main`** — so it is the PR title that CI validates, and the version is derived
+from. A non-conventional title would otherwise compute no bump and silently
+release nothing.
 
 The project sits in `0.x` until a breaking change lands. `feat!:` /
 `BREAKING CHANGE:` is the standardized, explicit way to declare one, so it
