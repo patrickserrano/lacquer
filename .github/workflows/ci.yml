@@ -3,6 +3,13 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    # `edited` is not in the default set (opened, synchronize, reopened), and
+    # without it the title and body guards below would be evaluated once at open
+    # and never again — while the title and body are exactly what a person edits
+    # afterwards. A green check would then attest to text that no longer exists,
+    # and since both feed the squash commit, the version is derived from the
+    # edited text, not the checked one.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
