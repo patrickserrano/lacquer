@@ -1,17 +1,22 @@
 package status
 
 import (
+	"github.com/patrickserrano/lacquer/internal/version"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
+// v builds the Version a legacy counter N embeds to (0.N.0), which is what the
+// fixtures below mean when they say "version 5".
+func v(minor int) version.Version { return version.Version{Minor: minor} }
+
 func TestFormatRendersStatuses(t *testing.T) {
 	rows := []Row{
-		{Key: "core", Path: "CLAUDE.md", Stamped: 5, Found: true, Latest: 5, Behind: false},
-		{Key: "ios", Path: "ios/CLAUDE.md", Stamped: 3, Found: true, Latest: 5, Behind: true},
-		{Key: "web", Path: "web/CLAUDE.md", Stamped: 0, Found: false, Latest: 5, Behind: true},
+		{Key: "core", Path: "CLAUDE.md", Stamped: v(5), Found: true, Latest: v(5), Behind: false},
+		{Key: "ios", Path: "ios/CLAUDE.md", Stamped: v(3), Found: true, Latest: v(5), Behind: true},
+		{Key: "web", Path: "web/CLAUDE.md", Found: false, Latest: v(5), Behind: true},
 	}
 	out := Format(rows)
 
@@ -65,10 +70,10 @@ func TestRowsReportBehindAndUpToDate(t *testing.T) {
 		t.Fatalf("got %d rows, want 2", len(rows))
 	}
 	// rows[0] = core, rows[1] = ios
-	if rows[0].Key != "core" || rows[0].Stamped != 5 || rows[0].Behind {
+	if rows[0].Key != "core" || rows[0].Stamped != v(5) || rows[0].Behind {
 		t.Errorf("core row = %+v, want stamped=5 behind=false", rows[0])
 	}
-	if rows[1].Key != "ios" || rows[1].Stamped != 3 || !rows[1].Behind {
+	if rows[1].Key != "ios" || rows[1].Stamped != v(3) || !rows[1].Behind {
 		t.Errorf("ios row = %+v, want stamped=3 behind=true", rows[1])
 	}
 }

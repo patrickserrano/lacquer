@@ -48,7 +48,7 @@ type Row struct {
 	Kind    string // "region" or "asset"
 	Detail  string // region marker key, or "" for assets
 	Status  Status
-	Stamped int // region: version in the on-disk start marker (0 if absent/asset)
+	Stamped version.Version // region: version in the on-disk start marker (zero if absent/asset)
 }
 
 // unit is one thing the lacquer manages: a region body merged into a file, or a
@@ -65,14 +65,14 @@ type unit struct {
 // core + per-profile CLAUDE.md regions (mirrored into AGENTS.md when a tool that
 // reads it is enabled), then the whole-file assets. It mirrors sync's set exactly
 // so the lock written by sync and the units audited here line up.
-func managed(lacquerRoot, projectRoot string) ([]unit, int, error) {
+func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 	ver, err := version.Read(lacquerRoot)
 	if err != nil {
-		return nil, 0, fmt.Errorf("read version: %w", err)
+		return nil, version.Version{}, fmt.Errorf("read version: %w", err)
 	}
 	cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 	if err != nil {
-		return nil, 0, fmt.Errorf("load manifest: %w", err)
+		return nil, version.Version{}, fmt.Errorf("load manifest: %w", err)
 	}
 
 	type regionSrc struct {
@@ -81,14 +81,14 @@ func managed(lacquerRoot, projectRoot string) ([]unit, int, error) {
 	var srcs []regionSrc
 	coreBody, err := os.ReadFile(filepath.Join(lacquerRoot, "core", "CLAUDE.core.md"))
 	if err != nil {
-		return nil, 0, fmt.Errorf("read core body: %w", err)
+		return nil, version.Version{}, fmt.Errorf("read core body: %w", err)
 	}
 	srcs = append(srcs, regionSrc{"CLAUDE.md", "core", string(coreBody), ""})
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
 			body, err := os.ReadFile(filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md"))
 			if err != nil {
-				return nil, 0, fmt.Errorf("read profile %s body: %w", p, err)
+				return nil, version.Version{}, fmt.Errorf("read profile %s body: %w", p, err)
 			}
 			srcs = append(srcs, regionSrc{filepath.Join(c.Path, "CLAUDE.md"), p, string(body), tokens.Prefix(c.Path)})
 		}
@@ -117,12 +117,12 @@ func managed(lacquerRoot, projectRoot string) ([]unit, int, error) {
 
 	plan, err := assets.Plan(lacquerRoot, cfg)
 	if err != nil {
-		return nil, 0, fmt.Errorf("plan assets: %w", err)
+		return nil, version.Version{}, fmt.Errorf("plan assets: %w", err)
 	}
 	for _, a := range plan {
 		data, err := os.ReadFile(a.Src)
 		if err != nil {
-			return nil, 0, fmt.Errorf("read asset %s: %w", a.Src, err)
+			return nil, version.Version{}, fmt.Errorf("read asset %s: %w", a.Src, err)
 		}
 		content, _ := tokens.Substitute(string(data), tokens.Values(cfg.Project, a.Prefix))
 		units = append(units, unit{lockKey: a.Dest, dest: a.Dest, kind: "asset", content: content})
@@ -132,14 +132,14 @@ func managed(lacquerRoot, projectRoot string) ([]unit, int, error) {
 
 // Classify audits projectRoot against lacquerRoot, returning one Row per managed
 // unit sorted by destination. The current version is returned for reporting.
-func Classify(lacquerRoot, projectRoot string) ([]Row, int, error) {
+func Classify(lacquerRoot, projectRoot string) ([]Row, version.Version, error) {
 	units, ver, err := managed(lacquerRoot, projectRoot)
 	if err != nil {
-		return nil, 0, err
+		return nil, version.Version{}, err
 	}
 	lk, locked, err := lock.Read(projectRoot)
 	if err != nil {
-		return nil, 0, fmt.Errorf("read lock: %w", err)
+		return nil, version.Version{}, fmt.Errorf("read lock: %w", err)
 	}
 
 	rows := make([]Row, 0, len(units))
@@ -191,20 +191,20 @@ func classifyDivergence(lk *lock.Lock, locked bool, key, projectHash, lacquerHas
 // readUnit returns the project's current content for u, whether it is present,
 // and (for regions) the stamped version. A region's content is the body between
 // its markers; an asset's content is the whole file.
-func readUnit(projectRoot string, u unit) (content string, present bool, stamped int) {
+func readUnit(projectRoot string, u unit) (content string, present bool, stamped version.Version) {
 	data, err := os.ReadFile(filepath.Join(projectRoot, u.dest))
 	if err != nil {
-		return "", false, 0
+		return "", false, version.Version{}
 	}
 	if u.kind == "region" {
 		body, found := region.ExtractBody(string(data), u.regionKey)
 		if !found {
-			return "", false, 0
+			return "", false, version.Version{}
 		}
 		v, _ := region.StampedVersion(string(data), u.regionKey)
 		return body, true, v
 	}
-	return string(data), true, 0
+	return string(data), true, version.Version{}
 }
 
 // LockFor builds the lockfile contents for projectRoot from what the lacquer
@@ -249,14 +249,14 @@ var statusNote = map[Status]string{
 
 // Format renders a human-readable audit report: a per-status summary, then the
 // destinations under each non-OK status (most-actionable first).
-func Format(rows []Row, ver int) string {
+func Format(rows []Row, ver version.Version) string {
 	groups := map[Status][]Row{}
 	for _, r := range rows {
 		groups[r.Status] = append(groups[r.Status], r)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "lacquer audit — project vs lacquer v%d\n\n", ver)
+	fmt.Fprintf(&b, "lacquer audit — project vs lacquer v%s\n\n", ver)
 	for _, s := range statusOrder {
 		fmt.Fprintf(&b, "  %-16s %3d   %s\n", s, len(groups[s]), statusNote[s])
 	}

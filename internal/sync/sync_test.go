@@ -41,7 +41,7 @@ func TestSyncMergesCoreAndProfile(t *testing.T) {
 	if !strings.Contains(string(root), "local note") {
 		t.Error("root CLAUDE.md lost project-owned text")
 	}
-	if !strings.Contains(string(root), "<!-- lacquer:core:start v2 -->") ||
+	if !strings.Contains(string(root), "<!-- lacquer:core:start v0.2.0 -->") ||
 		!strings.Contains(string(root), "CORE RULES") {
 		t.Errorf("root CLAUDE.md missing core region:\n%s", root)
 	}
@@ -50,7 +50,7 @@ func TestSyncMergesCoreAndProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("component CLAUDE.md not written: %v", err)
 	}
-	if !strings.Contains(string(comp), "<!-- lacquer:ios:start v2 -->") ||
+	if !strings.Contains(string(comp), "<!-- lacquer:ios:start v0.2.0 -->") ||
 		!strings.Contains(string(comp), "IOS RULES") {
 		t.Errorf("component CLAUDE.md missing ios region:\n%s", comp)
 	}
@@ -81,7 +81,7 @@ func TestSyncMirrorsAgentsMd(t *testing.T) {
 	if !strings.Contains(s, "keep me") {
 		t.Error("root AGENTS.md lost project-owned text")
 	}
-	if !strings.Contains(s, "<!-- lacquer:core:start v3 -->") || !strings.Contains(s, "CORE RULES") {
+	if !strings.Contains(s, "<!-- lacquer:core:start v0.3.0 -->") || !strings.Contains(s, "CORE RULES") {
 		t.Errorf("root AGENTS.md missing core region:\n%s", s)
 	}
 
@@ -89,7 +89,7 @@ func TestSyncMirrorsAgentsMd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("component AGENTS.md not written: %v", err)
 	}
-	if !strings.Contains(string(compAgents), "<!-- lacquer:ios:start v3 -->") ||
+	if !strings.Contains(string(compAgents), "<!-- lacquer:ios:start v0.3.0 -->") ||
 		!strings.Contains(string(compAgents), "IOS RULES") {
 		t.Errorf("component AGENTS.md missing ios region:\n%s", compAgents)
 	}

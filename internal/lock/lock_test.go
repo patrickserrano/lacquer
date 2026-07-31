@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"github.com/patrickserrano/lacquer/internal/version"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,7 @@ func TestReadMissingIsNotError(t *testing.T) {
 
 func TestWriteReadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	in := &Lock{Version: 7, Files: map[string]string{"CLAUDE.md#core": Hash("body")}}
+	in := &Lock{Version: version.Version{Minor: 7}, Files: map[string]string{"CLAUDE.md#core": Hash("body")}}
 	if err := Write(dir, in); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -26,7 +27,7 @@ func TestWriteReadRoundTrip(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("Read: ok=%v err=%v", ok, err)
 	}
-	if got.Version != 7 || got.Files["CLAUDE.md#core"] != Hash("body") {
+	if got.Version != (version.Version{Minor: 7}) || got.Files["CLAUDE.md#core"] != Hash("body") {
 		t.Errorf("round-trip mismatch: %+v", got)
 	}
 }
@@ -49,7 +50,7 @@ func TestWriteRefusesSymlink(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, Name)); err != nil {
 		t.Fatal(err)
 	}
-	if err := Write(dir, &Lock{Version: 1, Files: map[string]string{}}); err == nil {
+	if err := Write(dir, &Lock{Version: version.Version{Minor: 1}, Files: map[string]string{}}); err == nil {
 		t.Fatal("expected Write to refuse a symlinked lockfile")
 	}
 	if got, _ := os.ReadFile(outside); string(got) != "ORIGINAL" {

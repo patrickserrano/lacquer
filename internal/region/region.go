@@ -5,13 +5,21 @@ package region
 import (
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
+
+	"github.com/patrickserrano/lacquer/internal/version"
 )
 
-// startRe matches a start marker for the given key, capturing the version int.
+// stampPat matches either stamp form: the legacy bare counter (`v72`) or semver
+// (`v0.73.0`). Defined once because it appears in three regexes — start-marker
+// parsing, body extraction, and whole-block matching — and widening only some of
+// them fails silently: ExtractBody would report every region as changed, and
+// Merge would append a second block instead of replacing the existing one.
+const stampPat = `v[0-9]+(?:\.[0-9]+\.[0-9]+)?`
+
+// startRe matches a start marker for the given key, capturing the version stamp.
 func startRe(key string) *regexp.Regexp {
-	return regexp.MustCompile(`<!-- lacquer:` + regexp.QuoteMeta(key) + `:start v(\d+) -->`)
+	return regexp.MustCompile(`<!-- lacquer:` + regexp.QuoteMeta(key) + `:start (` + stampPat + `) -->`)
 }
 
 func endMarker(key string) string {
@@ -20,14 +28,16 @@ func endMarker(key string) string {
 
 // StampedVersion returns the version recorded in the key's start marker, and
 // whether such a marker was found.
-func StampedVersion(content, key string) (int, bool) {
+func StampedVersion(content, key string) (version.Version, bool) {
 	m := startRe(key).FindStringSubmatch(content)
 	if m == nil {
-		return 0, false
+		return version.Version{}, false
 	}
-	v, err := strconv.Atoi(m[1])
+	// A legacy `v72` stamp parses as 0.72.0, so it orders against current semver
+	// versions rather than reading as absent.
+	v, err := version.Parse(m[1])
 	if err != nil {
-		return 0, false
+		return version.Version{}, false
 	}
 	return v, true
 }
@@ -37,7 +47,7 @@ func StampedVersion(content, key string) (int, bool) {
 // follows the start marker and the one preceding the end marker.
 func bodyRe(key string) *regexp.Regexp {
 	return regexp.MustCompile(
-		`(?s)<!-- lacquer:` + regexp.QuoteMeta(key) + `:start v\d+ -->\n(.*)\n` +
+		`(?s)<!-- lacquer:` + regexp.QuoteMeta(key) + `:start ` + stampPat + ` -->\n(.*)\n` +
 			regexp.QuoteMeta(endMarker(key)))
 }
 
@@ -54,16 +64,16 @@ func ExtractBody(content, key string) (string, bool) {
 }
 
 // render produces a complete managed block for the key/version/body.
-func render(key string, version int, body string) string {
-	return fmt.Sprintf("<!-- lacquer:%s:start v%d -->\n%s\n<!-- lacquer:%s:end -->",
-		key, version, body, key)
+func render(key string, v version.Version, body string) string {
+	return fmt.Sprintf("<!-- lacquer:%s:start v%s -->\n%s\n<!-- lacquer:%s:end -->",
+		key, v, body, key)
 }
 
 // blockRe matches an entire existing managed block (start marker through end
 // marker, inclusive) for the given key.
 func blockRe(key string) *regexp.Regexp {
 	return regexp.MustCompile(
-		`(?s)<!-- lacquer:` + regexp.QuoteMeta(key) + `:start v\d+ -->.*?` +
+		`(?s)<!-- lacquer:` + regexp.QuoteMeta(key) + `:start ` + stampPat + ` -->.*?` +
 			regexp.QuoteMeta(endMarker(key)))
 }
 
@@ -76,7 +86,7 @@ func blockRe(key string) *regexp.Regexp {
 // (which would truncate on the next parse), an unbalanced number of start/end
 // markers (a dangling marker), an end marker that precedes its start, or more
 // than one block for the same key.
-func Merge(content, key string, version int, body string) (string, error) {
+func Merge(content, key string, v version.Version, body string) (string, error) {
 	startRegex := startRe(key)
 	endM := endMarker(key)
 
@@ -95,14 +105,14 @@ func Merge(content, key string, version int, body string) (string, error) {
 
 	switch len(startLocs) {
 	case 0:
-		return appendBlock(content, key, version, body), nil
+		return appendBlock(content, key, v, body), nil
 	case 1:
 		loc := blockRe(key).FindStringIndex(content)
 		if loc == nil {
 			// Both markers present but not in start-before-end order.
 			return "", fmt.Errorf("malformed lacquer:%s region (end marker precedes start)", key)
 		}
-		return content[:loc[0]] + render(key, version, body) + content[loc[1]:], nil
+		return content[:loc[0]] + render(key, v, body) + content[loc[1]:], nil
 	default:
 		return "", fmt.Errorf("malformed lacquer:%s region (%d duplicate blocks)", key, len(startLocs))
 	}
@@ -110,8 +120,8 @@ func Merge(content, key string, version int, body string) (string, error) {
 
 // appendBlock adds a new managed block to the end of content, ensuring exactly
 // one blank line of separation from any existing text and a trailing newline.
-func appendBlock(content, key string, version int, body string) string {
-	block := render(key, version, body) + "\n"
+func appendBlock(content, key string, v version.Version, body string) string {
+	block := render(key, v, body) + "\n"
 	if content == "" {
 		return block
 	}

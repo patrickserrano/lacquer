@@ -1,0 +1,166 @@
+name: Version
+
+# Derives VERSION from conventional commits when shipped content lands on main,
+# so no human ever picks it — and so VERSION and the release tag can never drift,
+# because release.yml tags exactly what this writes.
+#
+# Two real failures motivated this, both caused by a human choosing the value
+# inside a PR:
+#   - Missed bumps. Content shipped without a bump, so `lacquer status` told
+#     projects they were current when they weren't — and because release.yml keys
+#     off VERSION, the release was skipped too. v0.69.0 does not exist: #86 had to
+#     correct two missed bumps at once, and that gap is permanent.
+#   - Collisions. Two open PRs both bumped 70 -> 71. Git merges that CLEANLY
+#     (both sides made the identical change), so nothing complains, and two
+#     different shipped contents end up sharing one version.
+
+on:
+  push:
+    branches: [main]
+    # No path filter, on purpose: every merge releases. VERSION is the version of
+    # the whole thing — the CLI binary as much as the synced content — so a fix in
+    # internal/ deserves a release just as much as a change under core/. Combined
+    # with --always below, that means every merge produces exactly one new version.
+    #
+    # LOOP SAFETY — read before changing the push token. This pushes with a PAT
+    # (RELEASE_TOKEN), and unlike GITHUB_TOKEN a PAT push DOES trigger workflows.
+    # So GitHub's recursion guard does not apply here: the bump commit re-runs this
+    # workflow. The "was VERSION set by this push?" check in the first step is what
+    # terminates it — that run exits without bumping. One extra no-op run per
+    # release is the cost. If that check is ever weakened, this loops forever.
+
+permissions:
+  contents: write # commit and push the bump
+  actions: write # dispatch release.yml (see the last step)
+
+# Never cancel, and never run two at once: each qualifying push must get exactly
+# one bump, and a cancelled run would silently drop one.
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # svu reads tags and history; a shallow clone gives wrong answers
+          # A PAT, not GITHUB_TOKEN: branch protection requires a pull request, and
+          # GitHub rejects an app bypass on a user-owned repo ("must be part of the
+          # ruleset source or owner organization"). This token acts as the repo
+          # admin, whom classic protection lets through via enforce_admins: false.
+          # See LOOP SAFETY above — this is also why the bump re-triggers this
+          # workflow.
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Compute the next version
+        id: next
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # If this push already set VERSION, it was deliberate (a direct push, or
+          # a correction like #86). Don't bump on top of it. `before` is all-zeros
+          # on a branch's first push and stale after a force-push, so fall back to
+          # the single-commit diff rather than trusting it blindly.
+          if git rev-parse --verify --quiet "${BEFORE}^{commit}" >/dev/null; then
+            range="${BEFORE}..${AFTER}"
+          else
+            range="${AFTER}^..${AFTER}"
+          fi
+          if git diff --name-only "$range" -- VERSION | grep -qx 'VERSION'; then
+            echo "VERSION was set by this push; leaving it alone."
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cur=$(tr -d '[:space:]' < VERSION)
+          # Normalize the legacy bare counter (N -> 0.N.0), matching what
+          # internal/version.Parse does, so this keeps working on an old checkout.
+          case "$cur" in
+            *.*.*) ;;
+            '' ) echo "::error::VERSION is empty"; exit 1 ;;
+            *[!0-9]* ) echo "::error::VERSION is not a version: '$cur'"; exit 1 ;;
+            * ) cur="0.${cur}.0" ;;
+          esac
+
+          # svu's default table governs, deliberately WITHOUT --always: only
+          # feat:, fix:, and a breaking marker produce a release. docs:, chore:,
+          # ci:, refactor:, style: and test: do not — a README or docs-site edit
+          # ships nothing to a project, so it should not mint a version.
+          #
+          # The corollary matters: a change under core/ or profiles/ IS material
+          # even when it is prose, because projects consume it. Such a change must
+          # be committed as feat:/fix:, not docs:. ci.yml enforces that on PRs
+          # rather than leaving it to discipline (#88 was `docs(core):` and changed
+          # shipped content — under this rule it would have released nothing).
+          #
+          # svu's own major/minor/patch decision is taken as-is, including the jump
+          # to 1.0.0 on a `feat!:`/BREAKING CHANGE: that marker is the standardized,
+          # explicit way to declare a breaking change, so it is exactly the
+          # deliberate signal that should graduate the major.
+          #
+          # Pinned, not @latest: this runs with contents:write, so an unpinned
+          # dependency would execute whatever was published most recently. It also
+          # keeps the computation reproducible, and matches how every action in
+          # this repo is SHA-pinned. Bump it deliberately.
+          cand=$(go run github.com/caarlos0/svu/v3@v3.4.1 next)
+          cand=${cand#v}
+          echo "svu proposed: ${cand} (current: ${cur})"
+
+          if [ "$cand" = "$cur" ]; then
+            echo "no version change computed; nothing to do."
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$cand" > VERSION
+          echo "bump=true" >> "$GITHUB_OUTPUT"
+          echo "version=${cand}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.next.outputs.bump == 'true'
+        env:
+          NEXT: ${{ steps.next.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: bump VERSION to ${NEXT}"
+
+          # The concurrency group serializes this workflow, but main is shared with
+          # humans and other automation, so a push can still race. Rebase and
+          # retry rather than failing and leaving the bump unlanded.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "push rejected; rebasing onto main and retrying"
+            git pull --rebase --autostash origin main
+          done
+          echo "::error::could not push the VERSION bump after 3 attempts"
+          exit 1
+
+      - name: Trigger the release
+        if: steps.next.outputs.bump == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Belt and braces. Pushing with a PAT does trigger release.yml's own push
+          # trigger, so this dispatch is usually redundant — but it is what makes the
+          # pipeline correct if the token is ever swapped back to GITHUB_TOKEN, whose
+          # pushes trigger nothing and would leave the bump landed with no release
+          # ever cut. release.yml skips when the tag already exists, so the duplicate
+          # run is a no-op.
+          gh workflow run release.yml --ref main
+          echo "dispatched release.yml"

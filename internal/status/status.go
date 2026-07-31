@@ -14,11 +14,11 @@ import (
 )
 
 type Row struct {
-	Key     string // "core" or a profile name
-	Path    string // file the region lives in, relative to project root
-	Stamped int    // version found in the file (0 if absent)
+	Key     string          // "core" or a profile name
+	Path    string          // file the region lives in, relative to project root
+	Stamped version.Version // version found in the file (zero if absent)
 	Found   bool
-	Latest  int
+	Latest  version.Version
 	Behind  bool
 }
 
@@ -44,7 +44,7 @@ func Rows(lacquerRoot, projectRoot string) ([]Row, error) {
 	return rows, nil
 }
 
-func rowFor(projectRoot, rel, key string, latest int) Row {
+func rowFor(projectRoot, rel, key string, latest version.Version) Row {
 	// Confine the read within the project root; a symlinked component dir that
 	// escapes the root is treated as having no readable region rather than
 	// reading a file outside the project.
@@ -59,7 +59,7 @@ func rowFor(projectRoot, rel, key string, latest int) Row {
 		Stamped: stamped,
 		Found:   found,
 		Latest:  latest,
-		Behind:  !found || stamped < latest,
+		Behind:  !found || stamped.Less(latest),
 	}
 }
 
@@ -74,11 +74,11 @@ func Format(rows []Row) string {
 		} else if r.Behind {
 			status = "behind"
 		}
-		stamped := fmt.Sprintf("%d", r.Stamped)
+		stamped := r.Stamped.String()
 		if !r.Found {
 			stamped = "-"
 		}
-		fmt.Fprintf(&b, "%-6s %-20s %-8s %-7d %s\n", r.Key, r.Path, stamped, r.Latest, status)
+		fmt.Fprintf(&b, "%-6s %-20s %-8s %-7s %s\n", r.Key, r.Path, stamped, r.Latest, status)
 	}
 	return b.String()
 }
