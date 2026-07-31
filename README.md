@@ -174,6 +174,15 @@ Because the repo squash-merges, **the PR title becomes the commit subject on
 from. A non-conventional title would otherwise compute no bump and silently
 release nothing.
 
+The PR **body** is load-bearing for the same reason, with a sharper edge: svu
+decides "breaking" by substring-searching the commit body, not by parsing a
+conventional footer — and that is the only check that reads the body at all
+(`feat:`/`fix:` are matched against the subject alone). So *quoting* the marker
+anywhere, even inside a code span or a table cell, declares a breaking change.
+#89 proposed `1.0.0` off a `0.72.0` base because its description reproduced the
+table above. CI now rejects a body carrying that marker unless the title also
+declares it with `!`.
+
 The project sits in `0.x` until a breaking change lands. `feat!:` /
 `BREAKING CHANGE:` is the standardized, explicit way to declare one, so it
 graduates the major — `0.x` → `1.0.0`, and `1.x` → `2.0.0` after that. If you need

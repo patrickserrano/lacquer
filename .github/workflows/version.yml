@@ -29,6 +29,18 @@ on:
     # terminates it — that run exits without bumping. One extra no-op run per
     # release is the cost. If that check is ever weakened, this loops forever.
 
+  # A push to main was the ONLY way to run this, so its first real execution was
+  # in production — and it failed there, on a toolchain mismatch a single trial
+  # run would have caught. dry_run computes and prints the next version and
+  # stops: nothing written, committed, pushed, or released. Use it to exercise
+  # this workflow after any edit.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Compute the next version but change nothing"
+        type: boolean
+        default: true
+
 permissions:
   contents: write # commit and push the bump
   actions: write # dispatch release.yml (see the last step)
@@ -54,9 +66,16 @@ jobs:
           # workflow.
           token: ${{ secrets.RELEASE_TOKEN }}
 
+      # svu's Go, deliberately NOT lacquer's. This job never builds lacquer — it
+      # only runs svu — so it takes svu's requirement, not the project's floor.
+      # `go-version-file: go.mod` (copied from ci.yml, where it is correct) set
+      # this to go 1.23, and setup-go also sets GOTOOLCHAIN=local, which forbids
+      # fetching a newer toolchain. The first live run died on exactly that:
+      #   svu/v3@v3.4.1 requires go >= 1.25.3 (running go 1.23.12)
+      # Bump this together with the svu pin below; they are one decision.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: "1.25.3" # the minimum svu v3.4.1 declares
 
       - name: Compute the next version
         id: next
@@ -125,8 +144,16 @@ jobs:
           echo "bump=true" >> "$GITHUB_OUTPUT"
           echo "version=${cand}" >> "$GITHUB_OUTPUT"
 
+          # Written to the checkout either way; on a dry run nothing consumes it,
+          # because the steps that commit, push and release are all skipped.
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "::notice::DRY RUN — would bump ${cur} -> ${cand}. Nothing was committed, pushed, or released."
+          fi
+
+      # `github.event.inputs` is null for a push, so this is true on every real
+      # run; it only ever skips a hand-started dry run.
       - name: Commit and push
-        if: steps.next.outputs.bump == 'true'
+        if: steps.next.outputs.bump == 'true' && github.event.inputs.dry_run != 'true'
         env:
           NEXT: ${{ steps.next.outputs.version }}
         run: |
@@ -151,7 +178,7 @@ jobs:
           exit 1
 
       - name: Trigger the release
-        if: steps.next.outputs.bump == 'true'
+        if: steps.next.outputs.bump == 'true' && github.event.inputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
