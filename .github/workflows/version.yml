@@ -17,17 +17,16 @@ name: Version
 on:
   push:
     branches: [main]
-    # Only content that `lacquer sync` actually distributes. Deliberately broad
-    # (all of core/ and profiles/) rather than an exact list of asset
-    # subdirectories: an exact list must be updated whenever a new asset category
-    # is added, and forgetting shows up as a silent missed bump — the very thing
-    # this workflow exists to prevent. Broad means we occasionally bump for a
-    # harness-only file (e.g. profiles/ios/baseline.toml, which is policy rather
-    # than synced content). That over-reports staleness by one version, which is
-    # the harmless direction.
-    paths:
-      - "core/**"
-      - "profiles/**"
+    # No path filter, on purpose: every merge releases. VERSION is the version of
+    # the whole thing — the CLI binary as much as the synced content — so a fix in
+    # internal/ deserves a release just as much as a change under core/. Combined
+    # with --always below, that means every merge produces exactly one new version.
+    #
+    # This cannot loop. A push made with GITHUB_TOKEN does not trigger workflows
+    # (GitHub's recursion guard — the same rule that forces the explicit release
+    # dispatch at the end of this file), so the bump commit never re-runs this. The
+    # "already set by this push" check below is a second, independent guard that
+    # holds even if this ever ran under a PAT.
 
 permissions:
   contents: write # commit and push the bump
@@ -91,24 +90,20 @@ jobs:
           # door. Verified against svu v3.4.1: docs: -> no bump, docs: --always ->
           # patch. (A `.svu.yaml` with `always: true` was tried and had NO effect
           # in v3.4.1, so the flag is the only mechanism relied on here.)
-          cand=$(go run github.com/caarlos0/svu/v3@latest next --always)
+          # svu's own major/minor/patch decision is taken as-is, including the jump
+          # to 1.0.0 on a `feat!:`/BREAKING CHANGE. That marker is the standardized,
+          # explicit way to declare a breaking change — someone typed the `!` on
+          # purpose — so it is exactly the deliberate signal that should graduate
+          # the major. The project sits in 0.x until such a commit lands, and then
+          # it should not.
+          # Pinned, not @latest: this runs with contents:write, so an unpinned
+          # dependency would execute whatever was published most recently. It also
+          # keeps the computation reproducible, and matches how every action in
+          # this repo is SHA-pinned. v3.4.1 is the version the behavior above was
+          # verified against; bump it deliberately.
+          cand=$(go run github.com/caarlos0/svu/v3@v3.4.1 next --always)
           cand=${cand#v}
           echo "svu proposed: ${cand} (current: ${cur})"
-
-          # Stay in 0.x. svu takes a `feat!:`/BREAKING CHANGE straight to 1.0.0 —
-          # it does NOT apply the 0.x convention where a breaking change is a minor
-          # bump. Graduating to 1.0.0 should be a deliberate act, not a side effect
-          # of one commit's punctuation, so clamp it back to a minor bump.
-          # To graduate on purpose: set VERSION to 1.0.0 in a direct push (the
-          # guard above then leaves it alone) and delete this clamp.
-          case "$cand" in
-            0.*) ;;
-            *)
-              minor=$(echo "$cur" | cut -d. -f2)
-              cand="0.$((minor + 1)).0"
-              echo "clamped to ${cand} to stay in 0.x"
-              ;;
-          esac
 
           if [ "$cand" = "$cur" ]; then
             echo "no version change computed; nothing to do."

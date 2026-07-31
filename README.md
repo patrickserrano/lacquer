@@ -146,27 +146,30 @@ sides make the identical change) and produce two different contents sharing one
 version. Hand-picking also produced a permanent gap: `v0.69.0` does not exist,
 because two bumps were missed and had to be corrected at once.
 
-On merge to `main`, if anything under `core/` or `profiles/` changed,
-[`version.yml`](.github/workflows/version.yml) derives the next version from
-conventional commits with [svu](https://github.com/caarlos0/svu), writes
-`VERSION`, and dispatches the release. `release.yml` tags `v<VERSION>` verbatim,
-so the file and the tag cannot drift.
+**Every merge to `main` releases.** [`version.yml`](.github/workflows/version.yml)
+derives the next version from conventional commits with
+[svu](https://github.com/caarlos0/svu) (pinned), writes `VERSION`, pushes, and
+dispatches the release. `release.yml` tags `v<VERSION>` verbatim, so the file and
+the tag cannot drift. There is no path filter — `VERSION` versions the whole
+thing, CLI binary as much as synced content — and no loop, because a push made
+with `GITHUB_TOKEN` does not trigger workflows.
 
 | Commit | Bump |
 |--------|------|
 | `feat:` | minor |
 | `fix:` | patch |
 | `docs:`, `chore:`, `ci:`, `refactor:` | patch (via `--always`) |
-| `feat!:` / `BREAKING CHANGE:` | minor — **clamped**, see below |
+| `feat!:` / `BREAKING CHANGE:` | major |
 
 `--always` matters: svu bumps *nothing* for `docs:`/`chore:` by default, and
 shipped-prose changes are usually exactly those, so without it a real content
 change would produce no new version.
 
-This project stays in `0.x`, so a breaking change is clamped to a minor bump
-rather than graduating to `1.0.0` — that should be deliberate, not a side effect
-of one commit's punctuation. To graduate: set `VERSION` to `1.0.0` in a direct
-push to `main` (the workflow leaves a hand-set value alone) and drop the clamp.
+The project sits in `0.x` until a breaking change lands. `feat!:` /
+`BREAKING CHANGE:` is the standardized, explicit way to declare one, so it
+graduates the major — `0.x` → `1.0.0`, and `1.x` → `2.0.0` after that. If you need
+to set a version by hand for any other reason, push it to `main` directly; the
+workflow leaves a hand-set value alone.
 
 The version is stamped into each managed region's marker so `lacquer status` can
 report stamped-vs-latest. A project last synced before semver carries the old
