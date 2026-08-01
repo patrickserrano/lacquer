@@ -21,6 +21,41 @@ jobs:
         with:
           fetch-depth: 1
 
+      # See "Claude-powered workflows" in profiles/ios/CLAUDE.ios.md.
+      # claude-code-action hard-fails when the token is empty ("Environment
+      # variable validation failed"), so an unattended scheduled job on a repo
+      # that never set the secret is permanently red and says nothing useful.
+      # Every repo in this fleet was in exactly that state — 5/5 scheduled audits
+      # failed this way — because the documented way to set the secret was an
+      # org-level command and these repos live under a personal account, where
+      # org secrets do not exist. Skip loudly instead of failing opaquely.
+      #
+      # This has to be a step, not a job-level `if`: the `secrets` context is not
+      # available in `jobs.<id>.if`.
+      - name: Check for CLAUDE_CODE_OAUTH_TOKEN
+        id: claude_token
+        env:
+          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${TOKEN:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::CLAUDE_CODE_OAUTH_TOKEN is not set — collecting the dependency report but skipping the Claude review step."
+          # Indented code blocks, not fenced ones: a fence needs backticks, and a
+          # backtick inside single quotes trips shellcheck SC2016 for no benefit.
+          {
+            echo "### Claude review skipped"
+            echo ""
+            echo "CLAUDE_CODE_OAUTH_TOKEN is not set on this repository, so the audit"
+            echo "collected the report below but could not open PRs or issues."
+            echo ""
+            echo "    claude setup-token"
+            echo "    gh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${GITHUB_REPOSITORY}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Collect dependency update info
         run: |
           set -euo pipefail
@@ -42,7 +77,20 @@ jobs:
             fi
           fi
 
+      # The report is the one thing this job produces without Claude, so surface
+      # it either way — otherwise a token-less run is indistinguishable from a
+      # run that found nothing to update.
+      - name: Publish the report to the job summary
+        run: |
+          set -euo pipefail
+          {
+            echo "### Dependency report"
+            echo ""
+            cat dependency-audit.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run Claude Code dependency audit
+        if: steps.claude_token.outputs.present == 'true'
         uses: anthropics/claude-code-action@558b1d6cab4085c7753fe402c10bef0fbb92ac7a # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -56,3 +104,11 @@ jobs:
             - If updates are risky or breaking, open GitHub issues describing the risk.
             - Include changelog notes or release links when possible.
             - Apply labels: dependencies, ios as appropriate.
+
+      # This job runs on a dedicated self-hosted runner whose workspace persists
+      # between runs, and the report is written into the checkout. Left behind it
+      # makes the next run's `git diff`/`git checkout` of Package.resolved happen
+      # in an already-dirty tree.
+      - name: Clean up the report
+        if: always()
+        run: rm -f dependency-audit.md
