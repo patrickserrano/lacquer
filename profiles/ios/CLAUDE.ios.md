@@ -190,6 +190,73 @@ The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in
 tests — they cause flaky failures. See the `swift-testing-wait-until` skill
 for the polling helper to add to your test target instead.
 
+## Documentation (DocC)
+
+**DocC is a requirement, not a nicety** — see core "Documentation" for the rule
+and the relaxation mechanism. This section is the Swift half.
+
+Every declaration above `private` carries a `///` doc comment, and the DocC
+archive builds with zero warnings. Both are checked by the `Docs` job in
+`ios-ci.yml` and published to `https://<owner>.github.io/<repo>/swift/` by
+`ios-docs.yml` on merge.
+
+```swift
+/// Loads the user's saved sessions, newest first.
+///
+/// - Parameter limit: The maximum number of sessions to return. Pass `nil` for
+///   all of them.
+/// - Returns: The sessions, or an empty array when the user has none.
+/// - Throws: ``SessionError/unauthorized`` when the session token has expired.
+///
+/// Runs off the main actor — the decode is large enough to drop frames.
+nonisolated func loadSessions(limit: Int?) async throws -> [Session]
+```
+
+Use `- Parameter` / `- Returns` / `- Throws` for anything a caller must know, and
+double-backtick symbol links (``` ``SessionError/unauthorized`` ```) rather than
+plain-text type names — a link is checked by the build, prose is not. That is the
+whole reason the build gate exists.
+
+### Run the checks locally
+
+```sh
+swiftlint --strict --config .swiftlint-docs.yml .   # every declaration documented
+scripts/build-docs.sh docs-site                     # docs build clean
+```
+
+`.swiftlint-docs.yml` is a **separate** config from `.swiftlint.yml` on purpose:
+the documentation baseline is the one rule set a project may relax, and mixing it
+into the main config would either hand every style rule an escape hatch or leave
+this one without the escape hatch the standard promises.
+
+### Three settings that decide whether this checks anything
+
+`scripts/build-docs.sh` carries them; do not "simplify" them out.
+
+- **`DOCC_MINIMUM_ACCESS_LEVEL=internal`.** DocC extracts `public` and above by
+  default, and an app target's code is `internal` by default — so without this
+  an app builds an archive containing essentially nothing, succeeds, and reports
+  as a pass. Verified on a real app target: 3 symbols at the default, 6 with
+  `internal`.
+- **`OTHER_DOCC_FLAGS=--warnings-as-errors`.** `DOCC_FLAGS` is *also* a real
+  build setting name — it is in Xcode's own xcspecs — and it is **silently
+  ignored**. A docbuild with `DOCC_FLAGS=--warnings-as-errors` and a deliberately
+  broken symbol link still exits 0; the same input with `OTHER_DOCC_FLAGS` exits
+  65. Picking the obvious-looking name turns the gate off without turning the job
+  red.
+- **`DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES`** plus `DOCC_HOSTING_BASE_PATH`,
+  which is baked into every asset URL. It must match where the site is served
+  from (`<repo>/swift`) or the published site loads and renders unstyled, every
+  CSS and JS request 404ing.
+
+### Articles and catalogs
+
+A `.docc` catalog next to the sources adds landing pages, articles, and tutorials
+beyond the symbol reference — a `<Target>.md` root page is the highest-value
+addition, because it is what a reader lands on. Symbol links from an article are
+checked by the same build, so a catalog raises the value of the gate rather than
+working around it.
+
 ## Battery & Performance Patterns
 
 Apply these whenever touching widgets, animations, networking, or background

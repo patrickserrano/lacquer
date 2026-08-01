@@ -153,6 +153,52 @@ every task adds cost without benefit; current models already self-check.
 - Update a branch from main before merging when it is behind; **after** updating, re-confirm the required checks re-ran green before merging (an update can drop a pending check).
 - Never merge on partial signals: require every *required* check to pass and the merge state to be clean.
 
+## Documentation
+
+**Every declaration carries a doc comment, and the docs build clean.** This is a
+baseline like warnings-as-errors, not a style preference — it is checked by the
+`Docs` job in every stack's CI and it blocks the merge.
+
+Two halves, because neither implies the other:
+
+1. **It exists.** Every declaration above `private` has a doc comment.
+2. **It resolves.** The docs actually build: every symbol link points at
+   something real, and the markup parses. A doc comment referring to a type that
+   was renamed three refactors ago is worse than no comment — it is confidently
+   wrong.
+
+Each stack enforces this with its native toolchain, and each publishes a site to
+its own subdirectory of the project's GitHub Pages, so a repo with several
+components ends up with one site per stack rather than one stack silently
+overwriting another:
+
+| Stack | Checked with | Published at |
+|-------|--------------|--------------|
+| iOS / Swift | SwiftLint `missing_docs` + `xcodebuild docbuild` | `/swift/` |
+| Web / TypeScript | TypeDoc `validation.notDocumented` + `invalidLink` | `/api/` |
+| Supabase / Deno | `deno doc --lint` | `/db/` |
+
+**Write the comment for the reader who does not already know.** Say what the
+thing is for and what a caller must know — preconditions, ownership, units,
+what happens on failure. Do not restate the signature: `/// Sets the name.` on
+`setName(_:)` costs a line and teaches nothing. If the only honest doc comment
+is a restatement, that is a signal the name is doing its job and the *type* or
+*module* is where the explanation belongs.
+
+**A project that cannot comply yet relaxes it — time-boxed, never open-ended.**
+Same mechanism as every other baseline key, in the project's own `.lacquer.toml`:
+
+```toml
+[baseline.relax]
+documentation = { until = "2026-11-01", reason = "legacy Core/, tracked in #212" }
+```
+
+Both fields are required, the checks still run and still report while relaxed,
+and **an expired relaxation is a hard failure** — so the debt stays visible and
+greppable instead of becoming policy by default. This is the one exception to
+Fundamental Rule #7: it is a deliberate, dated, justified opt-out recorded in the
+manifest, not an inline suppression hidden at the call site.
+
 ## Warnings as Errors
 
 Treat compiler and linter warnings as errors — ship zero-warning builds. Don't

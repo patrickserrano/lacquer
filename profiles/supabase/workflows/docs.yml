@@ -1,0 +1,79 @@
+name: Supabase Docs
+
+# Publishes the Edge Function API reference to
+# https://<owner>.github.io/<repo>/db/.
+#
+# Validation lives in supabase-ci.yml's `Docs` job — branch protection points at
+# a single required check (CI OK), and a job in another workflow cannot be one of
+# its `needs`. This workflow only publishes what CI already proved is documented.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "{{COMPONENT_PREFIX}}**"
+
+permissions:
+  contents: write # scripts/publish-docs.sh pushes the gh-pages branch
+
+# Shared with every other stack's docs workflow in this repo so two stacks never
+# push gh-pages concurrently. Never cancel — a cancelled publish leaves the
+# branch without this commit's docs and nothing retries it.
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish the API reference
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Build documentation
+        id: build
+        working-directory: "{{COMPONENT_PREFIX}}."
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(supabase/functions/_shared/*.ts)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No supabase/functions/_shared/*.ts yet — nothing to publish."
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "built=true" >> "$GITHUB_OUTPUT"
+          # deno doc emits relative asset URLs, so the site works at any depth
+          # and needs no base-path setting to match the /db/ subdirectory.
+          deno doc --html --name="${GITHUB_REPOSITORY#*/}" --output=docs-site "${files[@]}"
+
+      # Guarded rather than unconditional: a component with no _shared/ yet built
+      # nothing above, and publish-docs.sh correctly refuses an empty directory —
+      # which would fail the job for a project that has simply not written its
+      # first shared helper.
+      - name: Publish to gh-pages/db
+        if: steps.build.outputs.built == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/publish-docs.sh db "{{COMPONENT_PREFIX}}docs-site"
+
+      - name: Link the published site
+        if: steps.build.outputs.built == 'true'
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%/*}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          {
+            echo "### Documentation published"
+            echo ""
+            echo "https://${owner}.github.io/${repo}/db/"
+            echo ""
+            echo "If that 404s, Pages is not serving this branch yet — set"
+            echo "Settings → Pages → Source to *Deploy from a branch*, gh-pages, / (root)."
+          } >> "$GITHUB_STEP_SUMMARY"

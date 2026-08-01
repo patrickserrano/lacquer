@@ -24,6 +24,7 @@ The synced CI and git hooks assume these scripts exist — define them:
 | `test` | `vitest` |
 | `test:coverage` | `vitest run --coverage` |
 | `build` | the framework build (`next build`, `vite build`, `tsc`, …) |
+| `docs` | `typedoc` (see [Documentation](#documentation-tsdoc--typedoc)) |
 
 ## TypeScript — extend the strict base
 
@@ -65,6 +66,47 @@ disable a rule inline without explicit user approval (mirrors the core lint rule
   implementation. For React, prefer Testing Library + user-facing queries.
 - E2E (Playwright) and accessibility (`@axe-core/playwright`) are project-opt-in;
   when present they run as their own CI job, still on a GitHub-hosted runner.
+
+## Documentation (TSDoc + TypeDoc)
+
+**Documentation is a requirement** — see core "Documentation" for the rule and
+the relaxation mechanism. This section is the TypeScript half.
+
+Every exported symbol carries a TSDoc comment, and every link in one resolves.
+Both are checked by the `Docs` job in `web-ci.yml` and published to
+`https://<owner>.github.io/<repo>/api/` by `web-docs.yml` on merge.
+
+```ts
+/**
+ * Loads the user's saved sessions, newest first.
+ *
+ * @param limit - Maximum number of sessions to return; omit for all of them.
+ * @returns The sessions, or an empty array when the user has none.
+ * @throws {@link UnauthorizedError} when the session token has expired.
+ */
+export async function loadSessions(limit?: number): Promise<Session[]>
+```
+
+Use `{@link Symbol}` rather than a plain-text type name — a link is checked by
+the build, prose is not.
+
+The synced `typedoc.json` turns on `validation.notDocumented` (an export with no
+comment fails), `invalidLink` (a dead `{@link}` fails), and
+`treatValidationWarningsAsErrors`. **`entryPoints` is per-project** — point it at
+the package's real public surface; the shipped default assumes a single barrel
+file at `src/index.ts`, which is common but not universal.
+
+Add a `docs` script so the local command matches CI:
+
+```jsonc
+{ "scripts": { "docs": "typedoc" } }
+```
+
+Note `excludeInternal: true` in the config: a symbol marked `@internal` is
+omitted from the site *and* exempt from the documented-export rule, which is the
+right escape for something exported only for testing or cross-module wiring.
+Marking a genuinely public API `@internal` to dodge the rule is the TypeScript
+spelling of disabling a lint rule — don't.
 
 ## Environment & secrets
 

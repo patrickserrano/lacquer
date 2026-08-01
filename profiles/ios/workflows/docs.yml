@@ -1,0 +1,66 @@
+name: iOS Docs
+
+# Publishes the DocC archive to https://<owner>.github.io/<repo>/swift/.
+#
+# Validation lives in ios-ci.yml's `Docs` job, not here, because branch
+# protection points at a single required check (CI OK) and a job in another
+# workflow cannot be one of its `needs`. This workflow only publishes what CI
+# already proved builds clean — it runs on main, after the merge.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '{{COMPONENT_PREFIX}}**'
+
+permissions:
+  contents: write # scripts/publish-docs.sh pushes the gh-pages branch
+
+# Deliberately NOT keyed on the workflow or ref: this group is shared with every
+# other stack's docs workflow in the repo (web-docs.yml, supabase-docs.yml), so
+# two stacks never push gh-pages concurrently. Never cancel — a cancelled publish
+# leaves the branch without this commit's docs and nothing retries it.
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish DocC
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      # The hosting base path is baked into every asset URL in the archive, so it
+      # has to match where the site is actually served from — `<repo>/swift`, one
+      # level down from the Pages root because each stack owns a subdirectory.
+      # Get this wrong and the site loads but renders unstyled: every CSS and JS
+      # request 404s.
+      - name: Build documentation
+        run: scripts/build-docs.sh docs-site "${GITHUB_REPOSITORY#*/}/swift"
+
+      - name: Publish to gh-pages/swift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/publish-docs.sh swift docs-site
+
+      # This runner's workspace persists between runs; see ios-ci.yml's Docs job.
+      - name: Clean up the staged site
+        if: always()
+        run: rm -rf docs-site
+
+      - name: Link the published site
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%/*}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          {
+            echo "### Documentation published"
+            echo ""
+            echo "https://${owner}.github.io/${repo}/swift/"
+            echo ""
+            echo "If that 404s, Pages is not serving this branch yet — set"
+            echo "Settings → Pages → Source to *Deploy from a branch*, gh-pages, / (root)."
+          } >> "$GITHUB_STEP_SUMMARY"

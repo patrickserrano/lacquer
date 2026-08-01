@@ -58,6 +58,41 @@ Never relax a base flag (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPro
 - Co-locate `*.test.ts` with the source, or under `src/**`. Test behaviour, not implementation. For React, prefer Testing Library + user-facing queries.
 - E2E (Playwright) and accessibility (`@axe-core/playwright`) are project-opt-in; when present they run as their own CI job, still on a GitHub-hosted runner.
 
+## Documentation (TSDoc + TypeDoc)
+
+Documentation is a requirement — see [core documentation
+rules](/lacquer/guides/agent-rules/#documentation) for the standard and the
+relaxation mechanism. This is the TypeScript half.
+
+Every exported symbol carries a TSDoc comment, and every link in one resolves.
+Both are checked by the `Docs` job in `web-ci.yml` and published to
+`https://<owner>.github.io/<repo>/api/` by `web-docs.yml` on merge.
+
+```ts
+/**
+ * Loads the user's saved sessions, newest first.
+ *
+ * @param limit - Maximum number of sessions to return; omit for all of them.
+ * @returns The sessions, or an empty array when the user has none.
+ * @throws {@link UnauthorizedError} when the session token has expired.
+ */
+export async function loadSessions(limit?: number): Promise<Session[]>
+```
+
+Use `{@link Symbol}` rather than a plain-text type name — a link is checked by
+the build, prose isn't.
+
+The synced `typedoc.json` turns on `validation.notDocumented`, `invalidLink`, and
+`treatValidationWarningsAsErrors`. `entryPoints` is per-project: point it at the
+package's real public surface; the shipped default assumes a single barrel file
+at `src/index.ts`.
+
+`excludeInternal: true` means a symbol marked `@internal` is omitted from the
+site *and* exempt from the documented-export rule — the right escape for
+something exported only for testing or cross-module wiring. Marking a genuinely
+public API `@internal` to dodge the rule is the TypeScript spelling of disabling
+a lint rule.
+
 ## Environment & secrets
 
 - **Never commit a real `.env`.** Commit `.env.example` (and, when you want schema-validated env, a `.env.schema` checked with `dotenvx run -- ...`).

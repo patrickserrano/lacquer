@@ -141,6 +141,47 @@ every task adds cost without benefit; current models already self-check.
 - Update a branch from main before merging when it's behind; **after** updating, re-confirm the required checks re-ran green (an update can drop a pending check).
 - Never merge on partial signals: require every *required* check to pass and the merge state to be clean.
 
+## Documentation
+
+Every declaration carries a doc comment, and the docs build clean. This is a
+baseline like warnings-as-errors, not a style preference — the `Docs` job in
+every stack's CI checks it and it blocks the merge.
+
+Two halves, because neither implies the other:
+
+1. **It exists.** Every declaration above `private` has a doc comment.
+2. **It resolves.** The docs actually build: every symbol link points at
+   something real, and the markup parses. A doc comment referring to a type
+   renamed three refactors ago is worse than no comment — it's confidently wrong.
+
+Each stack uses its native toolchain, and each publishes to its own
+subdirectory of the project's GitHub Pages, so a repo with several components
+gets one site per stack rather than one stack overwriting another:
+
+| Stack | Checked with | Published at |
+|-------|--------------|--------------|
+| iOS / Swift | SwiftLint `missing_docs` + `xcodebuild docbuild` | `/swift/` |
+| Web / TypeScript | TypeDoc `validation.notDocumented` + `invalidLink` | `/api/` |
+| Supabase / Deno | `deno doc --lint` | `/db/` |
+
+Write the comment for the reader who doesn't already know: what the thing is
+for, and what a caller must know — preconditions, ownership, units, what happens
+on failure. Don't restate the signature. If the only honest doc comment is a
+restatement, the name is doing its job and the *type* or *module* is where the
+explanation belongs.
+
+A project that can't comply yet relaxes it — time-boxed, never open-ended, in
+its own `.lacquer.toml`:
+
+```toml
+[baseline.relax]
+documentation = { until = "2026-11-01", reason = "legacy Core/, tracked in #212" }
+```
+
+Both fields are required, the checks still run and report while relaxed, and an
+expired relaxation is a hard failure — so the debt stays visible instead of
+becoming policy by default.
+
 ## Warnings as errors
 
 Treat compiler and linter warnings as errors — ship zero-warning builds. Don't
