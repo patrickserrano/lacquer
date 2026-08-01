@@ -185,6 +185,31 @@ what happens on failure. Do not restate the signature: `/// Sets the name.` on
 is a restatement, that is a signal the name is doing its job and the *type* or
 *module* is where the explanation belongs.
 
+### Where the sites are hosted
+
+**GitHub Pages is the default and needs no secrets.** Each stack's docs workflow
+writes its own subdirectory of a `gh-pages` branch, and the root index is
+regenerated from whatever subdirectories are present — so `gh-pages` is the
+composed site, and adding a stack later needs no coordination. Turn it on once
+per repo: Settings → Pages → Source → *Deploy from a branch* → `gh-pages` /
+(root).
+
+**Cloudflare is an optional second target for that same tree.** Set
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and `docs-cloudflare.yml`
+deploys `gh-pages` to **Workers Static Assets** after each publish; leave them
+unset and it skips with a notice. Three things worth knowing:
+
+- **Workers, not Pages.** Pages is still supported, but Cloudflare has said all
+  new investment goes to Workers, which serves static assets at the same cost.
+- **Not Cloudflare Drop.** Drop is the obvious-looking fit — upload a folder,
+  no account — but it is drag-and-drop in the dashboard with no CLI or API, and
+  the deployment expires after an hour unless a human claims it. It is for
+  sharing a preview, not for publishing.
+- **The site is served under `/<repo>/`,** matching GitHub Pages exactly. DocC
+  bakes its hosting base path into every asset URL at build time, so serving the
+  same archive at a domain root would 404 on its own CSS. Nesting means one build
+  serves both targets; the bare domain redirects.
+
 **A project that cannot comply yet relaxes it — time-boxed, never open-ended.**
 Same mechanism as every other baseline key, in the project's own `.lacquer.toml`:
 
