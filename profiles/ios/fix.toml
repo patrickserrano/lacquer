@@ -1,0 +1,19 @@
+# Autofixers for the ios profile, run by `lacquer fix` (and by `sync --fix`,
+# which onboard passes automatically).
+#
+# These are FIXERS, not checks. A missing binary is reported and skipped rather
+# than failing the run — the opposite of the rule for checks, where a tool that
+# cannot run must block. Skipping a fixer leaves work for a human; skipping a
+# check silently asserts compliance that was never verified.
+#
+# Order matters. swiftformat runs first because organizeDeclarations resolves
+# type_contents_order, which swiftlint --fix cannot; running swiftlint first
+# would autocorrect inside a layout about to be rewritten.
+
+[[command]]
+name = "swiftformat"
+argv = ["swiftformat", ".", "--config", ".swiftformat"]
+
+[[command]]
+name = "swiftlint --fix"
+argv = ["swiftlint", "--fix", "--config", ".swiftlint.yml", "."]

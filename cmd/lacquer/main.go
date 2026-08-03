@@ -11,6 +11,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/fixcmd"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
@@ -90,6 +91,12 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		force := fs.Bool("force", false, "overwrite local changes the lacquer did not make (see `lacquer audit`)")
+		// Opt-in, not default. sync's contract is that it writes lacquer-managed
+		// files and nothing else; --fix deliberately breaks that by rewriting
+		// project SOURCE, so it has to be asked for rather than discovered in a
+		// diff. Adoption is when it earns its keep: the first sync of a mature
+		// app is exactly when hundreds of mechanical violations appear at once.
+		doFix := fs.Bool("fix", false, "after syncing, run the profiles' autofixers over the project source")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -98,6 +105,18 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, err)
 		}
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
+		if *doFix {
+			if code := runFixers(lacquerRoot, projectRoot, stdout, stderr); code != 0 {
+				return code
+			}
+		}
+	case "fix":
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
+			return fail(stderr, err)
+		}
+		if code := runFixers(lacquerRoot, projectRoot, stdout, stderr); code != 0 {
+			return code
+		}
 	case "skills":
 		// skills only reads the project's own .lacquer.toml — it needs no
 		// lacquerRoot (unlike sync/audit/status, which render/compare against
@@ -250,9 +269,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  init                         detect components and write .lacquer.toml")
 	fmt.Fprintln(w, "  onboard --org O [--no-repo]  init, then create a private GitHub repo")
-	fmt.Fprintln(w, "  sync [--force]               render lacquer content into the project")
+	fmt.Fprintln(w, "  sync [--force] [--fix]       render lacquer content into the project")
 	fmt.Fprintln(w, "  skills                       install [project].skills via the `skills` CLI (vercel-labs/skills)")
 	fmt.Fprintln(w, "  plugins                      install core/bootstrap/plugins.toml via `claude plugin` (machine-level)")
+	fmt.Fprintln(w, "  fix                          run the profiles' autofixers (formatters, lint --fix) over the project")
 	fmt.Fprintln(w, "  status                       show each region's stamped vs latest version")
 	fmt.Fprintln(w, "  audit                        classify project drift and check the project baseline")
 	fmt.Fprintln(w, "                               (exit 3 if sync would clobber a local change; exit 4 on a baseline violation)")
@@ -275,4 +295,23 @@ func baselineReports(lacquerRoot, projectRoot string) ([]baseline.Report, error)
 func fail(w io.Writer, err error) int {
 	fmt.Fprintln(w, "error:", err)
 	return 1
+}
+
+// runFixers loads the manifest and runs every declared profile's autofixers.
+// Shared by `fix` and `sync --fix`.
+func runFixers(lacquerRoot, projectRoot string, stdout, stderr io.Writer) int {
+	manifest := filepath.Join(projectRoot, ".lacquer.toml")
+	cfg, err := config.Load(manifest)
+	if err != nil {
+		return fail(stderr, fmt.Errorf("load %s: %w", manifest, err))
+	}
+	fmt.Fprintln(stdout, "running autofixers:")
+	results, err := fixcmd.Run(lacquerRoot, projectRoot, cfg, stdout)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if len(results) == 0 {
+		fmt.Fprintln(stdout, "  (no profile in this project ships autofixers)")
+	}
+	return 0
 }

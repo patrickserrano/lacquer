@@ -1,0 +1,10 @@
+# Autofixers for the supabase profile — see profiles/ios/fix.toml for the
+# contract. deno fmt rewrites; deno lint --fix applies the fixable subset.
+
+[[command]]
+name = "deno fmt"
+argv = ["deno", "fmt"]
+
+[[command]]
+name = "deno lint --fix"
+argv = ["deno", "lint", "--fix"]

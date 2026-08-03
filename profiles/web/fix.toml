@@ -1,0 +1,6 @@
+# Autofixers for the web profile — see profiles/ios/fix.toml for the contract.
+# `biome check --write` is format + lint autofix in one pass.
+
+[[command]]
+name = "biome check --write"
+argv = ["npx", "--no-install", "biome", "check", "--write", "."]
