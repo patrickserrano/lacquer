@@ -121,6 +121,23 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 		}
 	}
 
+	// Asset preflight BEFORE any write. assets.Copy used to preflight itself,
+	// which meant a failure there aborted after the region writes below had
+	// already landed — leaving a half-synced project that reported failure.
+	// Queueify hit exactly that: one uncommitted workflow file made the asset
+	// phase refuse, and it was left with rewritten CLAUDE.md and AGENTS.md.
+	//
+	// Everything that can refuse now refuses before anything is written. The
+	// write phase can still fail on a genuine I/O fault partway; that is a
+	// different class, and a re-run completes it.
+	var assetTargets []string
+	if len(plan) > 0 {
+		assetTargets, err = assets.Preflight(projectRoot, plan)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+
 	// Writes: substitute + merge region bodies.
 	for _, r := range regions {
 		body, _ := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix))
@@ -132,7 +149,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// Whole-file assets. Only run when the lacquer has assets, so a region-only
 	// sync into a non-git directory still works (assets.Copy requires git).
 	if len(plan) > 0 {
-		if err := assets.Copy(projectRoot, plan, cfg.Project); err != nil {
+		if err := assets.Write(projectRoot, plan, cfg.Project, assetTargets); err != nil {
 			return Result{}, err
 		}
 	}
