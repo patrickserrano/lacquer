@@ -10,6 +10,20 @@ var exact = map[string]bool{
 	".git": true, ".worktrees": true, "node_modules": true,
 	".build": true, "vendor": true, ".agents": true,
 	"Pods": true, "Carthage": true,
+
+	// Framework build output. These contain a generated package.json (and
+	// sometimes a tsconfig), which detection reads as a web component — so
+	// `lacquer init` on a Next.js site reported FIVE components: ".", ".next",
+	// ".next/build", ".next/dev", and ".next/dev/build". Syncing that manifest
+	// would have rendered CLAUDE.md regions, lefthook config and CI workflows
+	// into build artifacts.
+	//
+	// Observed on pixelfoxstudio.com; the rest are the same shape for the other
+	// frameworks this fleet is likely to meet.
+	".next": true, ".nuxt": true, ".svelte-kit": true, ".astro": true,
+	".output": true, ".vercel": true, ".netlify": true, ".turbo": true,
+	".parcel-cache": true, ".angular": true, ".docusaurus": true,
+	"dist": true, "out": true, ".cache": true,
 }
 
 // Skip reports whether a directory named name should never be walked into.
