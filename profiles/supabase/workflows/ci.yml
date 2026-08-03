@@ -236,6 +236,9 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: .lacquer-checkout/go.mod
+          # Without this, the module cache restore probes the PROJECT root for
+          # go.mod and warns on every run.
+          cache-dependency-path: .lacquer-checkout/go.sum
 
       - name: Audit for drift
         run: |
@@ -250,7 +253,13 @@ jobs:
             # nothing can block. Say so instead of reporting a green pass.
             echo "::warning::No .lacquer.lock — this project has never been synced, so drift cannot be attributed. Run \`lacquer sync\` to establish the baseline."
           fi
-          go build -o /tmp/lacquer ./.lacquer-checkout/cmd/lacquer
+          # Build from INSIDE the checkout. `go build ./.lacquer-checkout/cmd/lacquer`
+          # from the project root fails with "go.mod file not found in current
+          # directory or any parent directory" — a Go package path is resolved
+          # against the current MODULE, and a Swift/TS project root is not one.
+          # This job therefore failed in every repo, on every PR, for a reason that
+          # had nothing to do with drift.
+          (cd .lacquer-checkout && go build -o /tmp/lacquer ./cmd/lacquer)
 
           set +e
           LACQUER_ROOT="$PWD/.lacquer-checkout" /tmp/lacquer audit
