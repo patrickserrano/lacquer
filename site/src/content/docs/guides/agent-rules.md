@@ -141,9 +141,12 @@ A local hook runs the same command, with the same strictness, as the CI job it
 stands in for. A hook that's weaker than CI is worse than no hook: it reports
 green, you push, and CI fails on something the hook already had in its hands.
 
-1. **Never weaken a hook to make it pass.** No `|| true`, no dropping
-   `--strict`, no `continue-on-error`. If a check is too slow for pre-commit,
-   move it to pre-push — don't defang it.
+1. **Never weaken a hook to make it pass, and never hide its errors.** No
+   `|| true`, no dropping `--strict`, no `2>/dev/null`, no `continue-on-error`.
+   If a check is too slow for pre-commit, move it to pre-push — don't defang it.
+   Suppressing stderr is the worst of these because it hides the *tool* failing:
+   a lacquer editor hook called SwiftLint with a removed option, errored on every
+   write for months, and read as a clean pass the whole time.
 2. **Adding a CI gate means adding its local counterpart in the same change**,
    or deciding out loud that it belongs only in CI. Each profile's rules carry a
    table of every CI job and where it runs locally; a new job adds a row.

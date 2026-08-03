@@ -155,9 +155,16 @@ green, you push, and CI fails on something the hook already had in its hands.
 
 Two rules follow, and both are mechanical rather than aspirational:
 
-1. **Never weaken a hook to make it pass.** No `|| true`, no dropping `--strict`,
-   no `continue-on-error`. Those turn a gate into a log line. If a check is too
-   slow for pre-commit, move it to pre-push — don't defang it.
+1. **Never weaken a hook to make it pass, and never hide its errors.** No
+   `|| true`, no dropping `--strict`, no `2>/dev/null`, no `continue-on-error`.
+   Those turn a gate into a log line. If a check is too slow for pre-commit, move
+   it to pre-push — don't defang it.
+
+   Suppressing stderr is the most dangerous of these, because it hides the
+   *tool* failing, not just the code. A lacquer editor hook invoked SwiftLint
+   with an option that had been removed; it errored on every write for months,
+   `2>/dev/null || true` ate the message, and it read as a clean pass the whole
+   time. A hook that cannot fail and cannot complain is not a hook.
 2. **Adding a CI gate means adding its local counterpart in the same change**,
    or deciding out loud that it belongs only in CI (a full archive, a database
    lint needing a live server). Each profile's rules carry a table of every CI

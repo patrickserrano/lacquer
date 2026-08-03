@@ -2,7 +2,13 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    # No `branches` filter, deliberately. It used to be `branches: [main]`, which
+    # meant a STACKED pr — one based on another feature branch, the normal way to
+    # split a large change into reviewable pieces — got no checks at all. Not a
+    # failing check: none, so `gh pr checks` reported "no checks reported" and the
+    # VERSION guard, the conventional-title check and the tests all silently did
+    # not run. A gate that does not run is the failure mode this repo keeps
+    # finding; it should not be in its own CI.
     # `edited` is not in the default set (opened, synchronize, reopened), and
     # without it the title and body guards below would be evaluated once at open
     # and never again — while the title and body are exactly what a person edits

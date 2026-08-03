@@ -124,6 +124,13 @@ a new CI job adds a row here, and a hook never runs weaker than its CI twin.
 | `DB Lint (Splinter)`, `DB Test (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
 
+`deno fmt --check` and `deno lint` are **not** scoped to staged files — they check
+everything in `deno.jsonc`'s `include` (`supabase/functions/`). So the first
+commit after these hooks start running reports every unformatted file in the
+tree, not just the one you touched. That is the gate working, not a
+misconfiguration: run `deno fmt` once to bring the tree into line, commit that on
+its own, and it stays quiet after.
+
 ## Git hooks & commits
 
 `lefthook.yml` is synced — install once with `npx lefthook install` (or

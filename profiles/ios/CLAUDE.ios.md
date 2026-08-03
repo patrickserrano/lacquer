@@ -213,9 +213,28 @@ the PR. A hook carrying `|| true`, or missing `--strict`, is the single most
 common way this fleet produces a "worked on my machine" failure — and it is now a
 drift violation, not just a bad idea.
 
-Note the editor hook in `.claude/settings.json` DOES end in `|| true`. That one
-is deliberate and is not a gate: it lints on every write to surface problems as
-you type, and must never block a tool call.
+**The editor hook counts too.** The `PostToolUse` hooks in
+`.claude/settings.json` run on every Swift write, and they were the worst
+offender of all:
+
+```
+swiftlint lint --path "$FP" --quiet 2>/dev/null || true
+```
+
+`--path` has not been a valid SwiftLint option for some time — the command
+errored on every single invocation, and `2>/dev/null || true` swallowed the
+error, so the hook linted **nothing, ever**, and looked healthy doing it. It now
+passes the path positionally, names the project config explicitly, runs
+`--strict`, and on a violation exits 2 so the diagnostic reaches the agent that
+just wrote the file. Fix it there and it never reaches the commit.
+
+The formatter hook likewise names `--config` explicitly. SwiftFormat does
+discover `.swiftformat` by walking up from the file, so this was not silently
+formatting to defaults — but relying on discovery breaks the moment a source file
+sits outside the component, and an explicit config costs nothing.
+
+Neither hook suppresses stderr any more. A swallowed error is indistinguishable
+from a clean run, which is precisely how a dead hook survives for months.
 
 ## Documentation (DocC)
 
