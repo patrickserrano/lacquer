@@ -69,7 +69,7 @@ jobs:
           else
             resolved="{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
             if [ -f "$resolved" ]; then
-              xcodebuild -resolvePackageDependencies -project {{XCODEPROJ}} -scheme {{SCHEME}} > /tmp/resolve.log 2>&1 || true
+              xcodebuild -resolvePackageDependencies -project "{{XCODEPROJ}}" -scheme "{{SCHEME}}" > /tmp/resolve.log 2>&1 || true
               git diff -- "$resolved" >> "$report" || true
               git checkout -- "$resolved"
             else

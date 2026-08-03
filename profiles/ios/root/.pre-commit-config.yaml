@@ -57,7 +57,7 @@ repos:
         # fallback: if the pinned simulator is missing, fail loudly with the
         # real error. `cd {{COMPONENT_PREFIX}}.` is `cd ios/.` for a nested
         # layout and `cd .` for a root layout.
-        entry: bash -c 'cd {{COMPONENT_PREFIX}}. && xcodebuild test -scheme {{SCHEME}} -destination "platform=iOS Simulator,name=iPhone 17 Pro" -derivedDataPath DerivedData -only-testing:{{PROJECT_NAME}}Tests -quiet'
+        entry: bash -c 'cd {{COMPONENT_PREFIX}}. && xcodebuild test -scheme "{{SCHEME}}" -destination "platform=iOS Simulator,name=iPhone 17 Pro" -derivedDataPath DerivedData "-only-testing:{{PROJECT_NAME}}Tests" -quiet'
         language: system
         pass_filenames: false
         files: ^{{COMPONENT_PREFIX}}
