@@ -61,7 +61,7 @@ repos:
       # `Docs` job in ios-ci.yml.
       - id: swiftlint-docs
         name: SwiftLint (documentation)
-        entry: scripts/precommit-swift.sh swiftlint-docs
+        entry: scripts/docs-hook.sh scripts/precommit-swift.sh swiftlint-docs
         verbose: true
         language: system
         types: [swift]
@@ -102,7 +102,7 @@ repos:
       # out instead of a round trip through CI.
       - id: docs-build
         name: Documentation builds clean
-        entry: scripts/build-docs.sh docs-site
+        entry: scripts/docs-hook.sh scripts/build-docs.sh docs-site
         language: system
         pass_filenames: false
         stages: [pre-push]

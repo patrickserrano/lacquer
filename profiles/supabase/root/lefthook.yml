@@ -26,7 +26,13 @@ pre-commit:
     docs:
       root: "{{COMPONENT_PREFIX}}"
       glob: "supabase/functions/_shared/*.ts"
-      run: deno doc --lint supabase/functions/_shared/*.ts
+      run: |
+        state=$(scripts/docs-relaxation.sh .lacquer.toml 2>/dev/null || echo none)
+        if [ "$state" = "relaxed" ]; then
+          echo "docs: relaxed by [baseline.relax] in .lacquer.toml — skipping"
+        else
+          deno doc --lint supabase/functions/_shared/*.ts
+        fi
     # Scan every staged file for hardcoded secrets — repo-wide, not component-
     # scoped: check-secrets.sh reads `git diff --cached` itself (no root, no
     # {staged_files}). Mirrors the iOS profile's `no-secrets` pre-commit hook.
