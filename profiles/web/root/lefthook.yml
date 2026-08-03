@@ -36,6 +36,17 @@ pre-push:
     build:
       root: "{{COMPONENT_PREFIX}}"
       run: npm run build
+    # Mirrors the `Docs` job in web-ci.yml. Not at pre-commit: TypeDoc reads the
+    # whole entry-point graph, so running it per staged file would be both slow
+    # and wrong (an export documented in a file you didn't stage still counts).
+    docs:
+      root: "{{COMPONENT_PREFIX}}"
+      run: npx typedoc
+    # Mirrors the audit step in web-ci.yml's `check` job, at the same level.
+    # Here rather than pre-commit because it hits the network.
+    audit:
+      root: "{{COMPONENT_PREFIX}}"
+      run: npm audit --audit-level=critical
 
 commit-msg:
   commands:

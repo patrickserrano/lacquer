@@ -190,6 +190,33 @@ The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in
 tests — they cause flaky failures. See the `swift-testing-wait-until` skill
 for the polling helper to add to your test target instead.
 
+## Local Checks vs CI
+
+Every CI gate and where it runs before push. See core "Local Checks Match CI" —
+a new CI job adds a row here, and a hook never runs weaker than its CI twin.
+
+| CI job / step | Local |
+|---|---|
+| `Lint` → SwiftLint `--strict` | pre-commit `swiftlint` (**`--strict`**, staged files) |
+| `Lint` → SwiftFormat `--lint` | pre-commit `swiftformat` (writes; a changed file fails the commit) |
+| `Docs` → `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
+| `Docs` → DocC builds clean | **pre-push** `docs-build` (too slow for pre-commit) |
+| `Test` | pre-commit `swift-test` |
+| `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |
+| `Build (Release)` | CI-only: a full Release archive is not a commit-time cost |
+| `No lacquer drift` | `lacquer audit` (exit 3) — run it locally any time |
+
+The `--strict` flags are the load-bearing part. `line_length`, `file_length`,
+`type_body_length` and `function_body_length` are all **warning** severity in
+`.swiftlint.yml`, so without `--strict` they print and pass locally and then fail
+the PR. A hook carrying `|| true`, or missing `--strict`, is the single most
+common way this fleet produces a "worked on my machine" failure — and it is now a
+drift violation, not just a bad idea.
+
+Note the editor hook in `.claude/settings.json` DOES end in `|| true`. That one
+is deliberate and is not a gate: it lints on every write to surface problems as
+you type, and must never block a tool call.
+
 ## Documentation (DocC)
 
 **DocC is a requirement, not a nicety** — see core "Documentation" for the rule

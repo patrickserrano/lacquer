@@ -213,6 +213,57 @@ jobs:
           fi
           echo "Documentation baseline met."
 
+  drift:
+    name: No lacquer drift
+    # Pure Go + a git checkout — no stack toolchain — so it runs on a
+    # GitHub-hosted runner rather than tying up the dedicated Mac.
+    runs-on: ubuntu-latest
+    # Always: a drifted hook or workflow is exactly the kind of change that
+    # arrives in an otherwise docs-only PR, and it costs a minute.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      # lacquer is a public repo, so this needs no token.
+      - uses: actions/checkout@v6.0.2
+        with:
+          repository: patrickserrano/lacquer
+          path: .lacquer-checkout
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: .lacquer-checkout/go.mod
+
+      - name: Audit for drift
+        run: |
+          set -euo pipefail
+          if [ ! -f .lacquer.toml ]; then
+            echo "::notice::No .lacquer.toml — this project is not lacquer-managed."
+            exit 0
+          fi
+          if [ ! -f .lacquer.lock ]; then
+            # Without a lock baseline, audit cannot tell "the project edited this"
+            # from "the lacquer moved on", so every unit reads as untracked and
+            # nothing can block. Say so instead of reporting a green pass.
+            echo "::warning::No .lacquer.lock — this project has never been synced, so drift cannot be attributed. Run \`lacquer sync\` to establish the baseline."
+          fi
+          go build -o /tmp/lacquer ./.lacquer-checkout/cmd/lacquer
+
+          set +e
+          LACQUER_ROOT="$PWD/.lacquer-checkout" /tmp/lacquer audit
+          code=$?
+          set -e
+
+          case "$code" in
+            0) echo "No drift." ;;
+            3) echo "::error::A lacquer-managed file was edited in this project. These files are rendered from the lacquer, so a local edit silently diverges from what every other project gets — which is how a pre-commit hook ends up weaker than CI. Fix it in the lacquer repo and re-sync, or, if this project genuinely owns the file, add it to [project].exclude in .lacquer.toml so the lacquer stops managing it."
+               exit 1 ;;
+            4) echo "::error::The project baseline is not met. See the audit output above."
+               exit 1 ;;
+            *) echo "::error::lacquer audit failed (exit $code)."
+               exit 1 ;;
+          esac
+
   ci-ok:
     name: CI OK
     # Just aggregates the needs[] results — no toolchain — so it always runs and
@@ -221,19 +272,20 @@ jobs:
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
     runs-on: ubuntu-latest
-    needs: [changes, check, lint-database, test-database, docs]
+    needs: [changes, check, lint-database, test-database, docs, drift]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} lint-database=${{ needs.lint-database.result }} test-database=${{ needs.test-database.result }} docs=${{ needs.docs.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} lint-database=${{ needs.lint-database.result }} test-database=${{ needs.test-database.result }} docs=${{ needs.docs.result }} drift=${{ needs.drift.result }}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.check.result }}" \
             "${{ needs.lint-database.result }}" \
             "${{ needs.test-database.result }}" \
-            "${{ needs.docs.result }}"; do
+            "${{ needs.docs.result }}" \
+            "${{ needs.drift.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"
               exit 1

@@ -20,11 +20,31 @@ pre-commit:
     lint:
       root: "{{COMPONENT_PREFIX}}"
       run: deno lint
+    # Mirrors the `Docs` job in supabase-ci.yml — cheap, so it belongs at
+    # pre-commit. Scoped to _shared/ for the same reason CI is: a function's
+    # index.ts is an HTTP entry point, not an API other code imports.
+    docs:
+      root: "{{COMPONENT_PREFIX}}"
+      glob: "supabase/functions/_shared/*.ts"
+      run: deno doc --lint supabase/functions/_shared/*.ts
     # Scan every staged file for hardcoded secrets — repo-wide, not component-
     # scoped: check-secrets.sh reads `git diff --cached` itself (no root, no
     # {staged_files}). Mirrors the iOS profile's `no-secrets` pre-commit hook.
     secrets:
       run: scripts/check-secrets.sh
+
+# CI runs `deno check` and `deno test` and nothing local did, so a type error or
+# a failing test only surfaced after push. Both are too slow for pre-commit and
+# both are exactly what pre-push is for. Mirrors profiles/web/root/lefthook.yml.
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      root: "{{COMPONENT_PREFIX}}"
+      run: deno check supabase/functions/*/index.ts
+    test:
+      root: "{{COMPONENT_PREFIX}}"
+      run: deno test --allow-all supabase/functions/
 
 commit-msg:
   commands:

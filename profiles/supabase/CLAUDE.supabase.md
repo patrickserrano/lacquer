@@ -109,6 +109,21 @@ denormalized counter — needs one.
   for CI — and in a **gitignored** `.env.local` for local dev. Commit `.env.example`.
 - Never log a secret or return it in a response.
 
+## Local Checks vs CI
+
+Every CI gate and where it runs before push. See core "Local Checks Match CI" —
+a new CI job adds a row here, and a hook never runs weaker than its CI twin.
+
+| CI job / step | Local |
+|---|---|
+| `check` → `deno fmt --check` | pre-commit `fmt` |
+| `check` → `deno lint` | pre-commit `lint` |
+| `check` → `deno check` | pre-push `typecheck` |
+| `check` → `deno test` | pre-push `test` |
+| `Docs` → `deno doc --lint` | pre-commit `docs` |
+| `DB Lint (Splinter)`, `DB Test (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
+| `No lacquer drift` | `lacquer audit` (exit 3) |
+
 ## Git hooks & commits
 
 `lefthook.yml` is synced — install once with `npx lefthook install` (or

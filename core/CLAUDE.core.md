@@ -147,6 +147,42 @@ to find regressions. This catches bug classes the implementer's own tests
 miss. Reserve this for the categories above — bolting a review step onto
 every task adds cost without benefit; current models already self-check.
 
+## Local Checks Match CI
+
+**A local hook runs the same command, with the same strictness, as the CI job it
+stands in for.** A hook that is weaker than CI is worse than no hook: it reports
+green, you push, and CI fails on something the hook already had in its hands.
+
+Two rules follow, and both are mechanical rather than aspirational:
+
+1. **Never weaken a hook to make it pass.** No `|| true`, no dropping `--strict`,
+   no `continue-on-error`. Those turn a gate into a log line. If a check is too
+   slow for pre-commit, move it to pre-push — don't defang it.
+2. **Adding a CI gate means adding its local counterpart in the same change**,
+   or deciding out loud that it belongs only in CI (a full archive, a database
+   lint needing a live server). Each profile's rules carry a table of every CI
+   job and where it runs locally; a new job adds a row.
+
+**Lacquer-managed files are identical or excluded — there is no third state.**
+The files that carry these checks (`.pre-commit-config.yaml`, `lefthook.yml`,
+the CI workflows, the lint configs) are rendered from the lacquer, so editing one
+in a project silently diverges it from every other project. The `No lacquer
+drift` CI job runs `lacquer audit` and fails on exit 3 when a managed file was
+edited locally. If a project genuinely owns a file, say so:
+
+```toml
+[project]
+exclude = ["lefthook.yml"]
+```
+
+The lacquer then neither distributes nor tracks it. That is a real, supported
+choice; a quietly-edited copy is not. This job is what turns "someone's hook
+drifted six months ago" into a failing check on the PR that does it.
+
+> A project that has never been synced has no `.lacquer.lock`, so drift cannot
+> be attributed and nothing can block. The job warns instead of reporting a pass
+> — run `lacquer sync` to establish the baseline.
+
 ## CI Hygiene
 
 - Keep CI action/tool versions **consistent across all workflows** (one pin each for shared actions) — drift causes subtle job-to-job behavior differences.
