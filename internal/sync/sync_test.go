@@ -308,3 +308,60 @@ func TestSyncRootLayoutEmptyPrefix(t *testing.T) {
 		t.Errorf("root-layout prefix not applied:\n%q", got)
 	}
 }
+
+// sync writes managed regions and THEN copies assets, and the asset phase can
+// refuse (an uncommitted managed file, a symlink, a confinement violation).
+// That refusal used to happen after the regions were already on disk, leaving a
+// half-synced project from a run that reported failure — Queueify landed in
+// exactly that state, with rewritten CLAUDE.md and AGENTS.md from a sync that
+// errored. Everything that can refuse must refuse before anything is written.
+func TestSyncWritesNoRegionWhenTheAssetPhaseRefuses(t *testing.T) {
+	lacquer := t.TempDir()
+	project := t.TempDir()
+
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "2\n")
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE RULES")
+	// One core asset, so the plan is non-empty and the asset phase runs.
+	writeFile(t, filepath.Join(lacquer, "core", "root", "scripts", "thing.sh"), "#!/bin/sh\necho v1\n")
+
+	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"acme\"\n")
+	writeFile(t, filepath.Join(project, "CLAUDE.md"), "# acme\n\nlocal note\n")
+
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
+		{"add", "-A"}, {"commit", "-m", "base"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = project
+		if err := cmd.Run(); err != nil {
+			t.Skipf("git unavailable: %v", err)
+		}
+	}
+
+	// Make the managed asset dirty so the asset preflight refuses.
+	writeFile(t, filepath.Join(project, "scripts", "thing.sh"), "#!/bin/sh\necho local\n")
+	cmd := exec.Command("git", "add", "scripts/thing.sh")
+	cmd.Dir = project
+	_ = cmd.Run()
+	cmd = exec.Command("git", "commit", "-m", "asset")
+	cmd.Dir = project
+	_ = cmd.Run()
+	writeFile(t, filepath.Join(project, "scripts", "thing.sh"), "#!/bin/sh\necho uncommitted\n")
+
+	before, err := os.ReadFile(filepath.Join(project, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Run(lacquer, project, false); err == nil {
+		t.Fatal("sync must refuse when a managed asset has uncommitted changes")
+	}
+
+	after, err := os.ReadFile(filepath.Join(project, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("CLAUDE.md was rewritten by a sync that failed:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}

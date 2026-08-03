@@ -202,42 +202,63 @@ func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 // re-run completes the rest). The deterministic safety checks are fully
 // preflighted, so a confinement/symlink/dirty violation never causes a partial
 // write — only a genuine mid-copy I/O fault can.
-func Copy(projectRoot string, plan []Asset, proj config.Project) error {
+// Preflight validates every asset without writing anything, returning the
+// resolved target paths for Write to reuse so confinement is decided once.
+//
+// Split out of Copy so a CALLER can preflight before it starts writing anything
+// of its own. sync writes managed regions (CLAUDE.md, AGENTS.md) and then calls
+// Copy, so an asset-preflight failure used to abort AFTER the regions were on
+// disk — leaving the project half-synced. Queueify landed in exactly that state:
+// one uncommitted workflow file made Copy refuse, and it was left with rewritten
+// CLAUDE.md and AGENTS.md from a sync that reported failure.
+func Preflight(projectRoot string, plan []Asset) ([]string, error) {
 	inRepo, err := gitguard.InWorkTree(projectRoot)
 	if err != nil {
-		return fmt.Errorf("git check: %w", err)
+		return nil, fmt.Errorf("git check: %w", err)
 	}
 	if !inRepo {
-		return fmt.Errorf("refusing asset sync: %s is not a git repository (git is required to guard against overwriting uncommitted work)", projectRoot)
+		return nil, fmt.Errorf("refusing asset sync: %s is not a git repository (git is required to guard against overwriting uncommitted work)", projectRoot)
 	}
 
-	// Preflight: validate every asset before writing any. Resolved targets are
-	// cached for the write phase so confinement is decided exactly once.
 	targets := make([]string, len(plan))
 	var dirty []string
 	for i, a := range plan {
 		target, err := safepath.Resolve(projectRoot, a.Dest)
 		if err != nil {
-			return fmt.Errorf("resolve %s: %w", a.Dest, err)
+			return nil, fmt.Errorf("resolve %s: %w", a.Dest, err)
 		}
 		if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing to write through symlink: %s", a.Dest)
+			return nil, fmt.Errorf("refusing to write through symlink: %s", a.Dest)
 		}
 		targets[i] = target
 
 		isDirty, err := gitguard.Dirty(projectRoot, a.Dest)
 		if err != nil {
-			return fmt.Errorf("git guard %s: %w", a.Dest, err)
+			return nil, fmt.Errorf("git guard %s: %w", a.Dest, err)
 		}
 		if isDirty {
 			dirty = append(dirty, a.Dest)
 		}
 	}
 	if len(dirty) > 0 {
-		return fmt.Errorf("refusing to overwrite uncommitted changes in:\n  %s\n(commit or stash them, then re-run)",
+		return nil, fmt.Errorf("refusing to overwrite uncommitted changes in:\n  %s\n(commit or stash them, then re-run)",
 			strings.Join(dirty, "\n  "))
 	}
+	return targets, nil
+}
 
+// Copy preflights and then writes. Kept for callers that do no writing of their
+// own; sync uses Preflight + Write so its region writes sit behind this check.
+func Copy(projectRoot string, plan []Asset, proj config.Project) error {
+	targets, err := Preflight(projectRoot, plan)
+	if err != nil {
+		return err
+	}
+	return Write(projectRoot, plan, proj, targets)
+}
+
+// Write copies the planned assets using targets from a prior Preflight.
+func Write(projectRoot string, plan []Asset, proj config.Project, targets []string) error {
 	for i, a := range plan {
 		target := targets[i]
 		data, err := os.ReadFile(a.Src)
