@@ -21,6 +21,33 @@ jobs:
         with:
           fetch-depth: 1
 
+      # See the same guard in dependency-audit.yml for the full reasoning:
+      # claude-code-action hard-fails on an empty token, which turns an
+      # unattended weekly job into a permanent red X that no repo-side change can
+      # fix. `secrets` is not available in a job-level `if`, so this has to be a
+      # step that exports an output.
+      - name: Check for CLAUDE_CODE_OAUTH_TOKEN
+        id: claude_token
+        env:
+          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${TOKEN:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::CLAUDE_CODE_OAUTH_TOKEN is not set — skipping the quality review."
+          # Indented code block, not a fenced one — see dependency-audit.yml.
+          {
+            echo "### Quality review skipped"
+            echo ""
+            echo "CLAUDE_CODE_OAUTH_TOKEN is not set on this repository."
+            echo ""
+            echo "    claude setup-token"
+            echo "    gh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${GITHUB_REPOSITORY}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Select random feature module
         id: module
         run: |
@@ -41,7 +68,7 @@ jobs:
           echo "Selected module: $module"
 
       - name: Run Claude Code quality review
-        if: steps.module.outputs.found == 'true'
+        if: steps.module.outputs.found == 'true' && steps.claude_token.outputs.present == 'true'
         uses: anthropics/claude-code-action@558b1d6cab4085c7753fe402c10bef0fbb92ac7a # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

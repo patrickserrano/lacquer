@@ -52,10 +52,27 @@ not secret. A truly sensitive secret belongs on a server, never in the app.
 
 The release and quality workflows — and any server-side job that calls a vendor
 REST API — read these from repo/org **GitHub Actions secrets**, never from an
-xcconfig. Set each at the project's org:
+xcconfig.
+
+**Organization secrets only exist for organizations.** `gh secret set --org` 404s
+against a personal account, so check which `{{GITHUB_ORG}}` is before choosing:
 
 ```bash
-gh secret set <NAME> --org {{GITHUB_ORG}}
+gh api /orgs/{{GITHUB_ORG}} >/dev/null 2>&1 \
+  && gh secret set <NAME> --org {{GITHUB_ORG}} \
+  || gh secret set <NAME> -R {{GITHUB_ORG}}/<repo>   # personal account: per repo
+```
+
+This is not a nitpick. Every repo in this fleet was missing
+`CLAUDE_CODE_OAUTH_TOKEN` for months because the instruction here was
+unconditionally org-level and the account owning them is personal — so the
+command silently could not have worked, and four workflows failed on every run.
+When a secret is per-repo, fan it out deliberately rather than one at a time:
+
+```bash
+for r in $(gh repo list <owner> --limit 200 --json name --jq '.[].name'); do
+  gh secret set <NAME> -R <owner>/"$r" < secret.txt
+done
 ```
 
 | Secret | Used by | Source |
@@ -65,7 +82,7 @@ gh secret set <NAME> --org {{GITHUB_ORG}}
 | `ASC_KEY_CONTENT` | release | the `.p8` private key contents |
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
 | `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step re-locks it so the keychain never stays unlocked past the job) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | quality-review | `claude setup-token` |
+| `CLAUDE_CODE_OAUTH_TOKEN` | claude, quality-review, dependency-audit, issue-deduplication | `claude setup-token` |
 | `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → **secret** key (`sk_…`) — full account access |
 | `APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER` | testflight-feedback | a **separate, least-privilege** ASC API key id (read-only) |
 | `APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` | testflight-feedback | issuer id for that key |
@@ -76,6 +93,30 @@ the release/signing key (`ASC_*`) — it only needs read access to beta feedback
 and it runs on a GitHub-hosted runner, so it must never carry the signing key.
 
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
+
+### Claude-powered workflows
+
+Four synced workflows call `anthropics/claude-code-action` and therefore need
+`CLAUDE_CODE_OAUTH_TOKEN`: `ios-claude.yml` (responds to an `@claude` mention),
+`ios-quality-review.yml` (weekly), `ios-dependency-audit.yml` (twice monthly),
+and `ios-issue-deduplication.yml` (on every opened issue).
+
+The action **hard-fails** when the token is empty — `Environment variable
+validation failed` — before doing any work. Each workflow now checks for the
+token first and behaves according to who is waiting on it:
+
+- **Unattended** (quality-review, dependency-audit, issue-deduplication): skip
+  the Claude step with a `::warning::` and a job-summary remedy. The job stays
+  green, because a permanently red scheduled run is noise that trains you to
+  stop reading the Actions tab — which is exactly how this went unnoticed.
+  Dependency-audit still collects and publishes its report, so the run is not
+  worthless without the token.
+- **Interactive** (claude.yml): fail, *and post a comment on the thread* saying
+  why. Someone typed `@claude` and is waiting; a silent skip is the worst
+  outcome, and a red X on a workflow they will not open is barely better.
+
+The `secrets` context is unavailable in a job-level `if`, so the check is always
+a step that exports an output the later steps gate on.
 
 ## CI Runners
 
