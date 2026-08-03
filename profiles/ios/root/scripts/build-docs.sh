@@ -18,9 +18,14 @@ DERIVED="{{COMPONENT_PREFIX}}DerivedData-Docs"
 # A gitignored Secrets.xcconfig may be project.yml's base config; a clean
 # checkout has none, and the build fails before compiling. Same seed the build
 # and test jobs do.
-if [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ] && [ ! -f "{{COMPONENT_PREFIX}}Secrets.xcconfig" ]; then
-  cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
-fi
+# Seed every example beside itself — see ios-ci.yml for why the single-path copy
+# was wrong (kit's project reads a nested Secrets.xcconfig the root copy missed).
+find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
+  -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' \
+  -print0 2>/dev/null | while IFS= read -r -d '' ex; do
+    target="${ex%.example}"
+    [ -f "$target" ] || cp "$ex" "$target"
+  done
 
 # DOCC_MINIMUM_ACCESS_LEVEL is the setting that makes this worth running at all.
 # DocC extracts `public` and above by DEFAULT, and an app target's code is

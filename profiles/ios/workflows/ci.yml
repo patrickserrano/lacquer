@@ -132,9 +132,23 @@ jobs:
           # config; a clean checkout has no such file and xcodebuild fails before
           # compiling. Seed it from the committed example. Guarded so projects
           # without a Secrets.xcconfig.example (no runtime keys) are a no-op.
-          if [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ]; then
-            cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
-          fi
+          # Seed EVERY Secrets.xcconfig.example under the component, each beside
+          # itself — not just the one at the component root.
+          #
+          # kit keeps its example at BOTH ./Secrets.xcconfig.example and
+          # Kit/Kit/Secrets.xcconfig.example, and the Xcode project reads the
+          # nested one. The old single-path copy seeded only the root, "succeeded",
+          # and the Release build then died with:
+          #   could not find included file 'Kit/Kit/Secrets.xcconfig'
+          # — an error that points nowhere near the step that caused it. The
+          # guard made it worse: a project with no example at the root was a
+          # silent no-op rather than a signal.
+          find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
+            -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' \
+            -print0 2>/dev/null | while IFS= read -r -d '' ex; do
+              target="${ex%.example}"
+              [ -f "$target" ] || cp "$ex" "$target"
+            done
 
       - name: Check for a valid local SPM cache
         id: local-spm
@@ -271,9 +285,23 @@ jobs:
           # config; a clean checkout has no such file and xcodebuild fails before
           # compiling. Seed it from the committed example. Guarded so projects
           # without a Secrets.xcconfig.example (no runtime keys) are a no-op.
-          if [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ]; then
-            cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
-          fi
+          # Seed EVERY Secrets.xcconfig.example under the component, each beside
+          # itself — not just the one at the component root.
+          #
+          # kit keeps its example at BOTH ./Secrets.xcconfig.example and
+          # Kit/Kit/Secrets.xcconfig.example, and the Xcode project reads the
+          # nested one. The old single-path copy seeded only the root, "succeeded",
+          # and the Release build then died with:
+          #   could not find included file 'Kit/Kit/Secrets.xcconfig'
+          # — an error that points nowhere near the step that caused it. The
+          # guard made it worse: a project with no example at the root was a
+          # silent no-op rather than a signal.
+          find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
+            -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' \
+            -print0 2>/dev/null | while IFS= read -r -d '' ex; do
+              target="${ex%.example}"
+              [ -f "$target" ] || cp "$ex" "$target"
+            done
 
       - name: Check for a valid local SPM cache
         id: local-spm
@@ -692,9 +720,23 @@ jobs:
         run: |
           # -showBuildSettings evaluates the project the same way a build does, so
           # a missing base config fails it exactly as it fails the build jobs.
-          if [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ]; then
-            cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
-          fi
+          # Seed EVERY Secrets.xcconfig.example under the component, each beside
+          # itself — not just the one at the component root.
+          #
+          # kit keeps its example at BOTH ./Secrets.xcconfig.example and
+          # Kit/Kit/Secrets.xcconfig.example, and the Xcode project reads the
+          # nested one. The old single-path copy seeded only the root, "succeeded",
+          # and the Release build then died with:
+          #   could not find included file 'Kit/Kit/Secrets.xcconfig'
+          # — an error that points nowhere near the step that caused it. The
+          # guard made it worse: a project with no example at the root was a
+          # silent no-op rather than a signal.
+          find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
+            -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' \
+            -print0 2>/dev/null | while IFS= read -r -d '' ex; do
+              target="${ex%.example}"
+              [ -f "$target" ] || cp "$ex" "$target"
+            done
 
       # The relaxation mechanism is only as good as the checks that honour it.
       # `lacquer audit` reads [baseline.relax]; THIS job did not — so a project
