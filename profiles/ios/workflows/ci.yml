@@ -696,7 +696,38 @@ jobs:
             cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "{{COMPONENT_PREFIX}}Secrets.xcconfig"
           fi
 
+      # The relaxation mechanism is only as good as the checks that honour it.
+      # `lacquer audit` reads [baseline.relax]; THIS job did not — so a project
+      # with a valid, unexpired warnings_as_errors relaxation passed audit and
+      # failed CI on the same key. kit and port-of-entry both hit that.
+      #
+      # Reads the manifest directly rather than via docs-relaxation.sh, which is
+      # hardcoded to the `documentation` key.
+      - name: Read the baseline relaxations
+        id: baserelax
+        run: |
+          set -euo pipefail
+          for key in swift_version warnings_as_errors strict_concurrency; do
+            line=$(awk -v k="$key" '
+              /^\[baseline\.relax\][[:space:]]*$/ { inblock = 1; next }
+              /^\[/                                 { inblock = 0 }
+              inblock && $0 ~ "^[[:space:]]*"k"[[:space:]]*=" { print; exit }
+            ' .lacquer.toml 2>/dev/null || true)
+            [ -n "$line" ] || continue
+            until_date=$(printf '%s' "$line" | sed -n 's/.*until[[:space:]]*=[[:space:]]*"\([0-9-]\{10\}\)".*/\1/p')
+            [ -n "$until_date" ] || { echo "::error::[baseline.relax].$key needs an until date"; exit 1; }
+            if [ "$(date -u +%Y-%m-%d)" \> "$until_date" ]; then
+              echo "::error::The [baseline.relax] $key entry expired on ${until_date}. Meet the baseline or extend it deliberately."
+              exit 1
+            fi
+            echo "::warning::${key} is relaxed until ${until_date} — checked and reported, but not blocking."
+            echo "relax_${key}=1" >> "$GITHUB_OUTPUT"
+          done
+
       - name: Assert the project baseline
+        env:
+          RELAX_SWIFT_VERSION: ${{ steps.baserelax.outputs.relax_swift_version }}
+          RELAX_WARNINGS_AS_ERRORS: ${{ steps.baserelax.outputs.relax_warnings_as_errors }}
         run: |
           set -o pipefail
           # This checks the EFFECTIVE build settings, deliberately a different
@@ -739,21 +770,32 @@ jobs:
             | sed 's/.*SWIFT_VERSION = //' | tr -d ' ' | sort -u \
             | awk -F. 'NF && $1+0 < 6 { print }')
           if [ -n "$bad" ]; then
-            echo "::error::SWIFT_VERSION below 6 in at least one target: $(printf '%s' "$bad" | tr '\n' ' ')"
-            fail=1
+            if [ -n "${RELAX_SWIFT_VERSION:-}" ]; then
+              echo "::warning::SWIFT_VERSION below 6 in at least one target: $(printf '%s' "$bad" | tr '\n' ' ') (relaxed)"
+            else
+              echo "::error::SWIFT_VERSION below 6 in at least one target: $(printf '%s' "$bad" | tr '\n' ' ')"
+              fail=1
+            fi
           fi
 
           # Warnings-as-errors must be on everywhere Swift is compiled. A target
           # that never sets it resolves to NO, which is exactly the gap this job
           # exists to catch.
+          wae_bad=0
           if printf '%s\n' "$settings" | grep 'SWIFT_TREAT_WARNINGS_AS_ERRORS = ' \
             | sed 's/.*= //' | tr -d ' ' | sort -u | grep -qv '^YES$'; then
-            echo "::error::SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every target."
-            fail=1
+            wae_bad=1
           fi
           if ! printf '%s\n' "$settings" | grep -q 'SWIFT_TREAT_WARNINGS_AS_ERRORS'; then
-            echo "::error::SWIFT_TREAT_WARNINGS_AS_ERRORS is unset — warnings are not errors."
-            fail=1
+            wae_bad=1
+          fi
+          if [ "$wae_bad" -ne 0 ]; then
+            if [ -n "${RELAX_WARNINGS_AS_ERRORS:-}" ]; then
+              echo "::warning::SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every target (relaxed)."
+            else
+              echo "::error::SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every target."
+              fail=1
+            fi
           fi
 
           if [ "$fail" -ne 0 ]; then
