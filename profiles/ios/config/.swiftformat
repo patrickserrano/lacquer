@@ -11,7 +11,30 @@
 --closingparen balanced
 --funcattributes prev-line
 --typeattributes prev-line
---organizetypes class,struct,enum,actor
+--organize-types class,struct,enum,actor
+
+# organizeDeclarations is what makes type_contents_order fixable. SwiftLint's
+# type_contents_order rule has no autocorrect, and across this fleet it produced
+# 55% of ALL lint violations — 371 in one app, 117 in another — every one of them
+# a member that had to be moved by hand. A rule with no fixer is a rule that
+# accumulates.
+#
+# `--organization-mode type` is the load-bearing flag. The DEFAULT mode is
+# `visibility`, which groups public/internal/private instead of by declaration
+# kind, and clears almost nothing: measured on one app, default mode took
+# type_contents_order from 117 to 80, while type mode with the order below took
+# it to 1.
+#
+# --type-order mirrors .swiftlint.yml's type_contents_order. The two lists are
+# one decision: change either and they drift, and the formatter starts producing
+# layouts the linter rejects.
+#
+# --mark-categories false: inserting MARK comments would be a correct-but-huge
+# diff across every existing file, and it is a separate opinion from ordering.
+--enable organizeDeclarations
+--organization-mode type
+--type-order beforeMarks,nestedType,staticProperty,staticPropertyWithBody,classPropertyWithBody,overriddenProperty,instanceProperty,swiftUIPropertyWrapper,swiftUIProperty,instancePropertyWithBody,instanceLifecycle,swiftUIMethod,staticMethod,classMethod,instanceMethod
+--mark-categories false
 --extensionacl on-declarations
 
 --enable blankLinesBetweenScopes
