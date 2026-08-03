@@ -79,9 +79,20 @@ fi
 own=$(grep -E '^/.*\.swift:[0-9]+:[0-9]+: warning:' "$LOG" \
   | grep -v "/$DERIVED/" | grep -v '/SourcePackages/' | sort -u || true)
 if [ -n "$own" ]; then
-  echo "::error::DocC reported warnings in this project's own sources:"
-  printf '%s\n' "$own" | head -40
-  exit 1
+  # DOCS_RELAXED=1 downgrades this to a report. The publish workflow sets it when
+  # [baseline.relax] documentation is active, because the alternative it used
+  # first — continue-on-error on this whole step — marked a FAILED build as
+  # successful, so nothing was ever staged and publish died with
+  # "'docs-site' is not a directory". A relaxation must let the site publish,
+  # not quietly skip the build that produces it.
+  if [ "${DOCS_RELAXED:-}" = "1" ]; then
+    echo "::warning::DocC reported warnings in this project's own sources (relaxed — publishing anyway):"
+    printf '%s\n' "$own" | head -20
+  else
+    echo "::error::DocC reported warnings in this project's own sources:"
+    printf '%s\n' "$own" | head -40
+    exit 1
+  fi
 fi
 
 # Collect the archives the build produced. A scheme that builds frameworks as

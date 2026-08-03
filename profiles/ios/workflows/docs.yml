@@ -56,9 +56,12 @@ jobs:
           esac
 
       - name: Build documentation
-        # When relaxed, publish what builds rather than gating on completeness;
-        # ios-ci.yml's Docs job is the gate.
-        continue-on-error: ${{ steps.relax.outputs.state == 'relaxed' }}
+        # NOT continue-on-error: that marks a FAILED build as successful, so the
+        # archive is never staged and the publish step below dies with
+        # "'docs-site' is not a directory". DOCS_RELAXED tells build-docs.sh to
+        # report its warnings instead of aborting, so the site still gets built.
+        env:
+          DOCS_RELAXED: ${{ steps.relax.outputs.state == 'relaxed' && '1' || '' }}
         run: scripts/build-docs.sh docs-site "${GITHUB_REPOSITORY#*/}/swift"
 
       - name: Publish to gh-pages/swift
