@@ -11,7 +11,7 @@
 --closingparen balanced
 --funcattributes prev-line
 --typeattributes prev-line
---organize-types class,struct,enum,actor
+--organize-types class,struct,enum,actor,extension
 
 # organizeDeclarations is what makes type_contents_order fixable. SwiftLint's
 # type_contents_order rule has no autocorrect, and across this fleet it produced
@@ -31,9 +31,22 @@
 #
 # --mark-categories false: inserting MARK comments would be a correct-but-huge
 # diff across every existing file, and it is a separate opinion from ordering.
+#
+# THREE CORRECTIONS found by onboarding kit, where 48 type_contents_order
+# violations survived the formatter:
+#   * `extension` was missing from --organize-types. Nearly every surviving
+#     violation lived in an extension body, so the rule that exists to make
+#     type_contents_order fixable never ran on the code that needed it.
+#   * swiftUIMethod sat BEFORE staticMethod. SwiftLint has no swiftUIMethod
+#     concept — it sees `private func body() -> some View` as other_method, which
+#     must follow type_method. Any SwiftUI type with a static helper was
+#     therefore guaranteed a violation no formatter pass could clear.
+#   * --before-marks typealias: without it the formatter actively REVERTED the
+#     correct order for nested typealiases, fighting the linter every run.
 --enable organizeDeclarations
 --organization-mode type
---type-order beforeMarks,nestedType,staticProperty,staticPropertyWithBody,classPropertyWithBody,overriddenProperty,instanceProperty,swiftUIPropertyWrapper,swiftUIProperty,instancePropertyWithBody,instanceLifecycle,swiftUIMethod,staticMethod,classMethod,instanceMethod
+--type-order beforeMarks,nestedType,staticProperty,staticPropertyWithBody,classPropertyWithBody,overriddenProperty,instanceProperty,swiftUIPropertyWrapper,swiftUIProperty,instancePropertyWithBody,instanceLifecycle,staticMethod,classMethod,swiftUIMethod,instanceMethod
+--before-marks typealias
 --mark-categories false
 --extensionacl on-declarations
 
