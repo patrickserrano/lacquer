@@ -165,3 +165,26 @@ func TestComponentsDerivesSwiftVersion(t *testing.T) {
 		t.Errorf("SwiftVersion = %q, want 6.2", derived.SwiftVersion)
 	}
 }
+
+// A root-layout project with BOTH an Xcode app and a supabase/ backend puts both
+// markers at ".", and detection assigned one profile per path — so the ios
+// assignment overwrote the supabase one and the component was recorded as
+// `profiles = ["ios"]`. The whole supabase profile (deno config, lefthook, CI,
+// RLS rules) was then never synced. rail shipped in that state.
+func TestDetectRootLayoutWithBothIosAndSupabase(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "Rail.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "supabase", "config.toml"))
+
+	comps, _, err := Components(root)
+	if err != nil {
+		t.Fatalf("Components: %v", err)
+	}
+	if len(comps) != 1 {
+		t.Fatalf("got %d components, want 1: %+v", len(comps), comps)
+	}
+	got := comps[0].Profiles
+	if len(got) != 2 || got[0] != "ios" || got[1] != "supabase" {
+		t.Errorf("profiles = %v, want [ios supabase] — one marker overwrote the other", got)
+	}
+}

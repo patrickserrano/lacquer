@@ -92,9 +92,15 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		return nil, config.Project{}, err
 	}
 
-	byPath := map[string]string{}
+	// Multiple profiles per path, not one. A root-layout project with an Xcode
+	// app AND a supabase/ backend puts both markers at ".", and assigning a
+	// single profile per path meant the ios assignment below silently
+	// OVERWROTE the supabase one — the component kept `profiles = ["ios"]` and
+	// the whole supabase profile (deno config, lefthook, CI, RLS rules) was
+	// never synced. rail is exactly that shape and had been missing it.
+	byPath := map[string][]string{}
 	for p, prof := range nonIos {
-		byPath[p] = prof
+		byPath[p] = append(byPath[p], prof)
 	}
 	if iosXcodeproj != "" {
 		derived.Xcodeproj = iosXcodeproj
@@ -112,7 +118,8 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		if best != "" {
 			iosComp = best
 		}
-		byPath[iosComp] = "ios"
+		// Append: a component can legitimately be both (see byPath above).
+		byPath[iosComp] = append(byPath[iosComp], "ios")
 	}
 
 	paths := make([]string, 0, len(byPath))
@@ -122,7 +129,9 @@ func Components(root string) ([]config.Component, config.Project, error) {
 	sort.Strings(paths)
 	comps := make([]config.Component, 0, len(paths))
 	for _, p := range paths {
-		comps = append(comps, config.Component{Path: p, Profiles: []string{byPath[p]}})
+		profs := byPath[p]
+		sort.Strings(profs) // deterministic manifest output
+		comps = append(comps, config.Component{Path: p, Profiles: profs})
 	}
 	return comps, derived, nil
 }

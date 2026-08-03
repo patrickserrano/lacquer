@@ -47,7 +47,10 @@ jobs:
           fi
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
-          changed="$(git diff --name-only "$base" "$head")"
+          # Three-dot: against the merge base, not the base branch tip. Two-dot
+          # folds in whatever landed on main after the PR opened, so a docs-only
+          # PR starts reporting code changes and wakes the heavy Mac jobs.
+          changed="$(git diff --name-only "$base...$head")"
           # `code` gates the heavy check job: run it unless the PR is docs-only, so
           # CI OK still reports green on docs PRs (no admin bypass). This is an
           # INVERTED deny-list (any non-docs change -> code=true) on purpose: a path

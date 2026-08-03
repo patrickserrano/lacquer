@@ -47,7 +47,14 @@ jobs:
           set -euo pipefail
           # -qx: an exact whole-line match, so a path like docs/VERSION.md can't
           # trip this.
-          if git diff --name-only "$BASE" "$HEAD" | grep -qx 'VERSION'; then
+          # THREE-dot: diff against the MERGE BASE, not main's tip. Two-dot
+          # compares the two commits directly, so once main advances the PR's
+          # diff includes main's own commits inverted — and since every merge
+          # here releases, main advances with a `chore: bump VERSION` commit
+          # constantly. Every PR opened before a release then looked like it had
+          # reverted VERSION and failed this guard. Verified on #95: two-dot
+          # listed VERSION, three-dot listed only the PR's two real files.
+          if git diff --name-only "$BASE...$HEAD" | grep -qx 'VERSION'; then
             echo "::error::Remove the VERSION edit — it is bumped automatically on merge to main from conventional commits (.github/workflows/version.yml). Hand-picked numbers are how two PRs end up claiming the same version, which git merges without complaint. To set it deliberately (e.g. graduating to 1.0.0), push to main directly."
             exit 1
           fi
@@ -88,7 +95,8 @@ jobs:
           # current while the content has moved. docs:/chore:/ci: do NOT release,
           # so they are not allowed to carry one. (#88 was `docs(core):` and
           # changed core/CLAUDE.core.md — exactly this mistake.)
-          if git diff --name-only "$BASE" "$HEAD" | grep -qE '^(core|profiles)/'; then
+          # Three-dot for the same reason as the VERSION guard above.
+          if git diff --name-only "$BASE...$HEAD" | grep -qE '^(core|profiles)/'; then
             if ! printf '%s' "$TITLE" | grep -qE "^(feat|fix)(\([^)]+\))?!?: |^(${types})(\([^)]+\))?!: "; then
               echo "::error::This PR changes shipped content under core/ or profiles/, which projects consume — so it must produce a release. Use 'feat:' or 'fix:' (or a breaking '!'), not a non-releasing type. Prose counts: a rule change in CLAUDE.core.md is material even though it reads like docs."
               exit 1
