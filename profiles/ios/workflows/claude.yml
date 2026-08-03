@@ -34,6 +34,30 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Unlike the scheduled workflows (see dependency-audit.yml), this one is
+      # triggered by a person typing @claude and waiting for a reply, so skipping
+      # silently is the worst outcome — they'd never learn why nothing happened.
+      # Fail, but say why *on the thread* rather than only in a log the mentioner
+      # will not open, and replace claude-code-action's opaque "Environment
+      # variable validation failed" with the actual remedy.
+      - name: Check for CLAUDE_CODE_OAUTH_TOKEN
+        env:
+          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -n "${TOKEN:-}" ]; then
+            echo "CLAUDE_CODE_OAUTH_TOKEN is set."
+            exit 0
+          fi
+          if [ -n "${NUMBER:-}" ]; then
+            gh issue comment "$NUMBER" -R "$GITHUB_REPOSITORY" --body \
+              "Claude can't respond here: this repository has no \`CLAUDE_CODE_OAUTH_TOKEN\` secret. Run \`claude setup-token\`, then \`gh secret set CLAUDE_CODE_OAUTH_TOKEN -R $GITHUB_REPOSITORY\`." || true
+          fi
+          echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not set. Run \`claude setup-token\`, then \`gh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${GITHUB_REPOSITORY}\`."
+          exit 1
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@558b1d6cab4085c7753fe402c10bef0fbb92ac7a # v1
