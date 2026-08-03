@@ -77,9 +77,20 @@ func (d Declared) Effective(c Config, key string) (string, bool) {
 // out of how many there are. A total of 0 means the project compiles no Swift
 // that this reader can see, so there is nothing to enforce.
 func (d Declared) Coverage(key, want string) (have, total int) {
+	return d.CoverageBy(key, func(v string) bool { return v == want })
+}
+
+// CoverageBy is Coverage with a caller-supplied predicate, for keys where
+// string equality is the wrong test. SWIFT_VERSION is the reason it exists: the
+// baseline asserts a MINIMUM language mode, and Xcode writes `6.0` where the
+// standard says `6`. Those are the same language mode, but an exact compare
+// called it a violation and reported 0/8 — while the CI Baseline job, which
+// compares the major numerically, passed the same project. A gate and its local
+// twin disagreeing is the exact defect class this repo keeps finding.
+func (d Declared) CoverageBy(key string, ok func(string) bool) (have, total int) {
 	swift := d.SwiftConfigs()
 	for _, c := range swift {
-		if v, ok := d.Effective(c, key); ok && v == want {
+		if v, present := d.Effective(c, key); present && ok(v) {
 			have++
 		}
 	}

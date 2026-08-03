@@ -1,9 +1,25 @@
+# Swift stages go through scripts/precommit-swift.sh rather than invoking the
+# tools directly. Adopted from momfriend, which had diverged from the lacquer to
+# fix three real holes the direct invocation has:
+#
+#   * Agent shells often lack /opt/homebrew/bin on PATH, so `swiftlint` resolves
+#     as "not found" — and pre-commit reports that as a pass. The wrapper
+#     resolves the binary itself and ERRORS when it genuinely cannot be found.
+#     A check that cannot run must block, never pass.
+#   * Zero staged files means the file-list plumbing broke; the wrapper refuses
+#     to report success for a check that verified nothing.
+#   * It cds into the component so the tools run from their config's directory
+#     and never scan DerivedData*, which otherwise produces phantom violations.
+#
+# `verbose: true` prints its proof-of-run line on every commit, so "the hook ran
+# and checked N files" is visible rather than assumed.
 repos:
   - repo: local
     hooks:
       - id: swiftformat
         name: SwiftFormat
-        entry: swiftformat --config {{COMPONENT_PREFIX}}.swiftformat
+        entry: scripts/precommit-swift.sh swiftformat
+        verbose: true
         language: system
         types: [swift]
         files: ^{{COMPONENT_PREFIX}}
@@ -15,7 +31,8 @@ repos:
       # cannot fail is a hook that is not running.
       - id: swiftlint
         name: SwiftLint
-        entry: swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml
+        entry: scripts/precommit-swift.sh swiftlint
+        verbose: true
         language: system
         types: [swift]
         files: ^{{COMPONENT_PREFIX}}
@@ -25,7 +42,8 @@ repos:
       # `Docs` job in ios-ci.yml.
       - id: swiftlint-docs
         name: SwiftLint (documentation)
-        entry: swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint-docs.yml
+        entry: scripts/precommit-swift.sh swiftlint-docs
+        verbose: true
         language: system
         types: [swift]
         files: ^{{COMPONENT_PREFIX}}

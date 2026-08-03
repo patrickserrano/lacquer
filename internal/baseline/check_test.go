@@ -216,3 +216,47 @@ func TestDocumentationRelaxationIsAcceptedButNotChecked(t *testing.T) {
 		}
 	}
 }
+
+// The baseline asserts a MINIMUM Swift language mode, but the check compared the
+// string exactly — so a project whose pbxproj says `6.0` (which is what Xcode
+// writes) reported `swift_version want 6, got 6.0 — 0/8` while the CI Baseline
+// job, comparing the major numerically, passed the same project. Four freshly
+// onboarded apps hit this at once.
+func TestSwiftVersionIsAMinimumNotAnExactString(t *testing.T) {
+	for _, tc := range []struct {
+		got  string
+		want bool
+	}{
+		{"6", true},    // exactly the asserted value
+		{"6.0", true},  // what Xcode actually writes — the regression
+		{"6.2", true},  // newer minor
+		{"7", true},    // newer major
+		{"5.0", false}, // genuinely below
+		{"5.10", false},
+		{"", false},    // unset is not compliance
+		{"six", false}, // unparseable fails closed
+	} {
+		d := declared(2, map[string]string{
+			"SWIFT_VERSION":                  tc.got,
+			"SWIFT_TREAT_WARNINGS_AS_ERRORS": "YES",
+		})
+		f := find(t, Check(std, d, nil, now), "swift_version")
+		if ok := f.Status == StatusOK; ok != tc.want {
+			t.Errorf("SWIFT_VERSION=%q: status %q (%s), want compliant=%v", tc.got, f.Status, f.Ratio(), tc.want)
+		}
+	}
+}
+
+func TestVersionAtLeast(t *testing.T) {
+	for _, tc := range []struct {
+		got, want string
+		ok        bool
+	}{
+		{"6.0", "6", true}, {"6", "6.0", true}, {"6.0.1", "6", true},
+		{"6.1", "6.2", false}, {"6.2", "6.1", true}, {"10", "9", true},
+	} {
+		if got := versionAtLeast(tc.got, tc.want); got != tc.ok {
+			t.Errorf("versionAtLeast(%q,%q) = %v, want %v", tc.got, tc.want, got, tc.ok)
+		}
+	}
+}
