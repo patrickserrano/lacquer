@@ -3,6 +3,7 @@ package fixcmd
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -80,5 +81,41 @@ func TestRunsInTheComponentDirectory(t *testing.T) {
 	}
 	if !strings.HasSuffix(strings.TrimSpace(string(got)), "ios") {
 		t.Errorf("ran in %q, want the component directory", strings.TrimSpace(string(got)))
+	}
+}
+
+// swiftformat with organizeDeclarations is not idempotent in one pass:
+// reordering members changes their nesting, and the indent rule only sees the
+// new layout on the next run. A single pass left kit with 6 files its own
+// pre-push hook rejected, AFTER `lacquer fix` reported success. So the runner
+// re-runs a fixer until the tree stops moving.
+func TestFixerRunsToAFixedPoint(t *testing.T) {
+	root := t.TempDir()
+	// A fixer that changes something on its first two runs, then stops.
+	writeFile(t, filepath.Join(root, "profiles", "p", "fix.toml"),
+		"[[command]]\nname = \"grow\"\nargv = [\"sh\", \"-c\", \"n=$(cat n 2>/dev/null || echo 0); "+
+			"if [ \\\"$n\\\" -lt 2 ]; then echo $((n+1)) > n; fi\"]\n")
+	proj := t.TempDir()
+	for _, c := range [][]string{{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}} {
+		cmd := exec.Command("git", c...)
+		cmd.Dir = proj
+		if err := cmd.Run(); err != nil {
+			t.Skipf("git unavailable: %v", err)
+		}
+	}
+
+	cfg := &config.Config{Components: []config.Component{{Path: ".", Profiles: []string{"p"}}}}
+	res, err := Run(root, proj, cfg, new(bytes.Buffer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("got %d results, want 1", len(res))
+	}
+	if res[0].Passes < 2 {
+		t.Errorf("ran %d pass(es); a fixer still changing the tree must run again", res[0].Passes)
+	}
+	if res[0].Passes > maxPasses {
+		t.Errorf("ran %d passes, above the %d cap", res[0].Passes, maxPasses)
 	}
 }

@@ -17,6 +17,7 @@
 package fixcmd
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -39,12 +40,17 @@ type fixFile struct {
 	Command []Command `toml:"command"`
 }
 
+// maxPasses bounds the convergence loop below. Three is empirically enough:
+// every project measured settled on the second pass.
+const maxPasses = 3
+
 // Result is what happened to one command in one component.
 type Result struct {
 	Component string
 	Profile   string
 	Name      string
 	Status    string // "ran", "skipped: <tool> not installed", or "failed: <err>"
+	Passes    int    // how many times it ran before the tree stopped changing
 }
 
 // LoadCommands reads a profile's autofixers. A profile shipping no fix.toml has
@@ -118,9 +124,37 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 					continue
 				}
 
-				ex := exec.Command(cmd.Argv[0], cmd.Argv[1:]...) // #nosec G204 -- argv comes from a lacquer-owned fix.toml, never user input
-				ex.Dir = dir
-				combined, runErr := ex.CombinedOutput()
+				// Run to a FIXED POINT, not once. swiftformat with
+				// organizeDeclarations is not idempotent in one pass: reordering
+				// members changes their nesting, and the indent rule only sees
+				// the new layout on the next run. A single pass therefore left
+				// kit with 6 files that `swiftformat --lint` still rejected —
+				// which its own pre-push hook caught, after `lacquer fix` had
+				// reported success. A fixer that leaves the tree failing the
+				// check it exists to satisfy has not finished.
+				var combined []byte
+				var runErr error
+				passes := 0
+				// Compare the tree BETWEEN passes. "Is the tree dirty?" is the
+				// wrong question — sync just wrote hundreds of files, so it is
+				// always dirty and the loop would always run to the cap. What
+				// matters is whether THIS pass moved anything.
+				prev, stateErr := treeState(dir)
+				for passes < maxPasses {
+					ex := exec.Command(cmd.Argv[0], cmd.Argv[1:]...) // #nosec G204 -- argv comes from a lacquer-owned fix.toml, never user input
+					ex.Dir = dir
+					combined, runErr = ex.CombinedOutput()
+					passes++
+					if stateErr != nil {
+						break // no git to compare against: one pass, as before
+					}
+					cur, err := treeState(dir)
+					if err != nil || cur == prev {
+						break
+					}
+					prev = cur
+				}
+				r.Passes = passes
 				if runErr != nil {
 					// A fixer that exits non-zero has usually still fixed what
 					// it could (swiftlint --fix exits non-zero when unfixable
@@ -134,7 +168,7 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 					continue
 				}
 				r.Status = "ran"
-				fmt.Fprintf(out, "  %-24s ran\n", cmd.Name)
+				fmt.Fprintf(out, "  %-24s ran (%d pass%s)\n", cmd.Name, passes, plural(passes))
 				results = append(results, r)
 			}
 		}
@@ -172,4 +206,33 @@ func trimCR(s string) string {
 		return s[:len(s)-1]
 	}
 	return s
+}
+
+// treeState is a cheap fingerprint of the working tree, used only to compare
+// one pass against the next. `git status --porcelain` names every changed path;
+// it does not change when file CONTENT changes but the set of dirty paths does
+// not, so pair it with the diff hash.
+func treeState(dir string) (string, error) {
+	status := exec.Command("git", "status", "--porcelain")
+	status.Dir = dir
+	s, err := status.Output()
+	if err != nil {
+		return "", err
+	}
+	// `git diff` covers content changes to already-dirty files, which is the
+	// common case here: pass two reindents a file pass one had already moved.
+	diff := exec.Command("git", "diff")
+	diff.Dir = dir
+	d, err := diff.Output()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x|%x", sha256.Sum256(s), sha256.Sum256(d)), nil
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
 }
