@@ -106,7 +106,9 @@ func Check(spec Spec, d Declared, relax map[string]Relax, now time.Time) []Findi
 	var fs []Finding
 
 	if spec.SwiftVersion != "" {
-		fs = append(fs, coverage(d, "swift_version", "SWIFT_VERSION", spec.SwiftVersion, total))
+		// Minimum, not exact — see versionAtLeast.
+		fs = append(fs, coverageBy(d, "swift_version", "SWIFT_VERSION", spec.SwiftVersion, total,
+			func(got string) bool { return versionAtLeast(got, spec.SwiftVersion) }))
 	}
 	if spec.WarningsAsErrors {
 		fs = append(fs, coverage(d, "warnings_as_errors", "SWIFT_TREAT_WARNINGS_AS_ERRORS", "YES", total))
@@ -128,9 +130,15 @@ func Check(spec Spec, d Declared, relax map[string]Relax, now time.Time) []Findi
 	return fs
 }
 
-// coverage builds the finding for one key from the project's declared settings.
+// coverage builds the finding for one key from the project's declared settings,
+// treating the wanted value as an exact match.
 func coverage(d Declared, key, setting, want string, total int) Finding {
-	have, _ := d.Coverage(setting, want)
+	return coverageBy(d, key, setting, want, total, func(got string) bool { return got == want })
+}
+
+// coverageBy is coverage with an explicit satisfaction test.
+func coverageBy(d Declared, key, setting, want string, total int, ok func(string) bool) Finding {
+	have, _ := d.CoverageBy(setting, ok)
 	f := Finding{
 		Key: key, Setting: setting, Want: want,
 		Have: have, Total: total,
@@ -198,6 +206,39 @@ func allAtLeastSwift6(d Declared) bool {
 		v, ok := d.Effective(c, "SWIFT_VERSION")
 		if !ok || swiftMajor(v) < 6 {
 			return false
+		}
+	}
+	return true
+}
+
+// versionAtLeast reports whether a declared dotted version is at least the
+// wanted one, comparing component-wise and treating an absent component as 0.
+// So `6.0` satisfies `6`, `6.2` satisfies `6`, and `5.9` does not — which is
+// what "the baseline asserts a minimum language mode" has always meant, and what
+// the CI Baseline job already did.
+//
+// A non-numeric component makes the whole value fail closed: an unparseable
+// SWIFT_VERSION is not evidence of compliance.
+func versionAtLeast(got, want string) bool {
+	gp, wp := strings.Split(strings.TrimSpace(got), "."), strings.Split(strings.TrimSpace(want), ".")
+	for i := 0; i < len(gp) || i < len(wp); i++ {
+		g, w := 0, 0
+		if i < len(gp) {
+			n, err := strconv.Atoi(gp[i])
+			if err != nil {
+				return false
+			}
+			g = n
+		}
+		if i < len(wp) {
+			n, err := strconv.Atoi(wp[i])
+			if err != nil {
+				return false
+			}
+			w = n
+		}
+		if g != w {
+			return g > w
 		}
 	}
 	return true
