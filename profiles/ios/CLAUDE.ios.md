@@ -231,6 +231,52 @@ The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in
 tests — they cause flaky failures. See the `swift-testing-wait-until` skill
 for the polling helper to add to your test target instead.
 
+## Local Checks vs CI
+
+Every CI gate and where it runs before push. See core "Local Checks Match CI" —
+a new CI job adds a row here, and a hook never runs weaker than its CI twin.
+
+| CI job / step | Local |
+|---|---|
+| `Lint` → SwiftLint `--strict` | pre-commit `swiftlint` (**`--strict`**, staged files) |
+| `Lint` → SwiftFormat `--lint` | pre-commit `swiftformat` (writes; a changed file fails the commit) |
+| `Docs` → `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
+| `Docs` → DocC builds clean | **pre-push** `docs-build` (too slow for pre-commit) |
+| `Test` | pre-commit `swift-test` |
+| `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |
+| `Build (Release)` | CI-only: a full Release archive is not a commit-time cost |
+| `No lacquer drift` | `lacquer audit` (exit 3) — run it locally any time |
+
+The `--strict` flags are the load-bearing part. `line_length`, `file_length`,
+`type_body_length` and `function_body_length` are all **warning** severity in
+`.swiftlint.yml`, so without `--strict` they print and pass locally and then fail
+the PR. A hook carrying `|| true`, or missing `--strict`, is the single most
+common way this fleet produces a "worked on my machine" failure — and it is now a
+drift violation, not just a bad idea.
+
+**The editor hook counts too.** The `PostToolUse` hooks in
+`.claude/settings.json` run on every Swift write, and they were the worst
+offender of all:
+
+```
+swiftlint lint --path "$FP" --quiet 2>/dev/null || true
+```
+
+`--path` has not been a valid SwiftLint option for some time — the command
+errored on every single invocation, and `2>/dev/null || true` swallowed the
+error, so the hook linted **nothing, ever**, and looked healthy doing it. It now
+passes the path positionally, names the project config explicitly, runs
+`--strict`, and on a violation exits 2 so the diagnostic reaches the agent that
+just wrote the file. Fix it there and it never reaches the commit.
+
+The formatter hook likewise names `--config` explicitly. SwiftFormat does
+discover `.swiftformat` by walking up from the file, so this was not silently
+formatting to defaults — but relying on discovery breaks the moment a source file
+sits outside the component, and an explicit config costs nothing.
+
+Neither hook suppresses stderr any more. A swallowed error is indistinguishable
+from a clean run, which is precisely how a dead hook survives for months.
+
 ## Documentation (DocC)
 
 **DocC is a requirement, not a nicety** — see core "Documentation" for the rule

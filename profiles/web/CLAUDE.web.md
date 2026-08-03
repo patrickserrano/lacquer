@@ -136,6 +136,26 @@ Ship semantic HTML (Biome's `useSemanticElements`); every interactive control is
 keyboard-reachable with a visible focus ring and an accessible name; meaning is
 never carried by colour alone. Target WCAG 2.1 AA.
 
+## Local Checks vs CI
+
+Every CI gate and where it runs before push. See core "Local Checks Match CI" —
+a new CI job adds a row here, and a hook never runs weaker than its CI twin.
+
+| CI job / step | Local |
+|---|---|
+| `check` → `biome ci .` | pre-commit `biome` (`--write` on staged files, re-staged) |
+| `check` → `npm run typecheck` | pre-commit `typecheck` |
+| `check` → `npm run test:coverage` | pre-push `test` |
+| `check` → `npm run build` | pre-push `build` |
+| `check` → `npm audit` | pre-push `audit` (network, so not at commit time) |
+| `Docs` → `npx typedoc` | pre-push `docs` |
+| `No lacquer drift` | `lacquer audit` (exit 3) |
+
+One deliberate asymmetry: pre-commit runs Biome over **staged files** while CI
+runs it over the **whole component**. That is inherent to a staged-file hook — a
+file you did not stage can still be broken — which is why CI is the authority and
+the hook is the fast feedback, never the other way round.
+
 ## Git hooks & commits
 
 `lefthook.yml` is synced — install once with `npx lefthook install`. It runs

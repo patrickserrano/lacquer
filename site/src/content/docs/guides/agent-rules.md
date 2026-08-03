@@ -135,6 +135,37 @@ to find regressions. This catches bug classes the implementer's own tests
 miss. Reserve this for the categories above — bolting a review step onto
 every task adds cost without benefit; current models already self-check.
 
+### Local checks match CI
+
+A local hook runs the same command, with the same strictness, as the CI job it
+stands in for. A hook that's weaker than CI is worse than no hook: it reports
+green, you push, and CI fails on something the hook already had in its hands.
+
+1. **Never weaken a hook to make it pass, and never hide its errors.** No
+   `|| true`, no dropping `--strict`, no `2>/dev/null`, no `continue-on-error`.
+   If a check is too slow for pre-commit, move it to pre-push — don't defang it.
+   Suppressing stderr is the worst of these because it hides the *tool* failing:
+   a lacquer editor hook called SwiftLint with a removed option, errored on every
+   write for months, and read as a clean pass the whole time.
+2. **Adding a CI gate means adding its local counterpart in the same change**,
+   or deciding out loud that it belongs only in CI. Each profile's rules carry a
+   table of every CI job and where it runs locally; a new job adds a row.
+
+Lacquer-managed files are identical or excluded — there's no third state. The
+files carrying these checks are rendered from the lacquer, so editing one in a
+project silently diverges it from every other project. The `No lacquer drift` CI
+job runs `lacquer audit` and fails on exit 3 when a managed file was edited
+locally. If a project genuinely owns a file, say so:
+
+```toml
+[project]
+exclude = ["lefthook.yml"]
+```
+
+The lacquer then neither distributes nor tracks it. A project never synced has no
+`.lacquer.lock`, so drift can't be attributed and nothing blocks — the job warns
+rather than reporting a pass.
+
 ## CI hygiene
 
 - Keep CI action/tool versions **consistent across all workflows** — drift causes subtle job-to-job behavior differences.
