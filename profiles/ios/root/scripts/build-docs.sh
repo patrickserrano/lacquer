@@ -41,10 +41,15 @@ args=(
   -derivedDataPath "$DERIVED"
   DOCC_MINIMUM_ACCESS_LEVEL=internal
   DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES
-  OTHER_DOCC_FLAGS=--warnings-as-errors
   CODE_SIGNING_REQUIRED=NO
   CODE_SIGNING_ALLOWED=NO
 )
+
+# NOT OTHER_DOCC_FLAGS=--warnings-as-errors. docbuild documents every target in
+# the scheme, INCLUDING third-party SwiftPM dependencies, and --warnings-as-errors
+# applies to all of them. port-of-entry's docs build failed on RevenueCat and
+# Sentry — code the project cannot edit and should not be judged on. The gate is
+# applied below instead, scoped to this project's own sources.
 # Only set when publishing: the base path is baked into every asset URL, so a
 # locally-built archive should not carry the deploy site's prefix.
 if [ -n "$BASE_PATH" ]; then
@@ -53,7 +58,26 @@ fi
 
 echo "Building documentation..."
 rm -rf "$DERIVED/Build"
-xcodebuild docbuild "${args[@]}"
+LOG=$(mktemp)
+trap 'rm -f "$LOG"' EXIT
+xcodebuild docbuild "${args[@]}" 2>&1 | tee "$LOG"
+build_status=${PIPESTATUS[0]}
+if [ "$build_status" -ne 0 ]; then
+  echo "::error::docbuild failed."
+  exit "$build_status"
+fi
+
+# Fail on DocC warnings from OUR sources only. Dependency checkouts live under
+# the derived-data SourcePackages dir, so excluding that path is what separates
+# "our doc comment links to a symbol that does not exist" from "RevenueCat has a
+# malformed comment".
+own=$(grep -E '^/.*\.swift:[0-9]+:[0-9]+: warning:' "$LOG" \
+  | grep -v "/$DERIVED/" | grep -v '/SourcePackages/' | sort -u || true)
+if [ -n "$own" ]; then
+  echo "::error::DocC reported warnings in this project's own sources:"
+  printf '%s\n' "$own" | head -40
+  exit 1
+fi
 
 # Collect the archives the build produced. A scheme that builds frameworks as
 # well as the app yields one per documented target.

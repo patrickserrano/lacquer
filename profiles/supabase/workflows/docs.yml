@@ -36,6 +36,23 @@ jobs:
         with:
           deno-version: v2.x
 
+      # Honour [baseline.relax] documentation, exactly as the CI Docs job and the
+      # local hooks do. This workflow did NOT, so a project with a valid,
+      # unexpired relaxation went green on its PR and then failed on main the
+      # moment it merged — which is precisely the "a lot of failures on main"
+      # symptom. Third place this same relaxation had to be taught.
+      - name: Read the documentation relaxation
+        id: relax
+        run: |
+          set -euo pipefail
+          state=$(scripts/docs-relaxation.sh .lacquer.toml 2>/dev/null || echo none)
+          echo "state=${state}" >> "$GITHUB_OUTPUT"
+          case "$state" in
+            expired)   echo "::error::The documentation relaxation in .lacquer.toml has expired."; exit 1 ;;
+            malformed) echo "::error::The [baseline.relax] documentation entry is malformed."; exit 1 ;;
+            relaxed)   echo "::warning::Documentation is relaxed — publishing what builds, not gating on completeness." ;;
+          esac
+
       - name: Build documentation
         id: build
         working-directory: "{{COMPONENT_PREFIX}}."

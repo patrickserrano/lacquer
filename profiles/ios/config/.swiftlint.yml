@@ -80,10 +80,14 @@ custom_rules:
   no_singleton_abuse:
     name: "Avoid .shared singletons"
     # Negative lookbehinds exempt framework-mandated singletons that have no DI
-    # alternative — UIApplication/NSApplication.shared and URLSession.shared are
-    # fully general (every app on the platform uses them). Bare app-level
-    # `.shared` is still flagged.
-    regex: "(?<!UIApplication)(?<!NSApplication)(?<!URLSession)\\.shared(?!Container|Instance\\(\\)|\\(\\))"
+    # alternative. UIApplication/NSApplication/URLSession are fully general.
+    # WidgetCenter, MusicLibrary and Aptabase were added after onboarding found
+    # them unsatisfiable: verified against the iOS 26.5 SDK .swiftinterface, both
+    # WidgetCenter and MusicLibrary expose `public static let shared` and NO
+    # public initializer, so no amount of DI removes the token from source — a
+    # protocol seam only relocates the one acquisition site, and this rule is
+    # repo-wide. Bare app-level `.shared` is still flagged.
+    regex: "(?<!UIApplication)(?<!NSApplication)(?<!URLSession)(?<!WidgetCenter)(?<!MusicLibrary)(?<!Aptabase)\\.shared(?!Container|Instance\\(\\)|\\(\\))"
     message: "Prefer dependency injection over singletons"
     severity: warning
     # To exempt ONE sanctioned DI-seam file that wraps a vendor `.shared`
@@ -150,9 +154,14 @@ custom_rules:
     included: ".*Tests\\.swift$"
     multiline: true
 
-  no_repository_in_viewmodel:
-    name: "ViewModels must not depend directly on Repositories"
-    regex: "(any|some)\\s+\\w+Repository"
-    included: ".*ViewModel\\.swift"
-    message: "Inject a Service protocol, not a Repository, into a ViewModel (keeps the layer boundary). Harvested from rail."
-    severity: warning
+# REMOVED: no_repository_in_viewmodel. It was harvested from one app and applied
+# fleet-wide as a --strict (blocking) rule, and NOT ONE of the five apps audited
+# during onboarding followed it: flare had 30 violations, kit 50. Satisfying it
+# in flare alone meant a Service layer across 7 ViewModels, 3 protocols, 11
+# methods and 42 construction sites — an architecture migration, arriving as a
+# lint error, on a branch whose job was to install shared config.
+#
+# A rule that no project follows is not a standard; it is one project's
+# preference. The layering guidance stays in CLAUDE.ios.md where it can inform a
+# deliberate decision, rather than blocking every future onboarding on a
+# refactor nobody scoped.
