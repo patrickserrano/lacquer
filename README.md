@@ -16,7 +16,8 @@ every project regardless.
 |---------|------|
 | `lacquer init` | Detect components, write a `.lacquer.toml` stub (and a `docs/brief.md` stub). |
 | `lacquer onboard --org O [--no-repo]` | `init`, then create a private GitHub repo under `O` when the repo has no `origin`. |
-| `lacquer sync [--force]` | Render core + per-profile content into the project (managed regions + whole-file assets). |
+| `lacquer sync [--force] [--fix]` | Render core + per-profile content into the project (managed regions + whole-file assets); `--fix` then runs the autofixers. |
+| `lacquer fix` | Run each profile's autofixers (formatter, `lint --fix`) over the project source. |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
@@ -60,6 +61,35 @@ lacquer sync --force   # adopt the lacquer version over a local change
 
 Sync writes a `.lacquer.lock` baseline so `audit` can tell "the project edited
 this" from "the lacquer moved on" and only blocks on the former.
+
+## Adopting on an existing codebase
+
+`lacquer sync` writes the configs; it does not touch your source. On a mature
+app that means the newly-synced `.swiftlint.yml` finds everything at once — 509
+violations in one app here, 290 in another — and roughly two thirds of that is
+mechanical: member ordering, import sorting, trailing closures.
+
+`--fix` pays that down before you ever look at it:
+
+```sh
+lacquer sync --fix     # sync, then run the profiles' autofixers
+lacquer fix            # just the autofixers, any time
+```
+
+Measured on one app: **290 violations → 93**, with the whole `type_contents_order`
+category (117) going to 1, because the synced `.swiftformat` enables
+`organizeDeclarations` in `type` mode with a `--type-order` mirroring
+`.swiftlint.yml`. What's left is judgement work — singletons, closure length,
+layering — which is the right thing to be left with.
+
+`--fix` is **opt-in on purpose.** Plain `sync` only ever writes lacquer-managed
+files, and that contract is what makes `lacquer audit` able to say "you changed
+this, the lacquer didn't". `--fix` deliberately breaks it by rewriting project
+source, so it has to be asked for rather than discovered in a diff.
+
+A fixer whose tool isn't installed is reported and skipped, never fatal — the
+opposite of a *check*, which must block when it can't run. An unfixed file is
+still caught by CI; a missing Homebrew formula shouldn't block adoption.
 
 ## Third-party skills
 
