@@ -53,6 +53,55 @@ on GitHub-hosted runners (no Apple toolchain).
 - Validate and narrow every input (auth header, body, params) at the top of the
   handler before touching the DB or storage.
 
+## Documentation
+
+**Documentation is a requirement** — see core "Documentation" for the rule and
+the relaxation mechanism. Two surfaces here, checked differently.
+
+### `_shared/` — the code other functions import
+
+Every export in `supabase/functions/_shared/` carries a JSDoc comment. Checked by
+the `Docs` job in `supabase-ci.yml` and published to
+`https://<owner>.github.io/<repo>/db/` by `supabase-docs.yml` on merge.
+
+```ts
+/**
+ * Builds the standard JSON error response every function returns on failure.
+ *
+ * @param code - A stable, machine-readable code the client can branch on.
+ * @param status - HTTP status; defaults to 400.
+ */
+export function errorResponse(code: string, status = 400): Response
+```
+
+Run it locally exactly as CI does:
+
+```sh
+deno doc --lint supabase/functions/_shared/*.ts
+```
+
+The check is scoped to `_shared/` deliberately. A function's own `index.ts` is an
+HTTP entry point, not an API other code imports — holding it to an
+export-documentation rule produces ceremony rather than understanding. Document
+*that* in the handler's header comment: the method, the auth it requires, the
+request and response shapes, and the failure codes.
+
+### The schema — `comment on`, not a wiki
+
+Postgres stores documentation in the database. Use it, in the same migration that
+creates the object, so the comment ships and versions with the schema instead of
+drifting in a doc nobody opens:
+
+```sql
+comment on table  public.sessions       is 'One recorded session per user. RLS: owner-scoped.';
+comment on column public.sessions.ended_at is 'Null while the session is still running.';
+```
+
+This is the only documentation a client library, `supabase gen types`, or someone
+reading the schema in Studio will actually see. A column whose meaning is not
+obvious from its name — a nullable flag, a unit, an enum-like text field, a
+denormalized counter — needs one.
+
 ## Secrets
 
 - Server secrets (service-role key, `R2_*`, third-party keys) live in

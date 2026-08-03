@@ -102,6 +102,68 @@ jobs:
       - name: Dependency audit
         run: npm audit --audit-level=critical
 
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    needs: changes
+    # Same gate as `check`: a docs-only PR changes no export and builds no site.
+    if: needs.changes.outputs.code == 'true'
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: "{{COMPONENT_PREFIX}}package-lock.json"
+
+      # No `defaults.working-directory` on this job on purpose: .lacquer.toml and
+      # scripts/ live at the REPO root while package.json lives in the component,
+      # and a default would silently resolve the relaxation lookup against the
+      # wrong directory — reading "no relaxation" for a project that has one.
+      - name: Read the documentation relaxation
+        id: relax
+        run: |
+          set -euo pipefail
+          state=$(scripts/docs-relaxation.sh .lacquer.toml)
+          echo "state=${state}" >> "$GITHUB_OUTPUT"
+          case "$state" in
+            none)    echo "No documentation relaxation — enforcing." ;;
+            relaxed) echo "::warning::Documentation checks are relaxed by [baseline.relax] in .lacquer.toml. They still run, but do not block." ;;
+            expired) echo "::error::The documentation relaxation in .lacquer.toml has expired. Document the exports or extend the relaxation deliberately."; exit 1 ;;
+            malformed)
+              echo "::error::The [baseline.relax] documentation entry in .lacquer.toml is malformed. Both fields are required: documentation = { until = \"YYYY-MM-DD\", reason = \"why, with a tracking issue\" }."
+              exit 1 ;;
+            *) echo "::error::Unexpected relaxation state '$state'"; exit 1 ;;
+          esac
+
+      - run: npm ci
+        working-directory: "{{COMPONENT_PREFIX}}."
+
+      # One command covers both halves of the standard: TypeDoc's
+      # `validation.notDocumented` asserts every export HAS a TSDoc comment, and
+      # `invalidLink` asserts the links in those comments RESOLVE. See the
+      # reasoning in typedoc.json for why validation warnings are escalated
+      # rather than all warnings.
+      - name: Documentation builds clean
+        id: typedoc
+        continue-on-error: ${{ steps.relax.outputs.state == 'relaxed' }}
+        working-directory: "{{COMPONENT_PREFIX}}."
+        run: npx typedoc
+
+      # continue-on-error reports a failed step as successful at the JOB level,
+      # so an unrelaxed failure needs an explicit re-assertion or the gate leaks.
+      - name: Enforce the result
+        if: steps.relax.outputs.state != 'relaxed'
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.typedoc.outcome }}" != "success" ]; then
+            echo "::error::Documentation checks failed and this project has no active [baseline.relax] documentation entry."
+            exit 1
+          fi
+          echo "Documentation baseline met."
+
   ci-ok:
     name: CI OK
     # Just aggregates the needs[] results — no toolchain — so it always runs and
@@ -110,16 +172,17 @@ jobs:
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
     runs-on: ubuntu-latest
-    needs: [changes, check]
+    needs: [changes, check, docs]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} docs=${{ needs.docs.result }}"
           for r in \
             "${{ needs.changes.result }}" \
-            "${{ needs.check.result }}"; do
+            "${{ needs.check.result }}" \
+            "${{ needs.docs.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"
               exit 1

@@ -1,0 +1,66 @@
+name: Web Docs
+
+# Publishes the TypeDoc site to https://<owner>.github.io/<repo>/api/.
+#
+# Validation lives in web-ci.yml's `Docs` job — branch protection points at a
+# single required check (CI OK), and a job in another workflow cannot be one of
+# its `needs`. This workflow only publishes what CI already proved builds clean.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "{{COMPONENT_PREFIX}}**"
+
+permissions:
+  contents: write # scripts/publish-docs.sh pushes the gh-pages branch
+
+# Shared with every other stack's docs workflow in this repo so two stacks never
+# push gh-pages concurrently. Never cancel — a cancelled publish leaves the
+# branch without this commit's docs and nothing retries it.
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish TypeDoc
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: "{{COMPONENT_PREFIX}}package-lock.json"
+
+      - run: npm ci
+        working-directory: "{{COMPONENT_PREFIX}}."
+
+      # Unlike DocC, TypeDoc emits relative asset URLs, so the site works at any
+      # depth and needs no base-path setting to match the /api/ subdirectory.
+      - name: Build documentation
+        working-directory: "{{COMPONENT_PREFIX}}."
+        run: npx typedoc
+
+      - name: Publish to gh-pages/api
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/publish-docs.sh api "{{COMPONENT_PREFIX}}docs-site"
+
+      - name: Link the published site
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%/*}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          {
+            echo "### Documentation published"
+            echo ""
+            echo "https://${owner}.github.io/${repo}/api/"
+            echo ""
+            echo "If that 404s, Pages is not serving this branch yet — set"
+            echo "Settings → Pages → Source to *Deploy from a branch*, gh-pages, / (root)."
+          } >> "$GITHUB_STEP_SUMMARY"

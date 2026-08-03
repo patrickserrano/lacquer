@@ -153,6 +153,77 @@ every task adds cost without benefit; current models already self-check.
 - Update a branch from main before merging when it is behind; **after** updating, re-confirm the required checks re-ran green before merging (an update can drop a pending check).
 - Never merge on partial signals: require every *required* check to pass and the merge state to be clean.
 
+## Documentation
+
+**Every declaration carries a doc comment, and the docs build clean.** This is a
+baseline like warnings-as-errors, not a style preference — it is checked by the
+`Docs` job in every stack's CI and it blocks the merge.
+
+Two halves, because neither implies the other:
+
+1. **It exists.** Every declaration above `private` has a doc comment.
+2. **It resolves.** The docs actually build: every symbol link points at
+   something real, and the markup parses. A doc comment referring to a type that
+   was renamed three refactors ago is worse than no comment — it is confidently
+   wrong.
+
+Each stack enforces this with its native toolchain, and each publishes a site to
+its own subdirectory of the project's GitHub Pages, so a repo with several
+components ends up with one site per stack rather than one stack silently
+overwriting another:
+
+| Stack | Checked with | Published at |
+|-------|--------------|--------------|
+| iOS / Swift | SwiftLint `missing_docs` + `xcodebuild docbuild` | `/swift/` |
+| Web / TypeScript | TypeDoc `validation.notDocumented` + `invalidLink` | `/api/` |
+| Supabase / Deno | `deno doc --lint` | `/db/` |
+
+**Write the comment for the reader who does not already know.** Say what the
+thing is for and what a caller must know — preconditions, ownership, units,
+what happens on failure. Do not restate the signature: `/// Sets the name.` on
+`setName(_:)` costs a line and teaches nothing. If the only honest doc comment
+is a restatement, that is a signal the name is doing its job and the *type* or
+*module* is where the explanation belongs.
+
+### Where the sites are hosted
+
+**GitHub Pages is the default and needs no secrets.** Each stack's docs workflow
+writes its own subdirectory of a `gh-pages` branch, and the root index is
+regenerated from whatever subdirectories are present — so `gh-pages` is the
+composed site, and adding a stack later needs no coordination. Turn it on once
+per repo: Settings → Pages → Source → *Deploy from a branch* → `gh-pages` /
+(root).
+
+**Cloudflare is an optional second target for that same tree.** Set
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and `docs-cloudflare.yml`
+deploys `gh-pages` to **Workers Static Assets** after each publish; leave them
+unset and it skips with a notice. Three things worth knowing:
+
+- **Workers, not Pages.** Pages is still supported, but Cloudflare has said all
+  new investment goes to Workers, which serves static assets at the same cost.
+- **Not Cloudflare Drop.** Drop is the obvious-looking fit — upload a folder,
+  no account — but it is drag-and-drop in the dashboard with no CLI or API, and
+  the deployment expires after an hour unless a human claims it. It is for
+  sharing a preview, not for publishing.
+- **The site is served under `/<repo>/`,** matching GitHub Pages exactly. DocC
+  bakes its hosting base path into every asset URL at build time, so serving the
+  same archive at a domain root would 404 on its own CSS. Nesting means one build
+  serves both targets; the bare domain redirects.
+
+**A project that cannot comply yet relaxes it — time-boxed, never open-ended.**
+Same mechanism as every other baseline key, in the project's own `.lacquer.toml`:
+
+```toml
+[baseline.relax]
+documentation = { until = "2026-11-01", reason = "legacy Core/, tracked in #212" }
+```
+
+Both fields are required, the checks still run and still report while relaxed,
+and **an expired relaxation is a hard failure** — so the debt stays visible and
+greppable instead of becoming policy by default. This is the one exception to
+Fundamental Rule #7: it is a deliberate, dated, justified opt-out recorded in the
+manifest, not an inline suppression hidden at the call site.
+
 ## Warnings as Errors
 
 Treat compiler and linter warnings as errors — ship zero-warning builds. Don't

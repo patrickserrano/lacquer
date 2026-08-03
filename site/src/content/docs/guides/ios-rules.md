@@ -161,6 +161,48 @@ During RED/GREEN, run targeted tests only (`-only-testing:<YourApp>Tests/SomeSui
 
 The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in tests — they cause flaky failures. See the `swift-testing-wait-until` skill for the polling helper to add to your test target instead.
 
+## Documentation (DocC)
+
+DocC is a requirement — see [core documentation
+rules](/lacquer/guides/agent-rules/#documentation) for the standard and the
+relaxation mechanism. This is the Swift half.
+
+Every declaration above `private` carries a `///` doc comment, and the DocC
+archive builds with zero warnings. Both are checked by the `Docs` job in
+`ios-ci.yml`, and published to `https://<owner>.github.io/<repo>/swift/` by
+`ios-docs.yml` on merge.
+
+Use `- Parameter` / `- Returns` / `- Throws` for anything a caller must know, and
+double-backtick symbol links rather than plain-text type names — a link is
+checked by the build, prose isn't. Run the checks locally:
+
+```sh
+swiftlint --strict --config .swiftlint-docs.yml .   # every declaration documented
+scripts/build-docs.sh docs-site                     # docs build clean
+```
+
+`.swiftlint-docs.yml` is a separate config from `.swiftlint.yml` on purpose: the
+documentation baseline is the one rule set a project may relax, and mixing it in
+would either hand every style rule an escape hatch or leave this one without the
+one the standard promises.
+
+Three settings in `scripts/build-docs.sh` decide whether this checks anything:
+
+- `DOCC_MINIMUM_ACCESS_LEVEL=internal` — DocC extracts `public` and above by
+  default, and an app target's code is `internal` by default. Without it an app
+  builds an archive containing essentially nothing, succeeds, and reports as a
+  pass.
+- `OTHER_DOCC_FLAGS=--warnings-as-errors` — `DOCC_FLAGS` is *also* a real build
+  setting name, and it's silently ignored. The same broken symbol link exits 0
+  with `DOCC_FLAGS` and 65 with `OTHER_DOCC_FLAGS`; picking the obvious-looking
+  name turns the gate off without turning the job red.
+- `DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES` plus `DOCC_HOSTING_BASE_PATH`, which is
+  baked into every asset URL and must match where the site is served from.
+
+A `.docc` catalog adds landing pages, articles, and tutorials beyond the symbol
+reference; a `<Target>.md` root page is the highest-value addition, because it's
+what a reader lands on.
+
 ## Battery & performance patterns
 
 Apply these whenever touching widgets, animations, networking, or background

@@ -190,3 +190,29 @@ func TestCheckStaleRelaxationOnCompliantKey(t *testing.T) {
 		t.Error("a stale relaxation must not block")
 	}
 }
+
+// The documentation baseline is relaxable like every other key, but unlike them
+// it maps to no Xcode build setting — it is enforced by the stack's Docs CI job.
+// So the manifest must ACCEPT the key (otherwise a project writing the
+// relaxation the standard documents would fail to load) while Check stays silent
+// about it (there is nothing in the pbxproj to read).
+func TestDocumentationRelaxationIsAcceptedButNotChecked(t *testing.T) {
+	if !ValidKey("documentation") {
+		t.Fatal(`ValidKey("documentation") = false; a project could not write the relaxation the docs standard tells it to`)
+	}
+
+	d := declared(2, map[string]string{
+		"SWIFT_VERSION":                  "6",
+		"SWIFT_TREAT_WARNINGS_AS_ERRORS": "YES",
+	})
+	relax := map[string]Relax{
+		// Expired on purpose: if Check ever grew an opinion about this key, an
+		// expired relaxation would surface here as a blocking finding.
+		"documentation": {Until: "2020-01-01", Reason: "legacy module"},
+	}
+	for _, f := range Check(std, d, relax, now) {
+		if f.Key == "documentation" {
+			t.Errorf("Check emitted a finding for documentation (%+v); it has no build setting to read, and CI owns it", f)
+		}
+	}
+}

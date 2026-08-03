@@ -1,0 +1,50 @@
+# The documentation standard, kept deliberately SEPARATE from .swiftlint.yml.
+#
+# `missing_docs` is not an ordinary style rule. It is one half of the documented-
+# code baseline (the other half is the DocC build in ios-docs.yml), and that
+# baseline is the one thing in this config a project may relax — time-boxed, via
+# `[baseline.relax] documentation` in .lacquer.toml. Rules in .swiftlint.yml have
+# no such escape hatch by design (core Fundamental Rule #7: fix the code, never
+# suppress), so mixing this in there would either give every rule an escape hatch
+# or give this one none.
+#
+# Keeping it here means one job owns the standard, one relaxation covers both
+# halves of it, and the ordinary `lint` job stays exactly as strict as it was.
+#
+# Run it the same way CI does:
+#   swiftlint --strict --config .swiftlint-docs.yml .
+
+only_rules:
+  - missing_docs
+
+excluded:
+  - "**/Generated"
+  - "**/.build"
+  - "**/.swiftpm"
+  - "**/DerivedData"
+  - "**/DerivedData-*"
+  - "**/Package.swift"
+
+missing_docs:
+  # `internal` is the load-bearing entry, not a nicety. An app target's code is
+  # `internal` by default — almost nothing in an app is `public` — so a rule
+  # covering only public/open would find zero violations in a typical app and
+  # report as a pass. That is the same silent-pass failure the SwiftLint and
+  # baseline jobs in ios-ci.yml already guard against.
+  #
+  # `private`/`fileprivate` are deliberately absent: they are invisible outside
+  # the file, DocC never renders them, and requiring a doc comment on every small
+  # private helper buys noise rather than understanding.
+  error: [open, public, package, internal]
+
+  # An extension carries no meaning of its own — the members inside it are what
+  # gets documented, and they are checked on their own merits.
+  excludes_extensions: true
+
+  # A conformance inherits the protocol's documentation; restating it at each
+  # conformance produces copy-paste that goes stale.
+  excludes_inherited_types: true
+
+  # `init()` with no parameters and no body has nothing to say that the type's
+  # own doc comment does not already say.
+  excludes_trivial_init: true

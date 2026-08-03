@@ -1,0 +1,32 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+
+  // Every exported symbol carries a TSDoc comment, and every link in one
+  // resolves. `notDocumented` is the half that makes this a real standard rather
+  // than a site generator — without it TypeDoc happily renders a page of
+  // signatures with no prose and exits 0.
+  //
+  // `treatValidationWarningsAsErrors`, not `treatWarningsAsErrors`: both make
+  // this fail (verified on TypeDoc 0.28, exit 4 either way), but the narrower
+  // one escalates ONLY validation findings. The broader one also promotes
+  // unrelated warnings — an unsupported tag, a config deprecation — into merge
+  // blockers, which trains people to reach for the escape hatch for reasons that
+  // have nothing to do with documentation.
+  "validation": {
+    "notDocumented": true,
+    "invalidLink": true,
+    "notExported": true
+  },
+  "treatValidationWarningsAsErrors": true,
+
+  "out": "docs-site",
+
+  // Per-project: point this at the package's real public surface. The default
+  // assumes a single barrel file, which is the common shape but not the only
+  // one — a multi-entry package should list each entry point here.
+  "entryPoints": ["src/index.ts"],
+
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "githubPages": false
+}
