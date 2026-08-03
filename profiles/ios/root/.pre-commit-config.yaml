@@ -1,3 +1,22 @@
+# Both hook types are installed, and every hook that doesn't declare its own
+# `stages:` is pinned to pre-commit. Adopted from momfriend, and this is very
+# likely the origin of "the SwiftLint hook never blocks a commit":
+#
+#   * Without `default_stages`, a hook runs at ALL installed stages. Every
+#     file-filtered hook therefore re-ran during the commit-msg stage, where
+#     pre-commit's file list is just the commit-message file — printing
+#     "(no files to check) — Skipped" for each one on EVERY commit. Pipe
+#     `git commit` through `tail -N`, which is the common agent pattern, and
+#     that always-skipping block is the only part still on screen. It reads as
+#     "the Swift stages skipped my Swift commit" when they had already run and
+#     passed further up.
+#   * Without `default_install_hook_types`, `pre-commit install` wires up only
+#     the pre-commit hook, so the commit-msg stage — the Conventional Commits
+#     check — was never installed at all unless someone knew to pass
+#     `--hook-type commit-msg`.
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
+
 # Swift stages go through scripts/precommit-swift.sh rather than invoking the
 # tools directly. Adopted from momfriend, which had diverged from the lacquer to
 # fix three real holes the direct invocation has:
