@@ -94,14 +94,14 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -project {{XCODEPROJ}} \
-            -scheme {{SCHEME}} \
+            -project "{{XCODEPROJ}}" \
+            -scheme "{{SCHEME}}" \
             -destination 'platform=macOS' \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             | xcpretty --color || xcodebuild build \
-              -project {{XCODEPROJ}} \
-              -scheme {{SCHEME}} \
+              -project "{{XCODEPROJ}}" \
+              -scheme "{{SCHEME}}" \
               -destination 'platform=macOS' \
               -configuration Debug \
               CODE_SIGNING_ALLOWED=NO
@@ -110,15 +110,15 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -project {{XCODEPROJ}} \
-            -scheme {{SCHEME}} \
+            -project "{{XCODEPROJ}}" \
+            -scheme "{{SCHEME}}" \
             -destination 'platform=macOS' \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             -only-testing:<YourTestTarget> \
             | xcpretty --color || xcodebuild test \
-              -project {{XCODEPROJ}} \
-              -scheme {{SCHEME}} \
+              -project "{{XCODEPROJ}}" \
+              -scheme "{{SCHEME}}" \
               -destination 'platform=macOS' \
               -configuration Debug \
               CODE_SIGNING_ALLOWED=NO \
@@ -200,7 +200,7 @@ target owns the test bundle). Add this job to your project's copy of
 
           EXIT_CODE=0
           xcodebuild test \
-            -project {{XCODEPROJ}} \
+            -project "{{XCODEPROJ}}" \
             -scheme <YourMacOSScheme> \
             -destination 'platform=macOS' \
             -derivedDataPath {{COMPONENT_PREFIX}}DerivedData \

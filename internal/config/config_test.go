@@ -495,3 +495,39 @@ profiles = []
 		t.Errorf("targets = %+v, want none", got)
 	}
 }
+
+// An Xcode project named after a human-readable app title is ordinary, and
+// rejecting it locked the oldest app in the fleet out of lacquer entirely.
+// Spaces are allowed ONLY because every {{XCODEPROJ}} substitution site is
+// quoted; everything a shell would act on is still refused.
+func TestXcodeprojAllowsSpacesButNotMetacharacters(t *testing.T) {
+	for _, tc := range []struct {
+		val string
+		ok  bool
+	}{
+		{"A Bible Verse Each Day.xcodeproj", true},
+		{"App.xcodeproj", true},
+		{"ios/My App.xcodeproj", true},
+		{"", true}, // blank is allowed; sync fails closed if the token is used
+
+		{"App\".xcodeproj", false},
+		{"App'.xcodeproj", false},
+		{"App$(whoami).xcodeproj", false},
+		{"App`id`.xcodeproj", false},
+		{"App;rm -rf /.xcodeproj", false},
+		{"App|tee.xcodeproj", false},
+		{"App&.xcodeproj", false},
+		{"App\\x.xcodeproj", false},
+		{"App\n.xcodeproj", false},
+		{"-rf.xcodeproj", false},      // must not read as a flag
+		{"ios/-rf.xcodeproj", false},  // ...in any segment
+		{"/abs/App.xcodeproj", false}, // absolute
+		{"../App.xcodeproj", false},   // escapes the root
+		{"App.xcworkspace", false},    // wrong extension
+	} {
+		err := validateXcodeproj(tc.val)
+		if (err == nil) != tc.ok {
+			t.Errorf("validateXcodeproj(%q) error=%v, want ok=%v", tc.val, err, tc.ok)
+		}
+	}
+}

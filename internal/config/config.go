@@ -215,7 +215,7 @@ func validateXcodeproj(p string) error {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("[project].xcodeproj %q escapes the project root", p)
 	}
-	if !componentPathVal.MatchString(filepath.ToSlash(clean)) || !strings.HasSuffix(clean, ".xcodeproj") {
+	if !xcodeprojVal.MatchString(filepath.ToSlash(clean)) || !strings.HasSuffix(clean, ".xcodeproj") {
 		return fmt.Errorf("[project].xcodeproj %q is not a valid .xcodeproj path", p)
 	}
 	return nil
@@ -343,6 +343,23 @@ func validateBaseline(b Baseline) error {
 // path can't become a shell flag once glued into {{COMPONENT_PREFIX}} (e.g.
 // "-rf" -> `cd -rf/.`). Subsequent chars may include "-".
 var componentPathVal = regexp.MustCompile(`^(\.|[A-Za-z0-9._][A-Za-z0-9._-]*(/[A-Za-z0-9._][A-Za-z0-9._-]*)*)$`)
+
+// xcodeprojVal is componentPathVal plus spaces. An Xcode project named after a
+// human-readable app title — "A Bible Verse Each Day.xcodeproj" — is completely
+// ordinary, and rejecting it locked the oldest app in the fleet out of lacquer
+// entirely. Spaces are safe here and NOT in a component path because every
+// {{XCODEPROJ}} substitution site is quoted (`-project "{{XCODEPROJ}}"`),
+// whereas {{COMPONENT_PREFIX}} is glued directly into paths like
+// `cd {{COMPONENT_PREFIX}}.` where a space would split the argument.
+//
+// Everything genuinely dangerous is still rejected: quotes, $, backticks,
+// backslashes, ;, |, &, newlines, and any other shell metacharacter. Each
+// segment must still START with an alphanumeric / "." / "_" so the value can
+// never be read as a flag.
+//
+// If you ever un-quote a {{XCODEPROJ}} substitution, this must go back to
+// componentPathVal — the two are one decision.
+var xcodeprojVal = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9 ._-]*(/[A-Za-z0-9._][A-Za-z0-9 ._-]*)*$`)
 
 // validateComponentPath rejects empty, absolute, and root-escaping component
 // paths. The path must stay within the project root once joined.
