@@ -1,0 +1,106 @@
+# Self-tests for the ios profile, run by `lacquer doctor`.
+#
+# Each probe writes KNOWN-BAD code and asserts the check REJECTS it. That is the
+# opposite of what CI does, and it is the only way to catch a check that has
+# stopped checking. Every probe here exists because something in this list
+# actually broke and nothing noticed.
+
+[[probe]]
+name = "SwiftLint rejects a warning-severity violation under --strict"
+why = """
+line_length, file_length, type_body_length and function_body_length are all
+WARNING severity. Without --strict they print and pass locally, then fail the
+PR. A hook that drops --strict, or carries `|| true`, reports green forever.
+"""
+file = "Probe.swift"
+# The fixture must land in the WARNING band and nowhere else. line_length warns
+# at 120 and errors at 150, so an over-150 line fails with or WITHOUT --strict
+# and proves nothing about it. This line is 130 characters: rejected only
+# when --strict promotes warnings to errors. The first version of this probe was
+# over 150 and silently tested nothing — found by simulating the very regression
+# it exists to catch.
+content = """
+/// A type with a line in the warning band only.
+struct DoctorProbeType {
+    /// A value.
+    let value = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+"""
+argv = ["swiftlint", "--strict", "--config", "{component}/.swiftlint.yml", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "SwiftLint is invoked in a form it still accepts"
+why = """
+The editor hook called `swiftlint lint --path FILE`. --path had been removed
+from SwiftLint, so the command errored on every write and `2>/dev/null || true`
+swallowed it — nothing was linted for months. This probe fails if the modern
+positional-path invocation stops working.
+"""
+file = "Probe.swift"
+content = """
+/// A type with an undocumented member, so the run has something to report.
+struct DoctorProbeType {
+    func undocumented() {}
+}
+"""
+argv = ["swiftlint", "lint", "--strict", "--quiet", "--config", "{component}/.swiftlint-docs.yml", "{dir}/Probe.swift"]
+expect = "fail"
+
+[[probe]]
+name = "SwiftFormat --lint rejects unformatted code"
+why = "A formatter check that accepts anything is indistinguishable from no check."
+file = "Probe.swift"
+content = """
+/// Badly indented on purpose.
+struct DoctorProbeType {
+      let value  =  1
+}
+"""
+argv = ["swiftformat", "--lint", "--config", "{component}/.swiftformat", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "missing_docs rejects an undocumented declaration"
+why = """
+The documentation baseline is enforced by .swiftlint-docs.yml. If that config is
+mis-scoped it matches no files, exits 0, and the whole standard silently stops
+applying — the same silent-pass shape the CI lint job guards against.
+"""
+file = "Probe.swift"
+content = """
+struct DoctorProbeUndocumented {
+    func alsoUndocumented() {}
+}
+"""
+argv = ["swiftlint", "--strict", "--config", "{component}/.swiftlint-docs.yml", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "the formatter and the linter agree on member order"
+why = """
+SwiftFormat's organizeDeclarations is what makes type_contents_order fixable.
+When --type-order drifts from .swiftlint.yml's order the two fight: the
+formatter rewrites, the linter rejects the rewrite, and no amount of running
+either converges. That drift shipped once already and cost 48 violations in one
+app. This probe formats a fixture and then lints the FORMATTER'S OWN OUTPUT,
+which must be clean.
+"""
+file = "Probe.swift"
+content = """
+import SwiftUI
+
+/// A view whose members start out in the wrong order.
+struct DoctorProbeView: View {
+    /// The body.
+    var body: some View { helper() }
+    /// A helper returning a view.
+    private func helper() -> some View { Text("probe") }
+    /// A static factory.
+    static func make() -> DoctorProbeView { DoctorProbeView() }
+    /// A stored property.
+    let value = 1
+}
+"""
+argv = ["sh", "-c", "swiftformat {dir} --config {component}/.swiftformat --quiet && swiftlint --strict --config {component}/.swiftlint.yml {dir}"]
+expect = "pass"
