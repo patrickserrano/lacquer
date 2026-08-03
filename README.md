@@ -18,6 +18,7 @@ every project regardless.
 | `lacquer onboard --org O [--no-repo]` | `init`, then create a private GitHub repo under `O` when the repo has no `origin`. |
 | `lacquer sync [--force] [--fix]` | Render core + per-profile content into the project (managed regions + whole-file assets); `--fix` then runs the autofixers. |
 | `lacquer fix` | Run each profile's autofixers (formatter, `lint --fix`) over the project source. |
+| `lacquer doctor` | Prove each check can fail: feed known-bad input and assert it's rejected (exit 5 if one can't). |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
@@ -61,6 +62,50 @@ lacquer sync --force   # adopt the lacquer version over a local change
 
 Sync writes a `.lacquer.lock` baseline so `audit` can tell "the project edited
 this" from "the lacquer moved on" and only blocks on the former.
+
+## Proving the checks work
+
+Every serious defect found onboarding this fleet was the same shape: **a check
+that ran, reported success, and verified nothing.**
+
+- The editor hook called `swiftlint lint --path FILE`. `--path` had been removed
+  from SwiftLint, so it errored on every write — and `2>/dev/null || true` ate
+  the message. It linted nothing for months and looked healthy doing it.
+- The DocC gate passed `DOCC_FLAGS=--warnings-as-errors`. That is a real build
+  setting name and it is silently ignored; a deliberately broken symbol link
+  still exited 0.
+- The drift job ran `go build ./path` from a non-module directory. It failed in
+  every repo, on every PR, for a reason unrelated to drift.
+
+None was caught by running the check. CI already tells you whether a check
+passes; it cannot tell you whether it *could* fail.
+
+```sh
+lacquer doctor
+```
+
+writes a **known-bad** fixture, runs the check against it, and asserts the check
+**rejects** it. A probe that passes on broken input is reported as broken, with
+the reason it exists. Exit 5 — distinct from `audit`'s 3 (drift) and 4
+(baseline), so a caller can tell *"a check is broken"* from *"the project is
+wrong"*.
+
+```
+proving each check can fail:
+  ok    SwiftLint rejects a warning-severity violation under --strict
+  ok    SwiftLint is invoked in a form it still accepts
+  ok    SwiftFormat --lint rejects unformatted code
+  ok    missing_docs rejects an undocumented declaration
+  ok    the formatter and the linter agree on member order
+
+5/5 checks proved they can fail.
+```
+
+Probes live in `profiles/<p>/doctor.toml`, and fixtures are written to a scratch
+directory **outside** the project — a deliberately malformed file must never be
+committable. A missing tool is a finding, not a skip: a check whose binary is
+absent is not running. (The opposite of `lacquer fix`, where a missing tool
+skips — an unfixed file is still caught by CI, an unverified one is not.)
 
 ## Adopting on an existing codebase
 

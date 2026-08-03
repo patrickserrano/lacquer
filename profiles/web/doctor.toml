@@ -1,0 +1,23 @@
+# Self-tests for the web profile — see profiles/ios/doctor.toml for the contract:
+# every probe feeds KNOWN-BAD input and asserts the check rejects it.
+
+[[probe]]
+name = "Biome rejects a lint violation"
+why = "A `biome ci` that accepts anything is indistinguishable from no check."
+file = "probe.ts"
+content = "export const x: Array<string> = [];\n"
+argv = ["npx", "--no-install", "biome", "check", "--config-path", "{component}", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "TypeDoc rejects an undocumented export"
+why = """
+The documentation baseline rests on validation.notDocumented. If entryPoints
+stop resolving, TypeDoc reports "unable to find entry points" and the Docs job
+fails for a config reason rather than a documentation one — or worse, resolves
+nothing and passes.
+"""
+file = "probe.ts"
+content = "export function undocumentedProbe(): number { return 1; }\n"
+argv = ["npx", "--no-install", "typedoc", "--options", "{component}/typedoc.json", "--entryPoints", "{dir}/probe.ts", "--entryPointStrategy", "expand", "--out", "{dir}/out"]
+expect = "fail"

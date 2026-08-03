@@ -1,0 +1,33 @@
+# Self-tests for the supabase profile — see profiles/ios/doctor.toml for the
+# contract: every probe feeds KNOWN-BAD input and asserts the check rejects it.
+
+[[probe]]
+name = "deno fmt --check rejects unformatted code"
+why = """
+Reported as 'not enforced'. It was in fact wired into both lefthook and CI; the
+project had simply drifted. This probe makes the wiring provable rather than
+arguable.
+"""
+file = "probe.ts"
+content = "export   const  probe =    1\n"
+argv = ["deno", "fmt", "--check", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "deno lint rejects a lint violation"
+why = "A lint step that accepts anything is indistinguishable from no step."
+file = "probe.ts"
+content = "export function probe() { var x = 1; return x; }\n"
+argv = ["deno", "lint", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "deno doc --lint rejects an undocumented export"
+why = """
+This is the whole documentation gate for Edge Functions. Scoped to _shared/, it
+was silently a no-op in one project because that directory did not exist yet.
+"""
+file = "probe.ts"
+content = "export function undocumentedProbe(): number { return 1; }\n"
+argv = ["deno", "doc", "--lint", "{dir}/probe.ts"]
+expect = "fail"

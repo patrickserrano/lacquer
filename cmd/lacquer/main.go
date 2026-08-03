@@ -11,6 +11,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/doctor"
 	"github.com/patrickserrano/lacquer/internal/fixcmd"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
@@ -109,6 +110,32 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			if code := runFixers(lacquerRoot, projectRoot, stdout, stderr); code != 0 {
 				return code
 			}
+		}
+	case "doctor":
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
+			return fail(stderr, err)
+		}
+		manifest := filepath.Join(projectRoot, ".lacquer.toml")
+		cfg, err := config.Load(manifest)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("load %s: %w", manifest, err))
+		}
+		fmt.Fprintln(stdout, "proving each check can fail:")
+		results, err := doctor.Run(lacquerRoot, projectRoot, cfg, stdout)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		if len(results) == 0 {
+			fmt.Fprintln(stdout, "  (no profile in this project ships self-tests)")
+			return 0
+		}
+		bad := doctor.Failures(results)
+		fmt.Fprintf(stdout, "\n%d/%d checks proved they can fail.\n", len(results)-len(bad), len(results))
+		if len(bad) > 0 {
+			// Exit 5, distinct from audit's 3 (drift) and 4 (baseline), so a
+			// caller can tell "a check is broken" from "the project is wrong".
+			fmt.Fprintln(stderr, "a check that cannot fail is not a check.")
+			return 5
 		}
 	case "fix":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
@@ -272,6 +299,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  sync [--force] [--fix]       render lacquer content into the project")
 	fmt.Fprintln(w, "  skills                       install [project].skills via the `skills` CLI (vercel-labs/skills)")
 	fmt.Fprintln(w, "  plugins                      install core/bootstrap/plugins.toml via `claude plugin` (machine-level)")
+	fmt.Fprintln(w, "  doctor                       prove each check can fail (exit 5 if one cannot)")
 	fmt.Fprintln(w, "  fix                          run the profiles' autofixers (formatters, lint --fix) over the project")
 	fmt.Fprintln(w, "  status                       show each region's stamped vs latest version")
 	fmt.Fprintln(w, "  audit                        classify project drift and check the project baseline")
