@@ -122,7 +122,41 @@ a new CI job adds a row here, and a hook never runs weaker than its CI twin.
 | `check` → `deno test` | pre-push `test` |
 | `Docs` → `deno doc --lint` | pre-commit `docs` |
 | `DB Lint (Splinter)`, `DB Test (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
+| `Deploy migrations` | CI-only, and only on merge to main — it is the step that touches production. |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
+
+## Deploying migrations
+
+**`supabase db push` runs on merge to `main`, behind the schema jobs.** A
+migration cannot reach production without `DB Lint (Splinter)` and `DB Tests
+(pgTAP)` having passed on it, which is why the deploy job lives in `ci.yml`
+rather than a workflow of its own — `needs:` cannot reach across files.
+
+Two settings turn it on, and it **skips with a warning** rather than failing
+when either is absent, so a project that has not wired deployment up is not
+permanently red:
+
+```sh
+gh secret set SUPABASE_ACCESS_TOKEN -R <owner>/<repo>    # supabase.com/dashboard/account/tokens
+gh variable set SUPABASE_PROJECT_REF -R <owner>/<repo>   # the ref in your project URL
+```
+
+The project ref is a **variable, not a secret** — it is already public in your
+project URL, and a variable is readable in the workflow log, which is what you
+want when diagnosing a deploy that went to the wrong project.
+
+**Watch for this when onboarding an existing project onto the lacquer.** Rail
+had this exact job, hand-rolled inside its own `ci.yml`, and onboarding retired
+that file wholesale — the deploy went with it while its secret stayed
+configured, so nothing looked broken and migrations silently stopped shipping.
+That is the failure this job in the profile exists to prevent: if it is here, a
+future sync restores it instead of dropping it.
+
+**Edge Functions are deliberately not deployed by CI.** `db push` applies a
+reviewed, ordered, append-only migration set; `functions deploy` swaps running
+code. A project may reasonably want the first automatic and the second
+deliberate, so run `supabase functions deploy <name>` yourself, or add the step
+if you want it on merge.
 
 `deno fmt --check` and `deno lint` are **not** scoped to staged files — they check
 everything in `deno.jsonc`'s `include` (`supabase/functions/`). So the first

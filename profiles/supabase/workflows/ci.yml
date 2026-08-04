@@ -191,6 +191,84 @@ jobs:
         env:
           RELAX_STATE: ${{ steps.relax.outputs.state }}
 
+  deploy-database:
+    name: Deploy migrations
+    runs-on: ubuntu-latest
+    # Only a merge to main, and only behind the schema jobs. `supabase db push`
+    # is the one step here that touches production, so it must not be reachable
+    # from a PR, and a migration must never land there without the lint and the
+    # pgTAP suite having passed on it first — that ordering is the whole reason
+    # this job lives in ci.yml rather than in a deploy workflow of its own,
+    # which could not express `needs` across files.
+    #
+    # Those jobs are themselves gated on `changes`, so a docs-only push skips
+    # them and skips this with them. That is correct: no migration, no deploy.
+    needs: [check, lint-database, test-database]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 10
+    # Never two at once. Concurrent pushes would race `db push` against the same
+    # project, and a partially applied migration is not something re-running
+    # fixes. Never cancel a run in progress either — cancelling mid-push is how
+    # you get that half-applied state deliberately.
+    concurrency:
+      group: supabase-db-push
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: "{{COMPONENT_PREFIX}}."
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
+        with:
+          version: latest
+
+      # Skip rather than fail when the project has not wired deployment up. A
+      # permanently red main is noise that trains you to stop reading the
+      # Actions tab, which is precisely how a missing deploy goes unnoticed —
+      # so this says so loudly, in the log and the job summary, and stays green.
+      - name: Check deploy configuration
+        id: cfg
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TOKEN" ] && [ -n "$PROJECT_REF" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "configured=false" >> "$GITHUB_OUTPUT"
+          missing=""
+          [ -n "$TOKEN" ]       || missing="${missing} secret SUPABASE_ACCESS_TOKEN"
+          [ -n "$PROJECT_REF" ] || missing="${missing} variable SUPABASE_PROJECT_REF"
+          echo "::warning::Migrations were NOT deployed — missing:${missing}"
+          {
+            echo "### Supabase migrations were not deployed"
+            echo
+            echo "Missing:${missing}"
+            echo
+            echo 'The project ref is not a secret — it is in your project URL — so it is a repository **variable**, not a secret:'
+            echo
+            echo '```sh'
+            echo 'gh secret set SUPABASE_ACCESS_TOKEN -R <owner>/<repo>   # from supabase.com/dashboard/account/tokens'
+            echo 'gh variable set SUPABASE_PROJECT_REF -R <owner>/<repo>  # the ref in your project URL'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push migrations
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: supabase db push --project-ref "$PROJECT_REF"
+
+      # Edge Functions are NOT deployed here. They are a separate blast radius —
+      # `db push` applies a reviewed, ordered, append-only migration set, while
+      # `functions deploy` swaps running code — and a project may legitimately
+      # want the first automatic and the second deliberate. If you want them
+      # deployed on merge too, add the step; it is not an oversight.
+
   docs:
     name: Docs
     runs-on: ubuntu-latest
