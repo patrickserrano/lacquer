@@ -20,6 +20,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
+	"github.com/patrickserrano/lacquer/internal/rootcheck"
 	"github.com/patrickserrano/lacquer/internal/skillsync"
 	"github.com/patrickserrano/lacquer/internal/status"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
@@ -128,11 +129,23 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
+		// Say which checkout this is rendering from, before rendering. sync is
+		// only ever as current as LACQUER_ROOT, and a stale root does not fail
+		// — it reports success and writes the previous version, which is
+		// indistinguishable from having had nothing to do.
+		root := rootcheck.Inspect(lacquerRoot, getenv("LACQUER_NO_FETCH") == "")
+		fmt.Fprintln(stdout, root.Describe())
+
 		res, err := syncpkg.Run(lacquerRoot, projectRoot, *force)
 		if err != nil {
 			return fail(stderr, err)
 		}
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
+		// After the success line on purpose: a warning above it reads as part of
+		// the preamble and is scrolled past.
+		if w := root.Warning(); w != "" {
+			fmt.Fprintln(stderr, w)
+		}
 		if *doFix {
 			if code := runFixers(lacquerRoot, projectRoot, stdout, stderr); code != 0 {
 				return code
