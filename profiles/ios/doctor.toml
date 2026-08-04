@@ -102,5 +102,11 @@ struct DoctorProbeView: View {
     let value = 1
 }
 """
+# argv[0] is `sh`, so the framework's own argv[0] PATH check only ever proves
+# that a shell exists. Naming the real tools here is what turns "expected
+# success, got exit 127" into "swiftformat is not installed" — and, for an
+# expect="fail" probe in this shape, is the difference between a finding and a
+# silent pass. See internal/doctor's Requires.
+requires = ["swiftformat", "swiftlint"]
 argv = ["sh", "-c", "swiftformat {dir} --config {component}/.swiftformat --quiet && swiftlint --strict --config {component}/.swiftlint.yml {dir}"]
 expect = "pass"

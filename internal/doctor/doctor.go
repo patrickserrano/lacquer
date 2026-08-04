@@ -52,6 +52,19 @@ type Probe struct {
 	// Argv is the command. Placeholders: {dir} is the scratch directory,
 	// {component} the absolute component directory holding the synced configs.
 	Argv []string `toml:"argv"`
+	// Requires names tools the probe cannot run without: a bare name is looked
+	// up on PATH, anything containing "/" is a path (placeholders substituted)
+	// that must exist and be executable.
+	//
+	// Without this, a probe whose argv[0] is a shell wrapper is unsound in the
+	// direction that matters. Argv[0] gets a PATH check below, which is enough
+	// when argv[0] IS the tool — but a probe that runs `sh -c "…biome ci…"`
+	// passes that check via /bin/sh, and then a MISSING biome exits non-zero,
+	// which an expect="fail" probe reads as "the check correctly rejected the
+	// bad input". A silent pass, produced by the very absence the probe exists
+	// to notice. Every node-based check is in that shape, since its binary lives
+	// in node_modules/.bin rather than on PATH.
+	Requires []string `toml:"requires"`
 	// Expect is "fail" (the usual case: known-bad input must be rejected) or
 	// "pass" (the command must succeed, e.g. a tool exists and runs).
 	Expect string `toml:"expect"`
@@ -162,11 +175,23 @@ func runProbe(p Probe, compPath, profile, compDir string) Result {
 		}
 	}
 
+	subst := func(s string) string {
+		s = strings.ReplaceAll(s, "{dir}", dir)
+		return strings.ReplaceAll(s, "{component}", compDir)
+	}
+
 	argv := make([]string, len(p.Argv))
 	for i, a := range p.Argv {
-		a = strings.ReplaceAll(a, "{dir}", dir)
-		a = strings.ReplaceAll(a, "{component}", compDir)
-		argv[i] = a
+		argv[i] = subst(a)
+	}
+
+	// Requirements first: a missing tool must be reported as a missing tool
+	// whatever the probe expects, never allowed to satisfy an expect="fail".
+	for _, req := range p.Requires {
+		if missing := missingTool(subst(req)); missing != "" {
+			r.Detail = missing
+			return r
+		}
 	}
 
 	if _, err := exec.LookPath(argv[0]); err != nil {
@@ -203,6 +228,26 @@ func runProbe(p Probe, compPath, profile, compDir string) Result {
 		}
 	}
 	return r
+}
+
+// missingTool returns a human-readable finding when req is unavailable, or "".
+// A bare name is resolved on PATH; anything with a "/" must exist and carry an
+// executable bit.
+func missingTool(req string) string {
+	if !strings.Contains(req, "/") {
+		if _, err := exec.LookPath(req); err != nil {
+			return fmt.Sprintf("%s is not installed, so this check cannot be running at all", req)
+		}
+		return ""
+	}
+	fi, err := os.Stat(req)
+	if err != nil {
+		return fmt.Sprintf("%s does not exist, so this check cannot be running at all (run the project's install step first)", req)
+	}
+	if fi.IsDir() || fi.Mode()&0o111 == 0 {
+		return fmt.Sprintf("%s is not executable, so this check cannot be running at all", req)
+	}
+	return ""
 }
 
 // Failures returns the probes that did not behave as expected.
