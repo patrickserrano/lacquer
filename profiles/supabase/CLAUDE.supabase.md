@@ -132,18 +132,58 @@ migration cannot reach production without `DB Lint (Splinter)` and `DB Tests
 (pgTAP)` having passed on it, which is why the deploy job lives in `ci.yml`
 rather than a workflow of its own — `needs:` cannot reach across files.
 
-Two settings turn it on, and it **skips with a warning** rather than failing
-when either is absent, so a project that has not wired deployment up is not
-permanently red:
+Configure **either** a direct connection string, or the link route. The job
+**skips with a warning** rather than failing when neither is present, so a
+project that has not wired deployment up is not permanently red:
 
 ```sh
+# Preferred: one secret, no linking step
+gh secret set SUPABASE_DB_URL -R <owner>/<repo>          # Dashboard → Settings → Database
+
+# Or the link route, which needs all three
 gh secret set SUPABASE_ACCESS_TOKEN -R <owner>/<repo>    # supabase.com/dashboard/account/tokens
+gh secret set SUPABASE_DB_PASSWORD -R <owner>/<repo>     # the database password
 gh variable set SUPABASE_PROJECT_REF -R <owner>/<repo>   # the ref in your project URL
 ```
 
 The project ref is a **variable, not a secret** — it is already public in your
 project URL, and a variable is readable in the workflow log, which is what you
 want when diagnosing a deploy that went to the wrong project.
+
+`--project-ref` is **not** a flag on `db push`; it belongs to `link`, and push
+names an already-linked project with `--linked`. Older CLI versions accepted it
+on push, so a workflow copied from an older project fails with `Unrecognized
+flag` on its first merge.
+
+### When the push refuses: diverged history
+
+`db push` refuses, rather than guessing, when it finds a local migration that
+sorts **before** the last one already applied remotely:
+
+```
+Found local migration files to be inserted before the last migration on remote database.
+Rerun the command with --include-all flag to apply these migrations: …
+```
+
+That almost always means someone applied a migration **by hand in the SQL
+editor** — the objects exist, but no row was written to
+`supabase_migrations.schema_migrations`, so the CLI cannot tell the difference
+between "already applied" and "skipped".
+
+**Do not reach for `--include-all`, and never put it in the workflow.** It
+reorders a production schema silently. Look at the divergence first:
+
+```sh
+supabase migration list --linked                  # local vs remote, side by side
+supabase db push --linked --dry-run               # what would be applied
+supabase migration repair --status applied <ver>  # objects exist: record it, don't re-run
+supabase migration repair --status reverted <ver> # objects do NOT exist: let push apply it
+```
+
+Confirm which case you are in before repairing — dump the remote schema and
+look for the objects (`supabase db dump --linked --schema public`) rather than
+assuming. Marking something applied when it is not leaves production missing
+the objects with nothing left to tell you.
 
 **Watch for this when onboarding an existing project onto the lacquer.** Rail
 had this exact job, hand-rolled inside its own `ci.yml`, and onboarding retired

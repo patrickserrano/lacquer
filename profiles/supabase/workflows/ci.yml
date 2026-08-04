@@ -227,41 +227,84 @@ jobs:
       # permanently red main is noise that trains you to stop reading the
       # Actions tab, which is precisely how a missing deploy goes unnoticed —
       # so this says so loudly, in the log and the job summary, and stays green.
+      # Two ways to reach the remote database, because `db push` needs a real
+      # Postgres connection and the two routes need different things:
+      #
+      #   SUPABASE_DB_URL      one secret, connects directly, no linking step
+      #   TOKEN + REF + PASSWORD  links via the Management API, then pushes
+      #
+      # The db-url route is preferred where present: it is one secret instead of
+      # three, and it removes the link step entirely, which is where a missing
+      # database password otherwise surfaces as an interactive prompt that hangs
+      # a runner rather than failing it.
       - name: Check deploy configuration
         id: cfg
         env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          if [ -n "$TOKEN" ] && [ -n "$PROJECT_REF" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
+          if [ -n "$DB_URL" ]; then
+            echo "route=db-url" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "configured=false" >> "$GITHUB_OUTPUT"
-          missing=""
-          [ -n "$TOKEN" ]       || missing="${missing} secret SUPABASE_ACCESS_TOKEN"
-          [ -n "$PROJECT_REF" ] || missing="${missing} variable SUPABASE_PROJECT_REF"
-          echo "::warning::Migrations were NOT deployed — missing:${missing}"
+          if [ -n "$TOKEN" ] && [ -n "$PROJECT_REF" ] && [ -n "$DB_PASSWORD" ]; then
+            echo "route=linked" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "route=none" >> "$GITHUB_OUTPUT"
+          echo "::warning::Migrations were NOT deployed — deployment is not configured."
           {
             echo "### Supabase migrations were not deployed"
             echo
-            echo "Missing:${missing}"
-            echo
-            echo 'The project ref is not a secret — it is in your project URL — so it is a repository **variable**, not a secret:'
+            echo 'Set **either** a direct connection string:'
             echo
             echo '```sh'
-            echo 'gh secret set SUPABASE_ACCESS_TOKEN -R <owner>/<repo>   # from supabase.com/dashboard/account/tokens'
-            echo 'gh variable set SUPABASE_PROJECT_REF -R <owner>/<repo>  # the ref in your project URL'
+            echo 'gh secret set SUPABASE_DB_URL -R <owner>/<repo>   # Dashboard -> Settings -> Database -> Connection string'
+            echo '```'
+            echo
+            echo 'or all three of:'
+            echo
+            echo '```sh'
+            echo 'gh secret set SUPABASE_ACCESS_TOKEN -R <owner>/<repo>    # supabase.com/dashboard/account/tokens'
+            echo 'gh secret set SUPABASE_DB_PASSWORD -R <owner>/<repo>     # the database password'
+            echo 'gh variable set SUPABASE_PROJECT_REF -R <owner>/<repo>   # the ref in your project URL (not a secret)'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # `--project-ref` is NOT a flag on `db push` — it belongs to `link`, and
+      # passing it to push fails with "Unrecognized flag" and a usage dump. The
+      # first version of this job used it, copied from a hand-rolled workflow
+      # written against an older CLI where it was accepted, and it failed on its
+      # first merge to main. `--linked` is how push names an already-linked
+      # project.
       - name: Push migrations
-        if: steps.cfg.outputs.configured == 'true'
+        if: steps.cfg.outputs.route != 'none'
         env:
+          ROUTE: ${{ steps.cfg.outputs.route }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-        run: supabase db push --project-ref "$PROJECT_REF"
+        run: |
+          set -euo pipefail
+          if [ "$ROUTE" = "db-url" ]; then
+            supabase db push --db-url "$SUPABASE_DB_URL"
+          else
+            supabase link --project-ref "$PROJECT_REF"
+            supabase db push --linked
+          fi
+
+      # Deliberately NOT --include-all. That flag applies migrations that sort
+      # BEFORE the last one already on the remote, which is the CLI's way of
+      # saying the two histories have diverged — usually because someone applied
+      # a migration by hand in the SQL editor and the history row was never
+      # written. Silently reordering a production schema is not something a
+      # deploy job should do on its own; `supabase migration repair` exists for
+      # that, and it should be run by a human who has looked at the divergence.
+      # A refusal here is the correct outcome, not an inconvenience to flag away.
 
       # Edge Functions are NOT deployed here. They are a separate blast radius —
       # `db push` applies a reviewed, ordered, append-only migration set, while
