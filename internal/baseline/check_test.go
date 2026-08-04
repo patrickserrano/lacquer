@@ -217,6 +217,30 @@ func TestDocumentationRelaxationIsAcceptedButNotChecked(t *testing.T) {
 	}
 }
 
+// `pgtap` is the second key of that shape: no build setting behind it, owned by
+// the supabase profile's DB Tests job, and relaxable so a project with no RLS
+// tests yet is not simply blocked. It must load and Check must stay quiet.
+func TestPgtapRelaxationIsAcceptedButNotChecked(t *testing.T) {
+	if !ValidKey("pgtap") {
+		t.Fatal(`ValidKey("pgtap") = false; a supabase project could not declare it has no pgTAP tests yet`)
+	}
+
+	d := declared(2, map[string]string{
+		"SWIFT_VERSION":                  "6",
+		"SWIFT_TREAT_WARNINGS_AS_ERRORS": "YES",
+	})
+	relax := map[string]Relax{
+		// Expired on purpose, as above: an opinion here would show up as a
+		// blocking finding rather than silence.
+		"pgtap": {Until: "2020-01-01", Reason: "new project, tests tracked in #12"},
+	}
+	for _, f := range Check(std, d, relax, now) {
+		if f.Key == "pgtap" {
+			t.Errorf("Check emitted a finding for pgtap (%+v); it has no build setting to read, and CI owns it", f)
+		}
+	}
+}
+
 // The baseline asserts a MINIMUM Swift language mode, but the check compared the
 // string exactly — so a project whose pbxproj says `6.0` (which is what Xcode
 // writes) reported `swift_version want 6, got 6.0 — 0/8` while the CI Baseline

@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
-# Read this project's documentation relaxation from .lacquer.toml and print its
-# state on stdout: `none`, `relaxed`, `expired`, or `malformed`.
+# Read one of this project's baseline relaxations from .lacquer.toml and print
+# its state on stdout: `none`, `relaxed`, `expired`, or `malformed`.
 #
 #   docs-relaxation.sh [manifest] [today]
+#   RELAX_KEY=pgtap docs-relaxation.sh [manifest] [today]
+#
+# The key defaults to `documentation`, which is what every caller wanted when
+# this script was written and is why it is named the way it is. It now also
+# serves the supabase profile's `pgtap` gate, so the name is narrower than the
+# behaviour; renaming it would mean touching nine call sites across three
+# profiles plus the synced copy in every project, which is not worth doing for
+# its own sake. Fold it into a rename the next time these workflows move.
+#
+# The key arrives by environment rather than as a third positional so the
+# existing `[manifest] [today]` callers -- and the `today` test hook in
+# particular -- keep working untouched.
 #
 # The documentation standard is strict — every declaration carries a doc comment
 # and the docs build clean — so a project that genuinely cannot comply yet needs
@@ -26,6 +38,15 @@ set -euo pipefail
 
 MANIFEST="${1:-.lacquer.toml}"
 TODAY="${2:-$(date -u +%Y-%m-%d)}"
+KEY="${RELAX_KEY:-documentation}"
+
+# The key is interpolated into an awk regex below, so it has to be an identifier
+# and nothing else. A caller passing `.*` would otherwise match whichever
+# relaxation happened to come first and report its state as this one's.
+case "$KEY" in
+  [a-z_]*) [ -z "${KEY//[a-z0-9_]/}" ] || { echo malformed; exit 0; } ;;
+  *) echo malformed; exit 0 ;;
+esac
 
 if [ ! -f "$MANIFEST" ] || ! grep -q '^\[baseline\.relax\]' "$MANIFEST"; then
   echo none
@@ -33,11 +54,11 @@ if [ ! -f "$MANIFEST" ] || ! grep -q '^\[baseline\.relax\]' "$MANIFEST"; then
 fi
 
 # The line within the [baseline.relax] table, stopping at the next table header
-# so a `documentation = ...` key in some other section cannot be mistaken for one.
-line=$(awk '
+# so a key of the same name in some other section cannot be mistaken for one.
+line=$(awk -v key="$KEY" '
   /^\[baseline\.relax\][[:space:]]*$/ { inblock = 1; next }
   /^\[/                               { inblock = 0 }
-  inblock && /^[[:space:]]*documentation[[:space:]]*=/ { print; exit }
+  inblock && $0 ~ ("^[[:space:]]*" key "[[:space:]]*=") { print; exit }
 ' "$MANIFEST")
 
 [ -n "$line" ] || { echo none; exit 0; }

@@ -155,8 +155,27 @@ pre-commit.
   `deno check`, and `deno test` on `ubuntu-latest`.
 - CI also **checks the schema, not just the functions**: `supabase db lint
   --level warning` (Splinter — flags missing-RLS / security-definer issues) and
-  `supabase test db` (pgTAP against `supabase/tests/*.sql`, no-op until you add
-  the first test). Write pgTAP tests that assert RLS actually denies cross-user
-  access — the lint catches a *missing* policy, a test catches a *wrong* one.
+  `supabase test db` (pgTAP against `supabase/tests/*.sql`). Write pgTAP tests
+  that assert RLS actually denies cross-user access — the lint catches a
+  *missing* policy, a test catches a *wrong* one.
+- **An empty `supabase/tests/` fails the `DB Tests (pgTAP)` job.** `supabase test
+  db` exits 0 over a matchless glob, so a project with no tests would otherwise
+  boot a full Postgres stack and report green having asserted nothing — the
+  check that cannot fail, in the exact form the core rules warn about. A project
+  that genuinely has no tests yet takes the same time-boxed escape hatch as
+  every other baseline, and the expiry is enforced:
+
+  ```toml
+  [baseline.relax]
+  pgtap = { until = "2026-11-01", reason = "new project, RLS tests tracked in #12" }
+  ```
+
+  Write the tests rather than the relaxation where you can. Assertions worth
+  reaching for first: that `anon` cannot read another user's rows, that a
+  `security definer` RPC deletes only the caller's row and not a neighbour's,
+  and that a table's *effective* read works — a policy with no matching `GRANT`
+  passes review and fails 42501 in production. Note that `TRUNCATE` is not
+  filtered by RLS at all, so a table locked down at the row level can still be
+  emptied in one statement by any role holding the default grant.
 - See the **supabase-postgres-best-practices** skill for schema design, indexing,
   RLS performance, and query patterns.
