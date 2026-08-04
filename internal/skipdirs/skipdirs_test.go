@@ -45,6 +45,19 @@ func TestSkipsFrameworkBuildOutput(t *testing.T) {
 	}
 }
 
+// The lacquer clones itself into .lacquer-checkout inside the project workspace
+// so the drift job has a binary to audit with. Once stack detection ran on every
+// audit, that checkout started registering as project stacks — `.lacquer-checkout/site`
+// as an undeclared web stack, `.lacquer-checkout` itself as an uncovered go stack —
+// and the job failed with exit 6 on projects that had done nothing wrong. The
+// check that verifies a project matches the lacquer must not be the reason it
+// stops matching.
+func TestSkipsTheLacquersOwnCheckout(t *testing.T) {
+	if !Skip(".lacquer-checkout") {
+		t.Error(`Skip(".lacquer-checkout") = false; the drift job's own clone is not project source`)
+	}
+}
+
 // The skip list must not swallow ordinary source directories.
 func TestDoesNotSkipRealSourceDirs(t *testing.T) {
 	for _, name := range []string{"src", "app", "lib", "api", "Sources", "supabase", "ios", "web", "docs"} {

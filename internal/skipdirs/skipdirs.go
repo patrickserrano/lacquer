@@ -11,6 +11,20 @@ var exact = map[string]bool{
 	".build": true, "vendor": true, ".agents": true,
 	"Pods": true, "Carthage": true,
 
+	// The lacquer's OWN source, cloned into the project workspace by the
+	// `No lacquer drift` CI job so it has a binary to audit with. It is not
+	// project code, and walking into it makes every project on the lacquer
+	// appear to contain the lacquer's stacks.
+	//
+	// This is not theoretical: once stack detection began running on every
+	// audit, the drift job started reporting `.lacquer-checkout/site -> web`
+	// as an undeclared stack and `.lacquer-checkout -> go` as one no profile
+	// covers, and failed with exit 6 — on projects whose only mistake was
+	// having the job that checks them out. The job that verifies a project
+	// matches the lacquer cannot itself be what makes the project stop
+	// matching.
+	".lacquer-checkout": true,
+
 	// Framework build output. These contain a generated package.json (and
 	// sometimes a tsconfig), which detection reads as a web component — so
 	// `lacquer init` on a Next.js site reported FIVE components: ".", ".next",
