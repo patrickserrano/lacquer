@@ -53,9 +53,18 @@ Never relax a base flag (`strict`, `noUncheckedIndexedAccess`,
 ## Code quality — Biome
 
 `biome.json` is synced (format + lint). Run `npx biome check --write .` locally;
-CI runs `npx biome ci .` (no writes, fails on any issue). `noExplicitAny` and
-`noArrayIndexKey` are warnings — treat them as errors and fix the code; never
-disable a rule inline without explicit user approval (mirrors the core lint rule).
+CI runs `npx biome ci --error-on-warnings .`.
+
+**`--error-on-warnings` is the whole gate.** Plain `biome ci` fails on
+error-severity rules only, so every warning-severity rule prints and passes —
+including the three this config sets deliberately
+(`noExcessiveCognitiveComplexity`, `noArrayIndexKey`, `useSemanticElements`) and
+the ones `recommended: true` brings, like `noNonNullAssertion`. Drop the flag and
+a repo goes green with warnings outstanding; that was measured, not theorised.
+The pre-commit hook carries the same flag so local and CI agree.
+
+Fix the code. Never disable a rule inline without explicit user approval
+(mirrors the core lint rule).
 
 ## Testing — Vitest
 

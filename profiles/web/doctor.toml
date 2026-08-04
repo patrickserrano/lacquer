@@ -1,23 +1,124 @@
 # Self-tests for the web profile — see profiles/ios/doctor.toml for the contract:
 # every probe feeds KNOWN-BAD input and asserts the check rejects it.
+#
+# Every probe here names its binary explicitly under {component}/node_modules/.bin
+# and declares it in `requires`. Both are load-bearing, and the previous version
+# of this file did neither.
+#
+# It ran `npx --no-install biome …` from the scratch directory. That directory has
+# no node_modules, so npx resolved biome from whatever happened to be reachable —
+# on a developer machine with Homebrew's biome, the GLOBAL binary rather than the
+# version the project pins. On a machine without one, npx exits non-zero with
+# "npx canceled due to missing packages" — and `expect = "fail"` reads any
+# non-zero exit as "the check correctly rejected the bad input". A probe that
+# reports OK precisely because the tool is missing is the exact defect doctor
+# exists to catch, and it was sitting inside doctor.
+#
+# (It also tried to install `biome@0.3.3` — an unrelated package that owns the
+# bare `biome` name on npm. The linter is `@biomejs/biome`.)
+#
+# `requires` closes it: a missing tool is reported as a missing tool whatever the
+# probe expects. Exit codes below were observed against biome 2.5.3 and TypeDoc
+# 0.28.20, not assumed.
 
 [[probe]]
-name = "Biome rejects a lint violation"
-why = "A `biome ci` that accepts anything is indistinguishable from no check."
+name = "biome ci rejects an error-severity lint violation"
+why = """
+`npx biome ci .` is the lint gate in web-ci.yml. A config that fails to load, a
+rules block that stops matching, or a severity quietly dropped all show up as a
+green run over unlinted code. noExplicitAny is "error" in the shipped
+biome.json, so this fixture must be rejected. Observed: exit 1.
+"""
 file = "probe.ts"
-content = "export const x: Array<string> = [];\n"
-argv = ["npx", "--no-install", "biome", "check", "--config-path", "{component}", "{dir}"]
+content = """
+export const value: any = 1
+"""
+requires = ["{component}/node_modules/.bin/biome"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
+
+[[probe]]
+name = "biome ci rejects a WARNING-severity violation"
+why = """
+Plain `biome ci` gates on error-severity rules only. Every warning-severity rule
+— the three this config sets deliberately (noExcessiveCognitiveComplexity,
+noArrayIndexKey, useSemanticElements) plus the ones `recommended: true` brings,
+like noNonNullAssertion — printed and passed. One repo was green with 11
+warnings outstanding. `--error-on-warnings` in web-ci.yml and lefthook.yml is
+what closes that, and this probe is what proves the flag is still there and
+still doing something.
+
+The fixture is deliberately warning-ONLY: it exits 0 without the flag and 1 with
+it (observed). A fixture that also trips an error-severity rule would be
+rejected either way and would prove nothing about the flag — the same mistake
+the ios line-length probe made by exceeding the error threshold.
+"""
+file = "probe.ts"
+content = """
+const maybe: string | undefined = process.env.HOME
+export const value = maybe!
+"""
+requires = ["{component}/node_modules/.bin/biome"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "biome ci rejects unformatted code"
+why = """
+The formatter half of `biome ci` is separately losable: `formatter.enabled`
+false, or a lint-only invocation, leaves the linter gating while formatting
+silently stops being checked. A formatter check that accepts anything is
+indistinguishable from no check. Observed: exit 1 on wrong spacing and quote
+style.
+"""
+file = "probe.ts"
+content = """
+export const value   =    "double quoted and badly spaced"
+"""
+requires = ["{component}/node_modules/.bin/biome"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "TypeDoc can parse the shipped typedoc.json"
+why = """
+typedoc.json carries fourteen lines of comments explaining why each validation
+key is set. JSON proper has no comments — if TypeDoc's parser rejected them,
+every docs build in every web project would break on a config the lacquer
+distributes. That was asserted and never verified: the command meant to check it
+hung for three days on a `cp -i` prompt and was killed without ever running.
+Observed: TypeDoc 0.28 accepts the comments and exits 0 on a documented export.
+"""
+file = "probe.ts"
+content = """
+/** A documented export, so `notDocumented` has nothing to report. */
+export const answer = 42
+"""
+requires = ["{component}/node_modules/.bin/typedoc"]
+argv = ["sh", "-c", """
+set -e
+printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"bundler","strict":true},"include":["probe.ts"]}' > tsconfig.json
+exec {component}/node_modules/.bin/typedoc --options {component}/typedoc.json --entryPoints ./probe.ts --out ./out --tsconfig ./tsconfig.json
+"""]
+expect = "pass"
 
 [[probe]]
 name = "TypeDoc rejects an undocumented export"
 why = """
-The documentation baseline rests on validation.notDocumented. If entryPoints
-stop resolving, TypeDoc reports "unable to find entry points" and the Docs job
-fails for a config reason rather than a documentation one — or worse, resolves
-nothing and passes.
+`validation.notDocumented` plus `treatValidationWarningsAsErrors` is what makes
+the Docs job a standard rather than a site generator. Drop either and TypeDoc
+happily renders a page of bare signatures and exits 0 — a docs gate that has
+stopped gating looks exactly like one that is passing. Observed: exit 4, "does
+not have any documentation".
 """
 file = "probe.ts"
-content = "export function undocumentedProbe(): number { return 1; }\n"
-argv = ["npx", "--no-install", "typedoc", "--options", "{component}/typedoc.json", "--entryPoints", "{dir}/probe.ts", "--entryPointStrategy", "expand", "--out", "{dir}/out"]
+content = """
+export const undocumented = 1
+"""
+requires = ["{component}/node_modules/.bin/typedoc"]
+argv = ["sh", "-c", """
+set -e
+printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"bundler","strict":true},"include":["probe.ts"]}' > tsconfig.json
+exec {component}/node_modules/.bin/typedoc --options {component}/typedoc.json --entryPoints ./probe.ts --out ./out --tsconfig ./tsconfig.json
+"""]
 expect = "fail"

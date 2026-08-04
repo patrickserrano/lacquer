@@ -104,3 +104,104 @@ func TestRejectsAnUnknownExpectation(t *testing.T) {
 		t.Fatal("expect must be validated at load, not silently treated as one of the two")
 	}
 }
+
+// The hole `requires` exists to close, demonstrated in both directions.
+//
+// A probe whose argv[0] is a shell wrapper passes the argv[0] PATH check via
+// /bin/sh. If the real tool inside the script is missing, the shell exits
+// non-zero — and an expect="fail" probe reads any non-zero exit as "the check
+// correctly rejected the bad input". The probe reports OK *because* the tool is
+// absent. Every node-based check is in that shape, since its binary lives in
+// node_modules/.bin rather than on PATH; the web profile shipped exactly this.
+func TestMissingToolInsideAShellProbeIsNotAPass(t *testing.T) {
+	root := t.TempDir()
+
+	// Without `requires`: the false pass. Pinned so a regression is visible.
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"unguarded\"\n"+
+			"argv = [\"sh\", \"-c\", \"exec /nonexistent/bin/linter --check\"]\nexpect = \"fail\"\n")
+	res, err := Run(root, t.TempDir(), cfgOne(), &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || !res[0].OK {
+		t.Fatalf("precondition: an unguarded shell probe reports OK on a missing tool: %+v", res)
+	}
+
+	// With `requires`: reported as the missing tool it is.
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"guarded\"\nrequires = [\"/nonexistent/bin/linter\"]\n"+
+			"argv = [\"sh\", \"-c\", \"exec /nonexistent/bin/linter --check\"]\nexpect = \"fail\"\n")
+	var out bytes.Buffer
+	res, err = Run(root, t.TempDir(), cfgOne(), &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].OK {
+		t.Fatalf("a probe whose required tool is missing must FAIL, not pass: %+v", res)
+	}
+	if !strings.Contains(out.String(), "does not exist") {
+		t.Errorf("the output must name the missing tool, got:\n%s", out.String())
+	}
+}
+
+// A bare name in `requires` is a PATH lookup; a path is a file that must exist
+// and be executable. A present-but-non-executable file is the shape of a
+// half-finished install, and must not read as available.
+func TestRequiresDistinguishesPathLookupFromFilePath(t *testing.T) {
+	root := t.TempDir()
+	project := t.TempDir()
+
+	notExec := filepath.Join(project, "tool")
+	write(t, notExec, "#!/bin/sh\nexit 1\n") // 0644 — no executable bit
+
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"non-executable\"\nrequires = [\"{component}/tool\"]\n"+
+			"argv = [\"true\"]\nexpect = \"pass\"\n")
+	var out bytes.Buffer
+	res, err := Run(root, project, cfgOne(), &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].OK {
+		t.Fatalf("a non-executable required file must fail the probe: %+v", res)
+	}
+	if !strings.Contains(out.String(), "not executable") {
+		t.Errorf("output should say it is not executable, got:\n%s", out.String())
+	}
+
+	// A bare name that IS on PATH satisfies the requirement.
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"on path\"\nrequires = [\"sh\"]\nargv = [\"true\"]\nexpect = \"pass\"\n")
+	res, err = Run(root, project, cfgOne(), &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || !res[0].OK {
+		t.Fatalf("a required tool present on PATH must satisfy the probe: %+v", res)
+	}
+}
+
+// Every probe this lacquer ships must parse, and any probe whose argv[0] is a
+// shell must declare `requires` — that combination is unsound without it, and
+// the web profile shipped it once already.
+func TestShippedProbesAreSound(t *testing.T) {
+	root := "../.."
+	for _, profile := range []string{"ios", "web", "supabase"} {
+		probes, err := LoadProbes(root, profile)
+		if err != nil {
+			t.Errorf("%s: %v", profile, err)
+			continue
+		}
+		for _, p := range probes {
+			isShell := p.Argv[0] == "sh" || p.Argv[0] == "bash" || p.Argv[0] == "/bin/sh"
+			if isShell && len(p.Requires) == 0 {
+				t.Errorf("%s: probe %q runs through a shell but declares no `requires`; a missing tool would satisfy it silently",
+					profile, p.Name)
+			}
+			if p.Why == "" {
+				t.Errorf("%s: probe %q has no `why`; the failure output is what teaches the reader", profile, p.Name)
+			}
+		}
+	}
+}

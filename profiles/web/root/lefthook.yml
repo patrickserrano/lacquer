@@ -16,7 +16,10 @@ pre-commit:
     biome:
       root: "{{COMPONENT_PREFIX}}"
       glob: "*.{ts,tsx,js,jsx,json,jsonc,css}"
-      run: npx biome check --write --no-errors-on-unmatched {staged_files}
+      # --error-on-warnings mirrors the CI `Biome` step. Without it the hook
+      # gates on errors only, so a warning-severity violation is committed
+      # locally and rejected by CI — the local/CI split this repo keeps finding.
+      run: npx biome check --write --error-on-warnings --no-errors-on-unmatched {staged_files}
       stage_fixed: true
     typecheck:
       root: "{{COMPONENT_PREFIX}}"
