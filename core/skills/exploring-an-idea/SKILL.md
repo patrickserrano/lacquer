@@ -120,8 +120,23 @@ titled:
   loaded in the domain ("needle drop" is a music-licensing term of art).
 - **Repo name**: follows the name check, never precedes it.
 - **Domain / handles**: check availability while the name is still free.
+- **Stack**: name it in the doc, as an archetype
+  (`lacquer init --list-stacks`), then pass it to `lacquer init --stack <name>`.
 
 Needledrop got the order backwards and still carries the wrong repo name.
+
+The stack one is subtler than it looks. Needledrop's PCD said "iOS app with a
+web backend" and was right — but the repo was bootstrapped during the
+TypeScript-only Phase 0 spike, so detection recorded `profiles = ["web"]`,
+correctly, and nothing ever looked again. Swift landed the next day with no
+hooks, no CI, and no CLAUDE region; 191 tests were run by nothing at any gate
+for a month. Declaring the whole stack up front is a one-word difference at
+`init` and it gates the halves that don't exist yet.
+
+Two claims about the same project were held to completely different standards:
+the API premises got a Phase 0 spike, and "an iOS app with a web backend" got
+written down and never checked against what the repo was actually enforcing.
+A claim about your own build is still a claim.
 
 ## What good looks like
 
@@ -132,6 +147,8 @@ You are ready to leave exploration when:
 - The kill criteria are numbers, and you would actually stop.
 - One end-to-end path has been proven on real data — not a diagram of one.
 - The name has survived a trademark pass.
+- The stack is named as an archetype and passed to `lacquer init --stack`, so
+  every half of it is gated from the first commit.
 
 ## Anti-patterns
 
@@ -143,3 +160,7 @@ You are ready to leave exploration when:
   ("outreach", "investigate") rather than numbers. Needledrop's Phase 0 was
   real precisely because criterion #2 demanded a measured percentage.
 - **Naming last.** The one decision that gets more expensive every commit.
+- **Onboarding the spike.** Running `lacquer init` inside a Phase 0 throwaway
+  records the spike's stack as the project's stack. Detection is right about
+  what is on disk and wrong about what the project is; `--stack` is how you say
+  which one you meant.

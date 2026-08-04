@@ -175,7 +175,10 @@ The files that carry these checks (`.pre-commit-config.yaml`, `lefthook.yml`,
 the CI workflows, the lint configs) are rendered from the lacquer, so editing one
 in a project silently diverges it from every other project. The `No lacquer
 drift` CI job runs `lacquer audit` and fails on exit 3 when a managed file was
-edited locally. If a project genuinely owns a file, say so:
+edited locally — and on exit 6 when the project runs a **stack** the manifest
+never declared, which is the same failure one level up: a whole toolchain with
+no hooks, no CI, and no CLAUDE region, reported by nothing. Run `lacquer adopt`
+to record it. If a project genuinely owns a file, say so:
 
 ```toml
 [project]

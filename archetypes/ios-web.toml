@@ -1,0 +1,9 @@
+description = "A native iOS app plus a web surface (marketing site, dashboard, redirect service)."
+
+[[component]]
+path = "ios"
+profiles = ["ios"]
+
+[[component]]
+path = "web"
+profiles = ["web"]

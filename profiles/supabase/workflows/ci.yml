@@ -393,6 +393,13 @@ jobs:
                exit 1 ;;
             4) echo "::error::The project baseline is not met. See the audit output above."
                exit 1 ;;
+            # Detection ran once, at `lacquer init`, and never again — so a
+            # project that grew a stack afterwards was unmanaged for it forever,
+            # with nothing reporting the gap: no hooks, no CI, no error. `audit`
+            # re-detects on every run now, and this is what makes that visible on
+            # the PR that introduces the stack rather than a year later.
+            6) echo "::error::This project runs a stack .lacquer.toml does not declare, so nothing gates it — no hooks, no CI, no CLAUDE region. Run \`lacquer adopt\` to record it and re-sync, or add the path to [project].exclude if the project deliberately keeps it unmanaged."
+               exit 1 ;;
             *) echo "::error::lacquer audit failed (exit $code)."
                exit 1 ;;
           esac

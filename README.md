@@ -14,15 +14,17 @@ every project regardless.
 
 | Command | Does |
 |---------|------|
-| `lacquer init` | Detect components, write a `.lacquer.toml` stub (and a `docs/brief.md` stub). |
+| `lacquer init [--stack S]` | Detect components, write a `.lacquer.toml` stub (and a `docs/brief.md` stub). `--stack` also declares the components the project doesn't have *yet*. |
+| `lacquer init --list-stacks` | Print the archetypes `--stack` accepts. |
 | `lacquer onboard --org O [--no-repo]` | `init`, then create a private GitHub repo under `O` when the repo has no `origin`. |
+| `lacquer adopt` | Re-detect, and record any stack that appeared since `init` into `.lacquer.toml`. Only ever adds. |
 | `lacquer sync [--force] [--fix]` | Render core + per-profile content into the project (managed regions + whole-file assets); `--fix` then runs the autofixers. |
 | `lacquer fix` | Run each profile's autofixers (formatter, `lint --fix`) over the project source. |
 | `lacquer doctor` | Prove each check can fail: feed known-bad input and assert it's rejected (exit 5 if one can't). |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
-| `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change (usable as a CI gate). |
+| `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change, 4 on a baseline violation, 6 on an undeclared stack (usable as a CI gate). |
 | `lacquer version` | Print the lacquer version. |
 
 `lacquer --help` prints usage.
@@ -49,8 +51,41 @@ message rather than an opaque missing-file error.
 - **`supabase`** — Deno Edge Functions + Postgres/RLS; CI + git hooks via
   `lefthook`.
 
-A component detected as an unshipped stack (e.g. Rust/Go) is recorded in the
-manifest with an empty profile list and a notice — it doesn't break `sync`.
+A component detected as an unshipped stack (e.g. Rust/Go, or a bare SwiftPM
+package) is recorded in the manifest with an empty profile list and a notice —
+it doesn't break `sync`, and `audit` keeps reporting it so the gap stays
+visible.
+
+## Declaring the stack before the code exists
+
+Detection can only see what is already on disk, which makes it useless at the
+one moment the stack is actually being decided — while the idea is still a brief
+and a PCD. So name the stack there, as an **archetype**, and hand it to `init`:
+
+```sh
+lacquer init --list-stacks
+lacquer init --stack ios-supabase
+```
+
+`--stack` declares the components a project of that kind has, including the ones
+that do not exist yet, so both halves are gated from the first commit. Detected
+components always win where the two disagree — the archetype only fills gaps.
+See [`archetypes/`](archetypes/).
+
+Projects that grow a stack *after* onboarding are the other half of the problem.
+`sync` and `audit` now re-run detection every time, and:
+
+- a stack the lacquer ships a profile for **blocks** — run `lacquer adopt` to
+  record it, or add the path to `[project].exclude` to keep it unmanaged;
+- a stack no profile covers is **reported on every run and gates nothing** —
+  that gap is the lacquer's, not the project's.
+
+Detection used to run exactly once, at `init`, and never again. One repo
+bootstrapped as TypeScript-only during a spike, grew a Swift package the next
+day, and a year later still declared `profiles = ["web"]`: no hooks, no CI, 191
+tests run by nothing at any gate. Another declared its iOS app but not the
+Supabase backend or the admin web app sitting beside it. Neither ever produced
+an error, because nothing ever asked.
 
 ## Updating a project
 

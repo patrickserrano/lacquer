@@ -1,0 +1,13 @@
+description = "A native iOS app, a web surface, and a Supabase backend."
+
+[[component]]
+path = "ios"
+profiles = ["ios"]
+
+[[component]]
+path = "server"
+profiles = ["supabase"]
+
+[[component]]
+path = "web"
+profiles = ["web"]

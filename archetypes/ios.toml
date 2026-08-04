@@ -1,0 +1,9 @@
+description = "A native iOS app, nothing else."
+
+# Root layout. With one stack there is nothing to keep out of anything else's
+# way, and the Xcode project, its lint configs, and its CI all read more simply
+# at the repo root. kit and shelflife are this shape.
+
+[[component]]
+path = "."
+profiles = ["ios"]

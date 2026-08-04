@@ -27,13 +27,15 @@ var ghCreate = func(dir, org, name string) error {
 
 // Run ensures a .lacquer.toml exists, then (if createRepo and no origin remote)
 // creates a private repo under org. It does not sync. lacquerRoot is threaded to
-// initcmd so profile detection only records profiles the lacquer actually ships.
-func Run(lacquerRoot, projectRoot, org string, createRepo bool) (string, error) {
+// initcmd so profile detection only records profiles the lacquer actually ships;
+// stack is the archetype to seed the manifest from (see internal/archetype), and
+// is ignored when a manifest already exists.
+func Run(lacquerRoot, projectRoot, org, stack string, createRepo bool) (string, error) {
 	var out strings.Builder
 
 	manifest := filepath.Join(projectRoot, ".lacquer.toml")
 	if _, err := os.Stat(manifest); os.IsNotExist(err) {
-		summary, err := initcmd.Run(lacquerRoot, projectRoot)
+		summary, err := initcmd.Run(lacquerRoot, projectRoot, stack)
 		if err != nil {
 			return "", err
 		}
