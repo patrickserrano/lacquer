@@ -122,3 +122,30 @@ printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleReso
 exec {component}/node_modules/.bin/typedoc --options {component}/typedoc.json --entryPoints ./probe.ts --out ./out --tsconfig ./tsconfig.json
 """]
 expect = "fail"
+
+[[probe]]
+name = "a relaxed docs build still produces a site"
+why = """
+The relaxed branch of web-docs.yml used to be `npx typedoc || echo "publishing
+anyway"`. It could never work: treatValidationWarningsAsErrors makes TypeDoc
+ABORT before writing docs-site, so swallowing the exit code left nothing to
+publish and publish-docs.sh refused with "'docs-site' is not a directory —
+nothing was built". Every run on a relaxed project failed that way from the day
+it shipped, and the comment above it asserted the opposite.
+
+This probe is the assertion that was missing: an UNDOCUMENTED export — the exact
+input a relaxation exists to tolerate — must still yield a directory. Re-escalate
+validation on the relaxed path and this goes red. Observed: exit 0, 4 entries.
+"""
+file = "probe.ts"
+content = """
+export const undocumented = 1
+"""
+requires = ["{component}/node_modules/.bin/typedoc"]
+argv = ["sh", "-c", """
+set -e
+printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"bundler","strict":true},"include":["probe.ts"]}' > tsconfig.json
+{component}/node_modules/.bin/typedoc --options {component}/typedoc.json --entryPoints ./probe.ts --out ./out --tsconfig ./tsconfig.json --treatValidationWarningsAsErrors false
+test -d ./out
+"""]
+expect = "pass"
