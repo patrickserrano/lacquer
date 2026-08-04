@@ -139,14 +139,57 @@ jobs:
       - name: Start local stack
         run: supabase start
 
-      # No-op gracefully until the project adds its first pgTAP test.
+      # This step used to echo "no pgTAP tests yet" and exit 0 on an empty
+      # directory, which meant the job booted a full Postgres stack and reported
+      # green having asserted nothing — for however many months it took someone
+      # to notice. `supabase test db` exits 0 over a matchless glob all by
+      # itself, so the emptiness has to be caught here or not at all.
+      #
+      # An empty suite is therefore a failure, with the same time-boxed escape
+      # hatch every other baseline carries for a project that genuinely cannot
+      # comply yet. RLS is this profile's security boundary and Splinter only
+      # catches a *missing* policy — a wrong one is caught by a test or by
+      # nobody, so "no tests" is a real finding rather than a neutral state.
+      #
+      # No `defaults.working-directory` applies to the relaxation step: the
+      # manifest and scripts/ live at the REPO root while supabase/ lives in the
+      # component, exactly as in the `docs` job below.
+      - name: Read the pgTAP relaxation
+        id: relax
+        working-directory: "."
+        run: |
+          set -euo pipefail
+          state=$(RELAX_KEY=pgtap scripts/docs-relaxation.sh .lacquer.toml)
+          echo "state=${state}" >> "$GITHUB_OUTPUT"
+          case "$state" in
+            none)    echo "No pgTAP relaxation — an empty suite fails." ;;
+            relaxed) echo "::warning::pgTAP tests are relaxed by [baseline.relax] in .lacquer.toml. Write RLS tests before the date passes — an expired relaxation is a hard failure." ;;
+            expired) echo "::error::The pgtap relaxation in .lacquer.toml has expired. Add pgTAP tests, or extend the relaxation deliberately."; exit 1 ;;
+            malformed)
+              echo "::error::The [baseline.relax] pgtap entry in .lacquer.toml is malformed. Both fields are required: pgtap = { until = \"YYYY-MM-DD\", reason = \"why, with a tracking issue\" }."
+              exit 1 ;;
+            *) echo "::error::Unexpected relaxation state '$state'"; exit 1 ;;
+          esac
+
       - name: Run pgTAP tests
         run: |
-          if ls supabase/tests/*.sql >/dev/null 2>&1; then
-            supabase test db
-          else
-            echo "no pgTAP tests yet"
+          set -euo pipefail
+          shopt -s nullglob
+          # The same glob pg_prove is handed, so this counts what would actually
+          # run rather than what someone hoped was there.
+          tests=(supabase/tests/*.sql)
+          if (( ${#tests[@]} == 0 )); then
+            if [ "${RELAX_STATE}" = "relaxed" ]; then
+              echo "::warning::No pgTAP tests in supabase/tests/ — permitted by the time-boxed pgtap relaxation."
+              exit 0
+            fi
+            echo "::error::No pgTAP tests in supabase/tests/ — this gate would pass vacuously. Add tests asserting RLS denies cross-user access, or add a time-boxed [baseline.relax] pgtap entry to .lacquer.toml."
+            exit 1
           fi
+          echo "Running ${#tests[@]} pgTAP test file(s)."
+          supabase test db
+        env:
+          RELAX_STATE: ${{ steps.relax.outputs.state }}
 
   docs:
     name: Docs

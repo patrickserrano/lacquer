@@ -36,16 +36,17 @@ func (r Relax) UntilDate() (time.Time, error) {
 // "swift_verison" would otherwise read as a permanent, invisible exemption,
 // which is precisely the class of silent failure this package exists to end.
 //
-// "documentation" is the one key here that Check does NOT emit a finding for,
-// and that is deliberate. Every other key maps to an Xcode build setting this
-// package reads out of the pbxproj; "every declaration carries a doc comment and
-// the docs build clean" is not a build setting, so there is nothing here to
-// read. It is enforced by the stack's `Docs` CI job — which applies the same
-// expiry rule, via scripts/docs-relaxation.sh — and it is listed here so that a
-// project writing the relaxation the standard tells it to write does not have
-// its manifest rejected at load time.
+// "documentation" and "pgtap" are the two keys here that Check does NOT emit a
+// finding for, and that is deliberate. Every other key maps to an Xcode build
+// setting this package reads out of the pbxproj; "every declaration carries a
+// doc comment and the docs build clean" is not a build setting, and neither is
+// "this project has pgTAP tests", so there is nothing here to read. They are
+// enforced by the stack's `Docs` and `DB Tests (pgTAP)` CI jobs — both applying
+// the same expiry rule, via scripts/docs-relaxation.sh — and they are listed
+// here so that a project writing the relaxation the standard tells it to write
+// does not have its manifest rejected at load time.
 func KnownKeys() []string {
-	return []string{"swift_version", "warnings_as_errors", "strict_concurrency", "documentation"}
+	return []string{"swift_version", "warnings_as_errors", "strict_concurrency", "documentation", "pgtap"}
 }
 
 // ValidKey reports whether key is one Check knows about.
