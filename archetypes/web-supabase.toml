@@ -1,0 +1,9 @@
+description = "A web app with a Supabase backend."
+
+[[component]]
+path = "."
+profiles = ["web"]
+
+[[component]]
+path = "server"
+profiles = ["supabase"]

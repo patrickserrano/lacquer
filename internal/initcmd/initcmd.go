@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/patrickserrano/lacquer/internal/archetype"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
@@ -26,7 +27,13 @@ import (
 // make the next `lacquer sync` fail with an opaque "no such file" — so its
 // component is still recorded (with an empty profiles list) and a notice is
 // printed instead.
-func Run(lacquerRoot, root string) (string, error) {
+//
+// stack names an archetype under lacquerRoot/archetypes (see internal/archetype)
+// and may be empty. It adds the components a project of that kind has but does
+// not have yet, so the stack a brief/PCD decided on is the stack the manifest
+// declares from the first commit — rather than whichever half of it happened to
+// be written before someone ran init.
+func Run(lacquerRoot, root, stack string) (string, error) {
 	manifest, err := safepath.Resolve(root, ".lacquer.toml")
 	if err != nil {
 		return "", fmt.Errorf("resolve .lacquer.toml: %w", err)
@@ -47,18 +54,40 @@ func Run(lacquerRoot, root string) (string, error) {
 		return "", fmt.Errorf("detect components: %w", err)
 	}
 
+	// Fold in the declared stack before the ships-filter below, so an archetype
+	// naming a profile the lacquer doesn't ship is reported the same way a
+	// detected one is.
+	var notices []string
+	fromStack := map[string]bool{}
+	if stack != "" {
+		a, err := archetype.Load(lacquerRoot, stack)
+		if err != nil {
+			return "", err
+		}
+		before := map[string]bool{}
+		for _, c := range comps {
+			before[c.Path] = true
+		}
+		comps = archetype.Merge(comps, a)
+		for _, c := range comps {
+			if !before[c.Path] {
+				fromStack[c.Path] = true
+			}
+		}
+	}
+
 	// Keep only profiles the lacquer actually ships; collect a notice for each
 	// dropped one so the operator knows why a detected stack isn't wired up.
-	var notices []string
 	for i := range comps {
 		kept := comps[i].Profiles[:0:0]
 		for _, p := range comps[i].Profiles {
-			if profileShips(lacquerRoot, p) {
+			if detect.ProfileShips(lacquerRoot, p) {
 				kept = append(kept, p)
 				continue
 			}
 			notices = append(notices, fmt.Sprintf(
-				"NOTE: component %q detected as %q — no lacquer profile ships for it yet; add one under profiles/%s/.",
+				"NOTE: component %q is %q — no lacquer profile ships for it yet, so nothing gates it. "+
+					"`lacquer audit` will keep reporting this until profiles/%s/ exists.",
 				comps[i].Path, p, p))
 		}
 		comps[i].Profiles = kept
@@ -111,6 +140,12 @@ func Run(lacquerRoot, root string) (string, error) {
 	b.WriteString("bundle_id = \"\"\n")
 	b.WriteString("asc_app_id = \"\"\n")
 	b.WriteString("github_org = \"\"\n")
+	if stack != "" {
+		// Provenance: which archetype this project started from. Nothing reads it
+		// to decide behaviour — the [[component]] blocks below are what sync acts
+		// on — but it records that the shape was chosen rather than inferred.
+		fmt.Fprintf(&b, "stack = %q\n", stack)
+	}
 	// Agent tools to provision skills for. New projects default to all supported
 	// tools; trim this list to opt out (an omitted field means claude-only).
 	b.WriteString("tools = [\"claude\", \"codex\", \"antigravity\"]\n")
@@ -137,14 +172,20 @@ func Run(lacquerRoot, root string) (string, error) {
 
 	var s strings.Builder
 	if len(comps) == 0 {
-		s.WriteString("No components detected (no .xcodeproj / package.json / Cargo.toml / go.mod found).\n")
+		s.WriteString("No components detected (no .xcodeproj / Package.swift / package.json / Cargo.toml / go.mod found).\n")
 	} else {
-		s.WriteString("Detected components:\n")
+		s.WriteString("Components:\n")
 		for _, c := range comps {
+			// Mark the ones the archetype added, so "this directory does not exist
+			// yet" is visible rather than looking like a detection result.
+			origin := ""
+			if fromStack[c.Path] {
+				origin = fmt.Sprintf("  (from --stack %s; not on disk yet)", stack)
+			}
 			if len(c.Profiles) == 0 {
-				fmt.Fprintf(&s, "  %s -> (no shipping profile)\n", c.Path)
+				fmt.Fprintf(&s, "  %s -> (no shipping profile)%s\n", c.Path, origin)
 			} else {
-				fmt.Fprintf(&s, "  %s -> %s\n", c.Path, strings.Join(c.Profiles, ", "))
+				fmt.Fprintf(&s, "  %s -> %s%s\n", c.Path, strings.Join(c.Profiles, ", "), origin)
 			}
 		}
 	}
@@ -164,18 +205,6 @@ func Run(lacquerRoot, root string) (string, error) {
 	}
 	s.WriteString("Fill any blank [project] values (e.g. bundle_id, asc_app_id), then run `lacquer sync`.")
 	return s.String(), nil
-}
-
-// profileShips reports whether lacquerRoot actually ships profile p — i.e. the
-// CLAUDE body that sync/audit read (profiles/<p>/CLAUDE.<p>.md) exists. This is
-// the exact file whose absence makes a later `lacquer sync` fail, so it is the
-// precise gate for whether a detected profile should be written into the manifest.
-func profileShips(lacquerRoot, p string) bool {
-	body := filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md")
-	if _, err := os.Stat(body); err == nil {
-		return true
-	}
-	return false
 }
 
 // quoteList renders a string slice as the body of a TOML array: `"a", "b"`, or
@@ -252,6 +281,12 @@ const briefTemplate = `# %s — Product Brief
 ## The product
 
 <The hero experience and the must-have (P0) requirements.>
+
+## Stack
+
+<The archetype this is — run ` + "`lacquer init --list-stacks`" + ` — e.g. "ios-supabase".
+Name it here, before the repo exists: it decides what gates the code from the
+first commit, and a stack that arrives later arrives ungated.>
 
 ## Success metrics
 

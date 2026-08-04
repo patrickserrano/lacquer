@@ -48,7 +48,7 @@ func TestOnboardCreatesRepoWhenNoRemote(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { gotDir, gotOrg, gotName = dir, org, name; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", true); err != nil {
+	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", "", true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if gotOrg != "AcmeOrg" || gotName != "Acme" || gotDir != root {
@@ -69,7 +69,7 @@ func TestOnboardSkipsRepoWhenRemoteExists(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", true); err != nil {
+	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", "", true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if called {
@@ -85,7 +85,7 @@ func TestOnboardNoRepoFlag(t *testing.T) {
 	orig := ghCreate
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
-	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", false); err != nil {
+	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", "", false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if called {
@@ -102,7 +102,7 @@ func TestOnboardRejectsUnsafeOrg(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
 	for _, org := range []string{"-evil", "a;b", "a/b", "a b"} {
-		if _, err := Run(lacquerIOS(t), root, org, true); err == nil {
+		if _, err := Run(lacquerIOS(t), root, org, "", true); err == nil {
 			t.Errorf("expected rejection for --org %q", org)
 		}
 	}
@@ -120,14 +120,14 @@ func TestOnboardRequiresExplicitOrg(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
 	// Empty org with createRepo must fail closed — the lacquer has no default org.
-	if _, err := Run(lacquerIOS(t), root, "", true); err == nil {
+	if _, err := Run(lacquerIOS(t), root, "", "", true); err == nil {
 		t.Error("expected error when --org is empty and createRepo is true")
 	}
 	if called {
 		t.Error("ghCreate must not be called with an empty org")
 	}
 	// Empty org is fine when not creating a repo.
-	if _, err := Run(lacquerIOS(t), root, "", false); err != nil {
+	if _, err := Run(lacquerIOS(t), root, "", "", false); err != nil {
 		t.Errorf("empty org with --no-repo should succeed, got %v", err)
 	}
 }
@@ -145,7 +145,7 @@ func TestOnboardFallsBackToManifestOrg(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { gotOrg = org; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(lacquerIOS(t), root, "", true); err != nil {
+	if _, err := Run(lacquerIOS(t), root, "", "", true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if gotOrg != "AcmeOrg" {
@@ -171,7 +171,7 @@ func TestOnboardRepoNameFallsBackToDirBasename(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { gotName = name; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", true); err != nil {
+	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", "", true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if gotName != "Widgetsmith" {
@@ -196,7 +196,7 @@ func TestOnboardRejectsUnsafeDirBasename(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", true); err == nil {
+	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", "", true); err == nil {
 		t.Fatal("expected rejection of an unsafe dir-basename repo name")
 	}
 	if called {
@@ -214,7 +214,7 @@ func TestOnboardSurfacesMalformedManifest(t *testing.T) {
 	orig := ghCreate
 	ghCreate = func(dir, org, name string) error { return nil }
 	defer func() { ghCreate = orig }()
-	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", true); err == nil {
+	if _, err := Run(lacquerIOS(t), root, "AcmeOrg", "", true); err == nil {
 		t.Fatal("expected error surfacing the malformed manifest, got nil")
 	}
 }

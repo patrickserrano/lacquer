@@ -365,3 +365,72 @@ func TestSyncWritesNoRegionWhenTheAssetPhaseRefuses(t *testing.T) {
 		t.Errorf("CLAUDE.md was rewritten by a sync that failed:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
+
+// The needledrop failure, at the gate that should have caught it: a manifest
+// that declares one stack, a repo that has grown a second, and a sync that used
+// to print "sync complete" while writing nothing for the second.
+func TestSyncRefusesAnUndeclaredStack(t *testing.T) {
+	lacquer := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "2\n")
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(lacquer, "profiles", "web", "CLAUDE.web.md"), "WEB")
+	writeFile(t, filepath.Join(lacquer, "profiles", "supabase", "CLAUDE.supabase.md"), "SB")
+
+	writeFile(t, filepath.Join(project, "package.json"), "{}")
+	writeFile(t, filepath.Join(project, "server", "supabase", "config.toml"), "x")
+	writeFile(t, filepath.Join(project, ".lacquer.toml"),
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\".\"\nprofiles=[\"web\"]\n")
+
+	_, err := Run(lacquer, project, false)
+	if err == nil {
+		t.Fatal("sync must refuse rather than silently leave a stack ungated")
+	}
+	if !strings.Contains(err.Error(), "server -> supabase") ||
+		!strings.Contains(err.Error(), "lacquer adopt") {
+		t.Errorf("error must name the stack and the fix, got: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(project, "CLAUDE.md")); statErr == nil {
+		t.Error("the refusal must happen before anything is written")
+	}
+}
+
+// A stack no profile ships for cannot be adopted, so gating on it would punish
+// the project for the lacquer's gap. It is reported by `audit`, not by refusing
+// every sync forever.
+func TestSyncProceedsPastAStackNoProfileCovers(t *testing.T) {
+	lacquer := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "2\n")
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(lacquer, "profiles", "web", "CLAUDE.web.md"), "WEB")
+
+	writeFile(t, filepath.Join(project, "package.json"), "{}")
+	writeFile(t, filepath.Join(project, "ios", "Kit", "Package.swift"), "x")
+	writeFile(t, filepath.Join(project, ".lacquer.toml"),
+		"[project]\nname=\"x\"\n\n[[component]]\npath=\".\"\nprofiles=[\"web\"]\n")
+
+	if _, err := Run(lacquer, project, false); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+// [project].exclude is the escape hatch, and it lands in the manifest where the
+// next reader sees it — rather than in a flag nobody records.
+func TestSyncExcludeSilencesAnUndeclaredStack(t *testing.T) {
+	lacquer := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "2\n")
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(lacquer, "profiles", "web", "CLAUDE.web.md"), "WEB")
+	writeFile(t, filepath.Join(lacquer, "profiles", "supabase", "CLAUDE.supabase.md"), "SB")
+
+	writeFile(t, filepath.Join(project, "package.json"), "{}")
+	writeFile(t, filepath.Join(project, "fixtures", "supabase", "config.toml"), "x")
+	writeFile(t, filepath.Join(project, ".lacquer.toml"),
+		"[project]\nname=\"x\"\nexclude=[\"fixtures\"]\n\n[[component]]\npath=\".\"\nprofiles=[\"web\"]\n")
+
+	if _, err := Run(lacquer, project, false); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}

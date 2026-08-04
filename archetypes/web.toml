@@ -1,0 +1,9 @@
+description = "A web app on its own."
+
+# Root layout, and one web component even for a monorepo: the lacquer supports a
+# single component per profile, and npm workspaces already give each package its
+# own package.json under one shared biome/tsconfig/CI.
+
+[[component]]
+path = "."
+profiles = ["web"]

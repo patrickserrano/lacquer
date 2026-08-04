@@ -35,7 +35,7 @@ func TestInitWritesManifest(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "ios", "Acme.xcodeproj", "project.pbxproj"))
 
-	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	manifest := filepath.Join(root, ".lacquer.toml")
@@ -66,7 +66,7 @@ func TestInitSuggestsSkillsFromImports(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, err := Run(lacquerWith(t, "ios"), root)
+	summary, err := Run(lacquerWith(t, "ios"), root, "")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestInitOmitsSkillsLineWhenNoneSuggested(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
@@ -117,7 +117,7 @@ func TestInitRefusesExistingManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".lacquer.toml"), []byte("[project]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(lacquerWith(t), root); err == nil {
+	if _, err := Run(lacquerWith(t), root, ""); err == nil {
 		t.Fatal("expected init to refuse clobbering an existing .lacquer.toml")
 	}
 }
@@ -125,7 +125,7 @@ func TestInitRefusesExistingManifest(t *testing.T) {
 func TestInitScaffoldsBriefStub(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "Skein.xcodeproj", "project.pbxproj"))
-	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "docs", "brief.md"))
@@ -147,7 +147,7 @@ func TestInitPreservesExistingBrief(t *testing.T) {
 	if err := os.WriteFile(brief, []byte("MY REAL BRIEF"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got, _ := os.ReadFile(brief)
@@ -167,7 +167,7 @@ func TestInitRefusesDanglingManifestSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Run(lacquerWith(t, "ios"), root); err == nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err == nil {
 		t.Fatal("expected init to refuse a symlinked .lacquer.toml")
 	}
 	if _, err := os.Lstat(target); err == nil {
@@ -187,7 +187,7 @@ func TestInitRefusesManifestSymlinkToExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Run(lacquerWith(t, "ios"), root)
+	_, err := Run(lacquerWith(t, "ios"), root, "")
 	if err == nil {
 		t.Fatal("expected init to refuse a symlinked .lacquer.toml")
 	}
@@ -212,7 +212,7 @@ func TestInitRefusesSymlinkedDocsDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Run(lacquerWith(t, "ios"), root); err == nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err == nil {
 		t.Fatal("expected init to refuse a symlinked docs dir")
 	}
 	if _, err := os.Lstat(filepath.Join(outside, "brief.md")); err == nil {
@@ -224,7 +224,7 @@ func TestInitWritesXcodeproj(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "ios", ".swiftlint.yml"))
-	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
@@ -247,11 +247,11 @@ func TestInitDropsNonShippingProfile(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "tool", "go.mod"))
 
-	summary, err := Run(lacquerWith(t, "ios"), root) // ships ios, NOT go
+	summary, err := Run(lacquerWith(t, "ios"), root, "") // ships ios, NOT go
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !strings.Contains(summary, `component "tool" detected as "go"`) ||
+	if !strings.Contains(summary, `component "tool" is "go"`) ||
 		!strings.Contains(summary, "profiles/go/") {
 		t.Errorf("summary missing the non-shipping-profile notice:\n%s", summary)
 	}
@@ -273,7 +273,7 @@ func TestInitDropsNonShippingProfile(t *testing.T) {
 func TestInitKeepsShippingProfile(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "ios", "App.xcodeproj", "project.pbxproj"))
-	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
@@ -306,7 +306,7 @@ func TestInitWritesAssertedSwiftVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, err := Run(lacquerWithBaseline(t, "6"), root)
+	summary, err := Run(lacquerWithBaseline(t, "6"), root, "")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestInitSilentWhenProjectMatchesStandard(t *testing.T) {
 		[]byte("settings:\n  base:\n    SWIFT_VERSION: \"6\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	summary, err := Run(lacquerWithBaseline(t, "6"), root)
+	summary, err := Run(lacquerWithBaseline(t, "6"), root, "")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -349,11 +349,104 @@ func TestInitFallsBackToDetectedWithoutBaseline(t *testing.T) {
 		[]byte("settings:\n  base:\n    SWIFT_VERSION: \"5.9\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(lacquerWith(t, "ios"), root); err != nil {
+	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
 	if !strings.Contains(string(data), `swift_version = "5.9"`) {
 		t.Errorf("want the detected 5.9 when no baseline is asserted, got:\n%s", data)
+	}
+}
+
+// stackLacquer builds a lacquer that ships the given profiles plus one
+// archetype placing ios at ios/ and supabase at server/.
+func stackLacquer(t *testing.T, profiles ...string) string {
+	t.Helper()
+	hr := lacquerWith(t, profiles...)
+	path := filepath.Join(hr, "archetypes", "ios-supabase.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "description = \"iOS app with a Supabase backend.\"\n\n" +
+		"[[component]]\npath = \"ios\"\nprofiles = [\"ios\"]\n\n" +
+		"[[component]]\npath = \"server\"\nprofiles = [\"supabase\"]\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return hr
+}
+
+// The point of --stack: an empty repo gets the whole declared shape, so the
+// stack a brief/PCD decided on is gated from the first commit rather than from
+// whenever someone remembers to re-run detection.
+func TestInitStackDeclaresComponentsThatDoNotExistYet(t *testing.T) {
+	root := t.TempDir()
+
+	summary, err := Run(stackLacquer(t, "ios", "supabase"), root, "ios-supabase")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cfg, err := config.Load(filepath.Join(root, ".lacquer.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Components) != 2 {
+		t.Fatalf("components = %+v, want ios + server", cfg.Components)
+	}
+	if cfg.Project.Stack != "ios-supabase" {
+		t.Errorf("stack = %q, want the archetype recorded as provenance", cfg.Project.Stack)
+	}
+	if !strings.Contains(summary, "not on disk yet") {
+		t.Errorf("summary must flag components that do not exist yet:\n%s", summary)
+	}
+}
+
+// Detection describes what is actually there; the archetype only fills gaps.
+// A root-layout Xcode project must not gain a second `ios` component at ios/ —
+// config.Load rejects a profile declared twice.
+func TestInitStackDefersToDetectedComponents(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "Rail.xcodeproj", "project.pbxproj"))
+
+	if _, err := Run(stackLacquer(t, "ios", "supabase"), root, "ios-supabase"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cfg, err := config.Load(filepath.Join(root, ".lacquer.toml"))
+	if err != nil {
+		t.Fatalf("the manifest --stack wrote does not load: %v", err)
+	}
+	at := map[string]string{}
+	for _, c := range cfg.Components {
+		for _, p := range c.Profiles {
+			at[p] = c.Path
+		}
+	}
+	if at["ios"] != "." {
+		t.Errorf("ios should stay where detection found it, got %q", at["ios"])
+	}
+	if at["supabase"] != "server" {
+		t.Errorf("supabase should still be seeded at server, got %q", at["supabase"])
+	}
+}
+
+func TestInitUnknownStackFails(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Run(stackLacquer(t, "ios"), root, "no-such-stack"); err == nil {
+		t.Error("an unknown --stack must fail rather than silently produce a bare manifest")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".lacquer.toml")); !os.IsNotExist(err) {
+		t.Error("a failed init must not leave a manifest behind")
+	}
+}
+
+func TestInitWithoutStackRecordsNoStack(t *testing.T) {
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "App.xcodeproj", "project.pbxproj"))
+	if _, err := Run(stackLacquer(t, "ios"), root, ""); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
+	if strings.Contains(string(data), "stack =") {
+		t.Errorf("no --stack was given, so no stack key should be written:\n%s", data)
 	}
 }

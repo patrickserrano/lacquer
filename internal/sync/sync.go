@@ -10,6 +10,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/lock"
 	"github.com/patrickserrano/lacquer/internal/region"
 	"github.com/patrickserrano/lacquer/internal/safepath"
@@ -47,6 +48,31 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 	if err != nil {
 		return Result{}, fmt.Errorf("load manifest: %w", err)
+	}
+
+	// Re-run detection. `init` detected once, at onboarding, and nothing ever
+	// looked again — so a project that grew a stack afterwards was unmanaged for
+	// it permanently, and every subsequent `sync` reported success while writing
+	// nothing for it. needledrop bootstrapped as TypeScript-only (correctly, it
+	// was a spike), gained a Swift package the next day, and a year later still
+	// declared `profiles = ["web"]`: no hooks, no CI, 191 tests run by nothing.
+	//
+	// Refusing rather than warning, because a warning printed by a command that
+	// then prints "sync complete" is not read. The escape hatch is
+	// [project].exclude, which already means "this path is not the lacquer's
+	// business" — not a flag, so the decision lands in the manifest where the next
+	// reader will see it.
+	findings, err := detect.Drift(lacquerRoot, projectRoot, cfg)
+	if err != nil {
+		return Result{}, fmt.Errorf("re-detect components: %w", err)
+	}
+	if adoptable := detect.Adoptable(findings); len(adoptable) > 0 {
+		var lines []string
+		for _, f := range adoptable {
+			lines = append(lines, fmt.Sprintf("%s -> %s", f.Path, f.Profile))
+		}
+		return Result{}, fmt.Errorf("this project runs stacks .lacquer.toml does not declare, so syncing would leave them ungated:\n  %s\nrun `lacquer adopt` to record them, or add the path to [project].exclude to keep it unmanaged",
+			strings.Join(lines, "\n  "))
 	}
 
 	// Gather region bodies (core + each component profile) without writing yet.

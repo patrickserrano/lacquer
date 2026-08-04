@@ -19,17 +19,23 @@ import (
 var profileNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 type Project struct {
-	Name         string   `toml:"name"`
-	ProjectName  string   `toml:"project_name"`
-	Scheme       string   `toml:"scheme"`
-	BundleID     string   `toml:"bundle_id"`
-	AscAppID     string   `toml:"asc_app_id"`
-	Xcodeproj    string   `toml:"xcodeproj"`
-	SwiftVersion string   `toml:"swift_version"`
-	GithubOrg    string   `toml:"github_org"`
-	Tools        []string `toml:"tools"`
-	Exclude      []string `toml:"exclude"`
-	Skills       []string `toml:"skills"`
+	Name         string `toml:"name"`
+	ProjectName  string `toml:"project_name"`
+	Scheme       string `toml:"scheme"`
+	BundleID     string `toml:"bundle_id"`
+	AscAppID     string `toml:"asc_app_id"`
+	Xcodeproj    string `toml:"xcodeproj"`
+	SwiftVersion string `toml:"swift_version"`
+	GithubOrg    string `toml:"github_org"`
+	// Stack is the archetype this project was initialised from (see
+	// lacquer's archetypes/). Provenance only — the [[component]] blocks are
+	// what sync acts on. It records the answer the brief/PCD gave so a later
+	// reader can tell "iOS app with a Supabase backend, deliberately" apart
+	// from "whatever happened to exist the day someone ran init".
+	Stack   string   `toml:"stack"`
+	Tools   []string `toml:"tools"`
+	Exclude []string `toml:"exclude"`
+	Skills  []string `toml:"skills"`
 }
 
 // SkillEntry is a parsed "<owner>/<repo>@<skill-name>" entry from
@@ -145,6 +151,10 @@ var (
 	projBundleVal  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 	projAscVal     = regexp.MustCompile(`^[0-9]+$`)
 	projVersionVal = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
+	// stackVal mirrors the archetype name charset. `stack` is never substituted
+	// into synced content, but it is echoed in CLI output and read back to name a
+	// file under archetypes/, so it stays on the same lowercase-kebab allowlist.
+	stackVal = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -183,6 +193,9 @@ func validateProject(p Project) error {
 		return err
 	}
 	if err := check("github_org", p.GithubOrg, orgVal); err != nil {
+		return err
+	}
+	if err := check("stack", p.Stack, stackVal); err != nil {
 		return err
 	}
 	for _, t := range p.Tools {

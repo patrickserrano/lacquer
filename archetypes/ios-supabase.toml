@@ -1,0 +1,18 @@
+description = "A native iOS app with a Supabase backend."
+
+# Two stacks, two directories. A root layout works (rail is one) but puts the
+# Swift and Deno toolchains in the same directory, so every lint config, hook
+# and CLAUDE region has to be written to ignore the other half. mindmint's
+# ios/ + server/ split is the shape to copy.
+#
+# The component is `server`, not `server/supabase`: detection marks the
+# directory that CONTAINS supabase/, which is where deno.jsonc and the CLAUDE
+# region belong.
+
+[[component]]
+path = "ios"
+profiles = ["ios"]
+
+[[component]]
+path = "server"
+profiles = ["supabase"]

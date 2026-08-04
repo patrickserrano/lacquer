@@ -30,6 +30,16 @@ var swiftConfig = map[string]bool{
 	".swiftlint.yml": true, ".swiftformat": true, ".periphery.yml": true,
 }
 
+// SwiftProfile is the profile implied by a bare SwiftPM package — Swift source
+// with no Xcode project to build it. It is deliberately NOT "ios": the ios
+// profile's CI is app-shaped (it templates -project/-scheme into xcodebuild), so
+// labelling a package "ios" would produce a manifest that cannot sync.
+//
+// No profile ships for it yet, which is exactly why detection must still name it:
+// a stack the lacquer cannot manage has to be *reported* rather than invisible.
+// See Drift.
+const SwiftProfile = "swift"
+
 // Components walks root (skipping vendor/control dirs) and returns the detected
 // components plus a derived Project. The iOS component is the directory holding
 // the Swift config files (.swiftlint.yml etc.) when the .xcodeproj sits within
@@ -39,6 +49,7 @@ func Components(root string) ([]config.Component, config.Project, error) {
 	nonIos := map[string]string{} // component path -> web/rust/go
 	var iosXcodeproj, iosXcodeprojDir string
 	var iosConfigDirs []string // every dir holding a Swift config (resolved after the walk)
+	var swiftPkgDirs []string  // every dir holding a Package.swift (pruned after the walk)
 	var derived config.Project
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -63,6 +74,9 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		}
 		if swiftConfig[d.Name()] {
 			iosConfigDirs = append(iosConfigDirs, componentPath(root, filepath.Dir(path)))
+		}
+		if d.Name() == "Package.swift" {
+			swiftPkgDirs = append(swiftPkgDirs, componentPath(root, filepath.Dir(path)))
 		}
 		if d.Name() == "project.yml" && derived.SwiftVersion == "" {
 			if data, rerr := os.ReadFile(path); rerr == nil {
@@ -120,6 +134,15 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		}
 		// Append: a component can legitimately be both (see byPath above).
 		byPath[iosComp] = append(byPath[iosComp], "ios")
+	} else if pkg := swiftPackageRoot(swiftPkgDirs, iosConfigDirs); pkg != "" {
+		// Swift with no Xcode project. Only reachable when the repo has NO
+		// .xcodeproj anywhere, because a Package.swift inside an app repo is
+		// almost always a local module of that app rather than a component of its
+		// own: 6 of the 7 Swift repos in this fleet carry one, and every one of
+		// those 6 would be a false positive. The one repo where Package.swift is
+		// the whole Swift stack (needledrop/Sleevetap) has no .xcodeproj at all —
+		// and went unmanaged for a month because detection had no marker for it.
+		byPath[pkg] = append(byPath[pkg], SwiftProfile)
 	}
 
 	paths := make([]string, 0, len(byPath))
@@ -134,6 +157,71 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		comps = append(comps, config.Component{Path: p, Profiles: profs})
 	}
 	return comps, derived, nil
+}
+
+// swiftPackageRoot picks the single component path for a repo whose Swift lives
+// in SwiftPM packages rather than an Xcode project, or "" when there are none.
+//
+// It is one component, not one per package, because a manifest may declare a
+// given profile exactly once (see config.Load) — so several packages resolve to
+// their common ancestor, which is also the directory the lint/format configs
+// want to sit in so they govern every package beneath. Nested packages (a
+// package vendored inside another) collapse into their outermost parent.
+//
+// A Swift config directory that contains the result wins, mirroring the
+// xcodeproj rule above: configs at ios/ with packages at ios/Foo, ios/Bar should
+// yield the component "ios".
+func swiftPackageRoot(pkgDirs, configDirs []string) string {
+	var tops []string
+	for _, d := range pkgDirs {
+		nested := false
+		for _, other := range pkgDirs {
+			if other != d && within(other, d) {
+				nested = true
+				break
+			}
+		}
+		if !nested {
+			tops = append(tops, d)
+		}
+	}
+	if len(tops) == 0 {
+		return ""
+	}
+	root := tops[0]
+	for _, d := range tops[1:] {
+		root = commonDir(root, d)
+	}
+	best := ""
+	for _, dir := range configDirs {
+		if within(dir, root) && len(dir) > len(best) {
+			best = dir
+		}
+	}
+	if best != "" {
+		return best
+	}
+	return root
+}
+
+// commonDir returns the deepest directory that contains both a and b, as a
+// forward-slash component path ("." for the repo root).
+func commonDir(a, b string) string {
+	if a == b {
+		return a
+	}
+	as, bs := strings.Split(a, "/"), strings.Split(b, "/")
+	var shared []string
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		if as[i] != bs[i] {
+			break
+		}
+		shared = append(shared, as[i])
+	}
+	if len(shared) == 0 {
+		return "."
+	}
+	return strings.Join(shared, "/")
 }
 
 // within reports whether child is parent or a descendant of parent.
