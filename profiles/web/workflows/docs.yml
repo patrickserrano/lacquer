@@ -61,12 +61,27 @@ jobs:
 
       - name: Build documentation
         working-directory: "{{COMPONENT_PREFIX}}."
-        # typedoc exits 4 on validation warnings. When relaxed, publish the site
-        # it produced anyway — the PR's Docs job is the gate, this is the deploy.
+        # typedoc exits 4 on validation warnings. When relaxed, still publish —
+        # the PR's Docs job is the gate, this is the deploy.
+        #
+        # The relaxed branch used to be `npx typedoc || echo "publishing anyway"`,
+        # which could never work. "Publish the site it produced anyway" assumed
+        # typedoc produces a site and then reports; it does not.
+        # treatValidationWarningsAsErrors makes it ABORT before writing anything,
+        # so swallowing the exit code left nothing to publish and
+        # publish-docs.sh correctly refused with "'docs-site' is not a directory
+        # — nothing was built". Every run of this workflow on a relaxed project
+        # failed that way, from the day it shipped.
+        #
+        # Measured on a real project: escalation on -> exit 4, no docs-site;
+        # escalation off -> exit 0, a full site, and all 930 warnings still
+        # printed. So turn the escalation OFF for the relaxed build rather than
+        # ignoring a failure after the fact — the warnings stay visible either
+        # way, and there is something to deploy.
         run: |
           set -euo pipefail
           if [ "${{ steps.relax.outputs.state }}" = "relaxed" ]; then
-            npx typedoc || echo "::warning::typedoc reported documentation warnings (relaxed) — publishing anyway."
+            npx typedoc --treatValidationWarningsAsErrors false
           else
             npx typedoc
           fi
