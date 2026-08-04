@@ -87,9 +87,21 @@ jobs:
 
       - run: npm ci
 
-      # Biome: format + lint in check mode (no writes, fails on any issue).
+      # Biome: format + lint in check mode (no writes).
+      #
+      # --error-on-warnings, because without it `biome ci` gates on ERRORS only
+      # and every warning-severity rule prints and passes. The shipped
+      # biome.json sets three deliberately (noExcessiveCognitiveComplexity,
+      # noArrayIndexKey, useSemanticElements) and `recommended: true` brings
+      # more (noNonNullAssertion among them) — measured: one repo was green here
+      # with 11 warnings outstanding. That is the SwiftLint --strict story in a
+      # different language: a warning nothing ever escalates is not a finding,
+      # it is a comment.
+      #
+      # The lefthook pre-commit hook carries the same flag. Local and CI
+      # disagreeing is the defect this repo keeps rediscovering.
       - name: Biome
-        run: npx biome ci .
+        run: npx biome ci --error-on-warnings .
 
       - name: Type check
         run: npm run typecheck

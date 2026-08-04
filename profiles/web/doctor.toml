@@ -34,7 +34,32 @@ content = """
 export const value: any = 1
 """
 requires = ["{component}/node_modules/.bin/biome"]
-argv = ["{component}/node_modules/.bin/biome", "ci", "--config-path", "{component}", "{dir}"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
+expect = "fail"
+
+[[probe]]
+name = "biome ci rejects a WARNING-severity violation"
+why = """
+Plain `biome ci` gates on error-severity rules only. Every warning-severity rule
+— the three this config sets deliberately (noExcessiveCognitiveComplexity,
+noArrayIndexKey, useSemanticElements) plus the ones `recommended: true` brings,
+like noNonNullAssertion — printed and passed. One repo was green with 11
+warnings outstanding. `--error-on-warnings` in web-ci.yml and lefthook.yml is
+what closes that, and this probe is what proves the flag is still there and
+still doing something.
+
+The fixture is deliberately warning-ONLY: it exits 0 without the flag and 1 with
+it (observed). A fixture that also trips an error-severity rule would be
+rejected either way and would prove nothing about the flag — the same mistake
+the ios line-length probe made by exceeding the error threshold.
+"""
+file = "probe.ts"
+content = """
+const maybe: string | undefined = process.env.HOME
+export const value = maybe!
+"""
+requires = ["{component}/node_modules/.bin/biome"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
 
 [[probe]]
@@ -51,7 +76,7 @@ content = """
 export const value   =    "double quoted and badly spaced"
 """
 requires = ["{component}/node_modules/.bin/biome"]
-argv = ["{component}/node_modules/.bin/biome", "ci", "--config-path", "{component}", "{dir}"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
 
 [[probe]]
