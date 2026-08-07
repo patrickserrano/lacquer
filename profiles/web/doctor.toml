@@ -149,3 +149,27 @@ printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleReso
 test -d ./out
 """]
 expect = "pass"
+
+[[probe]]
+name = "the shipped biome.json uses no deprecated configuration"
+why = """
+biome.json set `"recommended": true`, which Biome deprecated: "will be removed
+in the next major version. Use preset instead." It reports at INFO severity, so
+`biome ci` exits 0 and nothing anywhere said a word — the config would simply
+have stopped loading at Biome 3, in every web project at once, on a routine
+dependency bump.
+
+The fix was `"preset": "recommended"`. Verified behaviour-preserving before
+shipping: a fixture tripping six distinct rules produced byte-identical findings
+under both spellings.
+
+This probe is the general form — it fails on ANY deprecation Biome reports for
+the synced config, so the next one surfaces while it is still a warning rather
+than when it becomes a breakage. It lints the config file directly: passing
+--config-path instead suppresses the diagnostic, because the config is then not
+part of the file set being checked (which is how this probe first appeared to
+pass against a config that was in fact deprecated).
+"""
+requires = ["{component}/node_modules/.bin/biome"]
+argv = ["sh", "-c", "cd {component} && ! ./node_modules/.bin/biome check biome.json 2>&1 | grep -q DEPRECATED"]
+expect = "pass"
