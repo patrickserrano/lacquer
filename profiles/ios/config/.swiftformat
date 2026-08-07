@@ -57,6 +57,26 @@
 --enable sortImports
 --enable trailingCommas
 
+# wrapIfExpressionBodies expands a one-line if-expression
+#
+#     let ok = if case .resolved = model.phase { true } else { false }
+#
+# into five lines. That is a formatting opinion the LINTER then charges for:
+# type_body_length counts real code lines (it already excludes comments and
+# whitespace), so a type using if-expressions grows toward the 300/350
+# thresholds purely because the formatter reshaped it.
+#
+# Measured on underfoot: the rule fired 43 times in one test file, taking it
+# from 334 to 378 lines and pushing its type body from under 300 to 318 — a
+# type_body_length error that did not exist before formatting. The formatter
+# produced code the linter rejects, which is the one thing these two configs
+# must never do to each other.
+#
+# With it disabled, that repo reaches `swiftformat --lint` exit 0 AND
+# `swiftlint --strict` 0 violations across 166 files. The one-line form is also
+# the idiomatic Swift 5.9 if-expression style.
+--disable wrapIfExpressionBodies
+
 --disable acronyms
 --disable modifierOrder
 --disable swiftTestingTestCaseNames
