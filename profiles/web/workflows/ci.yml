@@ -117,6 +117,37 @@ jobs:
       - name: Dependency audit
         run: npm audit --audit-level=critical
 
+      # Prove the checks above can actually FAIL. Everything else in this job
+      # asks "does this project pass?"; doctor asks "would these checks notice
+      # if it didn't?" — the question nobody was asking while `swiftlint --path`
+      # (a removed flag), `DOCC_FLAGS` (silently ignored) and two npx-resolved
+      # web probes all reported green over nothing.
+      #
+      # It runs HERE, in the job that already has the stack toolchain, because a
+      # probe whose tool is missing is reported as a missing tool — correct, but
+      # useless as a gate on a runner that was never going to have it.
+      #
+      # working-directory is pinned to the repo root: this job may default to a
+      # component subdirectory, and .lacquer.toml lives at the root.
+      - uses: actions/checkout@v6.0.2
+        with:
+          repository: patrickserrano/lacquer
+          path: .lacquer-checkout
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: .lacquer-checkout/go.mod
+          cache-dependency-path: .lacquer-checkout/go.sum
+      - name: Prove the checks can fail
+        working-directory: .
+        run: |
+          set -euo pipefail
+          if [ ! -f .lacquer.toml ]; then
+            echo "::notice::No .lacquer.toml — this project is not lacquer-managed."
+            exit 0
+          fi
+          (cd .lacquer-checkout && go build -o "$RUNNER_TEMP/lacquer" ./cmd/lacquer)
+          LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor
+
   docs:
     name: Docs
     runs-on: ubuntu-latest
