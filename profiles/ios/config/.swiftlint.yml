@@ -40,7 +40,24 @@ disabled_rules:
   - opening_brace
   - trailing_whitespace
   - trailing_comma
-  - identifier_name
+
+# Apple's swift-format enables AlwaysUseLowerCamelCase; this is the equivalent,
+# and it was the ONE rule in this file switched off with no reason recorded.
+#
+# The reason was almost certainly SwiftLint's length opinion rather than the
+# naming rule: with stock settings it fires 381 times in one repo, and the top
+# offenders are `i` (81), `fm` (46), `v` (22), `ex` (17) — loop counters and
+# local bindings, not naming problems. Apple's rule has no length component at
+# all; min_length 1 drops it and keeps the camelCase enforcement, which is the
+# part worth having.
+#
+# Measured across underfoot, skein, kit, rail, flare and shelflife before
+# enabling: ZERO violations. This costs nothing today and catches the next
+# `SENTRY_PACKAGE_INFO` or `mainThread_isActive` on the PR that introduces it.
+identifier_name:
+  min_length: 1
+  max_length: 60
+  allowed_symbols: ["_"]
 
 line_length:
   warning: 120
