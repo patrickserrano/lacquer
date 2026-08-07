@@ -31,6 +31,34 @@ MATCHES=$(grep -InE \
   '(api_key|apikey|api_secret|client_secret|password|access_token|auth_token)[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{8,}' \
   -- "${FILES[@]}" 2>/dev/null | grep -viE 'placeholder|example|your_|xxxx|<.*>' || true)
 
+# Provider-prefixed credentials. The assignment regex above only fires when the
+# VARIABLE is named like a secret (api_key, password, access_token...). It says
+# nothing about the value, so a real key bound to an ordinary name sails through:
+#
+#     anthropic_key_for_proxy=sk-ant-api03-...   <- not matched by the above
+#
+# That is not hypothetical. Seven live credentials were found in a dotfile in
+# exactly that shape — sk-ant-api03-, sbp_, ghp_, perm- — every one bound to a
+# name this scanner does not recognise.
+#
+# These patterns match the VALUE instead, so the variable name is irrelevant.
+# Anchored on issuer prefixes with a length floor, which is what makes them
+# specific enough not to fire on prose. Kept separate from the block above so a
+# failure names which kind of thing was found.
+PREFIXED=$(grep -InE \
+  '(sk-ant-[a-z0-9]{4,}-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{32,}|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|sbp_[a-f0-9]{16,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' \
+  -- "${FILES[@]}" 2>/dev/null | grep -viE 'placeholder|example|your_|xxxx|<.*>|REDACTED' || true)
+
+if [ -n "$PREFIXED" ]; then
+  echo "Provider credential found in staged files:"
+  echo "$PREFIXED"
+  echo ""
+  echo "These are recognisable by issuer prefix (Anthropic, OpenAI, GitHub, Supabase,"
+  echo "AWS, Slack, or a PEM private key). Move it to a gitignored config and ROTATE it —"
+  echo "a key that reached the index should be treated as disclosed."
+  exit 1
+fi
+
 if [ -n "$MATCHES" ]; then
   echo "Potential hardcoded secrets found in staged files:"
   echo "$MATCHES"
