@@ -110,3 +110,51 @@ struct DoctorProbeView: View {
 requires = ["swiftformat", "swiftlint"]
 argv = ["sh", "-c", "swiftformat {dir} --config {component}/.swiftformat --quiet && swiftlint --strict --config {component}/.swiftlint.yml {dir}"]
 expect = "pass"
+
+[[probe]]
+name = "the formatter does not expand a one-line if-expression"
+why = """
+The probe above checks the two configs agree on member ORDER. Nothing checked
+anything else, and a second disagreement shipped through that gap:
+wrapIfExpressionBodies expands
+
+    let ok = if case .resolved = phase { true } else { false }
+
+into five lines, and type_body_length then charges for them — it counts real
+code lines, having already excluded comments and whitespace. One repo's test
+file went 334 -> 378 lines and its type body from under 300 to 318: a
+type_body_length ERROR that did not exist before formatting, produced BY
+formatting.
+
+A formatter that emits code its own linter rejects is the worst failure these
+two configs have, because every run of the autofixer makes the project less
+compliant. It was found three repos later by accident.
+
+This probe formats a fixture and asserts BOTH that the one-line form survives
+and that the formatter's own output lints clean. Re-enable
+wrapIfExpressionBodies and it goes red on the grep.
+"""
+file = "Probe.swift"
+content = """
+/// A type whose members use if-expressions.
+struct DoctorProbeExpr {
+    /// A phase.
+    enum Phase { case resolved, pending }
+
+    /// The phase.
+    let phase: Phase
+
+    /// Whether the phase resolved, written as a one-line if-expression.
+    var isResolved: Bool {
+        if case .resolved = phase { true } else { false }
+    }
+}
+"""
+requires = ["swiftformat", "swiftlint"]
+argv = ["sh", "-c", """
+set -e
+swiftformat {dir} --config {component}/.swiftformat --quiet
+grep -q 'if case .resolved = phase { true } else { false }' {dir}/Probe.swift
+swiftlint --strict --config {component}/.swiftlint.yml {dir}
+"""]
+expect = "pass"
