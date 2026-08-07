@@ -77,6 +77,29 @@
 # the idiomatic Swift 5.9 if-expression style.
 --disable wrapIfExpressionBodies
 
+# wrapIfStatementBodies is the same defect one rule over, found the same way —
+# by a repo going red after a format pass that was supposed to make it compliant.
+#
+#     set: { presented in if !presented { ravelryEntry?.cancel() } },
+#
+# becomes
+#
+#     set: {
+#         presented in if !presented {
+#             ravelryEntry?.cancel()
+#         }
+#     },
+#
+# and SwiftLint's closure_parameter_position rejects that, because `presented in`
+# is no longer adjacent to the opening brace. The formatter wrapped the closure
+# to fit the expanded body and did not hoist the parameter list with it.
+#
+# Measured on skein: formatting with this rule ON took SwiftLint from 0
+# violations to 5 (two closure_parameter_position, plus type_body_length,
+# file_length and closure_body_length from the added lines). With it off, the
+# same pass reaches swiftformat --lint 0 AND swiftlint --strict 0 across 340
+# files. Confirmed it changes nothing for underfoot, which was already clean.
+
 --disable acronyms
 --disable modifierOrder
 --disable swiftTestingTestCaseNames
@@ -101,3 +124,5 @@
 --disable preferCountWhere
 --disable preferMinOverSorted
 --disable preferFlatMap
+
+--disable wrapIfStatementBodies
