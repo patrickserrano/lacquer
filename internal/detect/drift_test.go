@@ -115,6 +115,49 @@ func TestDriftCleanProjectReportsNothing(t *testing.T) {
 	}
 }
 
+// The `No lacquer drift` job clones the LACQUER ITSELF into .lacquer-checkout
+// inside the project workspace, because it needs a binary to audit with. So the
+// one directory guaranteed to be present while this check runs is a full copy
+// of a Go project that also contains a web site — and once stack detection
+// started running on every audit, that is precisely what it reported:
+//
+//	stacks on disk that .lacquer.toml does not declare:
+//	  .lacquer-checkout/site -> web
+//	stacks on disk that no lacquer profile covers (nothing gates them):
+//	  .lacquer-checkout -> go
+//	lacquer audit failed (exit 6).
+//
+// Every project carrying the job failed this way at once, on a directory none
+// of them created. The check that verifies a project matches the lacquer must
+// not itself be what makes the project stop matching — and unlike the agent
+// worktrees above, this one is not the project's doing at all, so no amount of
+// care on the project's part could have avoided it.
+func TestDriftIgnoresTheLacquersOwnCheckout(t *testing.T) {
+	lq := lacquerShipping(t, "web", "supabase")
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "admin", "package.json"))
+
+	// What the drift job's clone looks like on disk: the lacquer is a Go module
+	// whose docs site is a web project, so it presents as two stacks.
+	mk(t, filepath.Join(root, ".lacquer-checkout", "go.mod"))
+	mk(t, filepath.Join(root, ".lacquer-checkout", "site", "package.json"))
+	mk(t, filepath.Join(root, ".lacquer-checkout", "profiles", "web", "CLAUDE.web.md"))
+
+	cfg := &config.Config{}
+	findings, err := Drift(lq, root, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.HasPrefix(f.Path, ".lacquer-checkout") {
+			t.Errorf("the drift job's own checkout reported as a project stack: %+v", f)
+		}
+	}
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want exactly admin: %+v", len(findings), findings)
+	}
+}
+
 // An agent worktree under .claude/ is a full, gitignored checkout of the
 // project. Walking into it yields a phantom copy of every component in the
 // repo — and since an undeclared stack now makes `sync` refuse and `audit` exit
