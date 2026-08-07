@@ -11,6 +11,24 @@ var exact = map[string]bool{
 	".build": true, "vendor": true, ".agents": true,
 	"Pods": true, "Carthage": true,
 
+	// Agent tool directories. `.agents` was already here; `.claude` and
+	// `.codex` are the same kind of thing and were not, which mattered as soon
+	// as detection gained teeth: `.claude/worktrees/agent-*/` is a full,
+	// gitignored checkout of the project, so walking into it yields a phantom
+	// copy of every component in the repo.
+	//
+	// throughline had one, and it surfaced as four undeclared stacks instead of
+	// two — `admin` and `server` plus
+	// `.claude/worktrees/agent-a9b4.../admin` and `.../server`. Harmless while
+	// drift was only a report; not harmless now that an undeclared stack makes
+	// `sync` refuse and `audit` exit 6, and that `lacquer adopt` would have
+	// written those paths into the manifest as real components.
+	//
+	// Note the name here is `.claude`, not `worktrees`: skipping a bare
+	// `worktrees` anywhere would be a wider net than intended, and the thing
+	// that is genuinely never project source is the tool directory itself.
+	".claude": true, ".codex": true,
+
 	// The lacquer's OWN source, cloned into the project workspace by the
 	// `No lacquer drift` CI job so it has a binary to audit with. It is not
 	// project code, and walking into it makes every project on the lacquer

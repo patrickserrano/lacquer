@@ -2,6 +2,7 @@ package detect
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/config"
@@ -111,5 +112,37 @@ func TestDriftCleanProjectReportsNothing(t *testing.T) {
 	}
 	if len(findings) != 0 {
 		t.Errorf("findings = %+v, want none", findings)
+	}
+}
+
+// An agent worktree under .claude/ is a full, gitignored checkout of the
+// project. Walking into it yields a phantom copy of every component in the
+// repo — and since an undeclared stack now makes `sync` refuse and `audit` exit
+// 6, those phantoms would block the repo and `lacquer adopt` would write them
+// into the manifest as real components. Observed on throughline, which reported
+// four undeclared stacks where it has two.
+func TestDriftIgnoresAgentWorktrees(t *testing.T) {
+	lq := lacquerShipping(t, "web", "supabase")
+	root := t.TempDir()
+	mk(t, filepath.Join(root, "admin", "package.json"))
+	mk(t, filepath.Join(root, "server", "supabase", "config.toml"))
+	// The agent worktree: a mirror of the whole project.
+	mk(t, filepath.Join(root, ".claude", "worktrees", "agent-abc123", "admin", "package.json"))
+	mk(t, filepath.Join(root, ".claude", "worktrees", "agent-abc123", "server", "supabase", "config.toml"))
+	// Codex keeps its own; same story.
+	mk(t, filepath.Join(root, ".codex", "worktrees", "x", "admin", "package.json"))
+
+	cfg := &config.Config{}
+	findings, err := Drift(lq, root, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.HasPrefix(f.Path, ".claude") || strings.HasPrefix(f.Path, ".codex") {
+			t.Errorf("agent tool dir reported as a component: %+v", f)
+		}
+	}
+	if len(findings) != 2 {
+		t.Fatalf("got %d findings, want exactly admin+server: %+v", len(findings), findings)
 	}
 }
