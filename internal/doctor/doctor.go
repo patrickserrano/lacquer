@@ -83,9 +83,19 @@ type Result struct {
 	Detail    string
 }
 
-// LoadProbes reads a profile's self-tests. A profile shipping none is fine.
+// CoreLayer is the pseudo-profile name for core's own self-tests. core ships
+// checks every project gets — the secrets scanner, the commit-message check —
+// and until this existed they had nowhere to put a probe, so the highest-stakes
+// check in the harness was the one nothing tested.
+const CoreLayer = "core"
+
+// LoadProbes reads a layer's self-tests. A layer shipping none is fine.
+// The core layer lives at core/doctor.toml; every other name is a profile.
 func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 	path := filepath.Join(lacquerRoot, "profiles", profile, "doctor.toml")
+	if profile == CoreLayer {
+		path = filepath.Join(lacquerRoot, "core", "doctor.toml")
+	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -120,6 +130,18 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 
 	comps := append([]config.Component(nil), cfg.Components...)
 	sort.Slice(comps, func(i, j int) bool { return comps[i].Path < comps[j].Path })
+
+	// core's probes run once, against the project root — its scripts are
+	// repo-wide, not per-component.
+	coreProbes, err := LoadProbes(lacquerRoot, CoreLayer)
+	if err != nil {
+		return nil, err
+	}
+	for _, pr := range coreProbes {
+		r := runProbe(pr, ".", CoreLayer, projectRoot)
+		results = append(results, r)
+		report(out, pr, r)
+	}
 
 	for _, c := range comps {
 		compDir := projectRoot
@@ -156,6 +178,23 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 		}
 	}
 	return results, nil
+}
+
+// report prints one probe result, and on failure the reason plus the probe's
+// own `why` — the output is where a reader learns what broke, not just which
+// assertion tripped.
+func report(out io.Writer, p Probe, r Result) {
+	mark := "ok  "
+	if !r.OK {
+		mark = "FAIL"
+	}
+	fmt.Fprintf(out, "  %s  %s\n", mark, r.Name)
+	if !r.OK {
+		fmt.Fprintf(out, "        %s\n", r.Detail)
+		if p.Why != "" {
+			fmt.Fprintf(out, "        why this matters: %s\n", p.Why)
+		}
+	}
 }
 
 func runProbe(p Probe, compPath, profile, compDir string) Result {

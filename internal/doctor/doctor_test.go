@@ -205,3 +205,68 @@ func TestShippedProbesAreSound(t *testing.T) {
 		}
 	}
 }
+
+// core ships checks every project gets — the secrets scanner above all — and
+// they had nowhere to put a probe until the core layer existed. Probes are
+// loaded from core/doctor.toml and run once against the project root, not per
+// component, because those scripts are repo-wide.
+func TestCoreLayerProbesRun(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "core", "doctor.toml"),
+		"[[probe]]\nname = \"core check rejects bad input\"\nwhy = \"x\"\n"+
+			"argv = [\"false\"]\nexpect = \"fail\"\n")
+	// A profile probe too, to prove core runs ALONGSIDE profiles rather than
+	// replacing them.
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"profile check\"\nwhy = \"x\"\nargv = [\"false\"]\nexpect = \"fail\"\n")
+
+	var out bytes.Buffer
+	res, err := Run(root, t.TempDir(), cfgOne(), &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 {
+		t.Fatalf("got %d results, want core + profile: %+v", len(res), res)
+	}
+	if res[0].Profile != CoreLayer {
+		t.Errorf("core probe should run first and be attributed to %q, got %q", CoreLayer, res[0].Profile)
+	}
+	if !strings.Contains(out.String(), "core check rejects bad input") ||
+		!strings.Contains(out.String(), "profile check") {
+		t.Errorf("both layers should be reported:\n%s", out.String())
+	}
+}
+
+// A lacquer with no core/doctor.toml must behave exactly as before.
+func TestCoreLayerIsOptional(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"only profile\"\nwhy = \"x\"\nargv = [\"false\"]\nexpect = \"fail\"\n")
+	res, err := Run(root, t.TempDir(), cfgOne(), &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("got %d results, want just the profile probe: %+v", len(res), res)
+	}
+}
+
+// Every probe core ships must parse and carry a `why` — the failure output is
+// where a reader learns what broke.
+func TestShippedCoreProbesAreValid(t *testing.T) {
+	probes, err := LoadProbes("../..", CoreLayer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(probes) == 0 {
+		t.Fatal("core ships no probes; the secrets scanner should have one")
+	}
+	for _, p := range probes {
+		if p.Why == "" {
+			t.Errorf("core probe %q has no `why`", p.Name)
+		}
+		if len(p.Requires) == 0 && (p.Argv[0] == "sh" || p.Argv[0] == "bash") {
+			t.Errorf("core probe %q runs through a shell but declares no `requires`", p.Name)
+		}
+	}
+}

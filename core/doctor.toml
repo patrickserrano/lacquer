@@ -1,0 +1,84 @@
+# Self-tests for core — the layer every project gets regardless of stack.
+#
+# These had nowhere to live until doctor learned about the core layer, which
+# meant the single highest-stakes check in the harness, the secrets scanner, was
+# the one thing nothing tested. It ships to every repo and runs on every commit;
+# if its regex ever stops matching it fails open, silently, and the only signal
+# is a credential in a public repo.
+#
+# Each probe stages a known-bad file in a scratch git repo and asserts the
+# scanner REJECTS it.
+
+[[probe]]
+name = "the secrets scanner rejects a provider-prefixed credential"
+why = """
+The scanner's original regex only fired when the VARIABLE was named like a
+secret (api_key, password, access_token...). It said nothing about the value, so
+a real key bound to an ordinary name passed straight through:
+
+    anthropic_key_for_proxy=sk-ant-api03-...
+
+Seven live credentials were found in a dotfile in exactly that shape —
+sk-ant-api03-, sbp_, ghp_, perm- — every one bound to a name the scanner did not
+recognise. Value-side patterns were added for that reason; this probe is what
+keeps them working.
+"""
+file = "leak.swift"
+content = """
+let token = "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH"
+"""
+requires = ["git", "bash"]
+argv = ["bash", "-c", """
+set -e
+cd {dir}
+git init -q .
+git add leak.swift
+bash {component}/scripts/check-secrets.sh
+"""]
+expect = "fail"
+
+[[probe]]
+name = "the secrets scanner rejects a named-assignment secret"
+why = """
+The other half of the scanner: `api_key = "..."`-shaped assignments. Both halves
+are load-bearing and they fail independently — a regex edit that fixes one can
+silently break the other, which is why each has its own probe rather than one
+fixture standing in for both.
+"""
+file = "leak.swift"
+content = """
+let api_key = "abcdefgh12345678"
+"""
+requires = ["git", "bash"]
+argv = ["bash", "-c", """
+set -e
+cd {dir}
+git init -q .
+git add leak.swift
+bash {component}/scripts/check-secrets.sh
+"""]
+expect = "fail"
+
+[[probe]]
+name = "the secrets scanner accepts ordinary source"
+why = """
+A scanner that rejects everything gets uninstalled within a week, and an
+uninstalled scanner catches nothing. This fixture mentions a key prefix in prose
+with a placeholder — exactly what a README or an .example file looks like — and
+must NOT trip. Without this probe the only pressure on the patterns is toward
+broader, and broader is how a check gets switched off.
+"""
+file = "docs.swift"
+content = """
+// A key looks like sk-ant-api03-your_key_here — see Secrets.xcconfig.example.
+let greeting = "hello"
+"""
+requires = ["git", "bash"]
+argv = ["bash", "-c", """
+set -e
+cd {dir}
+git init -q .
+git add docs.swift
+bash {component}/scripts/check-secrets.sh
+"""]
+expect = "pass"
