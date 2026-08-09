@@ -95,6 +95,18 @@ The TestFlight-feedback job uses its **own** App Store Connect key, distinct fro
 the release/signing key (`ASC_*`) — it only needs read access to beta feedback,
 and it runs on a GitHub-hosted runner, so it must never carry the signing key.
 
+**TestFlight feedback is opt-in.** Without all three `APP_STORE_CONNECT_FEEDBACK_*`
+secrets the daily run skips with a `::notice::` and stays green; a **manual**
+`workflow_dispatch` fails loudly instead, because someone deliberately asked for
+feedback and a green check with zero results is indistinguishable from "no new
+feedback". This is the same unattended-vs-interactive split the Claude workflows
+use (below) — testflight-feedback was simply never brought under it, and it
+failed every night in every repo that had not provisioned the key. Three
+projects each worked around it locally before it was fixed here: one deleted the
+`schedule:` block, one excluded the whole file, one carried three empty secrets.
+Three identical workarounds in three repos is a lacquer defect, not a project
+defect.
+
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
 
 **The Sentry dSYM upload is opt-in and fails open.** All three `SENTRY_*` secrets
