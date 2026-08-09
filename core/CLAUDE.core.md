@@ -182,11 +182,22 @@ to record it. If a project genuinely owns a file, say so:
 
 ```toml
 [project]
-exclude = ["lefthook.yml"]
+exclude = [
+  # Permanent: a real, ongoing difference between this project and the fleet.
+  { path = "lefthook.yml", reason = "monorepo runs hooks from the workspace root" },
+  # Temporary: debt with a term. Past `until`, audit fails with exit 4.
+  { path = ".github/workflows/ios-ci.yml", reason = "local xcresult fix pending upstream", until = "2026-10-01" },
+]
 ```
 
 The lacquer then neither distributes nor tracks it. That is a real, supported
-choice; a quietly-edited copy is not. This job is what turns "someone's hook
+choice; a quietly-edited copy is not. **The `reason` is a field, not a comment** —
+`audit` reports every exclusion that lacks one, and `until` is what separates
+"we differ" from "we haven't got to it yet". Omit `until` only when no future
+date could make the exclusion wrong; an invented date you renew forever teaches
+the next reader that dates in this file mean nothing. An exclusion that stops
+matching anything the lacquer ships is reported as stale so it can be deleted,
+because dead config reads exactly like a live decision. This job is what turns "someone's hook
 drifted six months ago" into a failing check on the PR that does it.
 
 > A project that has never been synced has no `.lacquer.lock`, so drift cannot
