@@ -53,7 +53,7 @@ jobs:
 
       - uses: actions/setup-node@v4.4.0
         with:
-          node-version: 22
+          node-version: 24
 
       # Cloudflare is opt-in, so a project that has not set the secrets must get
       # a clean skip, not a red X — the same lesson as the Claude-powered
