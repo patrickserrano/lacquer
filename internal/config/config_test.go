@@ -598,3 +598,38 @@ func TestXcodeprojAllowsSpacesButNotMetacharacters(t *testing.T) {
 		}
 	}
 }
+
+// build_env names are interpolated into synced workflow YAML twice — as a
+// mapping key and inside ${{ secrets.NAME }} — so the charset is the security
+// boundary, not a style rule.
+func TestLoadRejectsUnsafeBuildEnv(t *testing.T) {
+	for _, bad := range []string{
+		"FOO-BAR",          // hyphen: not a POSIX env name
+		"1FOO",             // leading digit
+		"FOO BAR",          // space
+		"FOO}}\n  evil: x", // would close the expression and inject a key
+		"",                 // empty
+	} {
+		data := "[project]\nname=\"x\"\nbuild_env=[\"" + bad + "\"]\n"
+		if _, err := loadString(t, data); err == nil {
+			t.Errorf("expected rejection of build_env entry %q", bad)
+		}
+	}
+}
+
+func TestLoadRejectsDuplicateBuildEnv(t *testing.T) {
+	data := "[project]\nname=\"x\"\nbuild_env=[\"API_KEY\", \"API_KEY\"]\n"
+	if _, err := loadString(t, data); err == nil {
+		t.Error("expected rejection of a duplicated build_env name (it renders a duplicate YAML key)")
+	}
+}
+
+func TestLoadAcceptsBuildEnv(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\nbuild_env=[\"NEXT_PUBLIC_SANITY_PROJECT_ID\", \"_PRIVATE\"]\n")
+	if err != nil {
+		t.Fatalf("valid build_env must load: %v", err)
+	}
+	if len(cfg.Project.BuildEnv) != 2 {
+		t.Errorf("BuildEnv = %v", cfg.Project.BuildEnv)
+	}
+}
