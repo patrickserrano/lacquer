@@ -162,3 +162,129 @@ func TestAuditIgnoresAgentWorktrees(t *testing.T) {
 			code, out.String())
 	}
 }
+
+// writeManifest replaces the fixture's manifest, keeping the components so the
+// project still syncs. Used to vary only the [project] stanza under test.
+func writeManifest(t *testing.T, dir, projectExtra string) {
+	t.Helper()
+	body := "[project]\nname = \"fixture\"\ngithub_org = \"acme\"\n" + projectExtra + "\n\n" +
+		"[[component]]\npath = \".\"\nprofiles = [\"web\"]\n\n" +
+		"[[component]]\npath = \"server\"\nprofiles = [\"supabase\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, ".lacquer.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// auditRealFixture syncs a fixture project, rewrites its [project] stanza, and
+// returns audit's exit code and combined output.
+func auditRealFixture(t *testing.T, projectExtra string) (int, string) {
+	t.Helper()
+	lq := realLacquer(t)
+	dir := fixtureProject(t, lq)
+	chdir(t, dir)
+	env := envMap(map[string]string{"LACQUER_ROOT": lq})
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"sync"}, env, &out, &errb); code != 0 {
+		t.Fatalf("sync exited %d\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	writeManifest(t, dir, projectExtra)
+	out.Reset()
+	errb.Reset()
+	code := run([]string{"audit"}, env, &out, &errb)
+	return code, out.String() + errb.String()
+}
+
+// An expired [project].exclude must fail the audit exactly as an expired
+// [baseline.relax] does. Unit tests cover the classification; this proves the
+// wiring — that audit actually consults the review and turns it into an exit
+// code. #118's lesson was that a function passing its own test says nothing
+// about the shape CI runs.
+func TestAuditFailsOnExpiredExclusion(t *testing.T) {
+	code, out := auditRealFixture(t,
+		"exclude = [{ path = \".github/workflows/web-ci.yml\", reason = \"pending\", until = \"2020-01-01\" }]")
+	if code != 4 {
+		t.Errorf("audit exited %d, want 4 on an expired exclusion\n%s", code, out)
+	}
+	if !strings.Contains(out, "EXPIRED") {
+		t.Errorf("the report must name the expiry\n%s", out)
+	}
+}
+
+// The bare-string form every existing manifest uses must keep the project
+// loading and auditing — reported, but never gated. Shipping a hard failure
+// here would have turned five green repos red for a documentation defect.
+func TestAuditReportsButDoesNotGateBareStringExclusion(t *testing.T) {
+	code, out := auditRealFixture(t, "exclude = [\".github/workflows/web-ci.yml\"]")
+	if code != 0 {
+		t.Errorf("audit exited %d, want 0: an unattributed exclusion must not gate\n%s", code, out)
+	}
+	if !strings.Contains(out, "no reason recorded") {
+		t.Errorf("an unattributed exclusion must be reported\n%s", out)
+	}
+}
+
+// A stale exclusion names a path the lacquer does not ship, so it suppresses
+// nothing. Reported, never gated.
+func TestAuditReportsStaleExclusion(t *testing.T) {
+	code, out := auditRealFixture(t,
+		"exclude = [{ path = \".github/workflows/retired-long-ago.yml\", reason = \"documented\" }]")
+	if code != 0 {
+		t.Errorf("audit exited %d, want 0: a stale exclusion must not gate\n%s", code, out)
+	}
+	if !strings.Contains(out, "suppresses nothing") {
+		t.Errorf("a stale exclusion must be reported so it can be deleted\n%s", out)
+	}
+}
+
+// A well-formed, live exclusion is a legitimate permanent divergence and must
+// print nothing at all. A report that nags about correct configuration is how
+// people learn to ignore the report.
+func TestAuditIsSilentOnHealthyExclusion(t *testing.T) {
+	code, out := auditRealFixture(t,
+		"exclude = [{ path = \".github/workflows/web-ci.yml\", reason = \"hand-tuned for this project's build env\" }]")
+	if code != 0 {
+		t.Errorf("audit exited %d, want 0\n%s", code, out)
+	}
+	if strings.Contains(out, "exclusions needing attention") {
+		t.Errorf("a healthy exclusion must not be reported\n%s", out)
+	}
+}
+
+// A clobbered file used to make `audit` return before it reported drift or
+// exclusions, so the projects furthest out of date got the least information —
+// fix one problem, re-run, learn about the next. Reporting and gating are
+// separate decisions: everything known is printed, then the exit code is ranked.
+func TestAuditStillReportsExclusionsWhenClobbered(t *testing.T) {
+	lq := realLacquer(t)
+	dir := fixtureProject(t, lq)
+	chdir(t, dir)
+	env := envMap(map[string]string{"LACQUER_ROOT": lq})
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"sync"}, env, &out, &errb); code != 0 {
+		t.Fatalf("sync exited %d\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	// Edit a managed file so sync would clobber it, and add an unattributed
+	// exclusion for an unrelated path.
+	managed := filepath.Join(dir, ".github", "workflows", "web-ci.yml")
+	body, err := os.ReadFile(managed)
+	if err != nil {
+		t.Fatalf("expected sync to write %s: %v", managed, err)
+	}
+	if err := os.WriteFile(managed, append(body, []byte("\n# local edit\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, dir, "exclude = [\"biome.json\"]")
+
+	out.Reset()
+	errb.Reset()
+	code := run([]string{"audit"}, env, &out, &errb)
+	all := out.String() + errb.String()
+	if code != 3 {
+		t.Errorf("audit exited %d, want 3 (clobber still outranks everything)\n%s", code, all)
+	}
+	if !strings.Contains(all, "no reason recorded") {
+		t.Errorf("exclusions must still be reported when a file is clobbered\n%s", all)
+	}
+}

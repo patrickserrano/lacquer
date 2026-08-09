@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/patrickserrano/lacquer/internal/baseline"
@@ -32,11 +33,102 @@ type Project struct {
 	// what sync acts on. It records the answer the brief/PCD gave so a later
 	// reader can tell "iOS app with a Supabase backend, deliberately" apart
 	// from "whatever happened to exist the day someone ran init".
-	Stack   string   `toml:"stack"`
-	Tools   []string `toml:"tools"`
-	Exclude []string `toml:"exclude"`
-	Skills  []string `toml:"skills"`
+	Stack   string      `toml:"stack"`
+	Tools   []string    `toml:"tools"`
+	Exclude []Exclusion `toml:"exclude"`
+	Skills  []string    `toml:"skills"`
 }
+
+// Exclusion is one [project].exclude entry: a path the lacquer neither
+// distributes nor tracks.
+//
+// Two spellings are accepted, and the difference is the point:
+//
+//	exclude = ["typedoc.json"]                                  # bare
+//	exclude = [{ path = "x", reason = "...", until = "..." }]   # attributed
+//
+// The bare form is what every manifest used first, and it is an unattributed,
+// unbounded, invisible opt-out — the one exemption in this tool with no reason,
+// no expiry, and no report, sitting directly beside [baseline.relax], which
+// requires all three. It stays loadable so upgrading the lacquer never breaks a
+// project, and is reported on every run until it is migrated.
+//
+// The attributed form requires a reason. `until` stays OPTIONAL, which is the
+// one place this deliberately diverges from [baseline.relax], because the fleet
+// showed two genuinely different things wearing the same spelling:
+//
+//   - Temporary debt. throughline excludes five iOS workflows carrying local
+//     fixes "until that upstreaming happens deliberately" — a sentence with no
+//     date attached, in a comment no tool can read. That should expire.
+//   - Permanent divergence. windsock is a macOS-only app and excludes the
+//     iOS-simulator CI workflow. No date will ever make that exclusion wrong.
+//
+// Forcing `until` onto the second kind would mean inventing dates for decisions
+// that are simply correct, and renewing them forever. A rubber-stamped expiry
+// is worse than an honest permanent one: it teaches the reviewer that dates in
+// this file are noise. So presence of `until` IS the declaration of which kind
+// this is — dated entries expire and then block, undated ones are reported as
+// permanent divergences and never gate.
+type Exclusion struct {
+	Path   string `toml:"path"`
+	Until  string `toml:"until"`  // optional, YYYY-MM-DD
+	Reason string `toml:"reason"` // required in the attributed form
+}
+
+// UnmarshalTOML accepts either a bare string or a table, so the form every
+// existing manifest uses keeps loading unchanged.
+func (e *Exclusion) UnmarshalTOML(v any) error {
+	switch t := v.(type) {
+	case string:
+		e.Path = t
+		return nil
+	case map[string]any:
+		str := func(key string) (string, error) {
+			raw, ok := t[key]
+			if !ok {
+				return "", nil
+			}
+			s, ok := raw.(string)
+			if !ok {
+				return "", fmt.Errorf("[project].exclude %s must be a string, got %T", key, raw)
+			}
+			return s, nil
+		}
+		for key := range t {
+			switch key {
+			case "path", "until", "reason":
+			default:
+				// A typo'd key would otherwise be silently dropped, turning an
+				// attributed exclusion back into an unattributed one — exactly the
+				// failure this type exists to end.
+				return fmt.Errorf("unknown [project].exclude key %q (known keys: path, reason, until)", key)
+			}
+		}
+		var err error
+		if e.Path, err = str("path"); err != nil {
+			return err
+		}
+		if e.Until, err = str("until"); err != nil {
+			return err
+		}
+		if e.Reason, err = str("reason"); err != nil {
+			return err
+		}
+		if e.Path == "" {
+			return fmt.Errorf("[project].exclude entry needs a path")
+		}
+		return nil
+	default:
+		return fmt.Errorf("[project].exclude entry must be a string or a table, got %T", v)
+	}
+}
+
+// Attributed reports whether this exclusion carries a reason — i.e. whether a
+// later reader can tell why the path is unmanaged without guessing.
+func (e Exclusion) Attributed() bool { return strings.TrimSpace(e.Reason) != "" }
+
+// UntilDate parses Until. Only meaningful when Until is non-empty.
+func (e Exclusion) UntilDate() (time.Time, error) { return time.Parse("2006-01-02", e.Until) }
 
 // SkillEntry is a parsed "<owner>/<repo>@<skill-name>" entry from
 // [project].skills — a third-party (or this lacquer's own) skill package to
@@ -101,13 +193,18 @@ func ValidGithubOrg(s string) bool { return orgVal.MatchString(s) }
 // distributed by sync nor reported by audit (audit derives its unit set from the
 // same filtered plan). That is the intended tradeoff for keeping a path local.
 func (p Project) Excludes(dest string) bool {
-	for _, pat := range p.Exclude {
-		pat = strings.TrimSuffix(pat, "/")
-		if dest == pat || strings.HasPrefix(dest, pat+"/") {
+	for _, e := range p.Exclude {
+		if e.Matches(dest) {
 			return true
 		}
 	}
 	return false
+}
+
+// Matches reports whether dest falls under this exclusion's path.
+func (e Exclusion) Matches(dest string) bool {
+	pat := strings.TrimSuffix(e.Path, "/")
+	return dest == pat || strings.HasPrefix(dest, pat+"/")
 }
 
 // knownTools is the set of agent tools the lacquer can provision skills for.
@@ -204,8 +301,21 @@ func validateProject(p Project) error {
 		}
 	}
 	for _, e := range p.Exclude {
-		if err := validateComponentPath(e); err != nil {
+		if err := validateComponentPath(strings.TrimSuffix(e.Path, "/")); err != nil {
 			return fmt.Errorf("invalid [project].exclude entry: %w", err)
+		}
+		// Shape only. Whether a dated exclusion has EXPIRED is evaluated at audit
+		// time, not here, for the same reason [baseline.relax] is: load runs inside
+		// `sync` and `fix`, and a manifest that cannot load is a manifest whose
+		// own repair tooling is unavailable. An expired exemption must block CI,
+		// not lock the project out of the command that fixes it.
+		if e.Until != "" {
+			if _, err := e.UntilDate(); err != nil {
+				return fmt.Errorf("[project].exclude %q has an invalid until %q (want YYYY-MM-DD)", e.Path, e.Until)
+			}
+			if !e.Attributed() {
+				return fmt.Errorf("[project].exclude %q has an until but no reason (an expiry no one can interpret cannot be reviewed)", e.Path)
+			}
 		}
 	}
 	if _, err := p.ParsedSkills(); err != nil {

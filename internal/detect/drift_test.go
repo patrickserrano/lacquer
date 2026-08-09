@@ -90,7 +90,7 @@ func TestDriftHonoursExclude(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "fixtures", "sample-app", "package.json"))
 
-	cfg := &config.Config{Project: config.Project{Exclude: []string{"fixtures"}}}
+	cfg := &config.Config{Project: config.Project{Exclude: []config.Exclusion{{Path: "fixtures"}}}}
 	findings, err := Drift(lq, root, cfg)
 	if err != nil {
 		t.Fatal(err)
