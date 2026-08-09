@@ -11,11 +11,13 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/adoptcmd"
 	"github.com/patrickserrano/lacquer/internal/archetype"
+	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/doctor"
+	"github.com/patrickserrano/lacquer/internal/exclusion"
 	"github.com/patrickserrano/lacquer/internal/fixcmd"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
@@ -263,13 +265,12 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			fmt.Fprint(stdout, "\n"+out)
 		}
 
-		// Exit 3 when a project change would be clobbered, so `lacquer audit` is
-		// usable as a CI drift gate (documented in usage()). Clobbering takes
-		// precedence over a baseline violation when both fire: losing a local
-		// change is destructive, a policy violation is not.
-		if len(audit.Clobbered(rows)) > 0 {
-			return 3
-		}
+		// Every remaining report is computed and PRINTED before any exit code is
+		// chosen. It used to return 3 here, which meant a project with a single
+		// clobbered file saw no drift report and no exclusion report at all — the
+		// projects furthest out of date got the least information, and had to fix
+		// one problem before being told about the next. Reporting is not the same
+		// decision as gating: print everything known, then rank.
 		cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 		if err != nil {
 			return fail(stderr, fmt.Errorf("load manifest: %w", err))
@@ -280,15 +281,39 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		}
 		fmt.Fprint(stdout, formatDrift(findings))
 
+		// [project].exclude is the other exemption mechanism, and it is the one
+		// `formatDrift` above actively recommends ("add the path to
+		// [project].exclude to keep it unmanaged"). Reviewing it here means the
+		// escape hatch this tool points people at is held to the same account as
+		// the one it already gated on.
+		suppressed, err := assets.Suppressed(lacquerRoot, cfg)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("resolve exclusions: %w", err))
+		}
+		exclusions := exclusion.Review(cfg.Project.Exclude, suppressed, time.Now())
+		fmt.Fprint(stdout, exclusion.Format(exclusions))
+
+		// Exit codes, in precedence order. Unchanged from when each returned
+		// early — only the reporting above moved.
+		switch {
+		// Exit 3 when a project change would be clobbered, so `lacquer audit` is
+		// usable as a CI drift gate (documented in usage()). Clobbering takes
+		// precedence over a baseline violation when both fire: losing a local
+		// change is destructive, a policy violation is not.
+		case len(audit.Clobbered(rows)) > 0:
+			return 3
 		// Exit 4 on a baseline violation — a distinct code so a CI gate can tell
 		// "sync would destroy work" apart from "this project is out of standard".
-		if baseline.Blocking(reports) > 0 {
+		// An expired exclusion shares the code: it is the same finding (a
+		// time-boxed exemption whose term ran out) wearing a different spelling,
+		// and a separate code would mean touching every project's CI to teach it
+		// one more number for no diagnostic gain — the output already says which.
+		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0:
 			return 4
-		}
 		// Exit 6 when the project runs a stack the lacquer manages but the manifest
 		// never declared. Distinct from 3/4 because the fix is different in kind:
 		// nothing is wrong with the code, the manifest is just out of date with it.
-		if len(detect.Adoptable(findings)) > 0 {
+		case len(detect.Adoptable(findings)) > 0:
 			return 6
 		}
 	case "status":
@@ -371,7 +396,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  status                       show each region's stamped vs latest version")
 	fmt.Fprintln(w, "  audit                        classify project drift and check the project baseline")
 	fmt.Fprintln(w, "                               (exit 3 if sync would clobber a local change; exit 4 on a baseline")
-	fmt.Fprintln(w, "                               violation; exit 6 if a stack on disk is undeclared — see `adopt`)")
+	fmt.Fprintln(w, "                               violation or an expired [project].exclude; exit 6 if a stack on")
+	fmt.Fprintln(w, "                               disk is undeclared — see `adopt`)")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
