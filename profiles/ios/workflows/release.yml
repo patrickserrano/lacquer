@@ -36,6 +36,13 @@ jobs:
       # action-gh-release creates the GitHub Release (write covers checkout's read).
       contents: write
 
+    env:
+      # `secrets` is not available in a step-level `if`, so the presence check is
+      # hoisted to a job-level env var that the dSYM-upload step can gate on.
+      # Job-level env IS in scope for `steps[*].if`; a var defined in the step's
+      # own `env:` block is NOT, which silently skips the step forever.
+      HAS_SENTRY_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN != '' && secrets.SENTRY_ORG != '' && secrets.SENTRY_PROJECT != '' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -233,6 +240,24 @@ jobs:
           mv "${notes_file}.capped" "$notes_file"
           echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
 
+      # Runs BEFORE the TestFlight upload on purpose: a TestFlight failure
+      # (beta-review collision, ASC outage) must not strand the dSYMs, or the
+      # crashes from that build arrive unsymbolicated and stay that way.
+      # Skipped silently when a project has no Sentry secrets configured.
+      - name: Upload dSYMs to Sentry
+        if: ${{ env.HAS_SENTRY_TOKEN == 'true' }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          brew list sentry-cli >/dev/null 2>&1 || brew install getsentry/tools/sentry-cli
+          # No --include-sources: it ships source code to Sentry, which is not a
+          # default a fleet-wide template should make on a project's behalf. Add
+          # it per-project if you want source context in stack traces.
+          sentry-cli debug-files upload \
+            "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive/dSYMs"
+
       - name: Upload to TestFlight
         if: ${{ github.event.inputs.skip_testflight != 'true' }}
         env:
@@ -250,7 +275,12 @@ jobs:
         with:
           name: '{{PROJECT_NAME}}-${{ github.ref_name }}.ipa'
           path: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa"
-          retention-days: 30
+          # 1 day, not 30: for a tagged release the same .ipa is attached to the
+          # GitHub Release below and kept indefinitely, so the artifact copy is
+          # redundant storage. For an untagged manual run it is a 24h safety net
+          # — past that, rebuild. dSYMs keep 90d because they are NOT reproducible
+          # from a later build and crash reports arrive for weeks.
+          retention-days: 1
           if-no-files-found: warn
 
       - name: Upload dSYM artifact

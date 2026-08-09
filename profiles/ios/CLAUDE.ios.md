@@ -83,6 +83,9 @@ done
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
 | `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step re-locks it so the keychain never stays unlocked past the job) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude, quality-review, dependency-audit, issue-deduplication | `claude setup-token` |
+| `SENTRY_AUTH_TOKEN` | release (dSYM upload) | Sentry → Settings → Auth Tokens, scoped to `project:releases` |
+| `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug (e.g. `pixel-fox-studio`) |
+| `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug (e.g. `rail`) — differs per repo, so this one is never org-level |
 | `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → **secret** key (`sk_…`) — full account access |
 | `APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER` | testflight-feedback | a **separate, least-privilege** ASC API key id (read-only) |
 | `APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` | testflight-feedback | issuer id for that key |
@@ -93,6 +96,14 @@ the release/signing key (`ASC_*`) — it only needs read access to beta feedback
 and it runs on a GitHub-hosted runner, so it must never carry the signing key.
 
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
+
+**The Sentry dSYM upload is opt-in and fails open.** All three `SENTRY_*` secrets
+must be present or the step skips — a project with no Sentry gets a clean release,
+not a red one. The presence check is a **job-level** `env` var (`HAS_SENTRY_TOKEN`)
+rather than one declared in the step's own `env:` block: `secrets` is not usable in
+a step-level `if`, and a var set in that same step's `env:` is not in scope for its
+`if` either, so the obvious-looking version of this gate skips silently on every
+release and looks configured while uploading nothing.
 
 ### Claude-powered workflows
 
