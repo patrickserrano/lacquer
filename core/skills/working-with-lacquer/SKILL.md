@@ -109,6 +109,15 @@ the next reader that dates in this file are noise.
 ships. It suppresses nothing, so it is dead text that still reads like a live
 decision — delete it.
 
+**Before excluding a whole file, check for a seam.** Excluding a managed file to
+change a few lines means hand-carrying a full copy of it forever, and that copy
+drifts the moment the shared one changes. One project excluded its entire
+`web-ci.yml` to declare five build-time secrets; the fix was a slot
+(`[project].build_env`) in the shared workflow, not an exclusion. If the reason
+you are reaching for `exclude` is "the shared asset has nowhere to put X", add
+somewhere to put X in the lacquer instead — that is a one-time change that every
+project inherits, versus a permanent local fork.
+
 **A stack the lacquer has no profile for** (Rust, Go, a bare SwiftPM package)
 is reported by `audit` on every run and gates nothing — that gap is the
 lacquer's. Closing it means adding `profiles/<name>/` upstream. Until then,

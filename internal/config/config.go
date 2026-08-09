@@ -37,6 +37,23 @@ type Project struct {
 	Tools   []string    `toml:"tools"`
 	Exclude []Exclusion `toml:"exclude"`
 	Skills  []string    `toml:"skills"`
+	// BuildEnv names repository secrets the project's build needs at BUILD time,
+	// rendered into the synced web CI job's env block as
+	// `NAME: ${{ secrets.NAME }}`.
+	//
+	// This exists because its absence cost a project the entire workflow.
+	// pixelfoxstudio.com's `npm run build` statically collects page data, and
+	// src/sanity/env.ts throws when NEXT_PUBLIC_SANITY_* are unset — so the
+	// shared job could never build it. With no slot for five secret names, the
+	// only way out was [project].exclude on web-ci.yml, which opted the repo out
+	// of the whole shared workflow to add five lines. It has been hand-carrying
+	// a full copy since, annotated "tracks the lacquer's web profile" — a copy
+	// that drifts the moment the shared one changes.
+	//
+	// Names only, never values: the manifest is committed. The rendered form
+	// reads each from `secrets`, so an unset secret is empty rather than
+	// baked in.
+	BuildEnv []string `toml:"build_env"`
 }
 
 // Exclusion is one [project].exclude entry: a path the lacquer neither
@@ -252,6 +269,9 @@ var (
 	// into synced content, but it is echoed in CLI output and read back to name a
 	// file under archetypes/, so it stays on the same lowercase-kebab allowlist.
 	stackVal = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	// envNameVal is the POSIX environment-variable name charset. See
+	// [project].build_env — these are rendered into synced workflow YAML.
+	envNameVal = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -299,6 +319,19 @@ func validateProject(p Project) error {
 		if !knownTools[t] {
 			return fmt.Errorf("invalid [project].tools entry %q (known tools: antigravity, claude, codex)", t)
 		}
+	}
+	// build_env names are interpolated into synced YAML twice — as a mapping key
+	// and inside ${{ secrets.NAME }} — so they are held to the POSIX environment
+	// name charset. Anything else could inject structure into the workflow.
+	seenEnv := map[string]bool{}
+	for _, e := range p.BuildEnv {
+		if !envNameVal.MatchString(e) {
+			return fmt.Errorf("invalid [project].build_env entry %q (must match %s)", e, envNameVal.String())
+		}
+		if seenEnv[e] {
+			return fmt.Errorf("[project].build_env lists %q twice (it would render a duplicate YAML key)", e)
+		}
+		seenEnv[e] = true
 	}
 	for _, e := range p.Exclude {
 		if err := validateComponentPath(strings.TrimSuffix(e.Path, "/")); err != nil {

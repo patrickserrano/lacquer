@@ -20,6 +20,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/tokens"
+	"gopkg.in/yaml.v3"
 )
 
 // root is the lacquer checkout these tests lint.
@@ -179,3 +183,103 @@ func TestIOSCIFailsClosedOnAnInconclusiveParse(t *testing.T) {
 			"test failure.", lastDecision)
 	}
 }
+
+// TestRenderedWorkflowsAreValidYAML parses what SHIPS, not what is authored.
+//
+// Templates used to be parseable YAML on their own, which was a convenient
+// property and is how this repo extracted every `run:` block to syntax-check it.
+// {{WEB_BUILD_ENV}} gives that up: it must render a whole job-level `env:` block
+// or nothing at all, so it stands alone at column 0 and the template no longer
+// parses.
+//
+// Losing an authoring convenience is only acceptable if it is replaced by
+// something stronger, so this checks the rendered result instead — which is what
+// actually runs. Both cases matter: a project WITH build_env must get a
+// well-formed env block, and one WITHOUT must get no stray key, no orphaned
+// `env:`, and no broken indentation where the token used to be.
+func TestRenderedWorkflowsAreValidYAML(t *testing.T) {
+	r := root(t)
+
+	cases := []struct {
+		name     string
+		proj     config.Project
+		wantEnv  bool
+		wantKeys []string
+	}{
+		{
+			name: "no build_env (the common case)",
+			proj: config.Project{ProjectName: "Demo", Scheme: "Demo", BundleID: "com.x.demo",
+				AscAppID: "1", Xcodeproj: "Demo.xcodeproj", SwiftVersion: "6", GithubOrg: "acme"},
+			wantEnv: false,
+		},
+		{
+			name: "build_env set (pixelfoxstudio's case)",
+			proj: config.Project{ProjectName: "Demo", Scheme: "Demo", BundleID: "com.x.demo",
+				AscAppID: "1", Xcodeproj: "Demo.xcodeproj", SwiftVersion: "6", GithubOrg: "acme",
+				BuildEnv: []string{"NEXT_PUBLIC_SANITY_PROJECT_ID", "SANITY_API_READ_TOKEN"}},
+			wantEnv:  true,
+			wantKeys: []string{"NEXT_PUBLIC_SANITY_PROJECT_ID", "SANITY_API_READ_TOKEN"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(r, "profiles", "web", "workflows", "ci.yml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, missing := tokens.Substitute(string(raw), tokens.Values(tc.proj, ""))
+			if len(missing) > 0 {
+				t.Fatalf("unsubstituted tokens: %v", missing)
+			}
+			// Match lacquer tokens only. GitHub's own ${{ ... }} expressions
+			// legitimately contain "{{", so a bare Contains check reports every
+			// workflow as unrendered.
+			if m := lacquerToken.FindString(out); m != "" {
+				t.Errorf("rendered output still contains the lacquer token %s", m)
+			}
+
+			var doc struct {
+				Jobs map[string]struct {
+					Env map[string]string `yaml:"env"`
+				} `yaml:"jobs"`
+			}
+			if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+				t.Fatalf("rendered workflow is not valid YAML: %v", err)
+			}
+			check, ok := doc.Jobs["check"]
+			if !ok {
+				t.Fatal("rendered workflow has no `check` job")
+			}
+			if !tc.wantEnv {
+				if len(check.Env) != 0 {
+					t.Errorf("expected no job env, got %v — an empty build_env must leave no stray key", check.Env)
+				}
+				// A bare `env:` with nothing under it unmarshals to a nil map, so
+				// the length check above would not notice it. Actions tolerates
+				// that, but it is a dangling artefact of the token and would
+				// quietly become the place someone hand-adds a value.
+				for _, l := range strings.Split(out, "\n") {
+					if strings.TrimRight(l, " ") == "    env:" {
+						t.Error("empty build_env still rendered a dangling `env:` key")
+					}
+				}
+				return
+			}
+			for _, k := range tc.wantKeys {
+				v, ok := check.Env[k]
+				if !ok {
+					t.Errorf("env is missing %q (got %v)", k, check.Env)
+					continue
+				}
+				if want := "${{ secrets." + k + " }}"; v != want {
+					t.Errorf("env[%s] = %q, want %q — the value must come from secrets, never the manifest", k, v, want)
+				}
+			}
+		})
+	}
+}
+
+// lacquerToken matches an unrendered {{TOKEN}} while ignoring GitHub Actions'
+// ${{ ... }} expressions, which are not ours to substitute.
+var lacquerToken = regexp.MustCompile(`(^|[^$])(\{\{[A-Z_]+\}\})`)
