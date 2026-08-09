@@ -81,7 +81,7 @@ jobs:
 
       - uses: actions/setup-node@v4.4.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: "{{COMPONENT_PREFIX}}package-lock.json"
 
@@ -160,7 +160,7 @@ jobs:
 
       - uses: actions/setup-node@v4.4.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: "{{COMPONENT_PREFIX}}package-lock.json"
 
