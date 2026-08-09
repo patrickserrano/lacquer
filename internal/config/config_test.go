@@ -155,7 +155,7 @@ func TestLoadRejectsUnsafeGithubOrg(t *testing.T) {
 }
 
 func TestExcludesMatching(t *testing.T) {
-	p := Project{Exclude: []string{".github/workflows/", "Brewfile"}}
+	p := Project{Exclude: []Exclusion{{Path: ".github/workflows/"}, {Path: "Brewfile"}}}
 	cases := map[string]bool{
 		".github/workflows/ios-ci.yml": true,
 		".github/workflows":            true,
@@ -167,6 +167,73 @@ func TestExcludesMatching(t *testing.T) {
 		if got := p.Excludes(dest); got != want {
 			t.Errorf("Excludes(%q) = %v, want %v", dest, got, want)
 		}
+	}
+}
+
+// Every manifest in the fleet spells exclude as a bare string array. Upgrading
+// the lacquer must never be the thing that stops a project loading.
+func TestLoadAcceptsBareStringExclude(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\nexclude=[\"typedoc.json\", \".github/workflows/\"]\n")
+	if err != nil {
+		t.Fatalf("bare-string exclude must keep loading: %v", err)
+	}
+	if len(cfg.Project.Exclude) != 2 || cfg.Project.Exclude[0].Path != "typedoc.json" {
+		t.Fatalf("Exclude = %+v", cfg.Project.Exclude)
+	}
+	if cfg.Project.Exclude[0].Attributed() {
+		t.Error("a bare string carries no reason, so it must not read as attributed")
+	}
+	if !cfg.Project.Excludes(".github/workflows/web-ci.yml") {
+		t.Error("matching must behave exactly as it did before the type changed")
+	}
+}
+
+func TestLoadAcceptsAttributedExclude(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\n"+
+		"exclude=[{path=\"a.yml\", reason=\"macOS-only\"}, {path=\"b.yml\", reason=\"pending\", until=\"2026-12-01\"}]\n")
+	if err != nil {
+		t.Fatalf("attributed exclude must load: %v", err)
+	}
+	if len(cfg.Project.Exclude) != 2 {
+		t.Fatalf("Exclude = %+v", cfg.Project.Exclude)
+	}
+	if !cfg.Project.Exclude[0].Attributed() || cfg.Project.Exclude[1].Until != "2026-12-01" {
+		t.Errorf("Exclude = %+v", cfg.Project.Exclude)
+	}
+	if !cfg.Project.Excludes("a.yml") {
+		t.Error("the table form must match like the string form")
+	}
+}
+
+// A typo'd key would otherwise be dropped in silence, quietly demoting an
+// attributed exclusion back to an unattributed one — the exact failure the
+// structured form exists to prevent.
+func TestLoadRejectsUnknownExcludeKey(t *testing.T) {
+	if _, err := loadString(t, "[project]\nname=\"x\"\nexclude=[{path=\"a.yml\", resaon=\"typo\"}]\n"); err == nil {
+		t.Error("expected rejection of an unknown [project].exclude key")
+	}
+}
+
+// An expiry nobody can interpret cannot be reviewed when it fires.
+func TestLoadRejectsUntilWithoutReason(t *testing.T) {
+	if _, err := loadString(t, "[project]\nname=\"x\"\nexclude=[{path=\"a.yml\", until=\"2026-12-01\"}]\n"); err == nil {
+		t.Error("expected rejection of an until with no reason")
+	}
+}
+
+func TestLoadRejectsMalformedUntil(t *testing.T) {
+	if _, err := loadString(t, "[project]\nname=\"x\"\nexclude=[{path=\"a.yml\", reason=\"r\", until=\"soon\"}]\n"); err == nil {
+		t.Error("expected rejection of a non-YYYY-MM-DD until")
+	}
+}
+
+// Expiry is evaluated at audit time, never at load: load runs inside `sync` and
+// `fix`, and a manifest that will not load is one whose own repair tooling is
+// unavailable. An expired exemption must block CI, not lock the project out of
+// the commands that fix it.
+func TestLoadAcceptsExpiredExclude(t *testing.T) {
+	if _, err := loadString(t, "[project]\nname=\"x\"\nexclude=[{path=\"a.yml\", reason=\"r\", until=\"2020-01-01\"}]\n"); err != nil {
+		t.Errorf("an expired exclusion must still load (audit gates it, not load): %v", err)
 	}
 }
 
@@ -529,5 +596,40 @@ func TestXcodeprojAllowsSpacesButNotMetacharacters(t *testing.T) {
 		if (err == nil) != tc.ok {
 			t.Errorf("validateXcodeproj(%q) error=%v, want ok=%v", tc.val, err, tc.ok)
 		}
+	}
+}
+
+// build_env names are interpolated into synced workflow YAML twice — as a
+// mapping key and inside ${{ secrets.NAME }} — so the charset is the security
+// boundary, not a style rule.
+func TestLoadRejectsUnsafeBuildEnv(t *testing.T) {
+	for _, bad := range []string{
+		"FOO-BAR",          // hyphen: not a POSIX env name
+		"1FOO",             // leading digit
+		"FOO BAR",          // space
+		"FOO}}\n  evil: x", // would close the expression and inject a key
+		"",                 // empty
+	} {
+		data := "[project]\nname=\"x\"\nbuild_env=[\"" + bad + "\"]\n"
+		if _, err := loadString(t, data); err == nil {
+			t.Errorf("expected rejection of build_env entry %q", bad)
+		}
+	}
+}
+
+func TestLoadRejectsDuplicateBuildEnv(t *testing.T) {
+	data := "[project]\nname=\"x\"\nbuild_env=[\"API_KEY\", \"API_KEY\"]\n"
+	if _, err := loadString(t, data); err == nil {
+		t.Error("expected rejection of a duplicated build_env name (it renders a duplicate YAML key)")
+	}
+}
+
+func TestLoadAcceptsBuildEnv(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\nbuild_env=[\"NEXT_PUBLIC_SANITY_PROJECT_ID\", \"_PRIVATE\"]\n")
+	if err != nil {
+		t.Fatalf("valid build_env must load: %v", err)
+	}
+	if len(cfg.Project.BuildEnv) != 2 {
+		t.Errorf("BuildEnv = %v", cfg.Project.BuildEnv)
 	}
 }

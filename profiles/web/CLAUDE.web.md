@@ -128,6 +128,38 @@ spelling of disabling a lint rule — don't.
   lives in the deploy platform's env (Vercel/Cloudflare project settings) and in
   GitHub Actions secrets for CI — never in client code or a committed file.
 
+### Secrets the BUILD needs
+
+Some builds cannot run without env at build time — a Next.js app that statically
+collects page data will throw during `npm run build` if its CMS vars are unset.
+Name those secrets in `[project].build_env` and the synced CI `check` job
+declares them:
+
+```toml
+[project]
+build_env = ["NEXT_PUBLIC_SANITY_PROJECT_ID", "SANITY_API_READ_TOKEN"]
+```
+
+renders into `web-ci.yml` as:
+
+```yaml
+    env:
+      NEXT_PUBLIC_SANITY_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_SANITY_PROJECT_ID }}
+      SANITY_API_READ_TOKEN: ${{ secrets.SANITY_API_READ_TOKEN }}
+```
+
+**Names only — never values.** The manifest is committed; the rendered form
+reads each from `secrets`, so an unset secret is empty rather than baked into a
+tracked file. Names are validated against the POSIX environment-name charset,
+because they are interpolated into workflow YAML.
+
+This exists because its absence was expensive. With no slot for five secret
+names, one project's only escape was `[project].exclude` on the entire
+`web-ci.yml` — opting out of the shared workflow to add five lines, then
+hand-carrying a full copy that drifts every time the shared one changes. If you
+find yourself excluding a whole managed file to add a few lines, the shared
+asset is missing a seam; add the seam here rather than the exclusion there.
+
 ## Security
 
 - Set HTTP security headers at the edge (`vercel.json` `headers`):

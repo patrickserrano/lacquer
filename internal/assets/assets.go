@@ -79,7 +79,28 @@ type Asset struct {
 // Dest, so the output (and the winning Src on any same-named profile collision)
 // is deterministic.
 func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
+	out, _, err := plan(lacquerRoot, cfg)
+	return out, err
+}
+
+// Suppressed returns the destinations [project].exclude kept out of the plan —
+// the paths the lacquer WOULD ship if the manifest did not opt out of them.
+//
+// This is what makes a stale exclusion detectable. An exclusion naming a path
+// the lacquer no longer ships (renamed workflow, retired config) suppresses
+// nothing, so it reads as a deliberate ongoing decision while being dead text.
+// Nothing could see that before, because Plan drops excluded destinations on the
+// floor and every consumer only ever saw the survivors.
+func Suppressed(lacquerRoot string, cfg *config.Config) ([]string, error) {
+	_, sup, err := plan(lacquerRoot, cfg)
+	return sup, err
+}
+
+// plan builds the asset list, returning both the assets to copy and the
+// destinations [project].exclude suppressed.
+func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 	var out []Asset
+	var suppressed []string
 	seen := map[string]bool{}
 
 	add := func(src, dest, prefix string) {
@@ -91,6 +112,7 @@ func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 		// distributes nor (via audit) tracks them. Used to keep a project's
 		// hand-tuned CI/config local while still adopting the rest of the lacquer.
 		if cfg.Project.Excludes(dest) {
+			suppressed = append(suppressed, dest)
 			return
 		}
 		out = append(out, Asset{Src: src, Dest: dest, Prefix: prefix})
@@ -106,24 +128,24 @@ func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 			// Defense in depth: config.Load allowlists tool names, and every known
 			// tool has a dir here. Fail loud rather than write skills to the project
 			// root if the two ever drift.
-			return nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
+			return nil, nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
 		}
 		if err := walkInto(filepath.Join(lacquerRoot, "core", "skills"),
 			func(src, rel string) { add(src, filepath.Join(dir, rel), "") }); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "commands"),
 		func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), "") }); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "agents"),
 		func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), "") }); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "root"),
 		func(src, rel string) { add(src, rel, "") }); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// profile -> owning component path (config guarantees one component per profile).
@@ -145,32 +167,32 @@ func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 		for _, tool := range tools {
 			dir, ok := ToolSkillsDir[tool]
 			if !ok {
-				return nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
+				return nil, nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
 			}
 			if err := walkInto(filepath.Join(base, "skills"),
 				func(src, rel string) { add(src, filepath.Join(dir, rel), prefix) }); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		if err := walkInto(filepath.Join(base, "commands"),
 			func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), prefix) }); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := walkInto(filepath.Join(base, "agents"),
 			func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), prefix) }); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		// workflows -> .github/workflows/<p>-<file> (stack-prefixed; flat)
 		if err := walkInto(filepath.Join(base, "workflows"),
 			func(src, rel string) {
 				add(src, filepath.Join(".github", "workflows", p+"-"+filepath.Base(rel)), prefix)
 			}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		// profile root tree -> project root (verbatim relative paths)
 		if err := walkInto(filepath.Join(base, "root"),
 			func(src, rel string) { add(src, rel, prefix) }); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -180,13 +202,13 @@ func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 		for _, p := range c.Profiles {
 			if err := walkInto(filepath.Join(lacquerRoot, "profiles", p, "config"),
 				func(src, rel string) { add(src, filepath.Join(c.Path, rel), prefix) }); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Dest < out[j].Dest })
-	return out, nil
+	return out, suppressed, nil
 }
 
 // Copy distributes assets into projectRoot. It first requires projectRoot to be

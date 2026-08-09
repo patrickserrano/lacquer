@@ -56,7 +56,8 @@ Decide which is true, then do that one:
   there, then re-sync this project. This is the default and usually the right
   answer.
 - *This project genuinely owns the file* → add it to `[project].exclude` with a
-  comment saying why. The lacquer then neither distributes nor tracks it.
+  `reason` (and an `until` if it is temporary — see "Exclusions" below). The
+  lacquer then neither distributes nor tracks it.
 - *The edit was accidental* → `lacquer sync` (or `sync --force` to take the
   lacquer's version over yours).
 
@@ -79,6 +80,43 @@ swift_version = { until = "2026-09-01", reason = "pre-Swift-6 audio engine, #142
 
 Keys: `swift_version`, `warnings_as_errors`, `strict_concurrency`,
 `documentation`, `pgtap`.
+
+Exit 4 also fires on an **expired exclusion**, which is the same failure wearing
+a different spelling.
+
+**Exclusions.** `[project].exclude` is the other way to opt out, and it is the
+one the exit-3 and exit-6 messages point you at. Give every entry a `reason`;
+add `until` when the exclusion is temporary:
+
+```toml
+[project]
+exclude = [
+  { path = "lefthook.yml", reason = "monorepo runs hooks from the workspace root" },
+  { path = ".github/workflows/ios-ci.yml", reason = "local xcresult fix pending upstream", until = "2026-10-01" },
+]
+```
+
+The bare form (`exclude = ["lefthook.yml"]`) still loads — no project breaks on
+upgrade — but `audit` reports it on every run until it carries a reason.
+
+Choosing between them is the whole decision: `until` present means "we haven't
+got to it yet" and turns into a hard failure on that date; `until` absent means
+"this project is genuinely different" and is never chased. Do not invent a date
+for a permanent divergence — a rubber-stamped expiry you renew forever teaches
+the next reader that dates in this file are noise.
+
+`audit` also flags an exclusion that no longer matches anything the lacquer
+ships. It suppresses nothing, so it is dead text that still reads like a live
+decision — delete it.
+
+**Before excluding a whole file, check for a seam.** Excluding a managed file to
+change a few lines means hand-carrying a full copy of it forever, and that copy
+drifts the moment the shared one changes. One project excluded its entire
+`web-ci.yml` to declare five build-time secrets; the fix was a slot
+(`[project].build_env`) in the shared workflow, not an exclusion. If the reason
+you are reaching for `exclude` is "the shared asset has nowhere to put X", add
+somewhere to put X in the lacquer instead — that is a one-time change that every
+project inherits, versus a permanent local fork.
 
 **A stack the lacquer has no profile for** (Rust, Go, a bare SwiftPM package)
 is reported by `audit` on every run and gates nothing — that gap is the

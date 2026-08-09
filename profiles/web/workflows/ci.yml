@@ -76,12 +76,24 @@ jobs:
     defaults:
       run:
         working-directory: "{{COMPONENT_PREFIX}}."
+    # Per-project build-time secrets, from [project].build_env in .lacquer.toml.
+    # Renders to nothing when that list is empty, which is the common case.
+    #
+    # This slot exists because its absence cost a project the whole workflow:
+    # pixelfoxstudio.com's `npm run build` statically collects page data and
+    # throws without NEXT_PUBLIC_SANITY_*, so the shared job could never build
+    # it. With nowhere to name five secrets, the only escape was
+    # [project].exclude on this entire file — opting out of the shared CI to add
+    # five lines, then hand-carrying a full copy that drifts every time this one
+    # changes. An escape hatch that wide means the shared asset was missing a
+    # seam, not that the project was unusual.
+{{WEB_BUILD_ENV}}
     steps:
       - uses: actions/checkout@v6.0.2
 
       - uses: actions/setup-node@v4.4.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: "{{COMPONENT_PREFIX}}package-lock.json"
 
@@ -160,7 +172,7 @@ jobs:
 
       - uses: actions/setup-node@v4.4.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: "{{COMPONENT_PREFIX}}package-lock.json"
 

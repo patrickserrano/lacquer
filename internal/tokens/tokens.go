@@ -5,6 +5,7 @@
 package tokens
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/config"
@@ -20,6 +21,19 @@ const (
 	SwiftVersion    = "{{SWIFT_VERSION}}"
 	GithubOrg       = "{{GITHUB_ORG}}"
 	ComponentPrefix = "{{COMPONENT_PREFIX}}"
+	// WebBuildEnv expands to an entire job-level `env:` block, or to nothing.
+	// Unlike every other token it is not a scalar spliced into a line: a project
+	// with no [project].build_env must get NO env key at all, and one with
+	// entries must get a correctly indented block. So it sits alone at column 0
+	// on its own line in the template and owns its own indentation.
+	//
+	// That is the one place a template stops being parseable YAML on its own,
+	// which is a real property to give up — it is what let this repo extract and
+	// `bash -n` every run: block. TestRenderedWorkflowsAreValidYAML in
+	// internal/shipped replaces it with something stronger: the RENDERED output
+	// is parsed, for both the empty and populated cases. What ships is what gets
+	// checked.
+	WebBuildEnv = "{{WEB_BUILD_ENV}}"
 )
 
 // entry is a registered token and whether a non-empty value is required. A
@@ -39,6 +53,7 @@ var registry = []entry{
 	{SwiftVersion, true},
 	{GithubOrg, false}, // empty is valid: a project may not have a repo/org yet
 	{ComponentPrefix, false},
+	{WebBuildEnv, false}, // empty is valid and common: most projects need no build secrets
 }
 
 // Prefix converts a component path to a path prefix: "." -> "", "ios" -> "ios/".
@@ -61,7 +76,30 @@ func Values(p config.Project, prefix string) map[string]string {
 		SwiftVersion:    p.SwiftVersion,
 		GithubOrg:       p.GithubOrg,
 		ComponentPrefix: prefix,
+		WebBuildEnv:     BuildEnvBlock(p.BuildEnv),
 	}
+}
+
+// BuildEnvBlock renders [project].build_env as a job-level YAML env block, or
+// "" when there is nothing to declare.
+//
+// Names only — the values are read from `secrets` at run time, so nothing
+// sensitive is ever written into a synced file. Names are charset-validated at
+// config.Load (POSIX env-name only), which is what keeps this interpolation from
+// being able to inject YAML structure.
+//
+// Indentation is baked in rather than inherited, because the token stands alone
+// at column 0: four spaces for the `env:` key (job level) and six for entries.
+func BuildEnvBlock(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("    env:")
+	for _, n := range names {
+		fmt.Fprintf(&b, "\n      %s: ${{ secrets.%s }}", n, n)
+	}
+	return b.String()
 }
 
 // Substitute replaces each registered token present in content with its value

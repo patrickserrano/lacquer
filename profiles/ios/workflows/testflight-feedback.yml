@@ -18,9 +18,55 @@ jobs:
     name: Fetch and file TestFlight feedback
     runs-on: ubuntu-latest
     steps:
+      # This job needs three DEDICATED App Store Connect secrets that most
+      # projects have not provisioned. Without this gate the scheduled run fails
+      # every single day, forever, on a feature the project never opted into —
+      # and three separate repos independently worked around it rather than
+      # fix it here: throughline deleted the `schedule:` block, windsock added
+      # the whole file to [project].exclude, and kit carried three empty
+      # secrets. When the same workaround appears in three projects, the defect
+      # is in the lacquer.
+      #
+      # The gate is deliberately asymmetric, because "skip quietly" is one
+      # rename away from being the silent no-op this repo exists to eliminate:
+      #
+      #   schedule          -> skip with a notice. Nobody asked; daily red for
+      #                        an unconfigured optional feature is noise, and
+      #                        noise is what makes real failures invisible.
+      #   workflow_dispatch -> FAIL. A human deliberately ran this and would
+      #                        otherwise get a green check and zero feedback,
+      #                        with no way to tell "no new feedback" apart from
+      #                        "never even authenticated".
+      - name: Check feedback credentials
+        id: preflight
+        env:
+          ISSUER: ${{ secrets.APP_STORE_CONNECT_FEEDBACK_ISSUER_ID }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_FEEDBACK_PRIVATE_KEY }}
+        run: |
+          missing=""
+          [ -z "$ISSUER" ] && missing="$missing APP_STORE_CONNECT_FEEDBACK_ISSUER_ID"
+          [ -z "$KEY_ID" ] && missing="$missing APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER"
+          [ -z "$PRIVATE_KEY" ] && missing="$missing APP_STORE_CONNECT_FEEDBACK_PRIVATE_KEY"
+
+          if [ -z "$missing" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "configured=false" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "::error::TestFlight feedback was run manually but these secrets are unset:$missing"
+            echo "Set them (a dedicated, read-only App Store Connect key — NOT the release/signing key) or this job can never report anything."
+            exit 1
+          fi
+          echo "::notice::Skipping: TestFlight feedback secrets are not set ($missing ). Set them to enable the daily run."
+
       - uses: actions/checkout@v6.0.2
+        if: steps.preflight.outputs.configured == 'true'
 
       - name: Fetch feedback and create issues
+        if: steps.preflight.outputs.configured == 'true'
         env:
           # A DEDICATED, least-privilege App Store Connect key — NOT the
           # release/signing key. It only needs read access to beta feedback.
