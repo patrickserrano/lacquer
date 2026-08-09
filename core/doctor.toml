@@ -60,6 +60,98 @@ bash {component}/scripts/check-secrets.sh
 expect = "fail"
 
 [[probe]]
+name = "the secrets scanner sees a credential inside markup"
+why = """
+The value-side patterns were added so a key bound to an ordinary name could not
+hide. They were then piped through a placeholder filter copied verbatim from the
+name-based block above them — including a bare `<.*>`, matched against grep's
+whole output line. Any line carrying angle brackets satisfies that: a <meta>
+tag, a JSX prop, an SVG attribute, an HTML comment. The credential was found and
+then thrown away, and the hook exited 0.
+
+The filter now applies to the matched VALUE alone, which no provider pattern
+lets contain a `<`. This probe is the difference between the two behaviours.
+"""
+file = "leak.html"
+content = """
+<meta name="anthropic" content="sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH">
+"""
+requires = ["git", "bash"]
+argv = ["bash", "-c", """
+set -e
+cd {dir}
+git init -q .
+git add leak.html
+bash {component}/scripts/check-secrets.sh
+"""]
+expect = "fail"
+
+[[probe]]
+name = "the secrets scanner sees a credential under examples/"
+why = """
+The same copied filter carried `example`, and grep prefixes every output line
+with `path:lineno:`. So the word only had to appear in the PATH: a live key in
+any file under an examples/ directory was dropped before it could be reported.
+Note this is not covered by the `.example` suffix exclusion in the staged-file
+list — that skips template files by name, which is deliberate; this was a
+directory anywhere in the tree silently exempting real source.
+
+The second file is load-bearing, not padding. grep prints the filename only
+when it is given more than one file to search, so with a single staged file the
+path never reaches the filter and even the old scanner catches this. It takes a
+commit touching two files — which is to say nearly every real commit — for the
+bug to appear at all. A one-file fixture here would pass against both the broken
+and the fixed script and prove nothing.
+"""
+file = "leak.swift"
+content = """
+let token = "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH"
+"""
+requires = ["git", "bash"]
+argv = ["bash", "-c", """
+set -e
+cd {dir}
+git init -q .
+mkdir -p examples
+mv leak.swift examples/leak.swift
+printf 'let unrelated = 1\n' > other.swift
+git add examples/leak.swift other.swift
+bash {component}/scripts/check-secrets.sh
+"""]
+expect = "fail"
+
+[[probe]]
+name = "the secrets scanner fails loudly when it cannot run"
+why = """
+The scan was written as `grep … 2>/dev/null | … || true`, which erases the two
+things that distinguish "found nothing" from "never ran": the diagnostic on
+stderr and the exit status. grep exits 0 on a match, 1 on none, and >=2 when it
+could not run — an unreadable file, an argument list too long for the kernel, a
+pattern the platform's grep rejects. All three collapsed into empty output, read
+as clean, and the commit went through.
+
+The fixture stages two files and deletes one from the worktree, so grep is handed
+a path that is not there and exits 2. That is deterministic and does not depend
+on the probe's uid — a chmod-based fixture would silently stop testing anything
+the moment it ran as root, which is the same class of bug as the one here.
+"""
+file = "a.swift"
+content = """
+let x = 1
+"""
+requires = ["git", "bash"]
+argv = ["bash", "-c", """
+set -e
+cd {dir}
+git init -q .
+printf 'let y = 2\n' > b.swift
+git add a.swift b.swift
+rm -f a.swift
+bash {component}/scripts/check-secrets.sh
+"""]
+expect = "fail"
+
+[[probe]]
 name = "the secrets scanner accepts ordinary source"
 why = """
 A scanner that rejects everything gets uninstalled within a week, and an
