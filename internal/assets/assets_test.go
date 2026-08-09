@@ -253,7 +253,7 @@ func TestPlanHonorsExclude(t *testing.T) {
 	write(t, filepath.Join(h, "profiles", "ios", "skills", "build.md"), "x")
 
 	cfg := &config.Config{
-		Project:    config.Project{Exclude: []string{".github/workflows/"}},
+		Project:    config.Project{Exclude: []config.Exclusion{{Path: ".github/workflows/"}}},
 		Components: []config.Component{{Path: "ios", Profiles: []string{"ios"}}},
 	}
 	got, err := Plan(h, cfg)
