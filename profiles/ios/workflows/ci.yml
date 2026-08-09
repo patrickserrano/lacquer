@@ -471,7 +471,13 @@ jobs:
           # Delete stale CI-iPhone simulators to guarantee zero state carryover.
           # Deleting and recreating gives a fresh UDID and eliminates residual
           # xctestd / CoreSimulator state from prior runs.
-          STALE_IDS=$(xcrun simctl list devices | grep "CI-iPhone" | grep -oE '[A-F0-9-]{36}')
+          # `|| true` is load-bearing: Actions runs `run:` under `bash -e`, and
+          # with no leftover CI-iPhone simulator the grep pipeline exits 1, which
+          # aborts the assignment and kills the step. That is the CLEAN-runner
+          # case — a fresh machine, or the run right after the cleanup workflow.
+          # The fleet's self-hosted Macs usually carry a stale simulator over from
+          # the previous run, which is the only reason this has not been firing.
+          STALE_IDS=$(xcrun simctl list devices | grep "CI-iPhone" | grep -oE '[A-F0-9-]{36}' || true)
           for id in $STALE_IDS; do
             echo "Deleting stale simulator: $id"
             xcrun simctl shutdown "$id" 2>/dev/null || true
@@ -565,92 +571,66 @@ jobs:
               exit 1
             fi
 
-            # PRIMARY: Parse xcresult using xcresulttool (most reliable)
+            # Parse the xcresult with the MODERN `get test-results summary`
+            # subcommand, and fail closed if that parse is inconclusive.
+            #
+            # What was here before did neither, and the combination produced a
+            # green PR on a run with a real, confirmed test failure.
+            #
+            #   1. The primary parser called `xcresulttool get --format json`.
+            #      That form is deprecated: current Xcode refuses it outright
+            #      ("--legacy flag is required to use it") and exits non-zero
+            #      with EMPTY stdout. With 2>/dev/null swallowing the message,
+            #      the step saw only a silent empty result — so the parser this
+            #      job was designed around had not run AT ALL on any modern
+            #      Xcode, on any repo in the fleet, for as long as that toolchain
+            #      has been installed.
+            #   2. Every run therefore reached the log-scraping fallback, which
+            #      hunted xcodebuild.log for the literal text "N failed" — text
+            #      Swift Testing's reporter never actually emits (its real line
+            #      reads "... failed after Xs with N issue(s)"). Past "correct"
+            #      detections were coincidental matches on unrelated numbers
+            #      elsewhere in the log.
+            #   3. When that regex found nothing, the fallback concluded "All
+            #      tests passed. Exit code 65 was spurious." and exited 0.
+            #
+            # So the failure mode was: designed defence dead, backup defence
+            # matching text that does not exist, and the default branch a PASS.
+            # Exit 65 is precisely the "tests failed" signal, so this only ever
+            # ran on the runs that mattered.
+            #
+            # `get test-results summary` reports `.result` and `.failedTests`
+            # directly, with no text-scraping. Verified against real bundles:
+            # `.result` is one of Passed/Failed/Skipped/Expected Failure/unknown
+            # (Apple's own schema) and `.failedTests` is a number.
             echo "Parsing test results from xcresult..."
             set +e
-            XCRESULT_JSON=$(xcrun xcresulttool get --format json --path TestResults.xcresult 2>/dev/null)
-            XCRESULT_EXIT=$?
+            SUMMARY_JSON=$(xcrun xcresulttool get test-results summary --path TestResults.xcresult 2>/dev/null)
+            SUMMARY_EXIT=$?
             set -e
 
-            if [ $XCRESULT_EXIT -eq 0 ] && [ -n "$XCRESULT_JSON" ]; then
-              # Extract test failure count from xcresult
-              FAILED_TESTS=$(echo "$XCRESULT_JSON" | jq -r '
-                .actions[]?.actionResult?.testsRef?.id // empty
-              ' 2>/dev/null | head -1)
+            if [ $SUMMARY_EXIT -eq 0 ] && [ -n "$SUMMARY_JSON" ]; then
+              RESULT=$(echo "$SUMMARY_JSON" | jq -r '.result // empty' 2>/dev/null)
+              FAILED_COUNT=$(echo "$SUMMARY_JSON" | jq -r '.failedTests // empty' 2>/dev/null)
 
-              if [ -n "$FAILED_TESTS" ]; then
-                TEST_SUMMARY=$(xcrun xcresulttool get --format json --path TestResults.xcresult --id "$FAILED_TESTS" 2>/dev/null || echo "{}")
-                FAILURE_COUNT=$(echo "$TEST_SUMMARY" | jq '[.. | .testStatus? // empty | select(. == "Failure")] | length' 2>/dev/null || echo "0")
-
-                if [ "$FAILURE_COUNT" = "0" ] || [ -z "$FAILURE_COUNT" ]; then
-                  echo "All tests passed (xcresult). Exit code 65 was spurious."
-                  echo "test_result=passed" >> $GITHUB_OUTPUT
-                  exit 0
-                else
-                  echo "Test failures detected via xcresult: $FAILURE_COUNT failed"
-                  echo "test_result=failed" >> $GITHUB_OUTPUT
-                  echo "failure_count=$FAILURE_COUNT" >> $GITHUB_OUTPUT
-                  exit 65
-                fi
-              fi
-
-              ALL_SUCCEEDED=$(echo "$XCRESULT_JSON" | jq -r '
-                [.actions[]?.actionResult?.status // "unknown"] | all(. == "succeeded")
-              ' 2>/dev/null || echo "false")
-
-              if [ "$ALL_SUCCEEDED" = "true" ]; then
-                echo "All tests passed (xcresult actions). Exit code 65 was spurious."
+              if [ "$RESULT" = "Passed" ] && [ "$FAILED_COUNT" = "0" ]; then
+                echo "All tests passed (0 failed). Exit code 65 was spurious."
                 echo "test_result=passed" >> $GITHUB_OUTPUT
                 exit 0
-              fi
-
-              echo "xcresult parsing inconclusive, falling back to log parsing..."
-            else
-              echo "::warning::xcresulttool failed, falling back to log parsing..."
-            fi
-
-            # FALLBACK: Parse xcodebuild.log
-            set +e
-
-            grep -q "Test session results" xcodebuild.log
-            HAS_SWIFT_TESTING=$?
-
-            if [ $HAS_SWIFT_TESTING -eq 0 ]; then
-              # Swift Testing format - check for failures.
-              # Use [1-9][0-9]* (one-or-more digits, non-zero leading) so we never
-              # match "xcresulttool failed" (no digit before "failed") or "0 failed"
-              # (zero failures = pass). Xcode 26 no longer emits "0 failed" on success.
-              FAIL_COUNT=$(grep -oE "[1-9][0-9]* failed" xcodebuild.log | tail -1 | awk '{print $1}')
-              if [ -n "$FAIL_COUNT" ]; then
-                echo "Test failures detected (Swift Testing): $FAIL_COUNT failed"
+              elif [ -n "$RESULT" ] && [ -n "$FAILED_COUNT" ]; then
+                echo "Test failures detected via xcresulttool: $FAILED_COUNT failed (result: $RESULT)"
                 echo "test_result=failed" >> $GITHUB_OUTPUT
-                echo "failure_count=$FAIL_COUNT" >> $GITHUB_OUTPUT
+                echo "failure_count=$FAILED_COUNT" >> $GITHUB_OUTPUT
                 exit 65
-              else
-                echo "All tests passed (Swift Testing). Exit code 65 was spurious."
-                echo "test_result=passed" >> $GITHUB_OUTPUT
-                exit 0
               fi
             fi
 
-            grep -q "Test Suite .* passed" xcodebuild.log
-            HAS_XCTEST=$?
-
-            if [ $HAS_XCTEST -eq 0 ]; then
-              if grep -q "Test Suite .* failed" xcodebuild.log; then
-                echo "Test failures detected (XCTest format)"
-                echo "test_result=failed" >> $GITHUB_OUTPUT
-                exit 65
-              else
-                echo "All tests passed (XCTest). Exit code 65 was spurious."
-                echo "test_result=passed" >> $GITHUB_OUTPUT
-                exit 0
-              fi
-            fi
-
-            # Could not determine test results - fail explicitly (no "assume pass")
-            echo "::error::Could not determine test results from xcresult or logs"
-            echo "This may indicate a test infrastructure issue."
+            # FAIL CLOSED. A parse that could not reach a verdict is not a pass.
+            # Only `.result == "Passed"` with zero failures exits 0 above; every
+            # other path — tool missing, schema changed, bundle unreadable —
+            # lands here and fails the job. Treating "I could not tell" as "it
+            # passed" is the exact assumption that shipped the false green.
+            echo "::error::Could not reliably determine test results from xcresult (xcresulttool exit=$SUMMARY_EXIT). Treating as a failure rather than silently passing."
             echo "test_result=unknown" >> $GITHUB_OUTPUT
             exit 1
 
@@ -686,8 +666,13 @@ jobs:
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "### Failed Tests" >> $GITHUB_STEP_SUMMARY
 
-              FAILED_TESTS=$(xcrun xcresulttool get --format json --path TestResults.xcresult 2>/dev/null | \
-                jq -r '.. | select(.testStatus? == "Failure") | .name // empty' 2>/dev/null | head -20)
+              # Modern `get test-results tests` subcommand — the legacy
+              # `get --format json` form used here too, and is refused by current
+              # Xcode (see the "Run Tests" step for the full story). Selector
+              # verified against Apple's schema: nodeType "Test Case", result one
+              # of Passed/Failed/Skipped/Expected Failure/unknown.
+              FAILED_TESTS=$(xcrun xcresulttool get test-results tests --path TestResults.xcresult 2>/dev/null | \
+                jq -r '.. | objects | select(.result? == "Failed" and .nodeType? == "Test Case") | .nodeIdentifier // empty' 2>/dev/null | head -20)
 
               if [ -n "$FAILED_TESTS" ]; then
                 echo '```' >> $GITHUB_STEP_SUMMARY

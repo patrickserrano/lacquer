@@ -220,15 +220,24 @@ target owns the test bundle). Add this job to your project's copy of
               grep -iE 'error:|fatal|failed|ld:|actool|CodeSign' xcodebuild-macos.log | tail -60
               exit 1
             fi
+            # Modern `get test-results summary`. The legacy `get --format json`
+            # form this recipe used is refused by current Xcode ("--legacy flag
+            # is required"), so XCRESULT_JSON came back empty, ALL_SUCCEEDED was
+            # always "false", and every spurious exit-65 was reported as a
+            # failure — fail-closed, but it defeated the entire point of the
+            # workaround. ios-ci.yml had the same call in a fail-OPEN position;
+            # see its "Run Tests" step.
             set +e
-            XCRESULT_JSON=$(xcrun xcresulttool get --format json --path TestResults-macos.xcresult 2>/dev/null)
+            SUMMARY_JSON=$(xcrun xcresulttool get test-results summary --path TestResults-macos.xcresult 2>/dev/null)
+            SUMMARY_EXIT=$?
             set -e
-            ALL_SUCCEEDED=$(echo "$XCRESULT_JSON" | jq -r '[.actions[]?.actionResult?.status // "unknown"] | all(. == "succeeded")' 2>/dev/null || echo "false")
-            if [ "$ALL_SUCCEEDED" = "true" ]; then
-              echo "All tests passed (xcresult). Exit code 65 was spurious."
+            RESULT=$(echo "$SUMMARY_JSON" | jq -r '.result // empty' 2>/dev/null)
+            FAILED_COUNT=$(echo "$SUMMARY_JSON" | jq -r '.failedTests // empty' 2>/dev/null)
+            if [ $SUMMARY_EXIT -eq 0 ] && [ "$RESULT" = "Passed" ] && [ "$FAILED_COUNT" = "0" ]; then
+              echo "All tests passed (0 failed). Exit code 65 was spurious."
               exit 0
             fi
-            echo "::error::Test failures detected via xcresult (or inconclusive)"
+            echo "::error::Test failures detected via xcresult (or inconclusive: exit=$SUMMARY_EXIT result=$RESULT failed=$FAILED_COUNT)"
             grep -iE 'error:|fatal|failed|ld:|actool|CodeSign' xcodebuild-macos.log | tail -60
             exit 65
           elif [ $EXIT_CODE -ne 0 ]; then
