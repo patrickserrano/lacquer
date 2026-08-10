@@ -307,11 +307,41 @@ jobs:
           retention-days: 2
           if-no-files-found: ignore
 
+      # A .dSYM is a DIRECTORY bundle. upload-artifact zips directories on the
+      # way up, so the artifact path above works; a release asset must be a
+      # single file, so it has to be zipped explicitly here or the upload
+      # silently attaches nothing.
+      - name: Package dSYMs for the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          dir="{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive/dSYMs"
+          if [ ! -d "$dir" ] || [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
+            echo "::warning::no dSYMs at $dir — the release will carry no symbols"
+            exit 0
+          fi
+          # -r for the bundle contents, and zip from inside so the archive holds
+          # App.dSYM rather than a chain of build directories.
+          (cd "$dir" && zip -qry "$OLDPWD/{{PROJECT_NAME}}-${GITHUB_REF_NAME}.dSYMs.zip" .)
+          ls -lh "{{PROJECT_NAME}}-${GITHUB_REF_NAME}.dSYMs.zip"
+
+      # Release assets, not Actions artifacts, are where symbols belong for the
+      # long term. They are kept indefinitely, they are NOT metered as Actions
+      # storage, and they sit beside the exact .ipa they symbolicate — so
+      # retrieving symbols for a shipped build is one download from the release
+      # that shipped it, with no second service to remember or pay for.
+      #
+      # This does not replace the Sentry upload above, which is what
+      # symbolicates automatically. It is the copy that survives leaving Sentry,
+      # and the one that works for a crash report Sentry never saw (an Apple
+      # .ips a user emails you, say).
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          files: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa"
+          files: |
+            {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa
+            {{PROJECT_NAME}}-${{ github.ref_name }}.dSYMs.zip
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
