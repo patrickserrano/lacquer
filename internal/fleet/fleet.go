@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -48,6 +49,16 @@ import (
 type Entry struct {
 	// Name identifies the project in output. Defaults to the path's base name.
 	Name string `toml:"name"`
+	// Repo is the "owner/name" this checkout pushes to. Optional, and carried
+	// through to the report untouched.
+	//
+	// It exists because a local directory name is not a reliable key for the
+	// project it holds: in the fleet this was built for, three of seventeen
+	// checkouts sit in a directory named differently from their repository, and
+	// the roster spans three owners. Anything that later acts on a finding —
+	// opening a pull request, linking an issue — needs the slug, and inferring
+	// it from the path would be wrong for those three without ever saying so.
+	Repo string `toml:"repo"`
 	// Path is the local checkout. Relative paths resolve against the roster
 	// file's own directory, so a roster can live beside the projects it lists.
 	Path string `toml:"path"`
@@ -65,8 +76,20 @@ func LoadRoster(path string) (Roster, error) {
 	if err != nil {
 		return r, fmt.Errorf("read roster: %w", err)
 	}
-	if err := toml.Unmarshal(data, &r); err != nil {
+	md, err := toml.Decode(string(data), &r)
+	if err != nil {
 		return r, fmt.Errorf("parse roster %s: %w", path, err)
+	}
+	// A misspelled key would otherwise be dropped in silence, and a roster that
+	// quietly ignores half its own entry is the same class of defect as an
+	// exclusion with no reason: it reads as configured while doing nothing.
+	if und := md.Undecoded(); len(und) > 0 {
+		keys := make([]string, 0, len(und))
+		for _, k := range und {
+			keys = append(keys, k.String())
+		}
+		sort.Strings(keys)
+		return r, fmt.Errorf("roster %s has unknown key(s): %s (known: name, path, repo)", path, strings.Join(keys, ", "))
 	}
 	if len(r.Project) == 0 {
 		return r, fmt.Errorf("roster %s lists no projects", path)
@@ -138,6 +161,7 @@ type Exclusion struct {
 // omitted from it and read as healthy.
 type Report struct {
 	Name       string           `json:"name"`
+	Repo       string           `json:"repo,omitempty"`
 	Path       string           `json:"path"`
 	Error      string           `json:"error,omitempty"`
 	Lacquer    string           `json:"lacquer_version,omitempty"`
@@ -189,7 +213,7 @@ func Run(lacquerRoot string, roster Roster, now time.Time) []Report {
 // returning the first error: a project with an unreadable manifest should still
 // report THAT, not vanish from the sweep.
 func inspect(lacquerRoot string, e Entry, now time.Time) Report {
-	r := Report{Name: e.Name, Path: e.Path}
+	r := Report{Name: e.Name, Repo: e.Repo, Path: e.Path}
 
 	manifest := filepath.Join(e.Path, ".lacquer.toml")
 	cfg, err := config.Load(manifest)

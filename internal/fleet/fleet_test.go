@@ -219,3 +219,30 @@ func TestLoadRosterRejectsEmpty(t *testing.T) {
 		t.Error("an empty roster sweeps nothing and reports success — reject it")
 	}
 }
+
+// A local directory name is not a reliable key for the project it holds: in the
+// fleet this was built for, three of seventeen checkouts live in a directory
+// named differently from their repository, across three owners.
+func TestRosterCarriesRepoSlug(t *testing.T) {
+	dir := t.TempDir()
+	rp := filepath.Join(dir, "fleet.toml")
+	write(t, rp, "[[project]]\nname=\"local-name\"\nrepo=\"owner/actual-repo\"\npath=\"/tmp/x\"\n")
+	r, err := LoadRoster(rp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Project[0].Repo != "owner/actual-repo" {
+		t.Errorf("repo = %q; the slug must survive, since it cannot be inferred from the path", r.Project[0].Repo)
+	}
+}
+
+// A misspelled key dropped in silence is the same defect as an exclusion with no
+// reason: it reads as configured while doing nothing.
+func TestRosterRejectsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	rp := filepath.Join(dir, "fleet.toml")
+	write(t, rp, "[[project]]\nname=\"x\"\npath=\"/tmp/x\"\nrepoo=\"typo/here\"\n")
+	if _, err := LoadRoster(rp); err == nil {
+		t.Error("expected rejection of an unknown roster key")
+	}
+}
