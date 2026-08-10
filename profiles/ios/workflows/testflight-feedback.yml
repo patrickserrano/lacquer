@@ -62,7 +62,7 @@ jobs:
           fi
           echo "::notice::Skipping: TestFlight feedback secrets are not set ($missing ). Set them to enable the daily run."
 
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         if: steps.preflight.outputs.configured == 'true'
 
       - name: Fetch feedback and create issues

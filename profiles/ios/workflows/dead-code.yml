@@ -20,7 +20,7 @@ jobs:
       count: ${{ steps.analyze.outputs.count }}
       has_dead_code: ${{ steps.analyze.outputs.has_dead_code }}
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Run Periphery
         run: |
@@ -117,7 +117,7 @@ jobs:
         needs.periphery.result == 'success' && needs.periphery.outputs.has_dead_code == 'true'
       )
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Check for existing issue
         id: check
@@ -134,7 +134,7 @@ jobs:
           fi
 
       - name: Download reports
-        uses: actions/download-artifact@v7.0.1
+        uses: actions/download-artifact@v8.0.1
         with:
           path: reports
 

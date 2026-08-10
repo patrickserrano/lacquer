@@ -33,7 +33,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -89,9 +89,9 @@ jobs:
     # seam, not that the project was unusual.
 {{WEB_BUILD_ENV}}
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -141,7 +141,7 @@ jobs:
       #
       # working-directory is pinned to the repo root: this job may default to a
       # component subdirectory, and .lacquer.toml lives at the root.
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
@@ -168,9 +168,9 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -231,10 +231,10 @@ jobs:
     # arrives in an otherwise docs-only PR, and it costs a minute.
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       # lacquer is a public repo, so this needs no token.
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout

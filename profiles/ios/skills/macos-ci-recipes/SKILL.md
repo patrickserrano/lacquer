@@ -70,7 +70,7 @@ jobs:
     name: swiftformat + swiftlint (strict)
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
       - name: swiftformat --lint
         run: swiftformat --lint {{COMPONENT_PREFIX}}.
       - name: swiftlint --strict
@@ -80,7 +80,7 @@ jobs:
     name: xcodebuild build (macOS)
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
       # No actions/cache for SPM here: on a persistent dedicated runner,
       # DerivedData/SourcePackages already survives between runs on local
       # disk. actions/cache still tars+uploads+downloads on every run
@@ -171,7 +171,7 @@ target owns the test bundle). Add this job to your project's copy of
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'push' && needs.changes.outputs.code == 'true'
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |

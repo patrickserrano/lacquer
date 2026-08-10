@@ -33,7 +33,7 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       views: ${{ steps.filter.outputs.views }}
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -90,7 +90,7 @@ jobs:
     # "Require approval for all fork PRs" for defense-in-depth).
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Run SwiftLint
         run: |
@@ -124,7 +124,7 @@ jobs:
       #
       # working-directory is pinned to the repo root: this job may default to a
       # component subdirectory, and .lacquer.toml lives at the root.
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
@@ -155,7 +155,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true')
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |
@@ -227,7 +227,7 @@ jobs:
       - name: Cache SPM packages (cold-start fallback)
         id: spm-cache
         if: steps.local-spm.outputs.valid != 'true'
-        uses: actions/cache@v4.3.0
+        uses: actions/cache@v6.1.0
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
           key: ${{ runner.os }}-spm-${{ hashFiles('{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -308,7 +308,7 @@ jobs:
     # backstop with headroom for a cold, cache-cold build.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |
@@ -380,7 +380,7 @@ jobs:
       - name: Cache SPM packages (cold-start fallback)
         id: spm-cache
         if: steps.local-spm.outputs.valid != 'true'
-        uses: actions/cache@v4.3.0
+        uses: actions/cache@v6.1.0
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
           key: ${{ runner.os }}-spm-${{ hashFiles('{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -730,7 +730,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |
@@ -871,7 +871,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       # The documentation baseline is strict — every declaration documented, and
       # the DocC build clean — so it gets the same escape hatch every other
@@ -941,10 +941,10 @@ jobs:
     # arrives in an otherwise docs-only PR, and it costs a minute.
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       # lacquer is a public repo, so this needs no token.
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
