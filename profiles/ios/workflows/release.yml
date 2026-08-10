@@ -278,8 +278,7 @@ jobs:
           # 1 day, not 30: for a tagged release the same .ipa is attached to the
           # GitHub Release below and kept indefinitely, so the artifact copy is
           # redundant storage. For an untagged manual run it is a 24h safety net
-          # — past that, rebuild. dSYMs keep 90d because they are NOT reproducible
-          # from a later build and crash reports arrive for weeks.
+          # — past that, rebuild.
           retention-days: 1
           if-no-files-found: warn
 
@@ -288,7 +287,24 @@ jobs:
         with:
           name: '{{PROJECT_NAME}}-${{ github.ref_name }}.dSYM'
           path: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive/dSYMs/*.dSYM"
-          retention-days: 90
+          # This said 90, and asserted that dSYMs are kept longer because they
+          # are not reproducible from a later build and crash reports arrive for
+          # weeks. The reasoning is right; the number was fiction. An
+          # organisation (or repository) artifact-retention limit silently
+          # truncates any larger value, and this fleet's is 2 days — so the
+          # comment promised three months of symbolication that never existed,
+          # which is worse than a short retention honestly stated. Someone would
+          # only discover it on the day they went looking for a dSYM.
+          #
+          # 2 is that limit, stated. The DURABLE copy is Sentry: the "Upload
+          # dSYMs to Sentry" step above stores them indefinitely, which is what
+          # actually symbolicates a crash report weeks later.
+          #
+          # NOTE: that step skips silently when a project has no Sentry secrets,
+          # so a project without Sentry has only what this line says and no
+          # more. Raise the org limit AND this number together if that is not
+          # acceptable — raising one alone changes nothing.
+          retention-days: 2
           if-no-files-found: ignore
 
       - name: Create GitHub Release
