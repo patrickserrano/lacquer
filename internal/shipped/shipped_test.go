@@ -284,7 +284,7 @@ func TestRenderedWorkflowsAreValidYAML(t *testing.T) {
 // ${{ ... }} expressions, which are not ours to substitute.
 var lacquerToken = regexp.MustCompile(`(^|[^$])(\{\{[A-Z_]+\}\})`)
 
-// TestFleetPackageNamesNoProject enforces the boundary that makes `lacquer
+// TestOperatorPackagesNameNoProject enforces the boundary that makes `lacquer
 // fleet` safe to ship in a PUBLIC repository while every project it sweeps is
 // private.
 //
@@ -293,7 +293,7 @@ var lacquerToken = regexp.MustCompile(`(^|[^$])(\{\{[A-Z_]+\}\})`)
 // permanent, because this repo's history is public. The names below are the
 // ones this fleet actually uses; the check is a tripwire for the habit, not an
 // exhaustive filter.
-func TestFleetPackageNamesNoProject(t *testing.T) {
+func TestOperatorPackagesNameNoProject(t *testing.T) {
 	r := root(t)
 	// Distinctive names only. Short or dictionary-word names ("rail", "kit",
 	// "steps") would false-positive on ordinary prose like "guardrail" or
@@ -302,32 +302,34 @@ func TestFleetPackageNamesNoProject(t *testing.T) {
 		"windsock", "throughline", "queueify", "pixelfoxstudio",
 		"needledrop", "sleevetap", "shelflife", "darndest", "mindmint",
 	}
-	dir := filepath.Join(r, "internal", "fleet")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Skipf("no fleet package: %v", err)
-	}
 	var scanned int
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+	for _, pkg := range []string{"fleet", "console"} {
+		dir := filepath.Join(r, "internal", pkg)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		scanned++
-		low := strings.ToLower(string(data))
-		for _, n := range names {
-			if strings.Contains(low, n) {
-				t.Errorf("internal/fleet/%s names the project %q. "+
-					"This package ships in a PUBLIC repo and sweeps PRIVATE projects; "+
-					"the roster is the operator's, and a name here leaks permanently into public history.",
-					e.Name(), n)
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			scanned++
+			low := strings.ToLower(string(data))
+			for _, n := range names {
+				if strings.Contains(low, n) {
+					t.Errorf("internal/%s/%s names the project %q. "+
+						"This package ships in a PUBLIC repo and operates on PRIVATE projects; "+
+						"the roster is the operator's, and a name here leaks permanently into public history.",
+						pkg, e.Name(), n)
+				}
 			}
 		}
 	}
 	if scanned == 0 {
-		t.Fatal("scanned no fleet source files; the guard is not reaching the package")
+		t.Fatal("scanned no operator-facing source files; the guard is not reaching the packages")
 	}
 }

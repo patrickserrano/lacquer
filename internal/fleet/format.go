@@ -39,7 +39,7 @@ func Text(w io.Writer, reports []Report) {
 
 	var blocking, healthy int
 	for _, r := range reports {
-		notes := notes(r)
+		notes := Notes(r)
 		if r.Blocking() {
 			blocking++
 		}
@@ -83,8 +83,12 @@ func Text(w io.Writer, reports []Report) {
 	}
 }
 
-// notes summarises what is wrong with one project, most severe first.
-func notes(r Report) []string {
+// Notes summarises what is wrong with one project, most severe first.
+//
+// Exported because the console renders the same findings beside live sessions
+// and open pull requests. Two renderers computing "what is wrong" separately
+// would drift, and the one that drifted would be the one nobody was reading.
+func Notes(r Report) []string {
 	var out []string
 	if r.Error != "" {
 		return []string{r.Error}
