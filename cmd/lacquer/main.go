@@ -319,15 +319,40 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return 6
 		}
 	case "fleet":
-		if err := requireLacquerRoot(lacquerRoot); err != nil {
-			return fail(stderr, err)
-		}
 		fs := flag.NewFlagSet("fleet", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		rosterPath := fs.String("roster", getenv("LACQUER_ROSTER"), "path to the roster file (or $LACQUER_ROSTER)")
 		asJSON := fs.Bool("json", false, "emit the sweep as JSON for a later run to diff against")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
+		}
+		// `fleet diff a.json b.json` compares two snapshots and needs no roster:
+		// the snapshots already record what was swept, and requiring a roster
+		// would make it impossible to diff history after the roster changed.
+		if rest := fs.Args(); len(rest) > 0 && rest[0] == "diff" {
+			if len(rest) != 3 {
+				return fail(stderr, fmt.Errorf("usage: lacquer fleet diff <before.json> <after.json>"))
+			}
+			before, err := fleet.LoadSnapshot(rest[1])
+			if err != nil {
+				return fail(stderr, err)
+			}
+			after, err := fleet.LoadSnapshot(rest[2])
+			if err != nil {
+				return fail(stderr, err)
+			}
+			changes := fleet.Diff(before, after)
+			fleet.FormatDiff(stdout, changes)
+			if fleet.Regressions(changes) > 0 {
+				return 4
+			}
+			return 0
+		}
+		// The sweep compares projects against a lacquer, so it needs one; the
+		// diff above does not, and requiring a checkout to read two files would
+		// make history un-diffable from anywhere but a lacquer clone.
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
+			return fail(stderr, err)
 		}
 		if *rosterPath == "" {
 			return fail(stderr, fmt.Errorf("fleet needs a roster: pass --roster <path> or set LACQUER_ROSTER"))
@@ -475,6 +500,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               disk is undeclared — see `adopt`)")
 	fmt.Fprintln(w, "  fleet --roster F [--json]    audit every project in a roster (exit 4 if any would fail its own")
 	fmt.Fprintln(w, "                               audit); --json emits a snapshot for a later run to diff against")
+	fmt.Fprintln(w, "  fleet diff A.json B.json     what changed between two snapshots (exit 4 on a regression)")
 	fmt.Fprintln(w, "  console --roster F           one screen: fleet truth + live sessions + open PRs")
 	fmt.Fprintln(w, "  console ... --mode bg|tmux dispatch <project> \"<task>\"")
 	fmt.Fprintln(w, "                               start work on one project (bg = isolated worktree; tmux = the checkout)")
