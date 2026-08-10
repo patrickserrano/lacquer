@@ -25,7 +25,7 @@ jobs:
       run:
         working-directory: "{{COMPONENT_PREFIX}}."
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Validate .env.example against .env.schema
         run: |

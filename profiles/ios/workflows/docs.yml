@@ -31,7 +31,7 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       # The hosting base path is baked into every asset URL in the archive, so it
       # has to match where the site is actually served from — `<repo>/swift`, one
