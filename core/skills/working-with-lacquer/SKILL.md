@@ -109,6 +109,44 @@ the next reader that dates in this file are noise.
 ships. It suppresses nothing, so it is dead text that still reads like a live
 decision — delete it.
 
+## Auditing every project at once
+
+`lacquer audit` answers a question about ONE project, which is what a project's
+CI needs. For "what is true across everything I own", use a roster:
+
+```toml
+# fleet.toml — the roster is YOURS, not the lacquer's. Keep it wherever your
+# project list belongs; relative paths resolve against the roster file itself.
+[[project]]
+name = "some-app"
+path = "../some-app"
+```
+
+```sh
+lacquer fleet --roster fleet.toml          # human summary
+lacquer fleet --roster fleet.toml --json   # snapshot to diff against a later run
+```
+
+Exit 4 if **any** project would fail its own `lacquer audit` — one code, not the
+per-project 3/4/6, because a sweep's caller wants "is anything wrong" and the
+report already says which project and why.
+
+It is read-only. It never syncs, never opens a PR, never writes to a project.
+
+Two sections of the output earn the sweep on their own:
+
+- **expiring exemptions** — every `until` across the fleet, soonest first. Each
+  is a date on which some project's CI starts failing, and without this they are
+  invisible until the morning they fire.
+- **excluded by more than one project** — when several projects exclude the same
+  path, the shared asset is usually what is wrong. This fleet had three projects
+  independently working around one lacquer defect, and it was visible only by
+  reading three manifests' TOML comments.
+
+A broken project is reported, never skipped: an absent row reads as a healthy
+one, and a sweep that quietly drops what it could not parse is worse than no
+sweep.
+
 **Before excluding a whole file, check for a seam.** Excluding a managed file to
 change a few lines means hand-carrying a full copy of it forever, and that copy
 drifts the moment the shared one changes. One project excluded its entire

@@ -19,6 +19,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/doctor"
 	"github.com/patrickserrano/lacquer/internal/exclusion"
 	"github.com/patrickserrano/lacquer/internal/fixcmd"
+	"github.com/patrickserrano/lacquer/internal/fleet"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
@@ -316,6 +317,41 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		case len(detect.Adoptable(findings)) > 0:
 			return 6
 		}
+	case "fleet":
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
+			return fail(stderr, err)
+		}
+		fs := flag.NewFlagSet("fleet", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		rosterPath := fs.String("roster", getenv("LACQUER_ROSTER"), "path to the roster file (or $LACQUER_ROSTER)")
+		asJSON := fs.Bool("json", false, "emit the sweep as JSON for a later run to diff against")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if *rosterPath == "" {
+			return fail(stderr, fmt.Errorf("fleet needs a roster: pass --roster <path> or set LACQUER_ROSTER"))
+		}
+		roster, err := fleet.LoadRoster(*rosterPath)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		reports := fleet.Run(lacquerRoot, roster, time.Now())
+		if *asJSON {
+			if err := fleet.JSON(stdout, reports); err != nil {
+				return fail(stderr, err)
+			}
+		} else {
+			fleet.Text(stdout, reports)
+		}
+		// Exit 4 when any project would fail its own audit. One code, not the
+		// per-project 3/4/6 — a sweep's caller wants "is anything wrong", and
+		// the report already says which project and why. Mapping four codes
+		// onto one summary would lose information, not add it.
+		for _, r := range reports {
+			if r.Blocking() {
+				return 4
+			}
+		}
 	case "status":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -398,6 +434,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               (exit 3 if sync would clobber a local change; exit 4 on a baseline")
 	fmt.Fprintln(w, "                               violation or an expired [project].exclude; exit 6 if a stack on")
 	fmt.Fprintln(w, "                               disk is undeclared — see `adopt`)")
+	fmt.Fprintln(w, "  fleet --roster F [--json]    audit every project in a roster (exit 4 if any would fail its own")
+	fmt.Fprintln(w, "                               audit); --json emits a snapshot for a later run to diff against")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
