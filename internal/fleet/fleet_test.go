@@ -3,6 +3,7 @@ package fleet
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,5 +245,133 @@ func TestRosterRejectsUnknownKey(t *testing.T) {
 	write(t, rp, "[[project]]\nname=\"x\"\npath=\"/tmp/x\"\nrepoo=\"typo/here\"\n")
 	if _, err := LoadRoster(rp); err == nil {
 		t.Error("expected rejection of an unknown roster key")
+	}
+}
+
+func reportWith(name string, mut func(*Report)) Report {
+	r := Report{Name: name}
+	if mut != nil {
+		mut(&r)
+	}
+	return r
+}
+
+// The whole reason to keep snapshots: a single sweep becomes wallpaper by the
+// second reading, but "this was clean yesterday" is a decision someone has to make.
+func TestDiffFlagsANewlyBlockingProject(t *testing.T) {
+	before := []Report{reportWith("p", nil)}
+	after := []Report{reportWith("p", func(r *Report) { r.Clobbered = []string{"a.yml"} })}
+	got := Diff(before, after)
+	if Regressions(got) == 0 {
+		t.Fatalf("a project that went from clean to blocking must be a regression: %+v", got)
+	}
+	if !strings.Contains(fmt.Sprint(got), "now blocking") {
+		t.Errorf("changes = %+v", got)
+	}
+}
+
+// A deadline that has passed since the last sweep is the single most actionable
+// thing a diff can say.
+func TestDiffFlagsAnExemptionThatExpiredSinceLastSweep(t *testing.T) {
+	e := func(status string) Report {
+		return reportWith("p", func(r *Report) {
+			r.Exclusions = []Exclusion{{Path: "x.yml", Status: status, Until: "2026-08-09"}}
+		})
+	}
+	got := Diff([]Report{e("dated")}, []Report{e("expired")})
+	if !strings.Contains(fmt.Sprint(got), "EXPIRED") {
+		t.Errorf("an exemption expiring between sweeps must be surfaced: %+v", got)
+	}
+	if Regressions(got) == 0 {
+		t.Error("it is a regression")
+	}
+}
+
+// The signal worth the whole system: a path crossing from one project to two
+// means the shared asset is what needs fixing.
+func TestDiffFlagsANewlySharedExclusion(t *testing.T) {
+	excl := func(name string) Report {
+		return reportWith(name, func(r *Report) {
+			r.Exclusions = []Exclusion{{Path: "ci.yml", Status: "permanent"}}
+		})
+	}
+	before := []Report{excl("a"), reportWith("b", nil)}
+	after := []Report{excl("a"), excl("b")}
+	got := Diff(before, after)
+	if !strings.Contains(fmt.Sprint(got), "newly shared exclusion") {
+		t.Errorf("a second project adopting the same exclusion must be surfaced: %+v", got)
+	}
+}
+
+// Already shared by two, now three — real, but not NEW information. Reporting it
+// again every sweep is how a diff becomes noise.
+func TestDiffDoesNotRepeatAnAlreadySharedExclusion(t *testing.T) {
+	excl := func(name string) Report {
+		return reportWith(name, func(r *Report) {
+			r.Exclusions = []Exclusion{{Path: "ci.yml", Status: "permanent"}}
+		})
+	}
+	before := []Report{excl("a"), excl("b")}
+	after := []Report{excl("a"), excl("b"), excl("c")}
+	if s := fmt.Sprint(Diff(before, after)); strings.Contains(s, "newly shared") {
+		t.Errorf("an exclusion already shared must not re-report as newly shared: %s", s)
+	}
+}
+
+// Improvements are summarised, not enumerated; and they must never be
+// regressions, or the exit code becomes meaningless.
+func TestDiffTreatsImprovementsAsNonRegressions(t *testing.T) {
+	before := []Report{reportWith("p", func(r *Report) { r.Clobbered = []string{"a.yml"} })}
+	after := []Report{reportWith("p", nil)}
+	got := Diff(before, after)
+	if Regressions(got) != 0 {
+		t.Errorf("a project that got better must not count as a regression: %+v", got)
+	}
+}
+
+// A project leaving the roster is a decision, not a failure.
+func TestDiffRosterChangesAreNotRegressions(t *testing.T) {
+	got := Diff([]Report{reportWith("gone", nil)}, []Report{reportWith("new", nil)})
+	if Regressions(got) != 0 {
+		t.Errorf("roster membership changes must not read as regressions: %+v", got)
+	}
+	s := fmt.Sprint(got)
+	if !strings.Contains(s, "gone") || !strings.Contains(s, "appeared") {
+		t.Errorf("both sides of a roster change must be reported: %s", s)
+	}
+}
+
+func TestDiffOfIdenticalSweepsIsSilent(t *testing.T) {
+	r := []Report{reportWith("p", func(rr *Report) {
+		rr.Exclusions = []Exclusion{{Path: "x.yml", Status: "permanent"}}
+	})}
+	if got := Diff(r, r); len(got) != 0 {
+		t.Errorf("an unchanged fleet must produce no changes, got %+v", got)
+	}
+	var b bytes.Buffer
+	FormatDiff(&b, nil)
+	if !strings.Contains(b.String(), "no change") {
+		t.Errorf("format = %q", b.String())
+	}
+}
+
+func TestSnapshotRoundTripsThroughDisk(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "s.json")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := []Report{reportWith("p", func(r *Report) { r.Repo = "o/r" })}
+	if err := JSON(f, in); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	back, err := LoadSnapshot(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back) != 1 || back[0].Repo != "o/r" {
+		t.Errorf("round trip lost data: %+v", back)
 	}
 }
