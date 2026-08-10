@@ -1,0 +1,109 @@
+package console
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/patrickserrano/lacquer/internal/fleet"
+)
+
+// Mode is where dispatched work runs.
+type Mode string
+
+const (
+	// Background starts a background agent. Claude Code isolates these in their
+	// own git worktree, so they CANNOT edit the main working directory.
+	// Right for speculative or parallel work.
+	Background Mode = "bg"
+	// Tmux starts an interactive session in a tmux session for the project,
+	// creating it if absent. This edits the real checkout.
+	// Right for focused work you intend to steer.
+	Tmux Mode = "tmux"
+)
+
+// Dispatch starts work on one project.
+//
+// Always explicit: the console prints a table and never decides on its own to
+// start anything. This is the only function here that causes an effect, it is
+// reached only by an operator naming a project and a task, and it starts a
+// session rather than making a change — every edit that follows still happens
+// where a human can see it.
+//
+// The mode is not cosmetic. A background agent is worktree-isolated and cannot
+// touch the main checkout; a tmux session edits it directly. Choosing wrong
+// silently changes where the work lands, which is why there is no default.
+func Dispatch(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool) (string, error) {
+	var entry *fleet.Entry
+	for i := range roster.Project {
+		if roster.Project[i].Name == name {
+			entry = &roster.Project[i]
+			break
+		}
+	}
+	if entry == nil {
+		// Named rather than fuzzy-matched. Dispatching to the wrong project
+		// because a name was close enough is worse than being told to retype it.
+		return "", fmt.Errorf("no project named %q in the roster (known: %s)", name, strings.Join(names(roster), ", "))
+	}
+	if task = strings.TrimSpace(task); task == "" {
+		return "", fmt.Errorf("dispatch needs a task")
+	}
+
+	// Warn, do not refuse. A second agent in the same project is sometimes
+	// exactly right; a second agent nobody knows about is not.
+	var warning string
+	var live []string
+	for _, s := range sessions {
+		if under(s.CWD, entry.Path) {
+			live = append(live, fmt.Sprintf("%s (%s)", s.Name, s.Status))
+		}
+	}
+	if len(live) > 0 {
+		warning = fmt.Sprintf("note: %s already has %d session(s): %s\n",
+			entry.Name, len(live), strings.Join(live, ", "))
+	}
+
+	var argv []string
+	switch mode {
+	case Background:
+		argv = []string{"claude", "--bg", "--cwd", entry.Path, task}
+	case Tmux:
+		argv = []string{"tmux", "new-session", "-A", "-s", entry.Name, "-c", entry.Path,
+			"claude", task}
+	default:
+		return "", fmt.Errorf("unknown mode %q (want %q or %q)", mode, Background, Tmux)
+	}
+
+	line := warning + "dispatch: " + strings.Join(argv, " ") + "\n"
+	if dryRun {
+		return line + "(dry run — nothing started)\n", nil
+	}
+
+	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is built from the roster and an operator-supplied task, never a shell string
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.Stdin = os.Stdin
+	if err := cmd.Run(); err != nil {
+		return line, fmt.Errorf("dispatch failed: %w", err)
+	}
+	return line, nil
+}
+
+func names(r fleet.Roster) []string {
+	out := make([]string, 0, len(r.Project))
+	for _, e := range r.Project {
+		out = append(out, e.Name)
+	}
+	return out
+}
+
+// Sessions exposes the live session list so a caller can pass it to Dispatch
+// without a second process launch.
+func Sessions() []Session {
+	s, err := listSessions()
+	if err != nil {
+		return nil
+	}
+	return s
+}

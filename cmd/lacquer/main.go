@@ -15,6 +15,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/console"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/doctor"
 	"github.com/patrickserrano/lacquer/internal/exclusion"
@@ -352,6 +353,44 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return 4
 			}
 		}
+	case "console":
+		if err := requireLacquerRoot(lacquerRoot); err != nil {
+			return fail(stderr, err)
+		}
+		fs := flag.NewFlagSet("console", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		rosterPath := fs.String("roster", getenv("LACQUER_ROSTER"), "path to the roster file (or $LACQUER_ROSTER)")
+		mode := fs.String("mode", "", "dispatch target: bg (worktree-isolated background agent) or tmux (interactive, edits the checkout)")
+		dryRun := fs.Bool("dry-run", false, "with dispatch: print the command without starting anything")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if *rosterPath == "" {
+			return fail(stderr, fmt.Errorf("console needs a roster: pass --roster <path> or set LACQUER_ROSTER"))
+		}
+		roster, err := fleet.LoadRoster(*rosterPath)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		rest := fs.Args()
+		if len(rest) > 0 && rest[0] == "dispatch" {
+			if len(rest) < 3 {
+				return fail(stderr, fmt.Errorf("usage: lacquer console [--roster F] --mode bg|tmux dispatch <project> \"<task>\""))
+			}
+			if *mode == "" {
+				// No default on purpose: bg is worktree-isolated and cannot edit
+				// the main checkout, tmux edits it directly. Guessing would
+				// silently change where the work lands.
+				return fail(stderr, fmt.Errorf("dispatch needs --mode bg or --mode tmux"))
+			}
+			out, err := console.Dispatch(roster, console.Sessions(), rest[1], strings.Join(rest[2:], " "), console.Mode(*mode), *dryRun)
+			fmt.Fprint(stdout, out)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			return 0
+		}
+		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now()))
 	case "status":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -436,6 +475,9 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               disk is undeclared — see `adopt`)")
 	fmt.Fprintln(w, "  fleet --roster F [--json]    audit every project in a roster (exit 4 if any would fail its own")
 	fmt.Fprintln(w, "                               audit); --json emits a snapshot for a later run to diff against")
+	fmt.Fprintln(w, "  console --roster F           one screen: fleet truth + live sessions + open PRs")
+	fmt.Fprintln(w, "  console ... --mode bg|tmux dispatch <project> \"<task>\"")
+	fmt.Fprintln(w, "                               start work on one project (bg = isolated worktree; tmux = the checkout)")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
