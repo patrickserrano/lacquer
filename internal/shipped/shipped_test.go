@@ -283,3 +283,51 @@ func TestRenderedWorkflowsAreValidYAML(t *testing.T) {
 // lacquerToken matches an unrendered {{TOKEN}} while ignoring GitHub Actions'
 // ${{ ... }} expressions, which are not ours to substitute.
 var lacquerToken = regexp.MustCompile(`(^|[^$])(\{\{[A-Z_]+\}\})`)
+
+// TestFleetPackageNamesNoProject enforces the boundary that makes `lacquer
+// fleet` safe to ship in a PUBLIC repository while every project it sweeps is
+// private.
+//
+// The roster belongs to the operator, not to this tool. A project name reaching
+// this package would be a privacy leak with no upside — and the leak would be
+// permanent, because this repo's history is public. The names below are the
+// ones this fleet actually uses; the check is a tripwire for the habit, not an
+// exhaustive filter.
+func TestFleetPackageNamesNoProject(t *testing.T) {
+	r := root(t)
+	// Distinctive names only. Short or dictionary-word names ("rail", "kit",
+	// "steps") would false-positive on ordinary prose like "guardrail" or
+	// "toolkit", and a guard that cries wolf gets deleted.
+	names := []string{
+		"windsock", "throughline", "queueify", "pixelfoxstudio",
+		"needledrop", "sleevetap", "shelflife", "darndest", "mindmint",
+	}
+	dir := filepath.Join(r, "internal", "fleet")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Skipf("no fleet package: %v", err)
+	}
+	var scanned int
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		scanned++
+		low := strings.ToLower(string(data))
+		for _, n := range names {
+			if strings.Contains(low, n) {
+				t.Errorf("internal/fleet/%s names the project %q. "+
+					"This package ships in a PUBLIC repo and sweeps PRIVATE projects; "+
+					"the roster is the operator's, and a name here leaks permanently into public history.",
+					e.Name(), n)
+			}
+		}
+	}
+	if scanned == 0 {
+		t.Fatal("scanned no fleet source files; the guard is not reaching the package")
+	}
+}
