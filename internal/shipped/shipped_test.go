@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -332,4 +333,81 @@ func TestOperatorPackagesNameNoProject(t *testing.T) {
 	if scanned == 0 {
 		t.Fatal("scanned no operator-facing source files; the guard is not reaching the packages")
 	}
+}
+
+// TestRetentionDaysAreExplainable catches a retention value that promises more
+// than the platform will deliver.
+//
+// A shipped release workflow asked for 90-day dSYM retention and carried a
+// comment explaining why: dSYMs are not reproducible from a later build and
+// crash reports arrive for weeks. The reasoning was right and the number was
+// fiction — an org or repo artifact-retention limit silently truncates any
+// larger value, and this fleet's is 2 days. The file promised three months of
+// symbolication that never existed, and the only way to discover that was to go
+// looking for a dSYM on the day you needed one.
+//
+// The limit is the operator's, not this tool's, so this cannot check the number
+// against it. What it can require is that any value above a conservative
+// threshold is DISCUSSED — because the failure was never the number, it was a
+// number nobody had reconciled with the platform.
+func TestRetentionDaysAreExplainable(t *testing.T) {
+	r := root(t)
+	// Anything at or under this ships without comment: it is below every
+	// default limit, so it cannot be silently truncated.
+	const unremarkable = 7
+
+	re := regexp.MustCompile(`retention-days:\s*(\d+)`)
+	var checked int
+	for _, dir := range []string{"core", "profiles"} {
+		err := filepath.WalkDir(filepath.Join(r, dir), func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !isText(path) {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			lines := strings.Split(string(data), "\n")
+			rel, _ := filepath.Rel(r, path)
+			for i, line := range lines {
+				m := re.FindStringSubmatch(line)
+				if m == nil {
+					continue
+				}
+				checked++
+				n, _ := strconv.Atoi(m[1])
+				if n <= unremarkable {
+					continue
+				}
+				// Look back for a comment block mentioning the limit.
+				var explained bool
+				for j := i - 1; j >= 0 && j > i-12; j-- {
+					t := strings.TrimSpace(lines[j])
+					if !strings.HasPrefix(t, "#") {
+						break
+					}
+					low := strings.ToLower(t)
+					if strings.Contains(low, "limit") || strings.Contains(low, "retention") || strings.Contains(low, "cap") {
+						explained = true
+						break
+					}
+				}
+				if !explained {
+					t.Errorf("%s:%d requests %d-day retention with no note about the platform limit. "+
+						"An org or repo artifact-retention limit silently truncates a larger value, so this "+
+						"may promise retention that never happens. Either lower it to the real limit, or "+
+						"state in a comment that the limit has been checked and raised to match.",
+						rel, i+1, n)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", dir, err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("found no retention-days at all; the guard is not reaching the workflows")
+	}
+	t.Logf("checked %d retention-days value(s)", checked)
 }
