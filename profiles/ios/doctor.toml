@@ -158,3 +158,37 @@ grep -q 'if case .resolved = phase { true } else { false }' {dir}/Probe.swift
 swiftlint --strict --config {component}/.swiftlint.yml {dir}
 """]
 expect = "pass"
+
+[[probe]]
+name = "the linter allows a Swift Testing sentence name but still catches a bad one"
+why = """
+Swift Testing lets a test be named as a sentence:
+
+    @Test func `Verifier is at least 43 characters`() {}
+
+That is idiomatic, it is what appears in the test navigator, and it starts with
+a capital because it is prose. Enabling identifier_name flagged every one of
+them, and nobody noticed for weeks: the projects it was measured against did not
+use the style, and the project that did had not been synced yet. It surfaced as
+a red CI on a routine sync PR, which is the expensive way to find out.
+
+The fix must stay narrow. Turning off validates_start_with_lowercase would also
+stop catching a plain `func DoTheThing()`, which is the violation the rule is
+FOR. This probe holds both halves at once: it lints a file containing a
+backtick-quoted sentence name AND a wrongly-capitalised ordinary name, and
+requires the linter to reject it — which it can only do by catching the second.
+Widen the exclusion until it swallows DoTheThing and this goes green over a
+config that has stopped checking.
+"""
+file = "Probe.swift"
+content = """
+/// A suite using Swift Testing's sentence-style names.
+struct DoctorProbeNames {
+    /// A descriptive name, which must be ALLOWED.
+    func `Verifier is at least 43 characters`() {}
+    /// A wrongly capitalised ordinary name, which must be CAUGHT.
+    func DoTheThing() {}
+}
+"""
+argv = ["swiftlint", "--strict", "--config", "{component}/.swiftlint.yml", "{dir}"]
+expect = "fail"

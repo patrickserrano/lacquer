@@ -58,6 +58,23 @@ identifier_name:
   min_length: 1
   max_length: 60
   allowed_symbols: ["_"]
+  # Swift Testing lets a test be named as a sentence:
+  #
+  #     @Test func `Verifier is at least 43 characters`() {}
+  #
+  # which is idiomatic, is what shows up in the test navigator, and starts with
+  # a capital because it is prose. This rule flagged every one of them the day
+  # it was enabled, and the breakage only surfaced when a project that used the
+  # style was synced weeks later — it was not in the sample the rule was
+  # measured against.
+  #
+  # The exclusion is anchored on the backticks rather than turning off
+  # validates_start_with_lowercase, which would also stop catching a plain
+  # `func DoTheThing()`. Measured on a fixture carrying both: with this,
+  # DoTheThing is still the only violation; with the rule off, neither is.
+  # A backtick-quoted identifier is the only kind that can hold a space, so the
+  # pattern cannot silence an ordinary name by accident.
+  excluded: ["^`.*`$"]
 
 line_length:
   warning: 120
