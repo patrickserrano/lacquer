@@ -81,7 +81,7 @@ done
 | `ASC_ISSUER_ID` | release | same page (issuer ID) |
 | `ASC_KEY_CONTENT` | release | the `.p8` private key contents |
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
-| `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step re-locks it so the keychain never stays unlocked past the job) |
+| `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step restores the keychain's prior settings and re-locks it, so neither the unlocked window nor the timeout change outlives the run) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude, quality-review, dependency-audit, issue-deduplication | `claude setup-token` |
 | `SENTRY_AUTH_TOKEN` | release (dSYM upload) | Sentry → Settings → Auth Tokens, scoped to `project:releases` |
 | `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug (e.g. `pixel-fox-studio`) |
@@ -108,6 +108,23 @@ Three identical workarounds in three repos is a lacquer defect, not a project
 defect.
 
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
+
+**The release job borrows your login keychain, so it must give it back.** It
+unlocks the login keychain to sign, and sets an auto-lock timeout to keep it open
+across a 45-minute job. That timeout is a change to a keychain the job does not
+own, and it used to be permanent: a runner Mac that is also somebody's personal
+machine was left with `lock-on-sleep timeout=3600s` — macOS defaults to neither —
+so it locked hourly and on every sleep, and Messages signed itself out days
+later, with nothing in any run saying why.
+
+The final `always()` step now captures the prior settings and restores them.
+Note which way the harm runs: with no timeout by default, *setting* one makes the
+keychain lock more often, not less.
+
+If your runner is genuinely dedicated hardware nobody logs into, none of this is
+visible. If it is also a machine you use, it is worth knowing that CI reaches
+your login keychain at all — a dedicated CI keychain would avoid that entirely,
+at the cost of the interactive-unlock dialog this design was written to dodge.
 
 **The Sentry dSYM upload is opt-in and fails open.** All three `SENTRY_*` secrets
 must be present or the step skips — a project with no Sentry gets a clean release,

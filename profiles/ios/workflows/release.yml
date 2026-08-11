@@ -105,6 +105,23 @@ jobs:
           # job (timeout-minutes: 45) but no more — the final "Lock keychain"
           # step re-locks explicitly, so the unlocked window never outlives the run.
           KEYCHAIN=~/Library/Keychains/login.keychain-db
+
+          # Record the machine's EXISTING settings first, so the final step can
+          # put them back. Without this the `-lut` below is a permanent change to
+          # a keychain this job does not own.
+          #
+          # It was permanent, and it was felt. A runner Mac that is also somebody's
+          # personal machine ended up with `lock-on-sleep timeout=3600s` on its
+          # login keychain — macOS defaults to neither — so it began locking every
+          # hour and on every sleep, and Messages signed itself out. The setting
+          # outlived the job by days, and nothing in the run said it had changed.
+          #
+          # Note the direction of the harm: the default is NO timeout, so setting
+          # one makes the keychain lock MORE often, not less. This step exists to
+          # keep the keychain open across a 45-minute job; on a machine that never
+          # locks it, it can only make things worse.
+          security show-keychain-info "$KEYCHAIN" 2>&1 | tee "$RUNNER_TEMP/keychain-settings-before.txt"
+
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 3600 "$KEYCHAIN"
 
@@ -348,9 +365,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Lock keychain
+      - name: Restore keychain settings and lock
         if: always()
-        run: security lock-keychain ~/Library/Keychains/login.keychain-db
+        run: |
+          set -uo pipefail
+          KEYCHAIN=~/Library/Keychains/login.keychain-db
+
+          # Put back whatever this machine had before the job, rather than
+          # assuming a default. A dedicated runner and someone's laptop have
+          # legitimately different policies, and CI owns neither.
+          before="$(cat "$RUNNER_TEMP/keychain-settings-before.txt" 2>/dev/null || true)"
+          args=()
+          case "$before" in
+            *lock-on-sleep*) args+=(-l) ;;
+          esac
+          secs="$(printf '%s' "$before" | sed -n 's/.*timeout=\([0-9]*\)s.*/\1/p')"
+          if [ -n "$secs" ]; then
+            args+=(-u -t "$secs")
+          fi
+          # No flags at all means no timeout and no lock-on-sleep, which is the
+          # macOS default and what `no-timeout` in the captured output means.
+          security set-keychain-settings "${args[@]+"${args[@]}"}" "$KEYCHAIN" || true
+          echo "restored: $(security show-keychain-info "$KEYCHAIN" 2>&1)"
+
+          # Locking is still right: the signing identity must not stay reachable
+          # after the job. It is momentary — the next use prompts once — unlike
+          # the settings change above, which lasted days.
+          security lock-keychain "$KEYCHAIN"
 
   notify-on-failure:
     name: Notify on Failure
