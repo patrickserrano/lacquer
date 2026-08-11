@@ -19,7 +19,13 @@ pre-commit:
       # --error-on-warnings mirrors the CI `Biome` step. Without it the hook
       # gates on errors only, so a warning-severity violation is committed
       # locally and rejected by CI — the local/CI split this repo keeps finding.
-      run: npx biome check --write --error-on-warnings --no-errors-on-unmatched {staged_files}
+      #
+      # The LOCAL binary for the same reason. `npx biome` downloads a version
+      # when the project has none, so the hook would pass using whatever npm
+      # served while CI — which now calls the local path — fails. That is the
+      # same split one layer down, and the harder one to diagnose because the
+      # developer's machine is the one that looks fine.
+      run: ./node_modules/.bin/biome check --write --error-on-warnings --no-errors-on-unmatched {staged_files}
       stage_fixed: true
     typecheck:
       root: "{{COMPONENT_PREFIX}}"
@@ -54,7 +60,7 @@ pre-push:
         if [ "$state" = "relaxed" ]; then
           echo "docs: relaxed by [baseline.relax] in .lacquer.toml — skipping"
         else
-          npx typedoc
+          ./node_modules/.bin/typedoc
         fi
     # Mirrors the audit step in web-ci.yml's `check` job, at the same level.
     # Here rather than pre-commit because it hits the network.

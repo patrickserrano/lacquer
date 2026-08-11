@@ -81,9 +81,14 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ steps.relax.outputs.state }}" = "relaxed" ]; then
-            npx typedoc --treatValidationWarningsAsErrors false
+            # The LOCAL binary, not `npx typedoc`: npx downloads an arbitrary
+            # version when the project has none, so a project missing typedoc
+            # still publishes docs built by whatever npm served that minute.
+            # The doctor probes have always named the local path; the workflow
+            # had not, so the two disagreed about what was even being run.
+            ./node_modules/.bin/typedoc --treatValidationWarningsAsErrors false
           else
-            npx typedoc
+            ./node_modules/.bin/typedoc
           fi
 
       - name: Publish to gh-pages/api
