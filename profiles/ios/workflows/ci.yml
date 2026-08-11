@@ -468,26 +468,47 @@ jobs:
           fi
           echo "Using runtime: $PINNED_RUNTIME"
 
-          # Delete stale CI-iPhone simulators to guarantee zero state carryover.
-          # Deleting and recreating gives a fresh UDID and eliminates residual
-          # xctestd / CoreSimulator state from prior runs.
+          # The simulator name is scoped to THIS REPOSITORY, and the cleanup
+          # below only ever touches names carrying that scope.
+          #
+          # It used to be the bare string "CI-iPhone" in every project, and the
+          # cleanup deleted every simulator matching it. On a self-hosted Mac
+          # shared by fourteen repositories that is a race with teeth: job B
+          # starts, deletes "CI-iPhone", and job A — mid-test on the simulator
+          # that name pointed at — dies with
+          #
+          #     Early unexpected exit, operation never finished bootstrapping
+          #     The test runner crashed before establishing connection
+          #
+          # which reads like an app crash and is not one. It stayed hidden while
+          # projects were pushed to one at a time. Opening nine sync pull
+          # requests at once put six iOS jobs on the box inside ninety seconds,
+          # and two of them were killed by a neighbour's cleanup.
+          #
+          # Scoping the name rather than taking a lock keeps jobs independent: a
+          # runner-level mutex would serialise the whole fleet behind the slowest
+          # test suite, and GitHub's `concurrency` cannot span repositories.
+          SIM_NAME="CI-iPhone-${GITHUB_REPOSITORY_ID}"
+
+          # Stale simulators from THIS repository's earlier runs, and no others.
+          # The carryover this guards against (residual xctestd / CoreSimulator
+          # state) is per-project anyway, so the narrower net loses nothing.
+          #
           # `|| true` is load-bearing: Actions runs `run:` under `bash -e`, and
-          # with no leftover CI-iPhone simulator the grep pipeline exits 1, which
-          # aborts the assignment and kills the step. That is the CLEAN-runner
-          # case — a fresh machine, or the run right after the cleanup workflow.
-          # The fleet's self-hosted Macs usually carry a stale simulator over from
-          # the previous run, which is the only reason this has not been firing.
-          STALE_IDS=$(xcrun simctl list devices | grep "CI-iPhone" | grep -oE '[A-F0-9-]{36}' || true)
+          # with no leftover simulator the grep pipeline exits 1, which aborts the
+          # assignment and kills the step. That is the CLEAN-runner case — a
+          # fresh machine, or the run right after the cleanup workflow.
+          STALE_IDS=$(xcrun simctl list devices | grep "$SIM_NAME" | grep -oE '[A-F0-9-]{36}' || true)
           for id in $STALE_IDS; do
             echo "Deleting stale simulator: $id"
             xcrun simctl shutdown "$id" 2>/dev/null || true
             xcrun simctl delete "$id" 2>/dev/null || true
           done
 
-          echo "Creating CI-iPhone simulator..."
-          DEVICE_ID=$(xcrun simctl create CI-iPhone "iPhone 17 Pro" "$PINNED_RUNTIME")
+          echo "Creating $SIM_NAME simulator..."
+          DEVICE_ID=$(xcrun simctl create "$SIM_NAME" "iPhone 17 Pro" "$PINNED_RUNTIME")
           echo "device_id=$DEVICE_ID" >> $GITHUB_OUTPUT
-          echo "Created new simulator: CI-iPhone ($DEVICE_ID)"
+          echo "Created new simulator: $SIM_NAME ($DEVICE_ID)"
 
           xcrun simctl boot "$DEVICE_ID"
           xcrun simctl bootstatus "$DEVICE_ID" -b
@@ -506,7 +527,7 @@ jobs:
             fi
           done
 
-          echo "Simulator ready: CI-iPhone ($DEVICE_ID)"
+          echo "Simulator ready: $SIM_NAME ($DEVICE_ID)"
 
       - name: Suppress crash-reporter dialogs
         env:
