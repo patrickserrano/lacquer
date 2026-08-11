@@ -441,15 +441,30 @@ jobs:
         # Normal ~1 min; fail fast well before the job backstop.
         timeout-minutes: 6
         run: |
-          # Kill host-side test infrastructure from prior runs. When a job times
-          # out, GitHub kills the shell but leaves zombie xctest/testmanagerd
-          # processes holding CoreSimulator XPC connections; new test sessions
-          # block on those connections and hang silently.
-          pkill -9 -f "xctest" 2>/dev/null || true
-          pkill -9 -f "XCTestRunner" 2>/dev/null || true
-          killall -9 testmanagerd 2>/dev/null || true
-          killall -9 Simulator 2>/dev/null || true
-          killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || true
+          # Kill host-side test infrastructure left by THIS repository's prior
+          # runs. When a job times out, GitHub kills the shell but leaves zombie
+          # xctest processes holding CoreSimulator XPC connections; new test
+          # sessions block on those and hang silently.
+          #
+          # Scoped to $GITHUB_WORKSPACE, and that is the whole point. This used
+          # to be `pkill -9 -f xctest` plus `killall -9 testmanagerd`, `Simulator`
+          # and `com.apple.CoreSimulator.CoreSimulatorService` — every one of
+          # them machine-wide. On a Mac shared by fourteen repositories, a job
+          # starting up killed the running tests of every other job on the box,
+          # and killing CoreSimulatorService took out the daemon their simulators
+          # depended on. The victim reported
+          #
+          #     Test crashed with signal trap before establishing connection
+          #
+          # which looks like an application bug and is not one. Two projects were
+          # killed this way in a single batch; the same batch passed when run
+          # alone minutes later, which is what proved it.
+          #
+          # Every test process carries its workspace path in argv, so this
+          # matches exactly this repository's strays and nothing else. The
+          # machine-wide hammer still exists in the scheduled cleanup workflow,
+          # which is the right place for it: it runs when nothing else does.
+          pkill -9 -f "$GITHUB_WORKSPACE" 2>/dev/null || true
           sleep 3
 
           # Pin to a specific iOS runtime for consistency.
@@ -552,10 +567,10 @@ jobs:
           DEVICE_ID="${{ steps.simulator.outputs.device_id }}"
 
           # Kill zombie test processes that may have spawned during simulator
-          # boot or survived as orphans from a prior cancelled job.
-          pkill -9 -f "xctest" 2>/dev/null || true
-          pkill -9 -f "XCTestRunner" 2>/dev/null || true
-          killall -9 testmanagerd 2>/dev/null || true
+          # boot or survived as orphans from a prior cancelled job — this
+          # repository's only. See the Setup Simulator step for why the
+          # machine-wide form of this was destroying concurrent jobs.
+          pkill -9 -f "$GITHUB_WORKSPACE" 2>/dev/null || true
           sleep 2
 
           # Clean up stale results from previous runs
