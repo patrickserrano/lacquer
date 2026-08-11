@@ -121,6 +121,17 @@ func Notes(r Report) []string {
 			out = append(out, fmt.Sprintf("stale exclusion (suppresses nothing): %s", e.Path))
 		}
 	}
+	// Only the two facts that need a decision. A project with attributed,
+	// line-scoped suppressions has done the right thing and should not be nagged
+	// — the count alone would make this line permanent noise in every project.
+	if n := r.Suppress.FileScoped; n > 0 {
+		out = append(out, fmt.Sprintf("%d file-scoped lint suppression(s) — unbounded, each hides an unknown number of violations (%s)",
+			n, strings.Join(r.Suppress.TopRules(3), ", ")))
+	}
+	if n := r.Suppress.Unattributed; n > 0 {
+		out = append(out, fmt.Sprintf("%d inline lint suppression(s) with no reason (%s)",
+			n, strings.Join(r.Suppress.TopRules(3), ", ")))
+	}
 	if r.Audit.Behind > 0 || r.Audit.Add > 0 {
 		out = append(out, fmt.Sprintf("%d behind, %d to add — sync would update it", r.Audit.Behind, r.Audit.Add))
 	}
