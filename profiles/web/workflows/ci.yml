@@ -158,7 +158,7 @@ jobs:
             exit 0
           fi
           (cd .lacquer-checkout && go build -o "$RUNNER_TEMP/lacquer" ./cmd/lacquer)
-          LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor
+          LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile web
 
   docs:
     name: Docs

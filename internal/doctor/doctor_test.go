@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ func TestPassingOnBadInputIsReportedAsFailure(t *testing.T) {
 		"[[probe]]\nname = \"permissive check\"\nargv = [\"true\"]\nexpect = \"fail\"\n")
 
 	var out bytes.Buffer
-	res, err := Run(root, t.TempDir(), cfgOne(), &out)
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestRejectingBadInputPasses(t *testing.T) {
 	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
 		"[[probe]]\nname = \"strict check\"\nargv = [\"false\"]\nexpect = \"fail\"\n")
 
-	res, err := Run(root, t.TempDir(), cfgOne(), new(bytes.Buffer))
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, new(bytes.Buffer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestMissingToolIsAFinding(t *testing.T) {
 	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
 		"[[probe]]\nname = \"ghost\"\nargv = [\"lacquer-no-such-binary\"]\nexpect = \"fail\"\n")
 
-	res, err := Run(root, t.TempDir(), cfgOne(), new(bytes.Buffer))
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, new(bytes.Buffer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestFixtureIsWrittenOutsideTheProject(t *testing.T) {
 	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
 		"[[probe]]\nname = \"where\"\nfile = \"Probe.swift\"\ncontent = \"bad\"\nargv = [\"false\"]\nexpect = \"fail\"\n")
 
-	if _, err := Run(root, proj, cfgOne(), new(bytes.Buffer)); err != nil {
+	if _, err := Run(root, proj, cfgOne(), nil, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(proj, "Probe.swift")); !os.IsNotExist(err) {
@@ -120,7 +121,7 @@ func TestMissingToolInsideAShellProbeIsNotAPass(t *testing.T) {
 	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
 		"[[probe]]\nname = \"unguarded\"\n"+
 			"argv = [\"sh\", \"-c\", \"exec /nonexistent/bin/linter --check\"]\nexpect = \"fail\"\n")
-	res, err := Run(root, t.TempDir(), cfgOne(), &bytes.Buffer{})
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestMissingToolInsideAShellProbeIsNotAPass(t *testing.T) {
 		"[[probe]]\nname = \"guarded\"\nrequires = [\"/nonexistent/bin/linter\"]\n"+
 			"argv = [\"sh\", \"-c\", \"exec /nonexistent/bin/linter --check\"]\nexpect = \"fail\"\n")
 	var out bytes.Buffer
-	res, err = Run(root, t.TempDir(), cfgOne(), &out)
+	res, err = Run(root, t.TempDir(), cfgOne(), nil, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func TestRequiresDistinguishesPathLookupFromFilePath(t *testing.T) {
 		"[[probe]]\nname = \"non-executable\"\nrequires = [\"{component}/tool\"]\n"+
 			"argv = [\"true\"]\nexpect = \"pass\"\n")
 	var out bytes.Buffer
-	res, err := Run(root, project, cfgOne(), &out)
+	res, err := Run(root, project, cfgOne(), nil, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +174,7 @@ func TestRequiresDistinguishesPathLookupFromFilePath(t *testing.T) {
 	// A bare name that IS on PATH satisfies the requirement.
 	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
 		"[[probe]]\nname = \"on path\"\nrequires = [\"sh\"]\nargv = [\"true\"]\nexpect = \"pass\"\n")
-	res, err = Run(root, project, cfgOne(), &bytes.Buffer{})
+	res, err = Run(root, project, cfgOne(), nil, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ func TestCoreLayerProbesRun(t *testing.T) {
 		"[[probe]]\nname = \"profile check\"\nwhy = \"x\"\nargv = [\"false\"]\nexpect = \"fail\"\n")
 
 	var out bytes.Buffer
-	res, err := Run(root, t.TempDir(), cfgOne(), &out)
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +243,7 @@ func TestCoreLayerIsOptional(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
 		"[[probe]]\nname = \"only profile\"\nwhy = \"x\"\nargv = [\"false\"]\nexpect = \"fail\"\n")
-	res, err := Run(root, t.TempDir(), cfgOne(), &bytes.Buffer{})
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,5 +269,65 @@ func TestShippedCoreProbesAreValid(t *testing.T) {
 		if len(p.Requires) == 0 && (p.Argv[0] == "sh" || p.Argv[0] == "bash") {
 			t.Errorf("core probe %q runs through a shell but declares no `requires`", p.Name)
 		}
+	}
+}
+
+// A project can declare several profiles on one component, and its CI jobs run
+// on different runners. rail declares ["ios", "supabase"] and its supabase job
+// runs on ubuntu, where doctor ran the iOS probes, found no swiftlint, and
+// failed six checks — correctly (a missing tool IS a finding) but uselessly,
+// because that runner was never going to have Xcode.
+func TestRunScopesToNamedProfiles(t *testing.T) {
+	lq := t.TempDir()
+	writeFile(t, filepath.Join(lq, "profiles", "alpha", "doctor.toml"),
+		"[[probe]]\nname = \"alpha probe\"\nargv = [\"sh\", \"-c\", \"exit 1\"]\nexpect = \"fail\"\n")
+	writeFile(t, filepath.Join(lq, "profiles", "beta", "doctor.toml"),
+		"[[probe]]\nname = \"beta probe\"\nargv = [\"sh\", \"-c\", \"exit 1\"]\nexpect = \"fail\"\n")
+	cfg := &config.Config{Components: []config.Component{
+		{Path: ".", Profiles: []string{"alpha", "beta"}},
+	}}
+	proj := t.TempDir()
+
+	all, err := Run(lq, proj, cfg, nil, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("with no scope every declared profile runs: got %d, want 2", len(all))
+	}
+
+	scoped, err := Run(lq, proj, cfg, []string{"alpha"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scoped) != 1 || scoped[0].Profile != "alpha" {
+		t.Fatalf("scoping must run only the named profile, got %+v", scoped)
+	}
+}
+
+// Scoping must never become a way to make a failing probe disappear: anything
+// the caller NAMES still has to work.
+func TestScopingDoesNotSuppressTheNamedProfilesFailures(t *testing.T) {
+	lq := t.TempDir()
+	// expect="fail" but the command SUCCEEDS — a broken check.
+	writeFile(t, filepath.Join(lq, "profiles", "alpha", "doctor.toml"),
+		"[[probe]]\nname = \"broken\"\nargv = [\"sh\", \"-c\", \"exit 0\"]\nexpect = \"fail\"\n")
+	cfg := &config.Config{Components: []config.Component{{Path: ".", Profiles: []string{"alpha"}}}}
+	res, err := Run(lq, t.TempDir(), cfg, []string{"alpha"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(Failures(res)) != 1 {
+		t.Errorf("a named profile's broken probe must still fail, got %+v", res)
+	}
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
