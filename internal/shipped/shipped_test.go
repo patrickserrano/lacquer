@@ -70,6 +70,20 @@ var bans = []banned{
 			return strings.Contains(line, "--legacy") || isProse(line)
 		},
 	},
+	{
+		name: "npx invocation of a project dependency",
+		// `npx <tool>` prefers a local install but SILENTLY DOWNLOADS one when
+		// there is none. A project that never added the dependency therefore
+		// gets a green step, run by whatever version npm served that minute,
+		// against a config nobody chose.
+		re: regexp.MustCompile(`npx\s+(biome|typedoc|vitest|tsc)\b`),
+		why: "npx silently downloads a missing tool instead of failing, so a project without the " +
+			"dependency gets a green check run by an unpinned version. sleevetap had biome.json synced, " +
+			"@biomejs/biome in no package.json, and a PASSING Biome step — only `lacquer doctor` noticed " +
+			"the check could not be running at all. Call ./node_modules/.bin/<tool> so a missing " +
+			"dependency fails loudly, which is also what every doctor probe already does.",
+		allow: func(_, line string) bool { return isProse(line) },
+	},
 }
 
 // isProse reports whether a line is commentary rather than an invocation —

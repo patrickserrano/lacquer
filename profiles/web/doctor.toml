@@ -24,7 +24,7 @@
 [[probe]]
 name = "biome ci rejects an error-severity lint violation"
 why = """
-`npx biome ci .` is the lint gate in web-ci.yml. A config that fails to load, a
+`./node_modules/.bin/biome ci .` is the lint gate in web-ci.yml. A config that fails to load, a
 rules block that stops matching, or a severity quietly dropped all show up as a
 green run over unlinted code. noExplicitAny is "error" in the shipped
 biome.json, so this fixture must be rejected. Observed: exit 1.
@@ -126,7 +126,7 @@ expect = "fail"
 [[probe]]
 name = "a relaxed docs build still produces a site"
 why = """
-The relaxed branch of web-docs.yml used to be `npx typedoc || echo "publishing
+The relaxed branch of web-docs.yml used to be `typedoc || echo "publishing
 anyway"`. It could never work: treatValidationWarningsAsErrors makes TypeDoc
 ABORT before writing docs-site, so swallowing the exit code left nothing to
 publish and publish-docs.sh refused with "'docs-site' is not a directory —

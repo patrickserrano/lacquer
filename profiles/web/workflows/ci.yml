@@ -113,7 +113,17 @@ jobs:
       # The lefthook pre-commit hook carries the same flag. Local and CI
       # disagreeing is the defect this repo keeps rediscovering.
       - name: Biome
-        run: npx biome ci --error-on-warnings .
+        # The LOCAL binary, not `npx biome`. npx silently downloads and runs an
+        # arbitrary biome when the project has none installed, so a project that
+        # never added @biomejs/biome still gets a green Biome step — linted by
+        # whatever version npm served that minute, against rules nobody chose.
+        # sleevetap was in exactly that state: biome.json synced, biome absent
+        # from every package.json, Biome step green, and only `lacquer doctor`
+        # noticing that the check could not be running at all.
+        #
+        # This also removes a subtler version drift: with a local install npx
+        # prefers it, so the two agreed by luck rather than by construction.
+        run: ./node_modules/.bin/biome ci --error-on-warnings .
 
       - name: Type check
         run: npm run typecheck
@@ -208,7 +218,7 @@ jobs:
         id: typedoc
         continue-on-error: ${{ steps.relax.outputs.state == 'relaxed' }}
         working-directory: "{{COMPONENT_PREFIX}}."
-        run: npx typedoc
+        run: ./node_modules/.bin/typedoc
 
       # continue-on-error reports a failed step as successful at the JOB level,
       # so an unrelaxed failure needs an explicit re-assertion or the gate leaks.

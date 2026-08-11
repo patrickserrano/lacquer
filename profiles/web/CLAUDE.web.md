@@ -52,8 +52,15 @@ Never relax a base flag (`strict`, `noUncheckedIndexedAccess`,
 
 ## Code quality — Biome
 
-`biome.json` is synced (format + lint). Run `npx biome check --write .` locally;
-CI runs `npx biome ci --error-on-warnings .`.
+`biome.json` is synced (format + lint). Run `./node_modules/.bin/biome check --write .`
+locally; CI runs `./node_modules/.bin/biome ci --error-on-warnings .`.
+
+**The local binary, not `npx`.** `npx <tool>` silently downloads a version when
+the project has none installed, so a project that never added `@biomejs/biome`
+gets a green lint step run by whatever npm served that minute. One project was in
+exactly that state — `biome.json` synced, the dependency in no `package.json`,
+the Biome step passing — and only `lacquer doctor` noticed the check could not be
+running at all. `@biomejs/biome` and `typedoc` must be real devDependencies.
 
 **`--error-on-warnings` is the whole gate.** Plain `biome ci` fails on
 error-severity rules only, so every warning-severity rule prints and passes —
@@ -189,7 +196,7 @@ a new CI job adds a row here, and a hook never runs weaker than its CI twin.
 | `check` → `npm run test:coverage` | pre-push `test` |
 | `check` → `npm run build` | pre-push `build` |
 | `check` → `npm audit` | pre-push `audit` (network, so not at commit time) |
-| `Docs` → `npx typedoc` | pre-push `docs` |
+| `Docs` → `./node_modules/.bin/typedoc` | pre-push `docs` |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
 
 One deliberate asymmetry: pre-commit runs Biome over **staged files** while CI
@@ -210,7 +217,7 @@ iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a
 wins. Don't install both. The iOS `pre-commit` framework should own `.git/hooks`;
 the web checks always run in CI regardless, so rely on that. To keep them running
 locally too, add them as `repo: local` hooks in the iOS `.pre-commit-config.yaml`
-(e.g. an entry that runs `npx biome ci` scoped to the web component) rather than
+(e.g. an entry that runs `./node_modules/.bin/biome ci` scoped to the web component) rather than
 installing lefthook alongside pre-commit.
 
 ## CI
