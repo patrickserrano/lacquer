@@ -120,12 +120,32 @@ func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 	return f.Probe, nil
 }
 
-// Run executes every probe for every profile the project declares.
+// Run executes probes for the project's declared profiles.
+//
+// `only` restricts which profiles are proved. Empty means all of them, which is
+// right when a human runs `lacquer doctor` on a machine with every toolchain.
+// It is wrong in CI, and rail showed why: it declares one component with
+// profiles ["ios", "supabase"], and the supabase CI job runs on ubuntu-latest.
+// Doctor dutifully ran the iOS probes there, found no swiftlint or swiftformat,
+// and failed six checks — correctly, since a missing tool IS a real finding, but
+// uselessly, because that runner was never going to have Xcode.
+//
+// The fix is scoping rather than tolerance. Making a missing tool skip quietly
+// would be the exact silent pass this package exists to eliminate; the iOS
+// probes were not wrong, they were simply nobody's business on a Linux runner
+// proving database checks. So the CALLER declares which toolchain it has, and
+// anything it names had better work.
+//
+// Core probes always run: they are shell and git, present everywhere.
 //
 // Probes run in a scratch directory OUTSIDE the project, so a fixture that is
 // deliberately malformed can never be mistaken for project source, land in a
 // commit, or be picked up by a watcher.
-func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]Result, error) {
+func Run(lacquerRoot, projectRoot string, cfg *config.Config, only []string, out io.Writer) ([]Result, error) {
+	want := map[string]bool{}
+	for _, p := range only {
+		want[p] = true
+	}
 	var results []Result
 
 	comps := append([]config.Component(nil), cfg.Components...)
@@ -156,6 +176,9 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 		sort.Strings(profiles)
 
 		for _, p := range profiles {
+			if len(want) > 0 && !want[p] {
+				continue
+			}
 			probes, err := LoadProbes(lacquerRoot, p)
 			if err != nil {
 				return nil, err

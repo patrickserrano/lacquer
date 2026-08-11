@@ -159,13 +159,23 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
+		dfs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+		dfs.SetOutput(stderr)
+		// Repeatable: --profile ios --profile supabase. A CI job proves the
+		// toolchain it actually has; omitting it proves everything, which is
+		// what a developer wants locally.
+		var only profileList
+		dfs.Var(&only, "profile", "prove only this profile's checks (repeatable; default all)")
+		if err := dfs.Parse(args[1:]); err != nil {
+			return 2
+		}
 		manifest := filepath.Join(projectRoot, ".lacquer.toml")
 		cfg, err := config.Load(manifest)
 		if err != nil {
 			return fail(stderr, fmt.Errorf("load %s: %w", manifest, err))
 		}
 		fmt.Fprintln(stdout, "proving each check can fail:")
-		results, err := doctor.Run(lacquerRoot, projectRoot, cfg, stdout)
+		results, err := doctor.Run(lacquerRoot, projectRoot, cfg, only, stdout)
 		if err != nil {
 			return fail(stderr, err)
 		}
@@ -491,7 +501,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  sync [--force] [--fix]       render lacquer content into the project")
 	fmt.Fprintln(w, "  skills                       install [project].skills via the `skills` CLI (vercel-labs/skills)")
 	fmt.Fprintln(w, "  plugins                      install core/bootstrap/plugins.toml via `claude plugin` (machine-level)")
-	fmt.Fprintln(w, "  doctor                       prove each check can fail (exit 5 if one cannot)")
+	fmt.Fprintln(w, "  doctor [--profile P]         prove each check can fail (exit 5 if one cannot); --profile")
+	fmt.Fprintln(w, "                               limits it to one stack's checks, for a runner that has only that toolchain")
 	fmt.Fprintln(w, "  fix                          run the profiles' autofixers (formatters, lint --fix) over the project")
 	fmt.Fprintln(w, "  status                       show each region's stamped vs latest version")
 	fmt.Fprintln(w, "  audit                        classify project drift and check the project baseline")
@@ -567,6 +578,12 @@ func formatDrift(findings []detect.Finding) string {
 	}
 	return b.String()
 }
+
+// profileList collects a repeatable --profile flag.
+type profileList []string
+
+func (p *profileList) String() string     { return strings.Join(*p, ",") }
+func (p *profileList) Set(v string) error { *p = append(*p, v); return nil }
 
 func fail(w io.Writer, err error) int {
 	fmt.Fprintln(w, "error:", err)
