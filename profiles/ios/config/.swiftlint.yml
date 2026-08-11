@@ -138,10 +138,31 @@ custom_rules:
     # about itself trains people to stop reading it.
     excluded_match_kinds: [comment, doccomment]
     severity: warning
-    # To exempt ONE sanctioned DI-seam file that wraps a vendor `.shared`
-    # (RevenueCat's Purchases.shared, Firebase, etc.), scope it rather than
-    # disabling the rule inline:
-    #   excluded: ".*MyVendorGateway\\.swift$"
+    # A vendor SDK singleton (RevenueCat's Purchases.shared, Firebase, …) has no
+    # public initializer, so no amount of DI removes the token from source. The
+    # sanctioned place to acquire it is the composition root, where it is
+    # injected into a wrapper — and the sanctioned way to say so is an INLINE
+    # suppression on that one line, carrying a reason:
+    #
+    #   // swiftlint:disable:next no_singleton_abuse - vendor SDK, no public
+    #   //   init; injected into RevenueCatSubscriptionService below
+    #   subscriptionService = RevenueCatSubscriptionService(purchases: Purchases.shared)
+    #
+    # This used to advise scoping the FILE via `excluded:` instead. That was
+    # wrong twice over. It exempts the whole file, so a genuine `.shared` abuse
+    # in the composition root goes unseen; and this config is lacquer-managed, so
+    # a project cannot add `excluded:` without drifting from it — the advice was
+    # unreachable.
+    #
+    # Inline is narrower (one line, not one file), it lives where the exception
+    # is, and it is the only remedy a project can actually apply. It is also what
+    # the fleet had already converged on: a survey found 45 inline suppressions
+    # of THIS rule across five projects, decided independently by everyone.
+    #
+    # Always `:next`, never a bare `disable`. A bare one suppresses the rest of
+    # the file and hides an unknown number of violations; `lacquer fleet` reports
+    # those separately for that reason, along with any suppression carrying no
+    # reason at all.
 
   sendable_protocol:
     name: "Protocols should require Sendable"

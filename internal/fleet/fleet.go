@@ -43,6 +43,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/exclusion"
+	"github.com/patrickserrano/lacquer/internal/suppress"
 )
 
 // Entry is one project in the roster.
@@ -170,6 +171,11 @@ type Report struct {
 	Baseline   []BaselineReport `json:"baseline,omitempty"`
 	Drift      []DriftFinding   `json:"drift,omitempty"`
 	Exclusions []Exclusion      `json:"exclusions,omitempty"`
+	// Suppress rolls up inline lint suppressions found in project source. It is
+	// a summary, not a list: the snapshot is diffed between runs, and dozens of
+	// individual entries would bury the two numbers that matter — how many are
+	// file-scoped (unbounded) and how many carry no reason.
+	Suppress suppress.Summary `json:"suppressions"`
 }
 
 // Blocking reports whether this project would fail its own `lacquer audit`.
@@ -273,6 +279,10 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		r.Error = fmt.Sprintf("exclusions: %v", err)
 		return r
 	}
+	if ss, err := suppress.Scan(e.Path); err == nil {
+		r.Suppress = suppress.Summarise(ss)
+	}
+
 	for _, f := range exclusion.Review(cfg.Project.Exclude, suppressed, now) {
 		r.Exclusions = append(r.Exclusions, Exclusion{
 			Path: f.Path, Status: string(f.Status), Reason: f.Reason, Until: f.Until, Stale: f.Stale,
