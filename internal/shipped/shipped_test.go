@@ -425,3 +425,54 @@ func TestRetentionDaysAreExplainable(t *testing.T) {
 	}
 	t.Logf("checked %d retention-days value(s)", checked)
 }
+
+// TestSecretsExampleIsNonEmptyAndEscaped guards the two ways this file breaks a
+// project silently.
+//
+// It is copied verbatim by CI to build with, and the profile's accessor
+// fatalErrors at launch on a missing or blank key — so an omission here crashes
+// every test run before a single test executes. One project sat in exactly that
+// state: SENTRY_DSN was absent while its code required it, and the old exit-65
+// handler read the resulting crash as "all tests passed". Months of green CI
+// over a suite that never ran.
+//
+// The second trap is subtler. xcconfig treats `//` as a comment, so an
+// unescaped URL truncates to `https:` — NON-empty, so the accessor does not
+// fire, and the app silently reports crashes nowhere. A blank value fails loudly;
+// a truncated one does not, which makes it the worse bug.
+func TestSecretsExampleIsNonEmptyAndEscaped(t *testing.T) {
+	r := root(t)
+	path := filepath.Join(r, "profiles", "ios", "config", "Secrets.xcconfig.example")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("no secrets example: %v", err)
+	}
+	var checked int
+	for i, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") || !strings.Contains(line, "=") {
+			continue
+		}
+		key, val, _ := strings.Cut(line, "=")
+		key, val = strings.TrimSpace(key), strings.TrimSpace(val)
+		checked++
+		if val == "" {
+			t.Errorf("%s:%d %s has a blank placeholder. CI copies this file verbatim, and the "+
+				"accessor fatalErrors at launch on a blank value — every test would crash before running.",
+				filepath.Base(path), i+1, key)
+		}
+		// A URL value must use the `/$()/` escape or xcconfig truncates it at
+		// the `//`, leaving a non-empty value that passes every check and works
+		// for nothing.
+		if strings.Contains(val, "://") {
+			t.Errorf("%s:%d %s contains an unescaped `://`. xcconfig treats `//` as a comment, so this "+
+				"truncates to %q — non-empty, so nothing fails, and the service is silently misconfigured. "+
+				"Use the `/$()/` form documented at the top of the file.",
+				filepath.Base(path), i+1, key, strings.SplitN(val, "//", 2)[0])
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no keys found; the guard is not reading the file")
+	}
+	t.Logf("checked %d placeholder key(s)", checked)
+}
