@@ -116,13 +116,13 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// Token preflight — fail closed before any write.
 	var missing []string
 	for _, r := range regions {
-		if _, m := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix)); len(m) > 0 {
+		if _, m := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix, cfg.Products())); len(m) > 0 {
 			for _, t := range m {
 				missing = append(missing, fmt.Sprintf("%s (%s)", t, r.rel))
 			}
 		}
 	}
-	assetMissing, err := assets.MissingTokens(plan, cfg.Project)
+	assetMissing, err := assets.MissingTokens(plan, cfg)
 	if err != nil {
 		return Result{}, err
 	}
@@ -166,7 +166,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 
 	// Writes: substitute + merge region bodies.
 	for _, r := range regions {
-		body, _ := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix))
+		body, _ := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix, cfg.Products()))
 		if err := mergeInto(projectRoot, r.rel, r.key, ver, body); err != nil {
 			return Result{}, err
 		}
@@ -175,7 +175,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// Whole-file assets. Only run when the lacquer has assets, so a region-only
 	// sync into a non-git directory still works (assets.Copy requires git).
 	if len(plan) > 0 {
-		if err := assets.Write(projectRoot, plan, cfg.Project, assetTargets); err != nil {
+		if err := assets.Write(projectRoot, plan, cfg, assetTargets); err != nil {
 			return Result{}, err
 		}
 	}

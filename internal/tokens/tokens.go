@@ -34,6 +34,16 @@ const (
 	// is parsed, for both the empty and populated cases. What ships is what gets
 	// checked.
 	WebBuildEnv = "{{WEB_BUILD_ENV}}"
+	// IOSProductMatrix expands to the `product:` entries of a job matrix — one
+	// per shippable app. Like WebBuildEnv it owns its own indentation and sits
+	// alone on its line; unlike it, it is NEVER empty, because every project has
+	// at least one product (synthesised from [project] when none is declared).
+	//
+	// That is the point: the release workflow has one shape. A single-app
+	// project gets a one-entry matrix and behaves exactly as it did before a
+	// matrix existed, so multi-product support costs the other twelve projects
+	// nothing and leaves no second code path to drift.
+	IOSProductMatrix = "{{IOS_PRODUCT_MATRIX}}"
 )
 
 // entry is a registered token and whether a non-empty value is required. A
@@ -54,6 +64,7 @@ var registry = []entry{
 	{GithubOrg, false}, // empty is valid: a project may not have a repo/org yet
 	{ComponentPrefix, false},
 	{WebBuildEnv, false}, // empty is valid and common: most projects need no build secrets
+	{IOSProductMatrix, false},
 }
 
 // Prefix converts a component path to a path prefix: "." -> "", "ios" -> "ios/".
@@ -66,18 +77,40 @@ func Prefix(path string) string {
 
 // Values builds the substitution map from the [project] values plus the derived
 // component prefix for the content being substituted.
-func Values(p config.Project, prefix string) map[string]string {
+//
+// products is the project's shippable apps. Pass cfg.Products(), which is never
+// empty — it synthesises a single entry from [project] when none is declared, so
+// there is no "has products" branch anywhere downstream.
+func Values(p config.Project, prefix string, products []config.Product) map[string]string {
 	return map[string]string{
-		ProjectName:     p.ProjectName,
-		Scheme:          p.Scheme,
-		BundleID:        p.BundleID,
-		AscAppID:        p.AscAppID,
-		Xcodeproj:       p.Xcodeproj,
-		SwiftVersion:    p.SwiftVersion,
-		GithubOrg:       p.GithubOrg,
-		ComponentPrefix: prefix,
-		WebBuildEnv:     BuildEnvBlock(p.BuildEnv),
+		ProjectName:      p.ProjectName,
+		Scheme:           p.Scheme,
+		BundleID:         p.BundleID,
+		AscAppID:         p.AscAppID,
+		Xcodeproj:        p.Xcodeproj,
+		SwiftVersion:     p.SwiftVersion,
+		GithubOrg:        p.GithubOrg,
+		ComponentPrefix:  prefix,
+		WebBuildEnv:      BuildEnvBlock(p.BuildEnv),
+		IOSProductMatrix: ProductMatrix(products),
 	}
+}
+
+// ProductMatrix renders the `product:` entries of a job matrix, one per app.
+//
+// Indentation is baked in because the token stands alone at column 0, the same
+// arrangement as BuildEnvBlock. Values are already charset-validated at
+// config.Load, which is what keeps this interpolation from injecting YAML.
+func ProductMatrix(products []config.Product) string {
+	var b strings.Builder
+	b.WriteString("        product:")
+	for _, p := range products {
+		fmt.Fprintf(&b, "\n          - name: %q", p.Name)
+		fmt.Fprintf(&b, "\n            scheme: %q", p.Scheme)
+		fmt.Fprintf(&b, "\n            bundle_id: %q", p.BundleID)
+		fmt.Fprintf(&b, "\n            asc_app_id: %q", p.AscAppID)
+	}
+	return b.String()
 }
 
 // BuildEnvBlock renders [project].build_env as a job-level YAML env block, or

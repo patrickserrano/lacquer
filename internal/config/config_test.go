@@ -633,3 +633,57 @@ func TestLoadAcceptsBuildEnv(t *testing.T) {
 		t.Errorf("BuildEnv = %v", cfg.Project.BuildEnv)
 	}
 }
+
+// Most projects ship one app and declare no [[product]]. They must still get
+// exactly one, synthesised from [project] — that is what keeps the release
+// workflow to a single code path instead of a single-app branch and a
+// multi-app branch that drift.
+func TestProductsSynthesisesOneWhenNoneDeclared(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\nproject_name=\"Solo\"\nscheme=\"Solo\"\nbundle_id=\"com.x.solo\"\nasc_app_id=\"111\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Products()
+	if len(got) != 1 {
+		t.Fatalf("got %d products, want 1", len(got))
+	}
+	if got[0].Name != "Solo" || got[0].Scheme != "Solo" || got[0].BundleID != "com.x.solo" || got[0].AscAppID != "111" {
+		t.Errorf("synthesised product = %+v, want it mirrored from [project]", got[0])
+	}
+}
+
+func TestProductsUsesDeclaredEntries(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n"+
+		"[[product]]\nname=\"Paid\"\nscheme=\"Paid\"\nbundle_id=\"com.x.paid\"\nasc_app_id=\"111\"\n\n"+
+		"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Products(); len(got) != 2 || got[0].Name != "Paid" || got[1].Name != "Lite" {
+		t.Errorf("products = %+v", got)
+	}
+}
+
+// Names become artifact names and matrix keys. A duplicate would collide
+// silently and one product's build would overwrite the other's.
+func TestLoadRejectsDuplicateProductNames(t *testing.T) {
+	data := "[project]\nname=\"x\"\n\n[[product]]\nname=\"A\"\nscheme=\"A\"\nbundle_id=\"com.x.a\"\nasc_app_id=\"1\"\n\n" +
+		"[[product]]\nname=\"A\"\nscheme=\"B\"\nbundle_id=\"com.x.b\"\nasc_app_id=\"2\"\n"
+	if _, err := loadString(t, data); err == nil {
+		t.Error("expected rejection of a duplicated product name")
+	}
+}
+
+// Every field is substituted into synced CI YAML and shell.
+func TestLoadRejectsUnsafeProductFields(t *testing.T) {
+	base := "[project]\nname=\"x\"\n\n[[product]]\n"
+	for _, bad := range []string{
+		"name=\"A B; rm -rf /\"\nscheme=\"A\"\nbundle_id=\"com.x.a\"\nasc_app_id=\"1\"\n",
+		"name=\"A\"\nscheme=\"A\"\nbundle_id=\"com.x.a\"\nasc_app_id=\"not-numeric\"\n",
+		"name=\"A\"\nscheme=\"$(whoami)\"\nbundle_id=\"com.x.a\"\nasc_app_id=\"1\"\n",
+	} {
+		if _, err := loadString(t, base+bad); err == nil {
+			t.Errorf("expected rejection of product fields:\n%s", bad)
+		}
+	}
+}

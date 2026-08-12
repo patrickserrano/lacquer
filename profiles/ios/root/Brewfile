@@ -2,6 +2,13 @@
 # Run: brew bundle install
 
 # iOS Development
+# xcodegen: the profile's project.yml -> .pbxproj generator. Every project on
+# this profile regenerates rather than hand-editing the pbxproj, so the tool is
+# not optional — it was simply missing from this list.
+# actionlint: lints the synced workflows before they reach CI, which is how the
+# release-workflow changes in this profile get checked at all.
+brew "xcodegen"
+brew "actionlint"
 brew "swiftlint"
 brew "swiftformat"
 cask "periphery"
