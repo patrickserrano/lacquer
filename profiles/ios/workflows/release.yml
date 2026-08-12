@@ -225,12 +225,18 @@ jobs:
 
       - name: Prepare TestFlight release notes
         id: whats_new
-        if: ${{ github.event.inputs.skip_testflight != 'true' }}
+        # `github.event.inputs` is null on a tag push, so `!= 'true'` used to let
+        # this through by coincidence rather than by intent — and would have
+        # flipped silently had the input's default changed. Say both halves: a
+        # release tag always uploads, and only a manual run may decline.
+        # `inputs.skip_testflight` is a real boolean, unlike the string the
+        # `github.event.inputs` form yields.
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
         env:
           # Untrusted workflow_dispatch input — passed via env and only ever
           # written to a file with a quoted variable, never interpolated into
           # the script body, so metacharacters cannot inject shell commands.
-          WHATS_NEW_INPUT: ${{ github.event.inputs.whats_new }}
+          WHATS_NEW_INPUT: ${{ inputs.whats_new }}
         run: |
           set -euo pipefail
           notes_file="whats-new.txt"
@@ -276,22 +282,37 @@ jobs:
             "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive/dSYMs"
 
       - name: Upload to TestFlight
-        if: ${{ github.event.inputs.skip_testflight != 'true' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
         env:
           APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.ASC_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
           NOTES_FILE: ${{ steps.whats_new.outputs.notes_file }}
         run: |
+          # xcodebuild names the exported IPA after the app's DISPLAY name, not
+          # the project — so `{{PROJECT_NAME}}.ipa` is only ever right by luck.
+          # Any project whose CFBundleDisplayName differs from its project name,
+          # or that is ever renamed, archives and signs perfectly and then dies
+          # here, at the last step, with the build already paid for. Discover the
+          # file instead of reconstructing its name.
+          ipa_directory="{{COMPONENT_PREFIX}}build"
+          ipa=$(find "$ipa_directory" -maxdepth 1 -type f -name '*.ipa' -print -quit)
+          if [ -z "$ipa" ]; then
+            echo "::error::No IPA found in $ipa_directory"
+            exit 1
+          fi
+          echo "Publishing $ipa"
           app-store-connect publish \
-            --path "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa" \
+            --path "$ipa" \
             --whats-new "$(cat "$NOTES_FILE")"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: '{{PROJECT_NAME}}-${{ github.ref_name }}.ipa'
-          path: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa"
+          # Glob, for the same reason the publish step discovers its file: the
+          # export is named after the app's display name, not the project.
+          path: "{{COMPONENT_PREFIX}}build/*.ipa"
           # 1 day, not 30: for a tagged release the same .ipa is attached to the
           # GitHub Release below and kept indefinitely, so the artifact copy is
           # redundant storage. For an untagged manual run it is a 24h safety net
@@ -357,7 +378,7 @@ jobs:
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: |
-            {{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.ipa
+            {{COMPONENT_PREFIX}}build/*.ipa
             {{PROJECT_NAME}}-${{ github.ref_name }}.dSYMs.zip
           generate_release_notes: true
           draft: false
