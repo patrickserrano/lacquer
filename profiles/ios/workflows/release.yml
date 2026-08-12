@@ -9,7 +9,13 @@ on:
       skip_testflight:
         description: 'Skip TestFlight upload (build only)'
         required: false
-        default: 'false'
+        # Unquoted. The gates below read this as a boolean (`!inputs.…`) rather
+        # than comparing it to the string 'true', so a quoted 'false' default is
+        # newly load-bearing: GitHub treats any non-empty string as truthy, and
+        # `!'false'` is false — which would silently skip the TestFlight upload
+        # on a dispatch where nobody asked it to. A release that builds, signs
+        # and quietly uploads nothing is the failure this repo hunts.
+        default: false
         type: boolean
       whats_new:
         description: "TestFlight 'What's New' notes (blank = auto-generate from commits)"
