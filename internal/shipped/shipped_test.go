@@ -243,7 +243,7 @@ func TestRenderedWorkflowsAreValidYAML(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			out, missing := tokens.Substitute(string(raw), tokens.Values(tc.proj, ""))
+			out, missing := tokens.Substitute(string(raw), tokens.Values(tc.proj, "", nil))
 			if len(missing) > 0 {
 				t.Fatalf("unsubstituted tokens: %v", missing)
 			}
@@ -475,4 +475,92 @@ func TestSecretsExampleIsNonEmptyAndEscaped(t *testing.T) {
 		t.Fatal("no keys found; the guard is not reading the file")
 	}
 	t.Logf("checked %d placeholder key(s)", checked)
+}
+
+// TestReleaseMatrixRendersPerProduct is the acceptance test for multi-product
+// support, and its most important case is the SINGLE-product one.
+//
+// Twelve of fourteen projects ship one app and declare no [[product]]. They must
+// render a one-entry matrix and behave exactly as they did before a matrix
+// existed — if that is not true, a change made for two projects has altered the
+// release path of twelve, and none of it can be verified without cutting a real
+// release.
+func TestReleaseMatrixRendersPerProduct(t *testing.T) {
+	r := root(t)
+	raw, err := os.ReadFile(filepath.Join(r, "profiles", "ios", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := config.Project{
+		ProjectName: "Solo", Scheme: "Solo", BundleID: "com.x.solo",
+		AscAppID: "111", Xcodeproj: "Solo.xcodeproj", SwiftVersion: "6", GithubOrg: "acme",
+	}
+
+	cases := []struct {
+		name     string
+		cfg      *config.Config
+		wantLegs int
+		wantName []string
+	}{
+		{
+			name:     "no [[product]] — synthesised from [project]",
+			cfg:      &config.Config{Project: base},
+			wantLegs: 1,
+			wantName: []string{"Solo"},
+		},
+		{
+			name: "two products — the paid/free case",
+			cfg: &config.Config{Project: base, Product: []config.Product{
+				{Name: "Paid", Scheme: "Paid", BundleID: "com.x.paid", AscAppID: "111"},
+				{Name: "Lite", Scheme: "Lite", BundleID: "com.x.lite", AscAppID: "222"},
+			}},
+			wantLegs: 2,
+			wantName: []string{"Paid", "Lite"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, missing := tokens.Substitute(string(raw), tokens.Values(tc.cfg.Project, "", tc.cfg.Products()))
+			if len(missing) > 0 {
+				t.Fatalf("unsubstituted tokens: %v", missing)
+			}
+			if m := lacquerToken.FindString(out); m != "" {
+				t.Errorf("rendered output still contains %s", m)
+			}
+
+			var doc struct {
+				Jobs map[string]struct {
+					Strategy struct {
+						Matrix struct {
+							Product []map[string]string `yaml:"product"`
+						} `yaml:"matrix"`
+					} `yaml:"strategy"`
+				} `yaml:"jobs"`
+			}
+			if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+				t.Fatalf("rendered release workflow is not valid YAML: %v", err)
+			}
+			job, ok := doc.Jobs["build-and-deploy"]
+			if !ok {
+				t.Fatal("no build-and-deploy job")
+			}
+			got := job.Strategy.Matrix.Product
+			if len(got) != tc.wantLegs {
+				t.Fatalf("matrix has %d leg(s), want %d: %+v", len(got), tc.wantLegs, got)
+			}
+			for i, want := range tc.wantName {
+				if got[i]["name"] != want {
+					t.Errorf("leg %d name = %q, want %q", i, got[i]["name"], want)
+				}
+				// Every leg must carry all four fields, or a step reads an
+				// empty string and signs/uploads the wrong thing.
+				for _, k := range []string{"name", "scheme", "bundle_id", "asc_app_id"} {
+					if got[i][k] == "" {
+						t.Errorf("leg %d is missing %s: %+v", i, k, got[i])
+					}
+				}
+			}
+		})
+	}
 }

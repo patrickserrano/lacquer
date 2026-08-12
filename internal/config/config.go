@@ -377,6 +377,24 @@ func validateXcodeproj(p string) error {
 	return nil
 }
 
+// Product is one shippable app built from this repository.
+//
+// Most projects ship one, and declare nothing: Products() synthesises a single
+// entry from the [project] fields, so the shipped release workflow has exactly
+// one shape to maintain rather than a single-app path and a multi-app path that
+// drift apart.
+//
+// Two projects in the fleet this was built for ship a paid and a free variant
+// from one repository. Both had to fork the release workflow to do it — hand-
+// maintaining the most complex asset the lacquer ships, which is how one of them
+// ended up 247 versions behind. `[[product]]` is the seam they were missing.
+type Product struct {
+	Name     string `toml:"name"`
+	Scheme   string `toml:"scheme"`
+	BundleID string `toml:"bundle_id"`
+	AscAppID string `toml:"asc_app_id"`
+}
+
 type Component struct {
 	Path     string   `toml:"path"`
 	Profiles []string `toml:"profiles"`
@@ -393,7 +411,26 @@ type Baseline struct {
 type Config struct {
 	Project    Project     `toml:"project"`
 	Components []Component `toml:"component"`
+	Product    []Product   `toml:"product"`
 	Baseline   Baseline    `toml:"baseline"`
+}
+
+// Products returns every shippable app, synthesising one from [project] when
+// none is declared.
+//
+// Callers never branch on "does this project declare products": there is always
+// at least one, and the single-product case is the one-entry list. That is what
+// keeps the release workflow to a single code path.
+func (c *Config) Products() []Product {
+	if len(c.Product) > 0 {
+		return c.Product
+	}
+	return []Product{{
+		Name:     c.Project.ProjectName,
+		Scheme:   c.Project.Scheme,
+		BundleID: c.Project.BundleID,
+		AscAppID: c.Project.AscAppID,
+	}}
 }
 
 // Load reads, parses, and validates the .lacquer.toml at path. It rejects any
@@ -411,6 +448,29 @@ func Load(path string) (*Config, error) {
 	}
 	if err := validateBaseline(cfg.Baseline); err != nil {
 		return nil, err
+	}
+	seenProduct := map[string]bool{}
+	for i, p := range cfg.Product {
+		// Every field is substituted into synced CI YAML and shell, so each is
+		// held to the same charset as its [project] counterpart.
+		if !projNameVal.MatchString(p.Name) {
+			return nil, fmt.Errorf("[[product]] %d: invalid name %q", i, p.Name)
+		}
+		if !projNameVal.MatchString(p.Scheme) {
+			return nil, fmt.Errorf("[[product]] %q: invalid scheme %q", p.Name, p.Scheme)
+		}
+		if !projBundleVal.MatchString(p.BundleID) {
+			return nil, fmt.Errorf("[[product]] %q: invalid bundle_id %q", p.Name, p.BundleID)
+		}
+		if !projAscVal.MatchString(p.AscAppID) {
+			return nil, fmt.Errorf("[[product]] %q: invalid asc_app_id %q (want the numeric Apple ID)", p.Name, p.AscAppID)
+		}
+		if seenProduct[p.Name] {
+			// Names become artifact names and matrix keys; duplicates would
+			// collide silently and one product's build would overwrite another's.
+			return nil, fmt.Errorf("[[product]] %q is declared twice", p.Name)
+		}
+		seenProduct[p.Name] = true
 	}
 	seenProfile := map[string]string{} // profile -> first component path that declared it
 	for _, c := range cfg.Components {

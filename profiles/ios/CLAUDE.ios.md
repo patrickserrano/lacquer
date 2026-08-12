@@ -32,6 +32,45 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 
 - **A version train closes permanently once its version reaches `READY_FOR_SALE`.** Uploading another build against that same marketing version fails with **error 90186** ("Invalid Pre-Release Train"), no matter the build number. A shipped app needs a **version bump** to accept a new build. In a repo shipping several apps, this is why one release trigger must never fan out to every product: the already-shipped one can only fail.
 
+## Shipping more than one app from one repository
+
+A repository that ships a paid and a free variant declares each as a
+`[[product]]` in `.lacquer.toml`:
+
+```toml
+[[product]]
+name = "MyApp"
+scheme = "MyApp"
+bundle_id = "com.example.myapp"
+asc_app_id = "1234567890"
+
+[[product]]
+name = "MyApp Lite"
+scheme = "MyApp Lite"
+bundle_id = "com.example.myapp.lite"
+asc_app_id = "0987654321"
+```
+
+The release workflow becomes a matrix with one leg per product: separate
+archive, IPA, TestFlight upload and GitHub Release asset for each.
+
+**Declare nothing and you get exactly one product**, synthesised from
+`[project]`. That is not a special case in the workflow — it is a one-entry
+matrix, the same code path. A single-app project's release is unchanged.
+
+`fail-fast: false` because the products are separate App Store submissions with
+separate review outcomes: one failing validation must not cancel the other's
+upload. `max-parallel: 1` because both legs sign on the same runner and share
+its certificate directory.
+
+Two things that bite specifically on a paid/free pair, both learned the hard way:
+
+- **Guideline 2.3.7** rejects a price reference in the *name or icon* of the free
+  product — see App Store Requirements above.
+- **Error 90186**: a version train closes permanently at `READY_FOR_SALE`, so a
+  release trigger that fans out to a product which has already shipped that
+  version can only fail. Bump the version rather than the build number.
+
 ## Secrets & Service Keys
 
 Two separate buckets — never mix them.

@@ -35,14 +35,41 @@ env:
 
 jobs:
   build-and-deploy:
-    name: Build and Deploy to TestFlight
+    name: Build and Deploy ${{ matrix.product.name }} to TestFlight
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     timeout-minutes: 45
+    # One leg per shippable app. A project that declares no [[product]] gets a
+    # single entry synthesised from [project], so this is the SAME shape it had
+    # before a matrix existed — twelve single-app projects see no behaviour
+    # change, and there is no second code path to drift.
+    #
+    # It exists because two projects ship a paid and a free variant from one
+    # repository, and both had to fork this workflow to do it. Forking the most
+    # complex asset the lacquer ships is how one of them reached 247 versions
+    # behind: every improvement after the fork had to be re-applied by hand, so
+    # none were.
+    #
+    # fail-fast: false — one product failing App Store validation must not
+    # cancel the other's upload. They are separate submissions with separate
+    # review outcomes, and a shared cancel would make a rejection on one look
+    # like a build failure on both.
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+{{IOS_PRODUCT_MATRIX}}
     permissions:
       # action-gh-release creates the GitHub Release (write covers checkout's read).
       contents: write
 
     env:
+      # The matrix product's identity, hoisted once. Shell steps read $PRODUCT_*;
+      # `with:`/`name:` blocks read ${{ matrix.product.* }} directly, since env
+      # is not in scope there.
+      PRODUCT_NAME: ${{ matrix.product.name }}
+      PRODUCT_SCHEME: ${{ matrix.product.scheme }}
+      PRODUCT_BUNDLE_ID: ${{ matrix.product.bundle_id }}
+      PRODUCT_ASC_APP_ID: ${{ matrix.product.asc_app_id }}
       # `secrets` is not available in a step-level `if`, so the presence check is
       # hoisted to a job-level env var that the dSYM-upload step can gate on.
       # Job-level env IS in scope for `steps[*].if`; a var defined in the step's
@@ -93,7 +120,7 @@ jobs:
           rm -f "$HOME/Library/Developer/Xcode/UserData/Certificates/"*.p12 || true
           # Bundle id is a POSITIONAL arg in codemagic-cli-tools (there is no
           # --bundle-id flag; passing it errors "unrecognized arguments").
-          app-store-connect fetch-signing-files "{{BUNDLE_ID}}" \
+          app-store-connect fetch-signing-files "$PRODUCT_BUNDLE_ID" \
             --platform IOS \
             --type IOS_APP_STORE \
             --create
@@ -179,13 +206,13 @@ jobs:
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
         run: |
           # Requires the numeric Apple ID (from App Store Connect → App Information).
-          # Set {{ASC_APP_ID}} when scaffolding this template.
-          RAW=$(app-store-connect get-latest-testflight-build-number {{ASC_APP_ID}} 2>&1)
+          # asc_app_id comes from the matrix product (or [project] when only one).
+          RAW=$(app-store-connect get-latest-testflight-build-number "$PRODUCT_ASC_APP_ID" 2>&1)
           echo "get-latest-testflight-build-number output: $RAW"
           LATEST=$(echo "$RAW" | grep -E '^[0-9]+$' | tail -1)
           if ! [[ "$LATEST" =~ ^[0-9]+$ ]]; then
             echo "FATAL: Could not parse build number from output above."
-            echo "Ensure {{ASC_APP_ID}} is the numeric Apple ID (not bundle ID) from App Store Connect."
+            echo "Ensure asc_app_id ($PRODUCT_ASC_APP_ID) is the numeric Apple ID (not bundle ID) from App Store Connect."
             exit 1
           fi
           NEXT=$((LATEST + 1))
@@ -206,15 +233,15 @@ jobs:
           EXIT_CODE=0
           xcodebuild archive \
             -project "{{XCODEPROJ}}" \
-            -scheme "{{SCHEME}}" \
+            -scheme "$PRODUCT_SCHEME" \
             -configuration Release \
-            -archivePath "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive" \
+            -archivePath "{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive" \
             -allowProvisioningUpdates \
             2>&1 | xcpretty || EXIT_CODE=$?
           # Exit code 65 is a known spurious xcodebuild failure. Treat as success
           # ONLY if the .xcarchive was actually produced; otherwise fail. (pipefail
           # ensures $EXIT_CODE reflects xcodebuild's status, not xcpretty's.)
-          if [ $EXIT_CODE -eq 65 ] && [ -d "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive" ]; then
+          if [ $EXIT_CODE -eq 65 ] && [ -d "{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive" ]; then
             echo "xcodebuild exited 65 but archive exists — treating as success."
             EXIT_CODE=0
           fi
@@ -224,7 +251,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -exportArchive \
-            -archivePath "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive" \
+            -archivePath "{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive" \
             -exportOptionsPlist {{COMPONENT_PREFIX}}ExportOptions.plist \
             -exportPath {{COMPONENT_PREFIX}}build/ \
             2>&1 | xcpretty
@@ -285,7 +312,7 @@ jobs:
           # default a fleet-wide template should make on a project's behalf. Add
           # it per-project if you want source context in stack traces.
           sentry-cli debug-files upload \
-            "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive/dSYMs"
+            "{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive/dSYMs"
 
       - name: Upload to TestFlight
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
@@ -296,7 +323,7 @@ jobs:
           NOTES_FILE: ${{ steps.whats_new.outputs.notes_file }}
         run: |
           # xcodebuild names the exported IPA after the app's DISPLAY name, not
-          # the project — so `{{PROJECT_NAME}}.ipa` is only ever right by luck.
+          # the project — so a name derived from the project is only ever right by luck.
           # Any project whose CFBundleDisplayName differs from its project name,
           # or that is ever renamed, archives and signs perfectly and then dies
           # here, at the last step, with the build already paid for. Discover the
@@ -315,7 +342,7 @@ jobs:
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: '{{PROJECT_NAME}}-${{ github.ref_name }}.ipa'
+          name: '${{ matrix.product.name }}-${{ github.ref_name }}.ipa'
           # Glob, for the same reason the publish step discovers its file: the
           # export is named after the app's display name, not the project.
           path: "{{COMPONENT_PREFIX}}build/*.ipa"
@@ -329,8 +356,8 @@ jobs:
       - name: Upload dSYM artifact
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: '{{PROJECT_NAME}}-${{ github.ref_name }}.dSYM'
-          path: "{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive/dSYMs/*.dSYM"
+          name: '${{ matrix.product.name }}-${{ github.ref_name }}.dSYM'
+          path: "{{COMPONENT_PREFIX}}build/${{ matrix.product.name }}.xcarchive/dSYMs/*.dSYM"
           # This said 90, and asserted that dSYMs are kept longer because they
           # are not reproducible from a later build and crash reports arrive for
           # weeks. The reasoning is right; the number was fiction. An
@@ -359,15 +386,15 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
-          dir="{{COMPONENT_PREFIX}}build/{{PROJECT_NAME}}.xcarchive/dSYMs"
+          dir="{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive/dSYMs"
           if [ ! -d "$dir" ] || [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
             echo "::warning::no dSYMs at $dir — the release will carry no symbols"
             exit 0
           fi
           # -r for the bundle contents, and zip from inside so the archive holds
           # App.dSYM rather than a chain of build directories.
-          (cd "$dir" && zip -qry "$OLDPWD/{{PROJECT_NAME}}-${GITHUB_REF_NAME}.dSYMs.zip" .)
-          ls -lh "{{PROJECT_NAME}}-${GITHUB_REF_NAME}.dSYMs.zip"
+          (cd "$dir" && zip -qry "$OLDPWD/$PRODUCT_NAME-${GITHUB_REF_NAME}.dSYMs.zip" .)
+          ls -lh "$PRODUCT_NAME-${GITHUB_REF_NAME}.dSYMs.zip"
 
       # Release assets, not Actions artifacts, are where symbols belong for the
       # long term. They are kept indefinitely, they are NOT metered as Actions
@@ -385,7 +412,7 @@ jobs:
         with:
           files: |
             {{COMPONENT_PREFIX}}build/*.ipa
-            {{PROJECT_NAME}}-${{ github.ref_name }}.dSYMs.zip
+            ${{ matrix.product.name }}-${{ github.ref_name }}.dSYMs.zip
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}

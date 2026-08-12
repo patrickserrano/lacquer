@@ -302,7 +302,7 @@ func TestCopyWritesAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Copy(project, plan, config.Project{}); err != nil {
+	if err := Copy(project, plan, &config.Config{}); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(project, ".claude", "skills", "git.md"))
@@ -337,7 +337,7 @@ func TestCopyRefusesDirtyTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = Copy(project, plan, config.Project{})
+	err = Copy(project, plan, &config.Config{})
 	if err == nil {
 		t.Fatal("expected Copy to refuse dirty target, got nil")
 	}
@@ -359,7 +359,7 @@ func TestCopyRefusesNonGitProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Copy(project, plan, config.Project{}); err == nil {
+	if err := Copy(project, plan, &config.Config{}); err == nil {
 		t.Fatal("expected Copy to refuse a non-git project (fail-closed), got nil")
 	}
 	if _, err := os.Stat(filepath.Join(project, ".claude", "skills", "git.md")); err == nil {
@@ -381,7 +381,7 @@ func TestCopyRefusesSymlinkedDestDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Copy(project, plan, config.Project{}); err == nil {
+	if err := Copy(project, plan, &config.Config{}); err == nil {
 		t.Fatal("expected Copy to refuse writing through symlinked .claude dir")
 	}
 	if _, err := os.Stat(filepath.Join(outside, "skills", "git.md")); err == nil {
@@ -406,7 +406,7 @@ func TestCopyAllOrNothingOnConfinementViolation(t *testing.T) {
 		{Src: filepath.Join(h, "good.md"), Dest: filepath.Join(".claude", "skills", "a.md")},
 		{Src: filepath.Join(h, "good.md"), Dest: filepath.Join("escape", "CLAUDE.md")},
 	}
-	if err := Copy(project, plan, config.Project{}); err == nil {
+	if err := Copy(project, plan, &config.Config{}); err == nil {
 		t.Fatal("expected a confinement violation error, got nil")
 	}
 	// The earlier, safe asset must NOT have been written.
@@ -456,7 +456,7 @@ func TestCopyPreservesExecutableBit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Copy(project, plan, config.Project{}); err != nil {
+	if err := Copy(project, plan, &config.Config{}); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
 	fi, err := os.Stat(filepath.Join(project, "scripts", "hook.sh"))
@@ -504,7 +504,7 @@ func TestCopyRestoresExecBitOnOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Copy(project, plan, config.Project{}); err != nil {
+	if err := Copy(project, plan, &config.Config{}); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
 	fi, err := os.Stat(dest)

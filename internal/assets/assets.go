@@ -20,14 +20,14 @@ import (
 // MissingTokens returns "<token> (<dest>)" for every registered placeholder that
 // appears in an asset's source with no project value. Used by sync's fail-closed
 // preflight before any write.
-func MissingTokens(plan []Asset, proj config.Project) ([]string, error) {
+func MissingTokens(plan []Asset, cfg *config.Config) ([]string, error) {
 	var out []string
 	for _, a := range plan {
 		data, err := os.ReadFile(a.Src)
 		if err != nil {
 			return nil, fmt.Errorf("read asset %s: %w", a.Src, err)
 		}
-		if _, missing := tokens.Substitute(string(data), tokens.Values(proj, a.Prefix)); len(missing) > 0 {
+		if _, missing := tokens.Substitute(string(data), tokens.Values(cfg.Project, a.Prefix, cfg.Products())); len(missing) > 0 {
 			for _, m := range missing {
 				out = append(out, fmt.Sprintf("%s (%s)", m, a.Dest))
 			}
@@ -271,16 +271,16 @@ func Preflight(projectRoot string, plan []Asset) ([]string, error) {
 
 // Copy preflights and then writes. Kept for callers that do no writing of their
 // own; sync uses Preflight + Write so its region writes sit behind this check.
-func Copy(projectRoot string, plan []Asset, proj config.Project) error {
+func Copy(projectRoot string, plan []Asset, cfg *config.Config) error {
 	targets, err := Preflight(projectRoot, plan)
 	if err != nil {
 		return err
 	}
-	return Write(projectRoot, plan, proj, targets)
+	return Write(projectRoot, plan, cfg, targets)
 }
 
 // Write copies the planned assets using targets from a prior Preflight.
-func Write(projectRoot string, plan []Asset, proj config.Project, targets []string) error {
+func Write(projectRoot string, plan []Asset, cfg *config.Config, targets []string) error {
 	for i, a := range plan {
 		target := targets[i]
 		data, err := os.ReadFile(a.Src)
@@ -290,7 +290,7 @@ func Write(projectRoot string, plan []Asset, proj config.Project, targets []stri
 		// Substitute per-project placeholders + this asset's component prefix. Any
 		// missing value should already have been caught by sync's preflight;
 		// substitute regardless (leaves an unresolved token rather than corrupting).
-		substituted, _ := tokens.Substitute(string(data), tokens.Values(proj, a.Prefix))
+		substituted, _ := tokens.Substitute(string(data), tokens.Values(cfg.Project, a.Prefix, cfg.Products()))
 		data = []byte(substituted)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
