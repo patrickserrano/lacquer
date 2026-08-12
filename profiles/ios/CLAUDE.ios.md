@@ -28,6 +28,10 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 
 - **Subscription / IAP apps (Guideline 3.1.2):** the **paywall/purchase screen itself** must clearly show price, duration, auto-renewal terms, and how to cancel — not just the description — and both the **privacy policy** and **terms of use (EULA)** links must be **clickable on that screen** (in the binary, not only in metadata). See [Premium / Subscription Gating](#premium--subscription-gating-if-monetized).
 
+- **No price in the app name or icon (Guideline 2.3.7).** "Free", "Lite (Free)", a price, or a `FREE` badge burned into the icon artwork all get rejected — in the **App Store name**, the **on-device name**, and the **icon image itself**. The description is exempt. On a free/paid pair this bites the free product: set both `CFBundleDisplayName` **and** `CFBundleName` (the fallback iOS shows in Settings, which otherwise defaults to `$(PRODUCT_NAME)`), and check the 1024pt icon for baked-in badge text.
+
+- **A version train closes permanently once its version reaches `READY_FOR_SALE`.** Uploading another build against that same marketing version fails with **error 90186** ("Invalid Pre-Release Train"), no matter the build number. A shipped app needs a **version bump** to accept a new build. In a repo shipping several apps, this is why one release trigger must never fan out to every product: the already-shipped one can only fail.
+
 ## Secrets & Service Keys
 
 Two separate buckets — never mix them.
