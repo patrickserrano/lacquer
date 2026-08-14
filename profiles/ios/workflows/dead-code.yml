@@ -39,66 +39,66 @@ jobs:
         run: |
           cd {{COMPONENT_PREFIX}}.
           if [ ! -f periphery-report.json ]; then
-            echo "count=0" >> $GITHUB_OUTPUT
-            echo "has_dead_code=false" >> $GITHUB_OUTPUT
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            echo "has_dead_code=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Count total issues
           COUNT=$(jq 'length' periphery-report.json 2>/dev/null || echo "0")
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
 
           if [ "$COUNT" -gt "0" ]; then
-            echo "has_dead_code=true" >> $GITHUB_OUTPUT
+            echo "has_dead_code=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_dead_code=false" >> $GITHUB_OUTPUT
+            echo "has_dead_code=false" >> "$GITHUB_OUTPUT"
           fi
 
           # Generate detailed summary
-          echo "## iOS Dead Code Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## iOS Dead Code Analysis" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$COUNT" -eq "0" ]; then
-            echo "No dead code found!" >> $GITHUB_STEP_SUMMARY
+            echo "No dead code found!" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          echo "Found **$COUNT** unused declarations:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Found **$COUNT** unused declarations:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
           # Group by kind and show details
-          echo "### By Category" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Category | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "### By Category" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Category | Count |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
 
           jq -r 'group_by(.kind) | .[] | "\(.[ 0].kind)|\(length)"' periphery-report.json | \
           while IFS='|' read -r kind count; do
-            echo "| $kind | $count |" >> $GITHUB_STEP_SUMMARY
+            echo "| $kind | $count |" >> "$GITHUB_STEP_SUMMARY"
           done
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Details" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "<details>" >> $GITHUB_STEP_SUMMARY
-          echo "<summary>Click to expand full list</summary>" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Line | Kind | Name |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|------|------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Details" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "<details>" >> "$GITHUB_STEP_SUMMARY"
+          echo "<summary>Click to expand full list</summary>" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| File | Line | Kind | Name |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|------|------|------|" >> "$GITHUB_STEP_SUMMARY"
 
           # Show up to 50 items
           jq -r '.[:50] | .[] | "\(.location.file | split("/") | last)|\(.location.line)|\(.kind)|\(.name)"' periphery-report.json | \
           while IFS='|' read -r file line kind name; do
-            echo "| \`$file\` | $line | $kind | \`$name\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| \`$file\` | $line | $kind | \`$name\` |" >> "$GITHUB_STEP_SUMMARY"
           done
 
           if [ "$COUNT" -gt "50" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "_...and $((COUNT - 50)) more. See full report in artifacts._" >> $GITHUB_STEP_SUMMARY
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "_...and $((COUNT - 50)) more. See full report in artifacts._" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "</details>" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$COUNT" -gt "$DEAD_CODE_THRESHOLD" ]; then
             echo "::warning::Found $COUNT unused iOS code declarations (threshold: $DEAD_CODE_THRESHOLD)"
@@ -127,10 +127,10 @@ jobs:
           # Look for an open issue with the dead-code label
           EXISTING=$(gh issue list --label "dead-code" --state open --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "issue_number=$EXISTING" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "issue_number=$EXISTING" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download reports
