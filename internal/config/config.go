@@ -279,6 +279,10 @@ var (
 	// rendered into workflow YAML as `${{ secrets.NAME }}`, so the charset has
 	// to exclude anything that could close the expression.
 	secretNameVal = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	// globPatternVal is the charset allowed in a secret_formats glob. It is
+	// rendered unquoted into a shell `case`, so (, ), |, & and every quoting or
+	// substitution character are excluded.
+	globPatternVal = regexp.MustCompile(`^[A-Za-z0-9_~.:/*?-]+$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -426,6 +430,16 @@ type Product struct {
 	// root. Defaults to Secrets.xcconfig, which is what the profile's example
 	// file and .gitignore already assume.
 	SecretsFile string `toml:"secrets_file"`
+	// SecretFormats optionally constrains the SHAPE of a secret's value, as a
+	// shell glob checked at release time: "appl_*", "ca-app-pub-*~*".
+	//
+	// Non-empty is not the same as correct. The keys these guard are copied
+	// between dashboards by hand, and the two ways they go wrong — pasting the
+	// paid app's key into the free app, or leaving Google's public test AdMob ID
+	// in place — both produce a perfectly non-empty value. Nothing downstream
+	// notices: it builds, signs, uploads, passes review, and serves the wrong
+	// ads or no subscriptions to real users.
+	SecretFormats map[string]string `toml:"secret_formats"`
 }
 
 // SecretsPath is the xcconfig this product's release-time secrets are written
@@ -536,6 +550,20 @@ func Load(path string) (*Config, error) {
 			}
 			if strings.HasPrefix(secret, "GITHUB_") {
 				return nil, fmt.Errorf("[[product]] %q: secrets.%s = %q — GitHub refuses secret names starting with GITHUB_", p.Name, key, secret)
+			}
+		}
+		for key, pattern := range p.SecretFormats {
+			if _, ok := p.Secrets[key]; !ok {
+				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s has no matching entry in secrets", p.Name, key)
+			}
+			if pattern == "" {
+				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s is empty", p.Name, key)
+			}
+			// Rendered UNQUOTED as a `case` pattern, where (, ), | and & change
+			// the parse. Restricting the charset is what keeps a manifest from
+			// injecting shell into a release.
+			if !globPatternVal.MatchString(pattern) {
+				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s = %q has characters that are unsafe in a shell pattern", p.Name, key, pattern)
 			}
 		}
 		if p.SecretsFile != "" {

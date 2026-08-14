@@ -255,6 +255,21 @@ func ProductSecrets(products []config.Product) string {
 			// xcodebuild — it would build, sign, upload, and be wrong.
 			fmt.Fprintf(&b, "          : \"${%s:?%s is not set — it is required to release %s}\"\n", k, p.Secrets[k], p.Name)
 		}
+		for _, k := range keys {
+			pattern, ok := p.SecretFormats[k]
+			if !ok {
+				continue
+			}
+			// Non-empty is not the same as correct. Pasting the paid app's key
+			// into the free app, or shipping Google's public test AdMob ID, both
+			// produce a perfectly non-empty value that builds, signs, uploads
+			// and passes review.
+			fmt.Fprintf(&b, "          case \"$%s\" in\n", k)
+			fmt.Fprintf(&b, "            %s) ;;\n", pattern)
+			fmt.Fprintf(&b, "            *) echo \"::error::%s (from secret %s) does not match %s — releasing %s with it would ship the wrong key\"; exit 1 ;;\n",
+				k, p.Secrets[k], pattern, p.Name)
+			b.WriteString("          esac\n")
+		}
 		fmt.Fprintf(&b, "          mkdir -p \"$(dirname %q)\"\n", p.SecretsPath())
 		b.WriteString("          {\n")
 		for _, k := range keys {

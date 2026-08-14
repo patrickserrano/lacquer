@@ -716,3 +716,21 @@ func TestPastedCredentialIsRejected(t *testing.T) {
 		t.Errorf("error should name the problem, got: %v", err)
 	}
 }
+
+// The pattern is rendered UNQUOTED into a shell `case`, where (, ), | and &
+// change the parse. Restricting the charset is what keeps a manifest from
+// injecting shell into a release.
+func TestSecretFormatRejectsShellMetacharacters(t *testing.T) {
+	base := "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n" +
+		"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\ntag_prefix=\"lite-v\"\n" +
+		"secrets = { K = \"LITE_K\" }\n"
+	if _, err := loadString(t, base+"secret_formats = { K = \"appl_*|*) rm -rf /;;\" }\n"); err == nil {
+		t.Error("a pattern containing shell metacharacters must be rejected")
+	}
+	if _, err := loadString(t, base+"secret_formats = { NOPE = \"appl_*\" }\n"); err == nil {
+		t.Error("a format for a key with no matching secret must be rejected")
+	}
+	if _, err := loadString(t, base+"secret_formats = { K = \"appl_*\" }\n"); err != nil {
+		t.Errorf("a valid glob must load: %v", err)
+	}
+}

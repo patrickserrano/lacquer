@@ -104,7 +104,15 @@ asc_app_id = "1111111111"
 tag_prefix = "myapplite"
 secrets_file = "Config/Monetization.xcconfig"   # optional, defaults to Secrets.xcconfig
 secrets = { REVENUECAT_API_KEY = "LITE_REVENUECAT_KEY", ADMOB_APP_ID = "LITE_ADMOB_APP_ID" }
+secret_formats = { REVENUECAT_API_KEY = "appl_*", ADMOB_APP_ID = "ca-app-pub-*~*" }
 ```
+
+`secret_formats` optionally constrains a value's **shape**, as a shell glob
+checked at release time. Non-empty is not the same as correct: the two ways
+these keys actually go wrong — pasting another app's key, or leaving Google's
+public test AdMob ID in place — both produce a perfectly non-empty value that
+builds, signs, uploads and passes review, then serves the wrong ads to real
+users. A mismatch fails the release without echoing the value.
 
 The manifest holds the secret's **name**; the value stays in GitHub. `lacquer`
 rejects a value that looks like a real credential, because this file is

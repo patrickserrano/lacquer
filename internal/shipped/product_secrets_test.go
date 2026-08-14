@@ -2,6 +2,7 @@ package shipped
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -143,5 +144,60 @@ func TestReleaseTagsDefaultToV(t *testing.T) {
 	}}
 	if !strings.Contains(renderRelease(t, cfg), "- 'v*'") {
 		t.Error("a project with no products lost the historical 'v*' tag filter")
+	}
+}
+
+// Non-empty is not the same as correct. The two ways these keys actually go
+// wrong — pasting the paid app's key into the free app, and leaving Google's
+// public test AdMob ID in place — both produce a perfectly non-empty value that
+// builds, signs, uploads and passes review.
+func TestSecretFormatsRejectWrongShapedValues(t *testing.T) {
+	cfg := &config.Config{
+		Project: config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
+		Product: []config.Product{
+			{Name: "Paid", Scheme: "Paid", BundleID: "com.x.paid", AscAppID: "111", TagPrefix: "paid-v"},
+			{Name: "Lite", Scheme: "Lite", BundleID: "com.x.lite", AscAppID: "222", TagPrefix: "lite-v",
+				Secrets:       map[string]string{"REVENUECAT_API_KEY": "LITE_RC_KEY", "GAD_APP_ID": "LITE_GAD_ID"},
+				SecretFormats: map[string]string{"REVENUECAT_API_KEY": "appl_*", "GAD_APP_ID": "ca-app-pub-*~*"}},
+		},
+	}
+	var run string
+	for _, st := range steps(t, renderRelease(t, cfg)) {
+		if name, _ := st["name"].(string); strings.Contains(name, "Write release configuration") {
+			run, _ = st["run"].(string)
+		}
+	}
+	if run == "" {
+		t.Fatal("no config step rendered")
+	}
+
+	for _, tc := range []struct {
+		name       string
+		rc, gad    string
+		wantReject bool
+	}{
+		{"both valid", "appl_realkey", "ca-app-pub-123~456", false},
+		// The paid app's RevenueCat key is a `goog_`/`appl_` sibling from another
+		// app; a raw uuid is the common paste error.
+		{"revenuecat key wrong shape", "8f3a-not-a-key", "ca-app-pub-123~456", true},
+		// Google's public test ID has no `~unit` suffix in the form projects
+		// paste, and shipping it means the app serves test ads to real users.
+		{"admob id wrong shape", "appl_realkey", "ca-app-pub-3940256099942544", true},
+		{"empty value", "", "ca-app-pub-123~456", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cmd := exec.Command("bash", "-c", "cd "+dir+"\n"+run)
+			cmd.Env = append(os.Environ(), "REVENUECAT_API_KEY="+tc.rc, "GAD_APP_ID="+tc.gad)
+			out, err := cmd.CombinedOutput()
+			if rejected := err != nil; rejected != tc.wantReject {
+				t.Fatalf("rejected=%v want %v; output: %s", rejected, tc.wantReject, out)
+			}
+			// A rejection must never echo the value it rejected — CI logs are
+			// broader-read than the secret itself.
+			if tc.wantReject && tc.rc != "" && strings.Contains(string(out), tc.rc) {
+				t.Errorf("the error printed the secret's value: %s", out)
+			}
+		})
 	}
 }
