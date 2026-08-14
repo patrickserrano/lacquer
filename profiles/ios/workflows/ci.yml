@@ -272,7 +272,7 @@ jobs:
       - name: Install xcpretty
         run: |
           gem install xcpretty -v 0.4.1 --user-install --no-document
-          echo "XCPRETTY=$(ruby -e 'puts File.join(Gem.user_dir, "bin", "xcpretty")')" >> $GITHUB_ENV
+          echo "XCPRETTY=$(ruby -e 'puts File.join(Gem.user_dir, "bin", "xcpretty")')" >> "$GITHUB_ENV"
 
       - name: Build Release
         run: |
@@ -425,7 +425,7 @@ jobs:
       - name: Install xcpretty
         run: |
           gem install xcpretty -v 0.4.1 --user-install --no-document
-          echo "XCPRETTY=$(ruby -e 'puts File.join(Gem.user_dir, "bin", "xcpretty")')" >> $GITHUB_ENV
+          echo "XCPRETTY=$(ruby -e 'puts File.join(Gem.user_dir, "bin", "xcpretty")')" >> "$GITHUB_ENV"
 
       - name: Clean stale build intermediates
         run: |
@@ -522,7 +522,7 @@ jobs:
 
           echo "Creating $SIM_NAME simulator..."
           DEVICE_ID=$(xcrun simctl create "$SIM_NAME" "iPhone 17 Pro" "$PINNED_RUNTIME")
-          echo "device_id=$DEVICE_ID" >> $GITHUB_OUTPUT
+          echo "device_id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
           echo "Created new simulator: $SIM_NAME ($DEVICE_ID)"
 
           xcrun simctl boot "$DEVICE_ID"
@@ -651,12 +651,12 @@ jobs:
 
               if [ "$RESULT" = "Passed" ] && [ "$FAILED_COUNT" = "0" ]; then
                 echo "All tests passed (0 failed). Exit code 65 was spurious."
-                echo "test_result=passed" >> $GITHUB_OUTPUT
+                echo "test_result=passed" >> "$GITHUB_OUTPUT"
                 exit 0
               elif [ -n "$RESULT" ] && [ -n "$FAILED_COUNT" ]; then
                 echo "Test failures detected via xcresulttool: $FAILED_COUNT failed (result: $RESULT)"
-                echo "test_result=failed" >> $GITHUB_OUTPUT
-                echo "failure_count=$FAILED_COUNT" >> $GITHUB_OUTPUT
+                echo "test_result=failed" >> "$GITHUB_OUTPUT"
+                echo "failure_count=$FAILED_COUNT" >> "$GITHUB_OUTPUT"
                 exit 65
               fi
             fi
@@ -667,15 +667,15 @@ jobs:
             # lands here and fails the job. Treating "I could not tell" as "it
             # passed" is the exact assumption that shipped the false green.
             echo "::error::Could not reliably determine test results from xcresult (xcresulttool exit=$SUMMARY_EXIT). Treating as a failure rather than silently passing."
-            echo "test_result=unknown" >> $GITHUB_OUTPUT
+            echo "test_result=unknown" >> "$GITHUB_OUTPUT"
             exit 1
 
           elif [ $EXIT_CODE -ne 0 ]; then
             echo "::error::xcodebuild failed with exit code $EXIT_CODE"
-            echo "test_result=failed" >> $GITHUB_OUTPUT
+            echo "test_result=failed" >> "$GITHUB_OUTPUT"
             exit $EXIT_CODE
           else
-            echo "test_result=passed" >> $GITHUB_OUTPUT
+            echo "test_result=passed" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Collect Simulator Diagnostics
@@ -691,16 +691,16 @@ jobs:
       - name: Generate Test Summary
         if: always() && steps.tests.outputs.test_result != ''
         run: |
-          echo "## iOS Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## iOS Test Results" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${{ steps.tests.outputs.test_result }}" = "passed" ]; then
-            echo "All tests passed" >> $GITHUB_STEP_SUMMARY
+            echo "All tests passed" >> "$GITHUB_STEP_SUMMARY"
           elif [ "${{ steps.tests.outputs.test_result }}" = "failed" ]; then
-            echo "Tests failed" >> $GITHUB_STEP_SUMMARY
+            echo "Tests failed" >> "$GITHUB_STEP_SUMMARY"
 
             if [ -d "TestResults.xcresult" ]; then
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "### Failed Tests" >> $GITHUB_STEP_SUMMARY
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "### Failed Tests" >> "$GITHUB_STEP_SUMMARY"
 
               # Modern `get test-results tests` subcommand — the legacy
               # `get --format json` form used here too, and is refused by current
@@ -711,15 +711,15 @@ jobs:
                 jq -r '.. | objects | select(.result? == "Failed" and .nodeType? == "Test Case") | .nodeIdentifier // empty' 2>/dev/null | head -20)
 
               if [ -n "$FAILED_TESTS" ]; then
-                echo '```' >> $GITHUB_STEP_SUMMARY
-                echo "$FAILED_TESTS" >> $GITHUB_STEP_SUMMARY
-                echo '```' >> $GITHUB_STEP_SUMMARY
+                echo '```' >> "$GITHUB_STEP_SUMMARY"
+                echo "$FAILED_TESTS" >> "$GITHUB_STEP_SUMMARY"
+                echo '```' >> "$GITHUB_STEP_SUMMARY"
               else
-                grep -E "Test Case .* failed" xcodebuild.log 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+                grep -E "Test Case .* failed" xcodebuild.log 2>/dev/null | head -20 >> "$GITHUB_STEP_SUMMARY" || echo "See logs for details" >> "$GITHUB_STEP_SUMMARY"
               fi
             fi
           else
-            echo "Test result unknown - check logs" >> $GITHUB_STEP_SUMMARY
+            echo "Test result unknown - check logs" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Check Coverage
@@ -730,17 +730,17 @@ jobs:
             jq '.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100' | \
             xargs printf "%.1f")
 
-          echo "## iOS Test Coverage: ${APP_COVERAGE}%" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "_Coverage calculated for {{PROJECT_NAME}}.app target only (excludes third-party dependencies)_" >> $GITHUB_STEP_SUMMARY
+          echo "## iOS Test Coverage: ${APP_COVERAGE}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "_Coverage calculated for {{PROJECT_NAME}}.app target only (excludes third-party dependencies)_" >> "$GITHUB_STEP_SUMMARY"
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Coverage by Target" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Coverage by Target" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
           xcrun xccov view --report --json TestResults.xcresult | \
             jq -r '.targets[] | "\(.lineCoverage * 100 | floor)% \(.name)"' | \
-            sort -rn >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+            sort -rn >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
           if (( $(echo "$APP_COVERAGE < 80" | bc -l) )); then
             echo "::warning::App coverage ${APP_COVERAGE}% is below 80% threshold"

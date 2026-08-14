@@ -59,11 +59,11 @@ jobs:
           echo "  Total: $TOTAL_RUNNING"
 
           if [ "$TOTAL_RUNNING" -gt 0 ]; then
-            echo "has_running_jobs=true" >> $GITHUB_OUTPUT
-            echo "running_count=$TOTAL_RUNNING" >> $GITHUB_OUTPUT
+            echo "has_running_jobs=true" >> "$GITHUB_OUTPUT"
+            echo "running_count=$TOTAL_RUNNING" >> "$GITHUB_OUTPUT"
           else
-            echo "has_running_jobs=false" >> $GITHUB_OUTPUT
-            echo "running_count=0" >> $GITHUB_OUTPUT
+            echo "has_running_jobs=false" >> "$GITHUB_OUTPUT"
+            echo "running_count=0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Skip Cleanup if Jobs Running (scheduled only)
