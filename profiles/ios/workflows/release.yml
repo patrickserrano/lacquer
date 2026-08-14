@@ -300,6 +300,7 @@ jobs:
           echo "Build number: $LATEST -> $NEXT"
           cd {{COMPONENT_PREFIX}}. && agvtool new-version -all "$NEXT"
 
+{{IOS_PRODUCT_SECRETS}}
       - name: Clean stale build intermediates
         run: |
           # Gitignored output from a prior run persists between runs on the

@@ -275,6 +275,10 @@ var (
 	// tagPrefixVal restricts a product's tag prefix. It is compared against a
 	// ref name inside shell, so it stays on a charset with no metacharacters.
 	tagPrefixVal = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+	// secretNameVal is the GitHub Actions secret-name charset. Names are
+	// rendered into workflow YAML as `${{ secrets.NAME }}`, so the charset has
+	// to exclude anything that could close the expression.
+	secretNameVal = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -408,6 +412,29 @@ type Product struct {
 	// tag-prefix resolver; that lesson belongs to every project shipping more
 	// than one app, not to one repository's scripts directory.
 	TagPrefix string `toml:"tag_prefix"`
+	// Secrets maps an xcconfig key to the name of the GitHub Actions secret
+	// holding its value, for keys this product needs REAL values for at release
+	// time — monetization SDK keys, ad unit IDs.
+	//
+	// Release deliberately does not seed placeholders the way ci.yml does. CI
+	// seeds them because tests must run without production keys; a release that
+	// did the same would sign and ship an IPA wired to `appl_xxxxxxxx`, and
+	// nothing would look wrong until the revenue didn't arrive. A missing key
+	// must stop a release, not decorate one.
+	Secrets map[string]string `toml:"secrets"`
+	// SecretsFile is where those values are written, relative to the component
+	// root. Defaults to Secrets.xcconfig, which is what the profile's example
+	// file and .gitignore already assume.
+	SecretsFile string `toml:"secrets_file"`
+}
+
+// SecretsPath is the xcconfig this product's release-time secrets are written
+// to.
+func (p Product) SecretsPath() string {
+	if p.SecretsFile != "" {
+		return p.SecretsFile
+	}
+	return "Secrets.xcconfig"
 }
 
 type Component struct {
@@ -482,6 +509,35 @@ func Load(path string) (*Config, error) {
 		}
 		if p.TagPrefix != "" && !tagPrefixVal.MatchString(p.TagPrefix) {
 			return nil, fmt.Errorf("[[product]] %q: invalid tag_prefix %q (letters, digits, - and _ only)", p.Name, p.TagPrefix)
+		}
+		for key, secret := range p.Secrets {
+			// The xcconfig key. Written to the left of `=` in a generated
+			// Secrets.xcconfig, so it stays on the identifier charset.
+			if !envNameVal.MatchString(key) {
+				return nil, fmt.Errorf("[[product]] %q: invalid secrets key %q", p.Name, key)
+			}
+			if !secretNameVal.MatchString(secret) {
+				return nil, fmt.Errorf("[[product]] %q: secrets.%s must be the NAME of a GitHub secret, not a value (got %q)", p.Name, key, secret)
+			}
+			// The whole point is that the value lives in GitHub and the name
+			// lives here. A manifest is committed; a pasted key is a leaked key,
+			// and these prefixes are what the real ones actually look like.
+			for _, prefix := range []string{"appl_", "goog_", "sk_", "sk-", "ca-app-pub-", "https://"} {
+				if strings.HasPrefix(secret, prefix) {
+					return nil, fmt.Errorf("[[product]] %q: secrets.%s looks like a real credential, not a secret name — this file is committed", p.Name, key)
+				}
+			}
+			if strings.HasPrefix(secret, "GITHUB_") {
+				return nil, fmt.Errorf("[[product]] %q: secrets.%s = %q — GitHub refuses secret names starting with GITHUB_", p.Name, key, secret)
+			}
+		}
+		if p.SecretsFile != "" {
+			if filepath.IsAbs(p.SecretsFile) || !filepath.IsLocal(p.SecretsFile) {
+				return nil, fmt.Errorf("[[product]] %q: secrets_file %q must be a relative path inside the project", p.Name, p.SecretsFile)
+			}
+			if len(p.Secrets) == 0 {
+				return nil, fmt.Errorf("[[product]] %q: secrets_file set but no secrets declared", p.Name)
+			}
 		}
 		if seenProduct[p.Name] {
 			// Names become artifact names and matrix keys; duplicates would
