@@ -71,6 +71,13 @@ tag_prefix = "myapplite"
 Declaring none is the normal case: `[project]` is then treated as the single
 product, and every tag releases it.
 
+`tag_prefix` is required once a project declares more than one product — a blank
+prefix means "every tag releases this", which is right with one product and
+incoherent with two. It also **derives the release workflow's push-tag filter**:
+a repo whose products are prefixed `steps-v` and `stepsfree-v` triggers on those
+patterns, not on `v*`. A project declaring no products keeps the historical
+`v*`.
+
 `tag_prefix` decides which product a tag releases. `myapp-v2.1.0` releases
 MyApp and leaves the Lite app alone. **One tag must release exactly one
 product.** An App Store version train closes permanently once its version

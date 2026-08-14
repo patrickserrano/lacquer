@@ -654,8 +654,8 @@ func TestProductsSynthesisesOneWhenNoneDeclared(t *testing.T) {
 
 func TestProductsUsesDeclaredEntries(t *testing.T) {
 	cfg, err := loadString(t, "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n"+
-		"[[product]]\nname=\"Paid\"\nscheme=\"Paid\"\nbundle_id=\"com.x.paid\"\nasc_app_id=\"111\"\n\n"+
-		"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\n")
+		"[[product]]\nname=\"Paid\"\nscheme=\"Paid\"\nbundle_id=\"com.x.paid\"\nasc_app_id=\"111\"\ntag_prefix=\"paid-v\"\n\n"+
+		"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\ntag_prefix=\"lite-v\"\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -685,5 +685,34 @@ func TestLoadRejectsUnsafeProductFields(t *testing.T) {
 		if _, err := loadString(t, base+bad); err == nil {
 			t.Errorf("expected rejection of product fields:\n%s", bad)
 		}
+	}
+}
+
+// A blank prefix means "every tag releases this product". That is exactly right
+// with one product and incoherent with two: the other product's tags would
+// release this one as well, which is the fan-out that fails with error 90186.
+func TestSecondProductRequiresTagPrefix(t *testing.T) {
+	_, err := loadString(t, "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n"+
+		"[[product]]\nname=\"Paid\"\nscheme=\"Paid\"\nbundle_id=\"com.x.paid\"\nasc_app_id=\"111\"\ntag_prefix=\"paid-v\"\n\n"+
+		"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\n")
+	if err == nil {
+		t.Fatal("a second product with no tag_prefix must be rejected")
+	}
+	if !strings.Contains(err.Error(), "tag_prefix is required") {
+		t.Errorf("error should say what is missing, got: %v", err)
+	}
+}
+
+// The manifest holds the secret's NAME; the value stays in GitHub. This file is
+// committed, so a pasted credential must not load.
+func TestPastedCredentialIsRejected(t *testing.T) {
+	_, err := loadString(t, "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n"+
+		"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\ntag_prefix=\"lite-v\"\n"+
+		"secrets = { REVENUECAT_API_KEY = \"appl_abcdef123456\" }\n")
+	if err == nil {
+		t.Fatal("a pasted credential must be rejected")
+	}
+	if !strings.Contains(err.Error(), "looks like a real credential") {
+		t.Errorf("error should name the problem, got: %v", err)
 	}
 }

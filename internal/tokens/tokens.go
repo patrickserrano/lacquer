@@ -64,6 +64,15 @@ const (
 	// because the common case renders NOTHING and a leftover blank `- name:`
 	// would be a syntax error.
 	IOSProductSecrets = "{{IOS_PRODUCT_SECRETS}}"
+	// IOSReleaseTags is the release workflow's push-tag filter, derived from the
+	// products' tag prefixes.
+	//
+	// It has to be derived, not fixed at 'v*'. One project tags `steps-v1.2.3`
+	// and `stepsfree-v1.2.3`, neither of which starts with `v` — under a fixed
+	// filter, adopting this workflow would mean no tag ever starts a release.
+	// Nothing errors and nothing runs, which is the worst way for a release
+	// pipeline to break.
+	IOSReleaseTags = "{{IOS_RELEASE_TAGS}}"
 )
 
 // entry is a registered token and whether a non-empty value is required. A
@@ -87,6 +96,7 @@ var registry = []entry{
 	{IOSProductCatalog, false},
 	{IOSProductChoices, false},
 	{IOSProductSecrets, false},
+	{IOSReleaseTags, false},
 }
 
 // Prefix converts a component path to a path prefix: "." -> "", "ios" -> "ios/".
@@ -117,6 +127,7 @@ func Values(p config.Project, prefix string, products []config.Product) map[stri
 		IOSProductCatalog: ProductCatalog(products),
 		IOSProductChoices: ProductChoices(products),
 		IOSProductSecrets: ProductSecrets(products),
+		IOSReleaseTags:    ReleaseTags(products),
 	}
 }
 
@@ -252,6 +263,30 @@ func ProductSecrets(products []config.Product) string {
 			fmt.Fprintf(&b, "            printf '%%s = %%s\\n' %q \"$%s\"\n", k, k)
 		}
 		fmt.Fprintf(&b, "          } > %q\n", p.SecretsPath())
+	}
+	return b.String()
+}
+
+// ReleaseTags renders the push-tag filter: one pattern per product prefix, or
+// the historical 'v*' when nothing declares one.
+func ReleaseTags(products []config.Product) string {
+	var pats []string
+	for _, p := range products {
+		if p.TagPrefix != "" {
+			pats = append(pats, p.TagPrefix+"*")
+		}
+	}
+	if len(pats) == 0 {
+		// The single-product case, and every project that predates products.
+		return "      - 'v*'"
+	}
+	sort.Strings(pats)
+	var b strings.Builder
+	for i, pat := range pats {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "      - '%s'", pat)
 	}
 	return b.String()
 }

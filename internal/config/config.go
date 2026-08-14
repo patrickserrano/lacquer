@@ -507,6 +507,13 @@ func Load(path string) (*Config, error) {
 		if !projAscVal.MatchString(p.AscAppID) {
 			return nil, fmt.Errorf("[[product]] %q: invalid asc_app_id %q (want the numeric Apple ID)", p.Name, p.AscAppID)
 		}
+		// A blank prefix means "every tag releases this product". That is exactly
+		// right with one product and incoherent with two: the other product's
+		// tags would release this one as well, which is the fan-out that fails
+		// with error 90186.
+		if len(cfg.Product) > 1 && p.TagPrefix == "" {
+			return nil, fmt.Errorf("[[product]] %q: tag_prefix is required when a project declares more than one product, or every tag releases it", p.Name)
+		}
 		if p.TagPrefix != "" && !tagPrefixVal.MatchString(p.TagPrefix) {
 			return nil, fmt.Errorf("[[product]] %q: invalid tag_prefix %q (letters, digits, - and _ only)", p.Name, p.TagPrefix)
 		}

@@ -2,8 +2,11 @@ name: iOS Release
 
 on:
   push:
+    # Derived from the products' tag prefixes — see IOS_RELEASE_TAGS. A repo
+    # tagging `steps-v1.2.3` has no tag starting with `v`, and a fixed 'v*'
+    # filter would mean no tag ever starts a release.
     tags:
-      - 'v*'
+{{IOS_RELEASE_TAGS}}
   workflow_dispatch:
     inputs:
       skip_testflight:
