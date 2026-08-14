@@ -272,6 +272,9 @@ var (
 	// envNameVal is the POSIX environment-variable name charset. See
 	// [project].build_env — these are rendered into synced workflow YAML.
 	envNameVal = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	// tagPrefixVal restricts a product's tag prefix. It is compared against a
+	// ref name inside shell, so it stays on a charset with no metacharacters.
+	tagPrefixVal = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -393,6 +396,18 @@ type Product struct {
 	Scheme   string `toml:"scheme"`
 	BundleID string `toml:"bundle_id"`
 	AscAppID string `toml:"asc_app_id"`
+	// TagPrefix scopes this product to tags that start with it, so one tag
+	// releases one app. Blank means every tag releases this product, which is
+	// the correct and only sensible behaviour when there is just one.
+	//
+	// It exists because releasing both products on one tag cannot work. An App
+	// Store version train closes permanently once its version reaches
+	// READY_FOR_SALE, so a both-apps tag drags the already-shipped product back
+	// through a closed train and fails with error 90186 — every time, for the
+	// life of that version. One project discovered this and wrote its own
+	// tag-prefix resolver; that lesson belongs to every project shipping more
+	// than one app, not to one repository's scripts directory.
+	TagPrefix string `toml:"tag_prefix"`
 }
 
 type Component struct {
@@ -464,6 +479,9 @@ func Load(path string) (*Config, error) {
 		}
 		if !projAscVal.MatchString(p.AscAppID) {
 			return nil, fmt.Errorf("[[product]] %q: invalid asc_app_id %q (want the numeric Apple ID)", p.Name, p.AscAppID)
+		}
+		if p.TagPrefix != "" && !tagPrefixVal.MatchString(p.TagPrefix) {
+			return nil, fmt.Errorf("[[product]] %q: invalid tag_prefix %q (letters, digits, - and _ only)", p.Name, p.TagPrefix)
 		}
 		if seenProduct[p.Name] {
 			// Names become artifact names and matrix keys; duplicates would

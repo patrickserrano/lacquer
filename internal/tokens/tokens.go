@@ -34,16 +34,21 @@ const (
 	// is parsed, for both the empty and populated cases. What ships is what gets
 	// checked.
 	WebBuildEnv = "{{WEB_BUILD_ENV}}"
-	// IOSProductMatrix expands to the `product:` entries of a job matrix — one
-	// per shippable app. Like WebBuildEnv it owns its own indentation and sits
-	// alone on its line; unlike it, it is NEVER empty, because every project has
-	// at least one product (synthesised from [project] when none is declared).
+	// IOSProductCatalog is every product as a single-line JSON array, embedded in
+	// the release workflow's selection step. That step filters it by tag prefix
+	// and emits the matrix, because GitHub does not expose the `matrix` context
+	// to a job-level `if:` — a leg cannot skip itself, so the set has to be
+	// decided before the matrix exists.
+	IOSProductCatalog = "{{IOS_PRODUCT_CATALOG}}"
+	// IOSProductChoices is the workflow_dispatch dropdown of releasable
+	// products: `all` plus one entry per product.
 	//
-	// That is the point: the release workflow has one shape. A single-app
-	// project gets a one-entry matrix and behaves exactly as it did before a
-	// matrix existed, so multi-product support costs the other twelve projects
-	// nothing and leaves no second code path to drift.
-	IOSProductMatrix = "{{IOS_PRODUCT_MATRIX}}"
+	// A dropdown rather than free text because this is where an operator picks
+	// by hand, and a typo would otherwise reach the fail-closed branch and waste
+	// a run. Like WebBuildEnv it stands alone at column 0 and owns its own
+	// indentation, because product names contain spaces ("A Bible Verse Each Day
+	// Paid") and each option has to be quoted on its own line.
+	IOSProductChoices = "{{IOS_PRODUCT_CHOICES}}"
 )
 
 // entry is a registered token and whether a non-empty value is required. A
@@ -64,7 +69,8 @@ var registry = []entry{
 	{GithubOrg, false}, // empty is valid: a project may not have a repo/org yet
 	{ComponentPrefix, false},
 	{WebBuildEnv, false}, // empty is valid and common: most projects need no build secrets
-	{IOSProductMatrix, false},
+	{IOSProductCatalog, false},
+	{IOSProductChoices, false},
 }
 
 // Prefix converts a component path to a path prefix: "." -> "", "ios" -> "ios/".
@@ -83,33 +89,36 @@ func Prefix(path string) string {
 // there is no "has products" branch anywhere downstream.
 func Values(p config.Project, prefix string, products []config.Product) map[string]string {
 	return map[string]string{
-		ProjectName:      p.ProjectName,
-		Scheme:           p.Scheme,
-		BundleID:         p.BundleID,
-		AscAppID:         p.AscAppID,
-		Xcodeproj:        p.Xcodeproj,
-		SwiftVersion:     p.SwiftVersion,
-		GithubOrg:        p.GithubOrg,
-		ComponentPrefix:  prefix,
-		WebBuildEnv:      BuildEnvBlock(p.BuildEnv),
-		IOSProductMatrix: ProductMatrix(products),
+		ProjectName:       p.ProjectName,
+		Scheme:            p.Scheme,
+		BundleID:          p.BundleID,
+		AscAppID:          p.AscAppID,
+		Xcodeproj:         p.Xcodeproj,
+		SwiftVersion:      p.SwiftVersion,
+		GithubOrg:         p.GithubOrg,
+		ComponentPrefix:   prefix,
+		WebBuildEnv:       BuildEnvBlock(p.BuildEnv),
+		IOSProductCatalog: ProductCatalog(products),
+		IOSProductChoices: ProductChoices(products),
 	}
 }
 
-// ProductMatrix renders the `product:` entries of a job matrix, one per app.
+// ProductCatalog renders every product as one line of JSON.
 //
-// Indentation is baked in because the token stands alone at column 0, the same
-// arrangement as BuildEnvBlock. Values are already charset-validated at
-// config.Load, which is what keeps this interpolation from injecting YAML.
-func ProductMatrix(products []config.Product) string {
+// Hand-built rather than encoding/json because the output must be a single line
+// with no surprises inside a YAML scalar, and every value is already charset-
+// validated at config.Load — no quote, backslash or newline can reach here.
+func ProductCatalog(products []config.Product) string {
 	var b strings.Builder
-	b.WriteString("        product:")
-	for _, p := range products {
-		fmt.Fprintf(&b, "\n          - name: %q", p.Name)
-		fmt.Fprintf(&b, "\n            scheme: %q", p.Scheme)
-		fmt.Fprintf(&b, "\n            bundle_id: %q", p.BundleID)
-		fmt.Fprintf(&b, "\n            asc_app_id: %q", p.AscAppID)
+	b.WriteString("[")
+	for i, p := range products {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"name":%q,"scheme":%q,"bundle_id":%q,"asc_app_id":%q,"tag_prefix":%q}`,
+			p.Name, p.Scheme, p.BundleID, p.AscAppID, p.TagPrefix)
 	}
+	b.WriteString("]")
 	return b.String()
 }
 
@@ -157,4 +166,15 @@ func Substitute(content string, vals map[string]string) (string, []string) {
 		content = strings.ReplaceAll(content, e.token, v)
 	}
 	return content, missing
+}
+
+// ProductChoices renders the dispatch dropdown's options list, indented to sit
+// under `options:` in the workflow's inputs block.
+func ProductChoices(products []config.Product) string {
+	var b strings.Builder
+	b.WriteString("          - all")
+	for _, p := range products {
+		fmt.Fprintf(&b, "\n          - %q", p.Name)
+	}
+	return b.String()
 }
