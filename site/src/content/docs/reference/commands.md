@@ -83,6 +83,34 @@ guessing signs a product with another app's credentials. A product with a blank
 `tag_prefix` matches any tag, which is what makes the single-product case work
 unchanged.
 
+### Release-time secrets
+
+A product that needs real values at release — monetization SDK keys, ad unit
+IDs — maps each xcconfig key to the GitHub secret holding it:
+
+```toml
+[[product]]
+name = "MyApp Lite"
+scheme = "MyAppLite"
+bundle_id = "com.example.myapp.lite"
+asc_app_id = "1111111111"
+tag_prefix = "myapplite"
+secrets_file = "Config/Monetization.xcconfig"   # optional, defaults to Secrets.xcconfig
+secrets = { REVENUECAT_API_KEY = "LITE_REVENUECAT_KEY", ADMOB_APP_ID = "LITE_ADMOB_APP_ID" }
+```
+
+The manifest holds the secret's **name**; the value stays in GitHub. `lacquer`
+rejects a value that looks like a real credential, because this file is
+committed.
+
+The release writes those values into the xcconfig on that product's matrix leg
+only, and **fails if any of them is unset or empty**. It does not fall back to
+the placeholder seeding `ci.yml` does: CI seeds placeholders because tests must
+run without production keys, whereas a release doing the same would sign and
+ship an IPA wired to `appl_xxxxxxxx`, with nothing looking wrong until the
+revenue didn't arrive. A product that declares no secrets renders no step, which
+is the normal case.
+
 A `workflow_dispatch` run picks its product from a dropdown, defaulting to
 `all`. Scoping matters there too: a dispatch of `all` after one app has shipped
 a version hits the same closed train. Naming an unknown product fails rather

@@ -6,6 +6,7 @@ package tokens
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/config"
@@ -49,6 +50,20 @@ const (
 	// indentation, because product names contain spaces ("A Bible Verse Each Day
 	// Paid") and each option has to be quoted on its own line.
 	IOSProductChoices = "{{IOS_PRODUCT_CHOICES}}"
+	// IOSProductSecrets expands to one release-time configuration step per
+	// product that declares [[product]].secrets, or to nothing at all.
+	//
+	// One static step per product rather than a single step indexing
+	// `secrets[matrix.product.…]`. GitHub does support dynamic context indexing,
+	// but it makes the secret names invisible in the workflow — you could no
+	// longer grep a repo to learn which secrets its release needs, and a secret
+	// nobody knows to set is one that fails at release time. The names are the
+	// documentation.
+	//
+	// Like WEB_BUILD_ENV it stands alone at column 0 and owns its indentation,
+	// because the common case renders NOTHING and a leftover blank `- name:`
+	// would be a syntax error.
+	IOSProductSecrets = "{{IOS_PRODUCT_SECRETS}}"
 )
 
 // entry is a registered token and whether a non-empty value is required. A
@@ -71,6 +86,7 @@ var registry = []entry{
 	{WebBuildEnv, false}, // empty is valid and common: most projects need no build secrets
 	{IOSProductCatalog, false},
 	{IOSProductChoices, false},
+	{IOSProductSecrets, false},
 }
 
 // Prefix converts a component path to a path prefix: "." -> "", "ios" -> "ios/".
@@ -100,6 +116,7 @@ func Values(p config.Project, prefix string, products []config.Product) map[stri
 		WebBuildEnv:       BuildEnvBlock(p.BuildEnv),
 		IOSProductCatalog: ProductCatalog(products),
 		IOSProductChoices: ProductChoices(products),
+		IOSProductSecrets: ProductSecrets(products),
 	}
 }
 
@@ -175,6 +192,66 @@ func ProductChoices(products []config.Product) string {
 	b.WriteString("          - all")
 	for _, p := range products {
 		fmt.Fprintf(&b, "\n          - %q", p.Name)
+	}
+	return b.String()
+}
+
+// ProductSecrets renders the release-time configuration steps: for each product
+// declaring secrets, a step gated on that product's matrix leg which writes the
+// real values into its xcconfig.
+//
+// Release deliberately does not fall back to the placeholder seeding ci.yml
+// does. CI seeds placeholders because tests must run without production keys; a
+// release doing the same would sign and ship an IPA wired to `appl_xxxxxxxx`,
+// and nothing would look wrong until the revenue did not arrive.
+func ProductSecrets(products []config.Product) string {
+	var b strings.Builder
+	for _, p := range products {
+		if len(p.Secrets) == 0 {
+			continue
+		}
+		// Sorted: a map's iteration order is random, and an unstable render
+		// would rewrite the workflow on every sync and show as permanent drift.
+		keys := make([]string, 0, len(p.Secrets))
+		for k := range p.Secrets {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "      - name: Write release configuration (%s)\n", p.Name)
+		// Gated on the matrix leg. A product's keys must never be written into
+		// another product's build: shipping the free app's ad unit IDs inside
+		// the paid app is not a build failure, it is a bad release.
+		// Single quotes: a GitHub expression takes single-quoted string literals
+		// only, and `== "Free"` is a syntax error there, not a failed match. A
+		// literal quote inside is escaped by doubling it.
+		fmt.Fprintf(&b, "        if: matrix.product.name == '%s'\n", strings.ReplaceAll(p.Name, "'", "''"))
+		b.WriteString("        env:\n")
+		for _, k := range keys {
+			fmt.Fprintf(&b, "          %s: ${{ secrets.%s }}\n", k, p.Secrets[k])
+		}
+		b.WriteString("        run: |\n")
+		b.WriteString("          set -euo pipefail\n")
+		// The file holds live credentials on a self-hosted runner whose disk
+		// outlives the job.
+		b.WriteString("          umask 077\n")
+		for _, k := range keys {
+			// Fail on an unset OR empty secret. An unset secret expands to the
+			// empty string, and an empty xcconfig value is not an error to
+			// xcodebuild — it would build, sign, upload, and be wrong.
+			fmt.Fprintf(&b, "          : \"${%s:?%s is not set — it is required to release %s}\"\n", k, p.Secrets[k], p.Name)
+		}
+		fmt.Fprintf(&b, "          mkdir -p \"$(dirname %q)\"\n", p.SecretsPath())
+		b.WriteString("          {\n")
+		for _, k := range keys {
+			// printf, not echo: a value containing a backslash would be
+			// interpreted by some echo implementations.
+			fmt.Fprintf(&b, "            printf '%%s = %%s\\n' %q \"$%s\"\n", k, k)
+		}
+		fmt.Fprintf(&b, "          } > %q\n", p.SecretsPath())
 	}
 	return b.String()
 }
