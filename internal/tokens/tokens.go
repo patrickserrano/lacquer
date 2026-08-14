@@ -40,6 +40,15 @@ const (
 	// to a job-level `if:` — a leg cannot skip itself, so the set has to be
 	// decided before the matrix exists.
 	IOSProductCatalog = "{{IOS_PRODUCT_CATALOG}}"
+	// IOSProductChoices is the workflow_dispatch dropdown of releasable
+	// products: `all` plus one entry per product.
+	//
+	// A dropdown rather than free text because this is where an operator picks
+	// by hand, and a typo would otherwise reach the fail-closed branch and waste
+	// a run. Like WebBuildEnv it stands alone at column 0 and owns its own
+	// indentation, because product names contain spaces ("A Bible Verse Each Day
+	// Paid") and each option has to be quoted on its own line.
+	IOSProductChoices = "{{IOS_PRODUCT_CHOICES}}"
 )
 
 // entry is a registered token and whether a non-empty value is required. A
@@ -61,6 +70,7 @@ var registry = []entry{
 	{ComponentPrefix, false},
 	{WebBuildEnv, false}, // empty is valid and common: most projects need no build secrets
 	{IOSProductCatalog, false},
+	{IOSProductChoices, false},
 }
 
 // Prefix converts a component path to a path prefix: "." -> "", "ios" -> "ios/".
@@ -89,6 +99,7 @@ func Values(p config.Project, prefix string, products []config.Product) map[stri
 		ComponentPrefix:   prefix,
 		WebBuildEnv:       BuildEnvBlock(p.BuildEnv),
 		IOSProductCatalog: ProductCatalog(products),
+		IOSProductChoices: ProductChoices(products),
 	}
 }
 
@@ -155,4 +166,15 @@ func Substitute(content string, vals map[string]string) (string, []string) {
 		content = strings.ReplaceAll(content, e.token, v)
 	}
 	return content, missing
+}
+
+// ProductChoices renders the dispatch dropdown's options list, indented to sit
+// under `options:` in the workflow's inputs block.
+func ProductChoices(products []config.Product) string {
+	var b strings.Builder
+	b.WriteString("          - all")
+	for _, p := range products {
+		fmt.Fprintf(&b, "\n          - %q", p.Name)
+	}
+	return b.String()
 }

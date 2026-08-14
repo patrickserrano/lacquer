@@ -22,6 +22,20 @@ on:
         required: false
         default: ''
         type: string
+      product:
+        # `all` is the default because most projects ship one product, where it
+        # is the only correct answer. For a repo shipping a paid app and a free
+        # sibling, picking one is usually what you want: an App Store version
+        # train closes permanently at READY_FOR_SALE, so dispatching `all` after
+        # one app has shipped a version fails that leg with error 90186. This
+        # exact failure was observed on a real dispatch before this input
+        # existed.
+        description: 'Which product to release'
+        required: false
+        default: all
+        type: choice
+        options:
+{{IOS_PRODUCT_CHOICES}}
 
 concurrency:
   group: ios-release
@@ -55,13 +69,22 @@ jobs:
           # the script body, so a tag containing shell metacharacters is inert.
           REF_NAME: ${{ github.ref_name }}
           EVENT_NAME: ${{ github.event_name }}
+          # Defaults to `all` for a tag push, where this input does not exist.
+          PRODUCT_INPUT: ${{ inputs.product || 'all' }}
         run: |
           set -euo pipefail
           catalog='{{IOS_PRODUCT_CATALOG}}'
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            # An operator watching the run may legitimately want every product.
-            selected="$catalog"
+            # A dispatch says which product it means, so honour it rather than
+            # inferring from the ref — a dispatch runs from a branch, whose name
+            # carries no product.
+            if [ "$PRODUCT_INPUT" = "all" ]; then
+              selected="$catalog"
+            else
+              selected=$(printf '%s' "$catalog" | jq -c --arg p "$PRODUCT_INPUT" \
+                '[ .[] | select(.name == $p) ]')
+            fi
           else
             # A tag releases exactly ONE product. An App Store version train
             # closes permanently once its version reaches READY_FOR_SALE, so a
@@ -80,7 +103,11 @@ jobs:
           if [ "$count" -eq 0 ]; then
             # Fail closed. Guessing here either signs a product with another
             # app's credentials or pushes at a version train that has closed.
-            echo "::error::Tag '$REF_NAME' matches no product's tag_prefix. Declare one, or tag with a known prefix."
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "::error::No product named '$PRODUCT_INPUT'. Known products:"
+            else
+              echo "::error::Tag '$REF_NAME' matches no product's tag_prefix. Declare one, or tag with a known prefix."
+            fi
             printf '%s' "$catalog" | jq -r '.[] | "  \(.name): tag_prefix=\(if .tag_prefix == "" then "(any)" else .tag_prefix end)"'
             exit 1
           fi

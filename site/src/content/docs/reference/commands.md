@@ -79,7 +79,11 @@ already-shipped one at a closed train and fail with error 90186 — every time,
 for the life of that version.
 
 A tag matching no product's prefix fails the release rather than guessing;
-guessing signs a product with another app's credentials. A `workflow_dispatch`
-run releases every product, on the assumption that an operator triggering it by
-hand means it. A product with a blank `tag_prefix` matches any tag, which is
-what makes the single-product case work unchanged.
+guessing signs a product with another app's credentials. A product with a blank
+`tag_prefix` matches any tag, which is what makes the single-product case work
+unchanged.
+
+A `workflow_dispatch` run picks its product from a dropdown, defaulting to
+`all`. Scoping matters there too: a dispatch of `all` after one app has shipped
+a version hits the same closed train. Naming an unknown product fails rather
+than falling back to everything.

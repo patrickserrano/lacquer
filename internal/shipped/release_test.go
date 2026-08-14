@@ -56,8 +56,10 @@ func selectScript(t *testing.T, cfg *config.Config) string {
 }
 
 // runSelect executes the selection script with a given trigger, returning the
-// emitted matrix and whether it failed.
-func runSelect(t *testing.T, script, event, ref string) (string, bool) {
+// emitted matrix and whether it failed. product is the dispatch input; the
+// workflow declares it in `env:`, so it is always set on a real run — including
+// a tag push, where it defaults to `all`.
+func runSelect(t *testing.T, script, event, ref, product string) (string, bool) {
 	t.Helper()
 	if _, err := exec.LookPath("jq"); err != nil {
 		t.Skip("jq not installed")
@@ -67,7 +69,8 @@ func runSelect(t *testing.T, script, event, ref string) (string, bool) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("bash", "-c", script)
-	cmd.Env = append(os.Environ(), "EVENT_NAME="+event, "REF_NAME="+ref, "GITHUB_OUTPUT="+out)
+	cmd.Env = append(os.Environ(), "EVENT_NAME="+event, "REF_NAME="+ref,
+		"PRODUCT_INPUT="+product, "GITHUB_OUTPUT="+out)
 	combined, err := cmd.CombinedOutput()
 	data, _ := os.ReadFile(out)
 	for _, line := range strings.Split(string(data), "\n") {
@@ -107,7 +110,7 @@ func TestTagSelectsOneProduct(t *testing.T) {
 		"paid-v1.2.3": "Paid",
 		"lite-v1.2.3": "Lite",
 	} {
-		matrix, failed := runSelect(t, script, "push", tag)
+		matrix, failed := runSelect(t, script, "push", tag, "all")
 		if failed {
 			t.Errorf("%s: selection failed: %s", tag, matrix)
 			continue
@@ -123,7 +126,7 @@ func TestTagSelectsOneProduct(t *testing.T) {
 // pushes at a version train that has already closed.
 func TestUnknownTagFailsClosed(t *testing.T) {
 	script := selectScript(t, twoProducts())
-	out, failed := runSelect(t, script, "push", "v1.2.3")
+	out, failed := runSelect(t, script, "push", "v1.2.3", "all")
 	if !failed {
 		t.Errorf("a tag matching no product must fail, got matrix %q", out)
 	}
@@ -138,7 +141,7 @@ func TestUnknownTagFailsClosed(t *testing.T) {
 // An operator watching the run may legitimately want every product.
 func TestDispatchSelectsEveryProduct(t *testing.T) {
 	script := selectScript(t, twoProducts())
-	matrix, failed := runSelect(t, script, "workflow_dispatch", "")
+	matrix, failed := runSelect(t, script, "workflow_dispatch", "main", "all")
 	if failed {
 		t.Fatalf("dispatch must not fail: %s", matrix)
 	}
@@ -155,7 +158,7 @@ func TestSingleProductMatchesAnyTag(t *testing.T) {
 	}}
 	script := selectScript(t, cfg)
 	for _, tag := range []string{"v1.0.0", "v2.3.4-beta", "release-2026"} {
-		matrix, failed := runSelect(t, script, "push", tag)
+		matrix, failed := runSelect(t, script, "push", tag, "all")
 		if failed {
 			t.Errorf("tag %q failed for a single-product project: %s", tag, matrix)
 			continue
@@ -175,9 +178,39 @@ func TestPrefixMatchIsAnchored(t *testing.T) {
 			{Name: "Alpha", Scheme: "Alpha", BundleID: "com.x.a", AscAppID: "1", TagPrefix: "alpha"},
 		},
 	}
-	out, failed := runSelect(t, selectScript(t, cfg), "push", "release-alpha-v1")
+	out, failed := runSelect(t, selectScript(t, cfg), "push", "release-alpha-v1", "all")
 	if !failed {
 		t.Errorf("a prefix appearing mid-tag must not match, got %q", out)
+	}
+	if !strings.Contains(out, "::error::") {
+		t.Errorf("want the workflow's own error, got: %s", out)
+	}
+}
+
+// A dispatch names the product it means. Inferring from the ref cannot work: a
+// dispatch runs from a branch, whose name carries no product.
+//
+// This is the failure that was observed for real — a dispatch fanned out to both
+// products, and the leg whose version had already reached READY_FOR_SALE failed
+// with "Invalid Pre-Release Train. The train version '3.0' is closed for new
+// build submissions".
+func TestDispatchCanScopeToOneProduct(t *testing.T) {
+	script := selectScript(t, twoProducts())
+	matrix, failed := runSelect(t, script, "workflow_dispatch", "main", "Lite")
+	if failed {
+		t.Fatalf("scoped dispatch must not fail: %s", matrix)
+	}
+	got := namesIn(t, matrix)
+	if len(got) != 1 || got[0] != "Lite" {
+		t.Errorf("scoped dispatch selected %v, want [Lite]", got)
+	}
+}
+
+// A named product that does not exist must not silently release everything.
+func TestDispatchUnknownProductFailsClosed(t *testing.T) {
+	out, failed := runSelect(t, selectScript(t, twoProducts()), "workflow_dispatch", "main", "Typo")
+	if !failed {
+		t.Errorf("an unknown product name must fail, got %q", out)
 	}
 	if !strings.Contains(out, "::error::") {
 		t.Errorf("want the workflow's own error, got: %s", out)
