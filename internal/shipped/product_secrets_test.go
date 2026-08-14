@@ -107,3 +107,41 @@ func TestSecretsStepFailsOnEmptySecret(t *testing.T) {
 		t.Errorf("step does not write the product's declared secrets_file:\n%s", run)
 	}
 }
+
+// A repo tagging `steps-v1.2.3` has no tag starting with `v`. Under a fixed
+// 'v*' filter, adopting this workflow would mean no tag ever starts a release —
+// nothing errors and nothing runs, which is the worst way for a release
+// pipeline to break.
+func TestReleaseTagsFollowProductPrefixes(t *testing.T) {
+	cfg := &config.Config{
+		Project: config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
+		Product: []config.Product{
+			{Name: "Steps", Scheme: "Steps", BundleID: "com.x.s", AscAppID: "1", TagPrefix: "steps-v"},
+			{Name: "Lite", Scheme: "StepsFree", BundleID: "com.x.f", AscAppID: "2", TagPrefix: "stepsfree-v"},
+		},
+	}
+	var doc struct {
+		On struct {
+			Push struct {
+				Tags []string `yaml:"tags"`
+			} `yaml:"push"`
+		} `yaml:"on"`
+	}
+	if err := yaml.Unmarshal([]byte(renderRelease(t, cfg)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(doc.On.Push.Tags, ",")
+	if got != "steps-v*,stepsfree-v*" {
+		t.Errorf("tag filter = %q, want the products' prefixes", got)
+	}
+}
+
+// The twelve projects that declare no products must keep the historical filter.
+func TestReleaseTagsDefaultToV(t *testing.T) {
+	cfg := &config.Config{Project: config.Project{
+		ProjectName: "Solo", Scheme: "Solo", BundleID: "com.x.solo", AscAppID: "1", Xcodeproj: "Solo.xcodeproj",
+	}}
+	if !strings.Contains(renderRelease(t, cfg), "- 'v*'") {
+		t.Error("a project with no products lost the historical 'v*' tag filter")
+	}
+}
