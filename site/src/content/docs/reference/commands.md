@@ -46,3 +46,40 @@ empty profile list and a notice — it doesn't break `sync`.
 `skills` entries are `"<owner>/<repo>@<skill-name>"` strings, installed by
 `lacquer skills` — see [Third-party
 skills](/lacquer/guides/getting-started/#third-party-skills).
+
+### Multiple products from one repo
+
+A repo that ships more than one App Store app — a paid app and a free or lite
+sibling built from the same source — declares each as a `[[product]]`:
+
+```toml
+[[product]]
+name = "MyApp"
+scheme = "MyApp"
+bundle_id = "com.example.myapp"
+asc_app_id = "0000000000"
+tag_prefix = "myapp"
+
+[[product]]
+name = "MyApp Lite"
+scheme = "MyAppLite"
+bundle_id = "com.example.myapp.lite"
+asc_app_id = "1111111111"
+tag_prefix = "myapplite"
+```
+
+Declaring none is the normal case: `[project]` is then treated as the single
+product, and every tag releases it.
+
+`tag_prefix` decides which product a tag releases. `myapp-v2.1.0` releases
+MyApp and leaves the Lite app alone. **One tag must release exactly one
+product.** An App Store version train closes permanently once its version
+reaches `READY_FOR_SALE`, so a tag that fanned out to both apps would push the
+already-shipped one at a closed train and fail with error 90186 — every time,
+for the life of that version.
+
+A tag matching no product's prefix fails the release rather than guessing;
+guessing signs a product with another app's credentials. A `workflow_dispatch`
+run releases every product, on the assumption that an operator triggering it by
+hand means it. A product with a blank `tag_prefix` matches any tag, which is
+what makes the single-product case work unchanged.
