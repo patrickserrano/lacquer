@@ -207,7 +207,7 @@ its own, and it stays quiet after.
 
 ## Git hooks & commits
 
-`lefthook.yml` is synced — install once with `npx lefthook install` (or
+`lefthook.yml` is synced — install once with `pnpm exec lefthook install` (or
 `brew install lefthook`). It runs `deno fmt --check` + `deno lint` (scoped to the
 component via lefthook's `root:`) and a secrets scan pre-commit, and enforces
 **Conventional Commits** via the shared `scripts/check-commit-msg.sh`.
