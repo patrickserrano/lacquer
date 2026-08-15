@@ -93,6 +93,23 @@ touch "$WORK/.nojekyll"
   echo '</ul>'
 } > "$WORK/index.html"
 
+# Record WHICH source commit these docs were built from, so a scheduled run can
+# tell whether a rebuild is needed at all. The callers pass the last commit that
+# touched their component, not GITHUB_SHA: HEAD moves on every unrelated change,
+# so comparing against it would rebuild nightly regardless.
+#
+# Written inside the published subdir so it travels with the docs it describes,
+# and so a stack that stops publishing takes its marker with it.
+#
+# BEFORE `git add -A`, and deliberately so. Written after it, the marker is never
+# staged and never committed. It also has to be able to produce a commit ON ITS
+# OWN: when the source moved but the generated docs are byte-identical, the
+# "no changes" exit below would leave the marker pointing at the older commit and
+# the scheduled build would rebuild the same output every night forever.
+if [ -n "${DOCS_SOURCE_SHA:-}" ]; then
+  printf '%s\n' "$DOCS_SOURCE_SHA" > "$WORK/$SUBDIR/.docs-source"
+fi
+
 git -C "$WORK" add -A
 if git -C "$WORK" diff --cached --quiet; then
   echo "No documentation changes to publish."
