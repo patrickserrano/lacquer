@@ -31,13 +31,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      # BEFORE setup-node, not after. `cache: pnpm` asks setup-node to locate the
+      # pnpm store, which it does by running pnpm — so pnpm has to exist first.
+      # Reversed, the run fails with "Unable to locate executable file: pnpm",
+      # which reads like a missing dependency rather than an ordering mistake.
+      #
+      # No `version:` here on purpose: pnpm/action-setup reads the
+      # `packageManager` field from package.json, so the version CI uses and the
+      # version a developer's corepack uses are the same string in one place. A
+      # version pinned here as well would be a second source of truth, and the
+      # two would drift silently — CI resolving one tree and the developer
+      # another is precisely the class of bug a lockfile exists to prevent.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          # The action reads `packageManager` from the REPO ROOT package.json by
+          # default. A component in a subdirectory keeps its package.json there,
+          # so without this the action reads the wrong file — or no file — and
+          # the version pin silently stops applying.
+          package_json_file: "{{COMPONENT_PREFIX}}package.json"
+
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: "{{COMPONENT_PREFIX}}package-lock.json"
+          cache: pnpm
+          cache-dependency-path: "{{COMPONENT_PREFIX}}pnpm-lock.yaml"
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
         working-directory: "{{COMPONENT_PREFIX}}."
 
       # Unlike DocC, TypeDoc emits relative asset URLs, so the site works at any

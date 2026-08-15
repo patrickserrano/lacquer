@@ -71,6 +71,30 @@ var bans = []banned{
 		},
 	},
 	{
+		name: "npm in web content",
+		// Every Node component in this fleet uses pnpm. npm creeping back is not
+		// cosmetic: `npm ci` needs a package-lock.json that no longer exists, and
+		// `cache: npm` silently caches nothing when the lockfile is absent — a
+		// slow green run rather than a failure, so nothing surfaces it.
+		re: regexp.MustCompile(`\bnpm\s+(ci|install|run|audit)\b|cache:\s*npm\b|package-lock\.json`),
+		why: "the web profile installs with `pnpm install --frozen-lockfile` against a committed " +
+			"pnpm-lock.yaml, and pins the version through package.json's `packageManager` field. " +
+			"An npm command here would look for a lockfile the project no longer has.",
+		allow: func(_, line string) bool {
+			// Deliberately NOT isProse: it exempts any line starting with "-",
+			// which covers markdown bullets but also exempts `- run: npm ci` —
+			// a real step, in the exact syntax these workflows use. Only true
+			// comments and inline code spans are prose here.
+			t := strings.TrimSpace(line)
+			if strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") {
+				return true
+			}
+			// A markdown mention like `npm ci` reads as documentation; a YAML
+			// step never wraps its command in backticks.
+			return strings.Contains(t, "`") && !strings.HasPrefix(t, "- run:") && !strings.HasPrefix(t, "- uses:")
+		},
+	},
+	{
 		name: "npx invocation of a project dependency",
 		// `npx <tool>` prefers a local install but SILENTLY DOWNLOADS one when
 		// there is none. A project that never added the dependency therefore

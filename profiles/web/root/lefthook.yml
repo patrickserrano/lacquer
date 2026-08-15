@@ -1,4 +1,4 @@
-# Git hooks (lefthook). Install once with `npx lefthook install`.
+# Git hooks (lefthook). Install once with `pnpm exec lefthook install`.
 # Assumes the project package.json defines: typecheck, test, test:coverage, build.
 #
 # `root: "{{COMPONENT_PREFIX}}"` scopes each command to its component. For a
@@ -29,7 +29,7 @@ pre-commit:
       stage_fixed: true
     typecheck:
       root: "{{COMPONENT_PREFIX}}"
-      run: npm run typecheck
+      run: pnpm run typecheck
     # Scan every staged file for hardcoded secrets — repo-wide, not component-
     # scoped: check-secrets.sh reads `git diff --cached` itself (no root, no
     # {staged_files}). Mirrors the iOS profile's `no-secrets` pre-commit hook.
@@ -41,10 +41,10 @@ pre-push:
   commands:
     test:
       root: "{{COMPONENT_PREFIX}}"
-      run: npm run test:coverage
+      run: pnpm run test:coverage
     build:
       root: "{{COMPONENT_PREFIX}}"
-      run: npm run build
+      run: pnpm run build
     # Mirrors the `Docs` job in web-ci.yml. Not at pre-commit: TypeDoc reads the
     # whole entry-point graph, so running it per staged file would be both slow
     # and wrong (an export documented in a file you didn't stage still counts).
@@ -66,7 +66,7 @@ pre-push:
     # Here rather than pre-commit because it hits the network.
     audit:
       root: "{{COMPONENT_PREFIX}}"
-      run: npm audit --audit-level=critical
+      run: pnpm audit --audit-level=critical
 
 commit-msg:
   commands:

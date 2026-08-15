@@ -55,12 +55,59 @@ Never relax a base flag (`strict`, `noUncheckedIndexedAccess`,
 `biome.json` is synced (format + lint). Run `./node_modules/.bin/biome check --write .`
 locally; CI runs `./node_modules/.bin/biome ci --error-on-warnings .`.
 
-**The local binary, not `npx`.** `npx <tool>` silently downloads a version when
-the project has none installed, so a project that never added `@biomejs/biome`
-gets a green lint step run by whatever npm served that minute. One project was in
-exactly that state — `biome.json` synced, the dependency in no `package.json`,
-the Biome step passing — and only `lacquer doctor` noticed the check could not be
-running at all. `@biomejs/biome` and `typedoc` must be real devDependencies.
+**pnpm, not npm.** Every Node component in this fleet uses pnpm. Two things
+have to be true in each `package.json`, and CI depends on both:
+
+- a `packageManager` field, e.g. `"packageManager": "pnpm@11.17.0"`. This is the
+  ONLY place the version is written. `pnpm/action-setup` reads it, and corepack
+  reads it locally, so CI and your machine resolve the same tree by
+  construction rather than by coincidence. A version pinned in the workflow as
+  well would be a second source of truth, and the two drift silently.
+- a committed `pnpm-lock.yaml`, and no `package-lock.json`. CI installs with
+  `pnpm install --frozen-lockfile`, the `npm ci` equivalent: it refuses to run
+  when the lockfile disagrees with `package.json` instead of quietly fixing it
+  up, so a dependency change that was never locked fails the PR that made it.
+
+Migrating an existing project is `pnpm import` (which reads `package-lock.json`
+and preserves the resolved versions) followed by deleting the npm lockfile — not
+a fresh `pnpm install`, which re-resolves every range and turns a package-manager
+change into an unreviewed dependency bump.
+
+Two things bite during that migration, both of them silent:
+
+**Settings live in `pnpm-workspace.yaml`, not package.json's `pnpm` field.**
+pnpm 11 stopped reading that field and ignores it with a warning, so a setting
+left there does nothing while looking correct. That includes `overrides`.
+
+**Install scripts are blocked by default**, which npm never did — every
+postinstall in the tree ran silently there. pnpm fails the install with
+ERR_PNPM_IGNORED_BUILDS and requires each one be named in
+`onlyBuiltDependencies`. Grant it only where the package needs it (fetching a
+platform binary, typically), and treat the list as a review step: each entry is
+a dependency allowed arbitrary code execution on every developer machine and CI
+runner. Note the state is cached in node_modules — after adding entries, a
+re-run of `pnpm install` still reports them ignored until node_modules is
+removed, which reads like the setting not working.
+
+**Check `vercel.json`** (or whatever deploys the project) for a pinned
+`installCommand`. pixelfoxstudio.com had `"installCommand": "npm ci"`, which
+would have kept passing CI and failed every production deploy on the lockfile
+that no longer exists.
+
+**The local binary, never a downloading runner.** `npx <tool>` silently
+downloads a version when the project has none installed, so a project that never
+added `@biomejs/biome` gets a green lint step run by whatever npm served that
+minute. One project was in exactly that state — `biome.json` synced, the
+dependency in no `package.json`, the Biome step passing — and only
+`lacquer doctor` noticed the check could not be running at all. `@biomejs/biome`
+and `typedoc` must be real devDependencies.
+
+pnpm makes this the default rather than a rule to remember: `pnpm exec` runs the
+locally installed binary and FAILS when there is none. The downloading behaviour
+moved to a separate verb, `pnpm dlx`, so it cannot happen by accident. pnpm's
+non-hoisted `node_modules` reinforces it — a package that is not a declared
+dependency has no `.bin` entry at all, where npm's flat layout could leave a
+transitive's binary sitting there and resolving.
 
 **`--error-on-warnings` is the whole gate.** Plain `biome ci` fails on
 error-severity rules only, so every warning-severity rule prints and passes —
@@ -138,7 +185,7 @@ spelling of disabling a lint rule — don't.
 ### Secrets the BUILD needs
 
 Some builds cannot run without env at build time — a Next.js app that statically
-collects page data will throw during `npm run build` if its CMS vars are unset.
+collects page data will throw during `pnpm run build` if its CMS vars are unset.
 Name those secrets in `[project].build_env` and the synced CI `check` job
 declares them:
 
@@ -192,10 +239,10 @@ a new CI job adds a row here, and a hook never runs weaker than its CI twin.
 | CI job / step | Local |
 |---|---|
 | `check` → `biome ci .` | pre-commit `biome` (`--write` on staged files, re-staged) |
-| `check` → `npm run typecheck` | pre-commit `typecheck` |
-| `check` → `npm run test:coverage` | pre-push `test` |
-| `check` → `npm run build` | pre-push `build` |
-| `check` → `npm audit` | pre-push `audit` (network, so not at commit time) |
+| `check` → `pnpm run typecheck` | pre-commit `typecheck` |
+| `check` → `pnpm run test:coverage` | pre-push `test` |
+| `check` → `pnpm run build` | pre-push `build` |
+| `check` → `pnpm audit` | pre-push `audit` (network, so not at commit time) |
 | `Docs` → `./node_modules/.bin/typedoc` | pre-push `docs` |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
 
@@ -206,7 +253,7 @@ the hook is the fast feedback, never the other way round.
 
 ## Git hooks & commits
 
-`lefthook.yml` is synced — install once with `npx lefthook install`. It runs
+`lefthook.yml` is synced — install once with `pnpm exec lefthook install`. It runs
 Biome + typecheck + a secrets scan pre-commit (each scoped to the component via
 lefthook's `root:`), coverage + build pre-push, and enforces **Conventional
 Commits** via the shared `scripts/check-commit-msg.sh` (`type(scope): summary`).
@@ -224,5 +271,5 @@ installing lefthook alongside pre-commit.
 
 `web-ci.yml` runs lint → typecheck → test (coverage) → build → dependency audit
 on `ubuntu-latest`, path-gated to the component. The audit blocks on **critical**
-advisories by default; tighten to `high` (and add npm `overrides` for unfixable
+advisories by default; tighten to `high` (and add `overrides` in pnpm-workspace.yaml for unfixable
 transitives) per project.
