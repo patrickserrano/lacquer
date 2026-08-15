@@ -267,7 +267,7 @@ func TestRenderedWorkflowsAreValidYAML(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			out, missing := tokens.Substitute(string(raw), tokens.Values(tc.proj, "", nil))
+			out, missing := tokens.Substitute(string(raw), tokens.Values(&config.Config{Project: tc.proj}, ""))
 			if len(missing) > 0 {
 				t.Fatalf("unsubstituted tokens: %v", missing)
 			}

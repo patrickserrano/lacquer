@@ -116,7 +116,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// Token preflight — fail closed before any write.
 	var missing []string
 	for _, r := range regions {
-		if _, m := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix, cfg.Products())); len(m) > 0 {
+		if _, m := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix)); len(m) > 0 {
 			for _, t := range m {
 				missing = append(missing, fmt.Sprintf("%s (%s)", t, r.rel))
 			}
@@ -166,7 +166,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 
 	// Writes: substitute + merge region bodies.
 	for _, r := range regions {
-		body, _ := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix, cfg.Products()))
+		body, _ := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix))
 		if err := mergeInto(projectRoot, r.rel, r.key, ver, body); err != nil {
 			return Result{}, err
 		}

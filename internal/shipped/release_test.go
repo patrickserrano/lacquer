@@ -27,7 +27,7 @@ func selectScript(t *testing.T, cfg *config.Config) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, missing := tokens.Substitute(string(raw), tokens.Values(cfg.Project, "", cfg.Products()))
+	out, missing := tokens.Substitute(string(raw), tokens.Values(cfg, ""))
 	if len(missing) > 0 {
 		t.Fatalf("unsubstituted tokens: %v", missing)
 	}

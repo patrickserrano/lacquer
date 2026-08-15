@@ -73,6 +73,15 @@ const (
 	// Nothing errors and nothing runs, which is the worst way for a release
 	// pipeline to break.
 	IOSReleaseTags = "{{IOS_RELEASE_TAGS}}"
+	// DependabotUpdates expands to the `updates:` list of .github/dependabot.yml:
+	// one github-actions entry for the repo, plus one npm entry per web
+	// component, each pointing at that component's directory.
+	//
+	// It has to be generated because `directory:` is per-component and Dependabot
+	// has no glob for it — a hand-written file silently covers only the paths
+	// somebody remembered, and a dependency manifest nobody watches is the thing
+	// this is meant to prevent.
+	DependabotUpdates = "{{DEPENDABOT_UPDATES}}"
 )
 
 // entry is a registered token and whether a non-empty value is required. A
@@ -97,6 +106,7 @@ var registry = []entry{
 	{IOSProductChoices, false},
 	{IOSProductSecrets, false},
 	{IOSReleaseTags, false},
+	{DependabotUpdates, false},
 }
 
 // Prefix converts a component path to a path prefix: "." -> "", "ios" -> "ios/".
@@ -113,7 +123,9 @@ func Prefix(path string) string {
 // products is the project's shippable apps. Pass cfg.Products(), which is never
 // empty — it synthesises a single entry from [project] when none is declared, so
 // there is no "has products" branch anywhere downstream.
-func Values(p config.Project, prefix string, products []config.Product) map[string]string {
+func Values(cfg *config.Config, prefix string) map[string]string {
+	p := cfg.Project
+	products := cfg.Products()
 	return map[string]string{
 		ProjectName:       p.ProjectName,
 		Scheme:            p.Scheme,
@@ -128,6 +140,7 @@ func Values(p config.Project, prefix string, products []config.Product) map[stri
 		IOSProductChoices: ProductChoices(products),
 		IOSProductSecrets: ProductSecrets(products),
 		IOSReleaseTags:    ReleaseTags(products),
+		DependabotUpdates: dependabotUpdates(cfg),
 	}
 }
 
@@ -304,4 +317,54 @@ func ReleaseTags(products []config.Product) string {
 		fmt.Fprintf(&b, "      - '%s'", pat)
 	}
 	return b.String()
+}
+
+// dependabotUpdates renders one Dependabot entry per ecosystem present in the
+// project: github-actions for the repo itself, plus npm for each web component
+// and swift for each ios one.
+//
+// Swift used to be impossible here. Dependabot's swift ecosystem required a
+// top-level Package.swift, and every iOS project in this fleet declares its SPM
+// dependencies inside the Xcode project instead. As of 2026-03-31 it discovers
+// Package.resolved inside .xcodeproj/.xcworkspace bundles and reads version
+// rules from project.pbxproj, which is exactly the layout these projects use:
+//
+//	Steps.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+//
+// A project with no SPM dependencies simply has nothing for it to find, so the
+// entry is harmless there rather than needing to be conditional.
+func dependabotUpdates(cfg *config.Config) string {
+	entry := func(ecosystem, dir string) string {
+		return fmt.Sprintf(`  - package-ecosystem: %s
+    directory: %q
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 20
+`, ecosystem, dir)
+	}
+
+	var b strings.Builder
+	// Every repo has workflows, and pinned action SHAs are the dependency most
+	// likely to rot unnoticed: nothing fails when one goes stale.
+	b.WriteString(entry("github-actions", "/"))
+
+	// One entry per component, at that component's directory: Dependabot has no
+	// glob for `directory`, so a manifest outside a listed path is simply never
+	// looked at. kit keeps its project at Kit/Kit.xcodeproj, so "/" would find
+	// nothing.
+	for _, c := range cfg.Components {
+		dir := "/"
+		if c.Path != "" && c.Path != "." {
+			dir = "/" + strings.TrimSuffix(c.Path, "/")
+		}
+		for _, p := range c.Profiles {
+			switch p {
+			case "web":
+				b.WriteString(entry("npm", dir))
+			case "ios":
+				b.WriteString(entry("swift", dir))
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

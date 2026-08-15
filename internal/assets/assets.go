@@ -27,7 +27,7 @@ func MissingTokens(plan []Asset, cfg *config.Config) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read asset %s: %w", a.Src, err)
 		}
-		if _, missing := tokens.Substitute(string(data), tokens.Values(cfg.Project, a.Prefix, cfg.Products())); len(missing) > 0 {
+		if _, missing := tokens.Substitute(string(data), tokens.Values(cfg, a.Prefix)); len(missing) > 0 {
 			for _, m := range missing {
 				out = append(out, fmt.Sprintf("%s (%s)", m, a.Dest))
 			}
@@ -290,7 +290,7 @@ func Write(projectRoot string, plan []Asset, cfg *config.Config, targets []strin
 		// Substitute per-project placeholders + this asset's component prefix. Any
 		// missing value should already have been caught by sync's preflight;
 		// substitute regardless (leaves an unresolved token rather than corrupting).
-		substituted, _ := tokens.Substitute(string(data), tokens.Values(cfg.Project, a.Prefix, cfg.Products()))
+		substituted, _ := tokens.Substitute(string(data), tokens.Values(cfg, a.Prefix))
 		data = []byte(substituted)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
