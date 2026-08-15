@@ -105,7 +105,7 @@ func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 
 	var units []unit
 	for _, r := range srcs {
-		body, _ := tokens.Substitute(r.body, tokens.Values(cfg.Project, r.prefix, cfg.Products()))
+		body, _ := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix))
 		units = append(units, unit{
 			lockKey:   r.dest + "#" + r.key,
 			dest:      r.dest,
@@ -124,7 +124,7 @@ func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 		if err != nil {
 			return nil, version.Version{}, fmt.Errorf("read asset %s: %w", a.Src, err)
 		}
-		content, _ := tokens.Substitute(string(data), tokens.Values(cfg.Project, a.Prefix, cfg.Products()))
+		content, _ := tokens.Substitute(string(data), tokens.Values(cfg, a.Prefix))
 		units = append(units, unit{lockKey: a.Dest, dest: a.Dest, kind: "asset", content: content})
 	}
 	return units, ver, nil

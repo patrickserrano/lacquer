@@ -1,0 +1,18 @@
+# Dependency updates, generated from .lacquer.toml's components — see
+# DEPENDABOT_UPDATES in internal/tokens.
+#
+# Rendered rather than hand-written because `directory` is per-manifest and
+# Dependabot has no glob for it. A hand-maintained list covers only the paths
+# somebody remembered, and the point of this file is the manifests nobody is
+# watching.
+#
+# Daily, with no `ignore` or `allow` rules: every update opens a PR. The limit is
+# 20 rather than the default 5 because at five, a repo that falls behind stops
+# opening PRs for the rest and says nothing — the queue looks empty because it is
+# full.
+#
+# If the PR volume becomes the problem, the lever is `groups` (batch related
+# updates into one PR), NOT `ignore` — grouping still surfaces everything.
+version: 2
+updates:
+{{DEPENDABOT_UPDATES}}

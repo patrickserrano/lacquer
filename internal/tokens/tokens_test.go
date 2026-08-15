@@ -19,7 +19,7 @@ func TestPrefix(t *testing.T) {
 }
 
 func TestSubstituteValues(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Acme", Scheme: "Acme", BundleID: "com.me.acme", AscAppID: "9"}, "ios/", nil)
+	vals := Values(&config.Config{Project: config.Project{ProjectName: "Acme", Scheme: "Acme", BundleID: "com.me.acme", AscAppID: "9"}}, "ios/")
 	in := "p: {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj\nf: '{{COMPONENT_PREFIX}}**'\nga: ${{ github.ref }}\n"
 	out, missing := Substitute(in, vals)
 	if len(missing) != 0 {
@@ -32,7 +32,7 @@ func TestSubstituteValues(t *testing.T) {
 }
 
 func TestSubstituteEmptyPrefixIsValid(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Acme", Scheme: "Acme", BundleID: "b", AscAppID: "9"}, "", nil)
+	vals := Values(&config.Config{Project: config.Project{ProjectName: "Acme", Scheme: "Acme", BundleID: "b", AscAppID: "9"}}, "")
 	out, missing := Substitute("f: '{{COMPONENT_PREFIX}}**'\nd: {{COMPONENT_PREFIX}}DerivedData\n", vals)
 	if len(missing) != 0 {
 		t.Fatalf("empty prefix must not be 'missing': %v", missing)
@@ -43,7 +43,7 @@ func TestSubstituteEmptyPrefixIsValid(t *testing.T) {
 }
 
 func TestSubstituteReportsMissingProjectValue(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Acme"}, "ios/", nil) // scheme blank
+	vals := Values(&config.Config{Project: config.Project{ProjectName: "Acme"}}, "ios/") // scheme blank
 	_, missing := Substitute("{{SCHEME}} {{PROJECT_NAME}}", vals)
 	if len(missing) != 1 || missing[0] != "{{SCHEME}}" {
 		t.Fatalf("missing = %v", missing)
@@ -51,7 +51,7 @@ func TestSubstituteReportsMissingProjectValue(t *testing.T) {
 }
 
 func TestSubstituteXcodeproj(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "b", AscAppID: "9", Xcodeproj: "ios/Queueify/Queueify.xcodeproj"}, "ios/", nil)
+	vals := Values(&config.Config{Project: config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "b", AscAppID: "9", Xcodeproj: "ios/Queueify/Queueify.xcodeproj"}}, "ios/")
 	out, missing := Substitute("-project {{XCODEPROJ}}\nlint: {{COMPONENT_PREFIX}}.swiftlint.yml", vals)
 	if len(missing) != 0 {
 		t.Fatalf("missing: %v", missing)
@@ -62,7 +62,7 @@ func TestSubstituteXcodeproj(t *testing.T) {
 }
 
 func TestSubstituteReportsMissingXcodeproj(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "b", AscAppID: "9"}, "ios/", nil)
+	vals := Values(&config.Config{Project: config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "b", AscAppID: "9"}}, "ios/")
 	_, missing := Substitute("-project {{XCODEPROJ}}", vals)
 	if len(missing) != 1 || missing[0] != "{{XCODEPROJ}}" {
 		t.Fatalf("missing = %v", missing)
@@ -70,26 +70,26 @@ func TestSubstituteReportsMissingXcodeproj(t *testing.T) {
 }
 
 func TestSubstituteSwiftVersion(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "A", Scheme: "A", BundleID: "b", AscAppID: "9", Xcodeproj: "A.xcodeproj", SwiftVersion: "6.2"}, "", nil)
+	vals := Values(&config.Config{Project: config.Project{ProjectName: "A", Scheme: "A", BundleID: "b", AscAppID: "9", Xcodeproj: "A.xcodeproj", SwiftVersion: "6.2"}}, "")
 	out, missing := Substitute("--swiftversion {{SWIFT_VERSION}}", vals)
 	if len(missing) != 0 || out != "--swiftversion 6.2" {
 		t.Fatalf("out=%q missing=%v", out, missing)
 	}
 	// blank swift_version with the token present must fail closed
-	v2 := Values(config.Project{ProjectName: "A", Scheme: "A", BundleID: "b", AscAppID: "9", Xcodeproj: "A.xcodeproj"}, "", nil)
+	v2 := Values(&config.Config{Project: config.Project{ProjectName: "A", Scheme: "A", BundleID: "b", AscAppID: "9", Xcodeproj: "A.xcodeproj"}}, "")
 	if _, m := Substitute("--swiftversion {{SWIFT_VERSION}}", v2); len(m) != 1 || m[0] != "{{SWIFT_VERSION}}" {
 		t.Fatalf("expected {{SWIFT_VERSION}} missing, got %v", m)
 	}
 }
 
 func TestSubstituteGithubOrg(t *testing.T) {
-	vals := Values(config.Project{GithubOrg: "AcmeOrg"}, "", nil)
+	vals := Values(&config.Config{Project: config.Project{GithubOrg: "AcmeOrg"}}, "")
 	out, missing := Substitute("gh secret set X --org {{GITHUB_ORG}}", vals)
 	if len(missing) != 0 || out != "gh secret set X --org AcmeOrg" {
 		t.Fatalf("out=%q missing=%v", out, missing)
 	}
 	// github_org is NOT required: a blank value renders empty, never fails closed.
-	out2, m2 := Substitute("--org {{GITHUB_ORG}}", Values(config.Project{}, "", nil))
+	out2, m2 := Substitute("--org {{GITHUB_ORG}}", Values(&config.Config{Project: config.Project{}}, ""))
 	if len(m2) != 0 || out2 != "--org " {
 		t.Fatalf("blank org should render empty, got out=%q missing=%v", out2, m2)
 	}

@@ -1,0 +1,29 @@
+# This repo is NOT synced by itself (there is no .lacquer.toml here), so unlike
+# every project it manages, this file is hand-written rather than rendered from
+# core/root/.github/dependabot.yml.
+#
+# It is also the only Go module in the fleet, which is why `gomod` appears here
+# and not in the shipped template.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 20
+
+  # The shipped workflows pin every action to a commit SHA, which is the right
+  # trade and also the one that rots silently: a pinned SHA never fails, it just
+  # stops being current.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 20
+
+  # The documentation site.
+  - package-ecosystem: npm
+    directory: "/site"
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 20
