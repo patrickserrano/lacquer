@@ -73,6 +73,27 @@ and preserves the resolved versions) followed by deleting the npm lockfile — n
 a fresh `pnpm install`, which re-resolves every range and turns a package-manager
 change into an unreviewed dependency bump.
 
+Two things bite during that migration, both of them silent:
+
+**Settings live in `pnpm-workspace.yaml`, not package.json's `pnpm` field.**
+pnpm 11 stopped reading that field and ignores it with a warning, so a setting
+left there does nothing while looking correct. That includes `overrides`.
+
+**Install scripts are blocked by default**, which npm never did — every
+postinstall in the tree ran silently there. pnpm fails the install with
+ERR_PNPM_IGNORED_BUILDS and requires each one be named in
+`onlyBuiltDependencies`. Grant it only where the package needs it (fetching a
+platform binary, typically), and treat the list as a review step: each entry is
+a dependency allowed arbitrary code execution on every developer machine and CI
+runner. Note the state is cached in node_modules — after adding entries, a
+re-run of `pnpm install` still reports them ignored until node_modules is
+removed, which reads like the setting not working.
+
+**Check `vercel.json`** (or whatever deploys the project) for a pinned
+`installCommand`. pixelfoxstudio.com had `"installCommand": "npm ci"`, which
+would have kept passing CI and failed every production deploy on the lockfile
+that no longer exists.
+
 **The local binary, never a downloading runner.** `npx <tool>` silently
 downloads a version when the project has none installed, so a project that never
 added `@biomejs/biome` gets a green lint step run by whatever npm served that
@@ -250,5 +271,5 @@ installing lefthook alongside pre-commit.
 
 `web-ci.yml` runs lint → typecheck → test (coverage) → build → dependency audit
 on `ubuntu-latest`, path-gated to the component. The audit blocks on **critical**
-advisories by default; tighten to `high` (and add `pnpm.overrides` for unfixable
+advisories by default; tighten to `high` (and add `overrides` in pnpm-workspace.yaml for unfixable
 transitives) per project.
