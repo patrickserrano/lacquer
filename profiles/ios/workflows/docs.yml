@@ -5,14 +5,19 @@ name: iOS Docs
 # Validation lives in ios-ci.yml's `Docs` job, not here, because branch
 # protection points at a single required check (CI OK) and a job in another
 # workflow cannot be one of its `needs`. This workflow only publishes what CI
-# already proved builds clean — it runs on main, after the merge.
+# already proved builds clean.
+#
+# SCHEDULED, not on push. The DocC build takes ~38 minutes and this fleet has ONE
+# self-hosted Mac, so every merge put a 38-minute job at the head of a queue that
+# CI and releases then sat behind. Publishing docs is not urgent; the work
+# waiting behind it is.
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '{{COMPONENT_PREFIX}}**'
+  schedule:
+    # Overnight. Publishing docs is never urgent; the work that queues behind it
+    # is. 03:00 UTC clears before the 07:00 / 08:00 / 09:00 dailies start.
+    - cron: '0 3 * * *'
 
 permissions:
   contents: write # scripts/publish-docs.sh pushes the gh-pages branch
@@ -26,8 +31,61 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A cheap gate on a hosted runner, so the expensive job never starts when the
+  # published docs already match the source.
+  #
+  # A job-level `if` rather than per-step conditions: a skipped job never
+  # occupies a runner at all. That is the whole point for iOS, where the build
+  # takes ~38 minutes on the fleet's ONE self-hosted Mac and everything else —
+  # CI, releases — queues behind it.
+  check:
+    name: Are the published docs stale?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.stale.outputs.needed }}
+      sha: ${{ steps.stale.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # Full history. The check asks for the last commit that touched this
+          # component, and on a depth-1 clone `git log -- <path>` sees only the
+          # single fetched commit — it would report "no commits" and skip
+          # forever.
+          fetch-depth: 0
+
+      - id: stale
+        run: |
+          set -euo pipefail
+          current=$(git log -1 --format=%H -- "{{COMPONENT_PREFIX}}" || true)
+          if [ -z "$current" ]; then
+            echo "No commits touching this component — nothing to publish."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          published=""
+          if git fetch --quiet --depth 1 origin gh-pages 2>/dev/null; then
+            # A missing file, a missing branch and a first-ever run all land here
+            # and all mean "publish". That is the safe direction: a spurious
+            # build costs runner time, a spurious skip serves stale docs
+            # indefinitely with nothing reporting it.
+            published=$(git show FETCH_HEAD:swift/.docs-source 2>/dev/null || true)
+          fi
+
+          if [ "$current" = "$published" ]; then
+            echo "Published docs are already built from $current — skipping."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Source at $current, published at ${published:-<none>} — rebuilding."
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$current" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
     name: Build and publish DocC
+    needs: check
+    if: needs.check.outputs.needed == 'true'
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     timeout-minutes: 25
     steps:
@@ -67,6 +125,7 @@ jobs:
       - name: Publish to gh-pages/swift
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCS_SOURCE_SHA: ${{ needs.check.outputs.sha }}
         run: scripts/publish-docs.sh swift docs-site
 
       # This runner's workspace persists between runs; see ios-ci.yml's Docs job.

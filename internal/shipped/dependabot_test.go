@@ -3,6 +3,7 @@ package shipped
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/config"
@@ -138,6 +139,67 @@ func TestDependabotOpensPRsForEverythingDaily(t *testing.T) {
 		}
 		if len(u.Allow) > 0 {
 			t.Errorf("%s: has an allow list, which narrows what gets opened", u.Ecosystem)
+		}
+	}
+}
+
+// Docs publishing is scheduled, not merge-triggered. The DocC build takes ~38
+// minutes on the fleet's one self-hosted Mac, so a per-merge publish put a
+// 38-minute job at the head of the queue that CI and releases then sat behind.
+func TestDocsWorkflowsAreScheduledNotPushed(t *testing.T) {
+	for _, profile := range []string{"ios", "web", "supabase"} {
+		raw, err := os.ReadFile(filepath.Join(root(t), "profiles", profile, "workflows", "docs.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// `on` is a YAML 1.1 boolean, so it parses as the key `true`.
+		var doc struct {
+			On struct {
+				Push     any `yaml:"push"`
+				Schedule []struct {
+					Cron string `yaml:"cron"`
+				} `yaml:"schedule"`
+			} `yaml:"on"`
+			Jobs map[string]struct {
+				Needs any    `yaml:"needs"`
+				If    string `yaml:"if"`
+			} `yaml:"jobs"`
+		}
+		body := lacquerToken.ReplaceAllString(strings.ReplaceAll(string(raw), "{{WEB_BUILD_ENV}}\n", ""), "x")
+		if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+			t.Fatalf("%s docs.yml: %v", profile, err)
+		}
+
+		if doc.On.Push != nil {
+			t.Errorf("%s docs.yml still publishes on push", profile)
+		}
+		if len(doc.On.Schedule) == 0 {
+			t.Errorf("%s docs.yml has no schedule", profile)
+			continue
+		}
+		// Not 07:00/08:00/09:00 — those are cleanup-ci, supabase health and
+		// testflight-feedback, and this exists to stop competing for the runner.
+		for _, sc := range doc.On.Schedule {
+			for _, taken := range []string{"0 7 ", "0 8 ", "0 9 "} {
+				if strings.HasPrefix(sc.Cron, taken) {
+					t.Errorf("%s docs.yml cron %q collides with an existing daily", profile, sc.Cron)
+				}
+			}
+		}
+
+		// The expensive job must be GATED, not merely conditional per step: a
+		// skipped job never occupies a runner, a skipped step still does.
+		gated := false
+		for name, j := range doc.Jobs {
+			if name == "check" {
+				continue
+			}
+			if j.Needs != nil && strings.Contains(j.If, "needs.check.outputs.needed") {
+				gated = true
+			}
+		}
+		if !gated {
+			t.Errorf("%s docs.yml: the publish job is not gated on the staleness check", profile)
 		}
 	}
 }
