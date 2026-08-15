@@ -11,8 +11,9 @@
 # opening PRs for the rest and says nothing — the queue looks empty because it is
 # full.
 #
-# If the PR volume becomes the problem, the lever is `groups` (batch related
-# updates into one PR), NOT `ignore` — grouping still surfaces everything.
+# Minor and patch updates are GROUPED into one PR per ecosystem; majors stay
+# individual. Grouping is the lever for volume, not `ignore`: it changes how many
+# PRs carry the updates, not which updates are offered.
 version: 2
 updates:
 {{DEPENDABOT_UPDATES}}

@@ -340,6 +340,28 @@ func dependabotUpdates(cfg *config.Config) string {
     schedule:
       interval: daily
     open-pull-requests-limit: 20
+    groups:
+      # Minor and patch updates arrive as ONE pull request per ecosystem.
+      #
+      # Nothing is hidden: grouping changes how many PRs carry the updates, not
+      # which updates are offered — unlike an ignore rule, which silences them.
+      # That distinction is the whole reason this is the lever, not that one.
+      #
+      # It exists because the first daily run opened roughly forty pull requests
+      # across the fleet, and this fleet builds iOS on ONE self-hosted Mac. Forty
+      # PRs is forty full builds queued behind each other, which starved the CI
+      # and releases that actually needed the runner.
+      #
+      # MAJORS stay separate, deliberately. They are the ones that break: this
+      # fleet lost Dead Code Analysis in seven repositories to a
+      # download-artifact v7.0.1 that never existed. A major buried in a batch
+      # of twenty is a major nobody read.
+      routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 `, ecosystem, dir)
 	}
 

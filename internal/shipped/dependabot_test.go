@@ -203,3 +203,55 @@ func TestDocsWorkflowsAreScheduledNotPushed(t *testing.T) {
 		}
 	}
 }
+
+// Grouping is the lever for PR volume; `ignore` is not. Grouping changes how
+// many PRs carry the updates, not which updates are offered.
+//
+// Majors must stay OUT of the group: this fleet lost Dead Code Analysis in seven
+// repositories to a download-artifact v7.0.1 that never existed, and a major
+// buried in a batch of twenty is a major nobody read.
+func TestDependabotGroupsRoutineUpdatesButNotMajors(t *testing.T) {
+	cfg := &config.Config{
+		Project:    config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
+		Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
+	}
+	raw, err := os.ReadFile(filepath.Join(root(t), "core", "root", ".github", "dependabot.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := tokens.Substitute(string(raw), tokens.Values(cfg, ""))
+
+	var doc struct {
+		Updates []struct {
+			Ecosystem string `yaml:"package-ecosystem"`
+			Ignore    []any  `yaml:"ignore"`
+			Groups    map[string]struct {
+				Patterns    []string `yaml:"patterns"`
+				UpdateTypes []string `yaml:"update-types"`
+			} `yaml:"groups"`
+		} `yaml:"updates"`
+	}
+	if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("rendered dependabot.yml is not valid YAML: %v\n%s", err, out)
+	}
+
+	for _, u := range doc.Updates {
+		if len(u.Ignore) > 0 {
+			t.Errorf("%s: has ignore rules — volume is managed by grouping, not by silencing updates", u.Ecosystem)
+		}
+		if len(u.Groups) == 0 {
+			t.Errorf("%s: no groups, so every update opens its own PR", u.Ecosystem)
+			continue
+		}
+		for name, g := range u.Groups {
+			for _, ut := range g.UpdateTypes {
+				if ut == "major" {
+					t.Errorf("%s group %q includes majors; they must stay individually reviewable", u.Ecosystem, name)
+				}
+			}
+			if len(g.UpdateTypes) == 0 {
+				t.Errorf("%s group %q has no update-types, which would swallow majors too", u.Ecosystem, name)
+			}
+		}
+	}
+}
