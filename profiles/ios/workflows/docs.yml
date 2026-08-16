@@ -38,20 +38,16 @@ jobs:
   # occupies a runner at all. That is the whole point for iOS, where the build
   # takes ~38 minutes on the fleet's ONE self-hosted Mac and everything else —
   # CI, releases — queues behind it.
-  check:
-    name: Are the published docs stale?
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      needed: ${{ steps.stale.outputs.needed }}
-      sha: ${{ steps.stale.outputs.sha }}
+  publish:
+    name: Build and publish DocC
+    runs-on: [self-hosted, macOS, ARM64, dedicated]
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # Full history. The check asks for the last commit that touched this
-          # component, and on a depth-1 clone `git log -- <path>` sees only the
-          # single fetched commit — it would report "no commits" and skip
-          # forever.
+          # Full history: the staleness check below asks for the last commit
+          # that touched this component; a depth-1 clone reports none and
+          # would skip forever.
           fetch-depth: 0
 
       - id: stale
@@ -82,15 +78,6 @@ jobs:
             echo "sha=$current" >> "$GITHUB_OUTPUT"
           fi
 
-  publish:
-    name: Build and publish DocC
-    needs: check
-    if: needs.check.outputs.needed == 'true'
-    runs-on: [self-hosted, macOS, ARM64, dedicated]
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v7.0.1
-
       # The hosting base path is baked into every asset URL in the archive, so it
       # has to match where the site is actually served from — `<repo>/swift`, one
       # level down from the Pages root because each stack owns a subdirectory.
@@ -102,6 +89,7 @@ jobs:
       # moment it merged — which is precisely the "a lot of failures on main"
       # symptom. Third place this same relaxation had to be taught.
       - name: Read the documentation relaxation
+        if: steps.stale.outputs.needed == 'true'
         id: relax
         run: |
           set -euo pipefail
@@ -114,6 +102,7 @@ jobs:
           esac
 
       - name: Build documentation
+        if: steps.stale.outputs.needed == 'true'
         # NOT continue-on-error: that marks a FAILED build as successful, so the
         # archive is never staged and the publish step below dies with
         # "'docs-site' is not a directory". DOCS_RELAXED tells build-docs.sh to
@@ -123,9 +112,10 @@ jobs:
         run: scripts/build-docs.sh docs-site "${GITHUB_REPOSITORY#*/}/swift"
 
       - name: Publish to gh-pages/swift
+        if: steps.stale.outputs.needed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCS_SOURCE_SHA: ${{ needs.check.outputs.sha }}
+          DOCS_SOURCE_SHA: ${{ steps.stale.outputs.sha }}
         run: scripts/publish-docs.sh swift docs-site
 
       # This runner's workspace persists between runs; see ios-ci.yml's Docs job.
@@ -134,6 +124,7 @@ jobs:
         run: rm -rf docs-site
 
       - name: Link the published site
+        if: steps.stale.outputs.needed == 'true'
         run: |
           set -euo pipefail
           owner="${GITHUB_REPOSITORY%/*}"

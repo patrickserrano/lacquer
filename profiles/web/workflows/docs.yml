@@ -31,20 +31,16 @@ jobs:
   # occupies a runner at all. That is the whole point for iOS, where the build
   # takes ~38 minutes on the fleet's ONE self-hosted Mac and everything else —
   # CI, releases — queues behind it.
-  check:
-    name: Are the published docs stale?
+  publish:
+    name: Build and publish TypeDoc
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      needed: ${{ steps.stale.outputs.needed }}
-      sha: ${{ steps.stale.outputs.sha }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # Full history. The check asks for the last commit that touched this
-          # component, and on a depth-1 clone `git log -- <path>` sees only the
-          # single fetched commit — it would report "no commits" and skip
-          # forever.
+          # Full history: the staleness check below asks for the last commit
+          # that touched this component; a depth-1 clone reports none and
+          # would skip forever.
           fetch-depth: 0
 
       - id: stale
@@ -75,15 +71,6 @@ jobs:
             echo "sha=$current" >> "$GITHUB_OUTPUT"
           fi
 
-  publish:
-    name: Build and publish TypeDoc
-    needs: check
-    if: needs.check.outputs.needed == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7.0.1
-
       # BEFORE setup-node, not after. `cache: pnpm` asks setup-node to locate the
       # pnpm store, which it does by running pnpm — so pnpm has to exist first.
       # Reversed, the run fails with "Unable to locate executable file: pnpm",
@@ -96,6 +83,7 @@ jobs:
       # two would drift silently — CI resolving one tree and the developer
       # another is precisely the class of bug a lockfile exists to prevent.
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        if: steps.stale.outputs.needed == 'true'
         with:
           # The action reads `packageManager` from the REPO ROOT package.json by
           # default. A component in a subdirectory keeps its package.json there,
@@ -104,12 +92,14 @@ jobs:
           package_json_file: "{{COMPONENT_PREFIX}}package.json"
 
       - uses: actions/setup-node@v7.0.0
+        if: steps.stale.outputs.needed == 'true'
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: "{{COMPONENT_PREFIX}}pnpm-lock.yaml"
 
       - run: pnpm install --frozen-lockfile
+        if: steps.stale.outputs.needed == 'true'
         working-directory: "{{COMPONENT_PREFIX}}."
 
       # Unlike DocC, TypeDoc emits relative asset URLs, so the site works at any
@@ -120,6 +110,7 @@ jobs:
       # moment it merged — which is precisely the "a lot of failures on main"
       # symptom. Third place this same relaxation had to be taught.
       - name: Read the documentation relaxation
+        if: steps.stale.outputs.needed == 'true'
         id: relax
         run: |
           set -euo pipefail
@@ -132,6 +123,7 @@ jobs:
           esac
 
       - name: Build documentation
+        if: steps.stale.outputs.needed == 'true'
         working-directory: "{{COMPONENT_PREFIX}}."
         # typedoc exits 4 on validation warnings. When relaxed, still publish —
         # the PR's Docs job is the gate, this is the deploy.
@@ -164,12 +156,14 @@ jobs:
           fi
 
       - name: Publish to gh-pages/api
+        if: steps.stale.outputs.needed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCS_SOURCE_SHA: ${{ needs.check.outputs.sha }}
+          DOCS_SOURCE_SHA: ${{ steps.stale.outputs.sha }}
         run: scripts/publish-docs.sh api "{{COMPONENT_PREFIX}}docs-site"
 
       - name: Link the published site
+        if: steps.stale.outputs.needed == 'true'
         run: |
           set -euo pipefail
           owner="${GITHUB_REPOSITORY%/*}"

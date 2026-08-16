@@ -32,20 +32,16 @@ jobs:
   # occupies a runner at all. That is the whole point for iOS, where the build
   # takes ~38 minutes on the fleet's ONE self-hosted Mac and everything else —
   # CI, releases — queues behind it.
-  check:
-    name: Are the published docs stale?
+  publish:
+    name: Build and publish the API reference
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      needed: ${{ steps.stale.outputs.needed }}
-      sha: ${{ steps.stale.outputs.sha }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # Full history. The check asks for the last commit that touched this
-          # component, and on a depth-1 clone `git log -- <path>` sees only the
-          # single fetched commit — it would report "no commits" and skip
-          # forever.
+          # Full history: the staleness check below asks for the last commit
+          # that touched this component; a depth-1 clone reports none and
+          # would skip forever.
           fetch-depth: 0
 
       - id: stale
@@ -76,16 +72,8 @@ jobs:
             echo "sha=$current" >> "$GITHUB_OUTPUT"
           fi
 
-  publish:
-    name: Build and publish the API reference
-    needs: check
-    if: needs.check.outputs.needed == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7.0.1
-
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        if: steps.stale.outputs.needed == 'true'
         with:
           deno-version: v2.x
 
@@ -95,6 +83,7 @@ jobs:
       # moment it merged — which is precisely the "a lot of failures on main"
       # symptom. Third place this same relaxation had to be taught.
       - name: Read the documentation relaxation
+        if: steps.stale.outputs.needed == 'true'
         id: relax
         run: |
           set -euo pipefail
@@ -107,6 +96,7 @@ jobs:
           esac
 
       - name: Build documentation
+        if: steps.stale.outputs.needed == 'true'
         id: build
         working-directory: "{{COMPONENT_PREFIX}}."
         run: |
@@ -131,7 +121,7 @@ jobs:
         if: steps.build.outputs.built == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCS_SOURCE_SHA: ${{ needs.check.outputs.sha }}
+          DOCS_SOURCE_SHA: ${{ steps.stale.outputs.sha }}
         run: scripts/publish-docs.sh db "{{COMPONENT_PREFIX}}docs-site"
 
       - name: Link the published site

@@ -187,19 +187,21 @@ func TestDocsWorkflowsAreScheduledNotPushed(t *testing.T) {
 			}
 		}
 
-		// The expensive job must be GATED, not merely conditional per step: a
-		// skipped job never occupies a runner, a skipped step still does.
-		gated := false
-		for name, j := range doc.Jobs {
-			if name == "check" {
-				continue
-			}
-			if j.Needs != nil && strings.Contains(j.If, "needs.check.outputs.needed") {
-				gated = true
-			}
+		// ONE job, with the work gated on a staleness step inside it.
+		//
+		// This was briefly two jobs — a cheap ubuntu gate plus the publish job —
+		// so a skip would not occupy the Mac. That trade was wrong on cost:
+		// GitHub bills a MINIMUM OF ONE MINUTE PER JOB, so the gate cost a full
+		// billed minute per repository per day (~420/month across the fleet) to
+		// save about twenty seconds of a runner that is not otherwise busy at
+		// 03:00. One job pays one minute whether it skips or publishes.
+		if len(doc.Jobs) != 1 {
+			t.Errorf("%s docs.yml has %d jobs; each one costs a billed minute even when it skips", profile, len(doc.Jobs))
 		}
-		if !gated {
-			t.Errorf("%s docs.yml: the publish job is not gated on the staleness check", profile)
+		for name, j := range doc.Jobs {
+			if j.Needs != nil {
+				t.Errorf("%s docs.yml job %q depends on another job — that is a second billed minute", profile, name)
+			}
 		}
 	}
 }
