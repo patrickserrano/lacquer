@@ -45,8 +45,10 @@ jobs:
             # runs. `lacquer` is unconditionally true here on purpose — a push to
             # main is the backstop that catches the drift a PR gate cannot see
             # (an exclusion or baseline relaxation whose expiry simply passed).
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            echo "lacquer=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "code=true"
+              echo "lacquer=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           base="${{ github.event.pull_request.base.sha }}"

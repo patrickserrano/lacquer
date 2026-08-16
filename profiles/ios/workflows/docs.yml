@@ -74,8 +74,10 @@ jobs:
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
             echo "Source at $current, published at ${published:-<none>} — rebuilding."
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-            echo "sha=$current" >> "$GITHUB_OUTPUT"
+            {
+              echo "needed=true"
+              echo "sha=$current"
+            } >> "$GITHUB_OUTPUT"
           fi
 
       # The hosting base path is baked into every asset URL in the archive, so it
