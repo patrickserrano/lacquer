@@ -692,8 +692,10 @@ jobs:
                 exit 0
               elif [ -n "$RESULT" ] && [ -n "$FAILED_COUNT" ]; then
                 echo "Test failures detected via xcresulttool: $FAILED_COUNT failed (result: $RESULT)"
-                echo "test_result=failed" >> "$GITHUB_OUTPUT"
-                echo "failure_count=$FAILED_COUNT" >> "$GITHUB_OUTPUT"
+                {
+                  echo "test_result=failed"
+                  echo "failure_count=$FAILED_COUNT"
+                } >> "$GITHUB_OUTPUT"
                 exit 65
               fi
             fi
@@ -736,8 +738,10 @@ jobs:
             echo "Tests failed" >> "$GITHUB_STEP_SUMMARY"
 
             if [ -d "TestResults.xcresult" ]; then
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "### Failed Tests" >> "$GITHUB_STEP_SUMMARY"
+              {
+                echo ""
+                echo "### Failed Tests"
+              } >> "$GITHUB_STEP_SUMMARY"
 
               # Modern `get test-results tests` subcommand — the legacy
               # `get --format json` form used here too, and is refused by current
@@ -748,9 +752,11 @@ jobs:
                 jq -r '.. | objects | select(.result? == "Failed" and .nodeType? == "Test Case") | .nodeIdentifier // empty' 2>/dev/null | head -20)
 
               if [ -n "$FAILED_TESTS" ]; then
-                echo '```' >> "$GITHUB_STEP_SUMMARY"
-                echo "$FAILED_TESTS" >> "$GITHUB_STEP_SUMMARY"
-                echo '```' >> "$GITHUB_STEP_SUMMARY"
+                {
+                  echo '```'
+                  echo "$FAILED_TESTS"
+                  echo '```'
+                } >> "$GITHUB_STEP_SUMMARY"
               else
                 grep -E "Test Case .* failed" xcodebuild.log 2>/dev/null | head -20 >> "$GITHUB_STEP_SUMMARY" || echo "See logs for details" >> "$GITHUB_STEP_SUMMARY"
               fi
@@ -767,13 +773,17 @@ jobs:
             jq '.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100' | \
             xargs printf "%.1f")
 
-          echo "## iOS Test Coverage: ${APP_COVERAGE}%" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "_Coverage calculated for {{PROJECT_NAME}}.app target only (excludes third-party dependencies)_" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## iOS Test Coverage: ${APP_COVERAGE}%"
+            echo ""
+            echo "_Coverage calculated for {{PROJECT_NAME}}.app target only (excludes third-party dependencies)_"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Coverage by Target" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo ""
+            echo "### Coverage by Target"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           xcrun xccov view --report --json TestResults.xcresult | \
             jq -r '.targets[] | "\(.lineCoverage * 100 | floor)% \(.name)"' | \
             sort -rn >> "$GITHUB_STEP_SUMMARY"

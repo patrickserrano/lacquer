@@ -68,8 +68,10 @@ jobs:
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
             echo "Source at $current, published at ${published:-<none>} — rebuilding."
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-            echo "sha=$current" >> "$GITHUB_OUTPUT"
+            {
+              echo "needed=true"
+              echo "sha=$current"
+            } >> "$GITHUB_OUTPUT"
           fi
 
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
