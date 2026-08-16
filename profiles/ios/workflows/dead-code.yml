@@ -48,44 +48,39 @@ jobs:
 
           # Count total issues
           COUNT=$(jq 'length' periphery-report.json 2>/dev/null || echo "0")
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          {
+            echo "count=$COUNT"
+            if [ "$COUNT" -gt "0" ]; then
+              echo "has_dead_code=true"
+            else
+              echo "has_dead_code=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
 
-          if [ "$COUNT" -gt "0" ]; then
-            echo "has_dead_code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_dead_code=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          # Generate detailed summary
+          # Generate detailed summary with one atomic append.
           {
             echo "## iOS Dead Code Analysis"
             echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$COUNT" -eq "0" ]; then
-            echo "No dead code found!" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+            if [ "$COUNT" -eq "0" ]; then
+              echo "No dead code found!"
+              exit 0
+            fi
 
-          {
             echo "Found **$COUNT** unused declarations:"
             echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
 
-          # Group by kind and show details
-          {
+            # Group by kind and show details
             echo "### By Category"
             echo ""
             echo "| Category | Count |"
             echo "|----------|-------|"
-          } >> "$GITHUB_STEP_SUMMARY"
 
-          jq -r 'group_by(.kind) | .[] | "\(.[ 0].kind)|\(length)"' periphery-report.json | \
-          while IFS='|' read -r kind count; do
-            echo "| $kind | $count |" >> "$GITHUB_STEP_SUMMARY"
-          done
+            jq -r 'group_by(.kind) | .[] | "\(.[ 0].kind)|\(length)"' periphery-report.json | \
+            while IFS='|' read -r kind count; do
+              echo "| $kind | $count |"
+            done
 
-          {
             echo ""
             echo "### Details"
             echo ""
@@ -94,22 +89,18 @@ jobs:
             echo ""
             echo "| File | Line | Kind | Name |"
             echo "|------|------|------|------|"
-          } >> "$GITHUB_STEP_SUMMARY"
 
-          # Show up to 50 items
-          jq -r '.[:50] | .[] | "\(.location.file | split("/") | last)|\(.location.line)|\(.kind)|\(.name)"' periphery-report.json | \
-          while IFS='|' read -r file line kind name; do
-            echo "| \`$file\` | $line | $kind | \`$name\` |" >> "$GITHUB_STEP_SUMMARY"
-          done
+            # Show up to 50 items
+            jq -r '.[:50] | .[] | "\(.location.file | split("/") | last)|\(.location.line)|\(.kind)|\(.name)"' periphery-report.json | \
+            while IFS='|' read -r file line kind name; do
+              echo "| \`$file\` | $line | $kind | \`$name\` |"
+            done
 
-          if [ "$COUNT" -gt "50" ]; then
-            {
+            if [ "$COUNT" -gt "50" ]; then
               echo ""
               echo "_...and $((COUNT - 50)) more. See full report in artifacts._"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+            fi
 
-          {
             echo ""
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -178,7 +169,7 @@ jobs:
 
           if [ "$EXISTING_ISSUE" == "true" ]; then
             # Update existing issue with a comment
-            gh issue comment $ISSUE_NUMBER --body "## Update - $DATE
+            gh issue comment "$ISSUE_NUMBER" --body "## Update - $DATE
 
           Latest scan found **$TOTAL** dead code items:
           - iOS: $IOS_COUNT
