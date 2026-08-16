@@ -335,12 +335,26 @@ jobs:
     name: Test
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: [lint, changes]
-    # Skip on push-to-main (squash-merged tree == tested tree; Build (Release) is
-    # the main-side compile backstop) AND on docs-only PRs (no code change). Tests
-    # stay a required gate on every code PR + manual dispatch. CAVEAT: airtight
-    # only when PRs are up-to-date with main before the squash-merge.
+    # Runs on push-to-main as well as on PRs, and skips only docs-only changes.
+    #
+    # It used to skip pushes entirely, on the reasoning that a squash-merged tree
+    # equals the tree already tested — with the caveat, written right here, that
+    # this is "airtight only when PRs are up-to-date with main before the
+    # squash-merge". That caveat was branch protection's `strict` setting doing
+    # load-bearing work from the other side of the fence.
+    #
+    # `strict` turned out to cost far more than it protected. It invalidates
+    # every other open PR on every merge, so on a fleet sharing ONE self-hosted
+    # Mac each PR re-queues a full run per merge that lands ahead of it: measured
+    # at NINE runs for a single sync PR in one afternoon, none of which merged.
+    #
+    # Testing the merged tree once is strictly cheaper than re-testing every open
+    # PR against every merge, and it closes the hole rather than relying on a
+    # setting in a different system to keep it shut. Build (Release) remains the
+    # compile backstop; this makes tests one too.
+    #
     # SECURITY: same-repo guard — fork-PR code must not build/test on the self-hosted runner.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'push' && needs.changes.outputs.code == 'true'
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     # Per-step fail-fast timeouts below catch silent hangs; this is the generous
     # backstop with headroom for a cold, cache-cold build.
     timeout-minutes: 20
