@@ -653,18 +653,37 @@ func dependabotUpdates(cfg *config.Config) string {
 	// glob for `directory`, so a manifest outside a listed path is simply never
 	// looked at. kit keeps its project at Kit/Kit.xcodeproj, so "/" would find
 	// nothing.
+	//
+	// Keyed on the component's STACK, falling back to its profiles. Those are
+	// different questions — `stack` is what the component IS, `profiles` is what
+	// the lacquer manages there — and rendering from profiles alone meant a
+	// component with hand-written CI got NO dependency coverage. One project had
+	// a Next.js app with 36 npm dependencies watched by nothing for exactly that
+	// reason, and the gap was invisible because the config file it should have
+	// appeared in looked complete.
 	for _, c := range cfg.Components {
 		dir := "/"
 		if c.Path != "" && c.Path != "." {
 			dir = "/" + strings.TrimSuffix(c.Path, "/")
 		}
-		for _, p := range c.Profiles {
-			switch p {
-			case "web":
-				b.WriteString(entry("npm", dir))
-			case "ios":
-				b.WriteString(entry("swift", dir))
+		seen := map[string]bool{}
+		emit := func(stack string) {
+			eco, ok := config.StackEcosystem[stack]
+			// A stack with no ecosystem is detectable but has no manifest
+			// Dependabot supports — supabase's config.toml is configuration,
+			// not a lockfile. Emitting an entry there would be a promise the
+			// tool cannot keep.
+			if !ok || seen[eco] {
+				return
 			}
+			seen[eco] = true
+			b.WriteString(entry(eco, dir))
+		}
+		if c.Stack != "" {
+			emit(c.Stack)
+		}
+		for _, p := range c.Profiles {
+			emit(p)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
