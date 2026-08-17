@@ -189,6 +189,23 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 			}); err != nil {
 			return nil, nil, err
 		}
+		// workflows the lacquer ships but does NOT install unless asked, same
+		// destination shape as above. Opt in with [project].optional_workflows.
+		//
+		// Gated by NAME rather than by directory-per-project so the file stays a
+		// single shared asset: a project that opts in gets the same one everybody
+		// else would, and it keeps being maintained rather than becoming a copy
+		// somebody forked years ago.
+		for _, want := range cfg.Project.OptionalWorkflows {
+			src := filepath.Join(base, "workflows-optional", want+".yml")
+			if _, err := os.Stat(src); err != nil {
+				// A typo here would silently install nothing, which is the
+				// failure this whole mechanism is meant to avoid.
+				return nil, nil, fmt.Errorf("[project].optional_workflows: %s has no optional workflow %q", p, want)
+			}
+			add(src, filepath.Join(".github", "workflows", p+"-"+want+".yml"), prefix)
+		}
+
 		// profile root tree -> project root (verbatim relative paths)
 		if err := walkInto(filepath.Join(base, "root"),
 			func(src, rel string) { add(src, rel, prefix) }); err != nil {

@@ -43,6 +43,22 @@ profiles = ["ios"]
 component detected as an unshipped stack (e.g. Rust/Go) is recorded with an
 empty profile list and a notice — it doesn't break `sync`.
 
+`optional_workflows` opts into a workflow the lacquer ships but does not install
+by default, named without its `.yml`:
+
+```toml
+optional_workflows = ["testflight-feedback"]
+```
+
+The default-off set exists because a workflow needing credentials nobody has
+doesn't fail loudly — it fails **daily and quietly**. `testflight-feedback` wants
+`APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` and two siblings; no project in this fleet
+had them, so it was red on every scheduled run in every repo that received it. A
+scheduled job nobody can satisfy is worse than a missing feature: it trains
+people to ignore red.
+
+A name with no matching file is an error, not a silent no-op.
+
 `skills` entries are `"<owner>/<repo>@<skill-name>"` strings, installed by
 `lacquer skills` — see [Third-party
 skills](/lacquer/guides/getting-started/#third-party-skills).

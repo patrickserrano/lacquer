@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/tokens"
 	"gopkg.in/yaml.v3"
@@ -320,6 +321,58 @@ func TestDependabotDoesNotDuplicateEcosystems(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("got %d npm entries for one component; stack and profile agreeing must not double up", n)
+	}
+}
+
+// A default-off workflow must not ship unless the project asks for it.
+//
+// testflight-feedback is the reason this exists: it needs
+// APP_STORE_CONNECT_FEEDBACK_ISSUER_ID and two siblings, no project in the fleet
+// had them, and it had therefore been red on EVERY scheduled run since it was
+// added, in every repository that received it. A scheduled job nobody can
+// satisfy is worse than a missing feature — it trains people to ignore red.
+func TestOptionalWorkflowsShipOnlyWhenRequested(t *testing.T) {
+	r := root(t)
+	// It must still exist in the lacquer: dropped as a default, kept as a choice.
+	if _, err := os.Stat(filepath.Join(r, "profiles", "ios", "workflows-optional", "testflight-feedback.yml")); err != nil {
+		t.Fatalf("the optional workflow is gone entirely, not just defaulted off: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(r, "profiles", "ios", "workflows", "testflight-feedback.yml")); err == nil {
+		t.Error("testflight-feedback is still in workflows/, so it would ship by default")
+	}
+
+	base := &config.Config{
+		Project:    config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj", SwiftVersion: "6.0"},
+		Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
+	}
+	has := func(cfg *config.Config) bool {
+		plan, err := assets.Plan(r, cfg)
+		if err != nil {
+			t.Fatalf("Plan: %v", err)
+		}
+		for _, a := range plan {
+			if strings.HasSuffix(a.Dest, "ios-testflight-feedback.yml") {
+				return true
+			}
+		}
+		return false
+	}
+	if has(base) {
+		t.Error("shipped without being requested")
+	}
+
+	opted := *base
+	opted.Project.OptionalWorkflows = []string{"testflight-feedback"}
+	if !has(&opted) {
+		t.Error("did not ship when explicitly requested, so opting in does nothing")
+	}
+
+	// A typo must fail loudly. Silently installing nothing is the exact failure
+	// this mechanism exists to prevent.
+	typo := *base
+	typo.Project.OptionalWorkflows = []string{"testflght-feedback"}
+	if _, err := assets.Plan(r, &typo); err == nil {
+		t.Error("a misspelled optional workflow was accepted; it would silently install nothing")
 	}
 }
 
