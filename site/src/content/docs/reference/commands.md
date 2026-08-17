@@ -90,6 +90,37 @@ guessing signs a product with another app's credentials. A product with a blank
 `tag_prefix` matches any tag, which is what makes the single-product case work
 unchanged.
 
+### Per-product CI targets
+
+The iOS CI workflow builds and tests **every** declared product — one
+`Build (Release)` leg and one `Test` leg each, with `fail-fast: false` so one
+product failing does not cancel the other's run. Three optional fields describe
+the test leg:
+
+```toml
+[[product]]
+name = "MyApp Lite"
+scheme = "MyAppLite"
+bundle_id = "com.example.myapp.lite"
+asc_app_id = "1111111111"
+tag_prefix = "myapplite"
+test_target = "MyAppLiteTests"   # defaults to "<name>Tests"
+ui_test_target = ""              # blank = no UI tests for this variant
+app_target = "MyApp.app"         # coverage target; defaults to "<name>.app"
+```
+
+`app_target` is declared, not derived: a scheme and the product it builds
+genuinely differ in real projects, and a wrong target selects no coverage row at
+all — which reports 0.0% rather than failing.
+
+Each leg's CI simulator and test-results artifact are scoped by a slug derived
+from the product name, so two legs on one runner cannot delete each other's
+simulator or collide on an artifact name. Two products whose names reduce to the
+same slug are rejected at load.
+
+**A project declaring no products renders the CI workflow byte-for-byte as it
+did before products existed** — the matrix machinery expands to nothing.
+
 ### Release-time secrets
 
 A product that needs real values at release — monetization SDK keys, ad unit

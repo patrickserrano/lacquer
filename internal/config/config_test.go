@@ -734,3 +734,81 @@ func TestSecretFormatRejectsShellMetacharacters(t *testing.T) {
 		t.Errorf("a valid glob must load: %v", err)
 	}
 }
+
+// The CI target fields are substituted into the test job's shell and into a jq
+// program, so they are charset-restricted exactly like scheme — which permits
+// the spaces a real Xcode target name carries and nothing that could inject.
+func TestLoadRejectsUnsafeProductCITargets(t *testing.T) {
+	base := "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n" +
+		"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\ntag_prefix=\"lite-v\"\n"
+	for _, bad := range []string{
+		"test_target = \"Lite\\\"Tests\"\n",
+		"ui_test_target = \"$(whoami)\"\n",
+		"app_target = \"Lite.app; rm -rf /\"\n",
+	} {
+		if _, err := loadString(t, base+bad); err == nil {
+			t.Errorf("expected rejection of %q", strings.TrimSpace(bad))
+		}
+	}
+	// A real project's values: spaces are ordinary in an Xcode target name, and
+	// the built product legitimately differs from the scheme.
+	ok := "test_target = \"A Bible Verse Each Day FreeTests\"\napp_target = \"A Bible Verse Daily.app\"\nui_test_target = \"\"\n"
+	if _, err := loadString(t, base+ok); err != nil {
+		t.Errorf("real-world target names must load: %v", err)
+	}
+}
+
+// Defaults keep every single-app project on the values ci.yml hardcoded before
+// products existed. Blank Name yields blank rather than "Tests", so a manifest
+// missing project_name still fails the sync loudly instead of rendering
+// `-only-testing:Tests` against a scheme nobody named.
+func TestProductCITargetDefaults(t *testing.T) {
+	p := Product{Name: "Solo"}
+	if got := p.TestTargetName(); got != "SoloTests" {
+		t.Errorf("TestTargetName = %q, want SoloTests", got)
+	}
+	if got := p.AppTargetName(); got != "Solo.app" {
+		t.Errorf("AppTargetName = %q, want Solo.app", got)
+	}
+	explicit := Product{Name: "Free", TestTarget: "FreeUnit", AppTarget: "Daily.app"}
+	if got := explicit.TestTargetName(); got != "FreeUnit" {
+		t.Errorf("a declared test_target must win, got %q", got)
+	}
+	if got := explicit.AppTargetName(); got != "Daily.app" {
+		t.Errorf("a declared app_target must win, got %q", got)
+	}
+	var blank Product
+	if blank.TestTargetName() != "" || blank.AppTargetName() != "" {
+		t.Error("a nameless product must derive nothing, so the missing value fails closed at substitution")
+	}
+}
+
+// The slug scopes a product's CI simulator and its uploaded test results. Two
+// products sharing one means the second leg's stale-simulator cleanup deletes
+// the simulator the first is mid-test on — which reports as "the test runner
+// crashed before establishing connection" and reads like an app bug.
+func TestLoadRejectsCollidingProductSlugs(t *testing.T) {
+	data := "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n" +
+		"[[product]]\nname=\"My App\"\nscheme=\"A\"\nbundle_id=\"com.x.a\"\nasc_app_id=\"1\"\ntag_prefix=\"a\"\n\n" +
+		"[[product]]\nname=\"My-App\"\nscheme=\"B\"\nbundle_id=\"com.x.b\"\nasc_app_id=\"2\"\ntag_prefix=\"b\"\n"
+	_, err := loadString(t, data)
+	if err == nil {
+		t.Fatal("two products reducing to one CI slug must be rejected")
+	}
+	if !strings.Contains(err.Error(), "slug") {
+		t.Errorf("the error should name the problem, got: %v", err)
+	}
+}
+
+func TestProductSlug(t *testing.T) {
+	for name, want := range map[string]string{
+		"Free":                        "free",
+		"StepsFree":                   "stepsfree",
+		"A Bible Verse Each Day Free": "a-bible-verse-each-day-free",
+		"MyApp Lite":                  "myapp-lite",
+	} {
+		if got := (Product{Name: name}).Slug(); got != want {
+			t.Errorf("Slug(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

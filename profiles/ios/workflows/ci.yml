@@ -181,7 +181,7 @@ jobs:
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile ios
 
   build-release:
-    name: Build (Release)
+    name: Build (Release){{IOS_CI_PRODUCT_SUFFIX}}
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: [lint, changes]
     # Runs on every main push, and on PRs that touch SwiftUI views/app — where a
@@ -190,7 +190,7 @@ jobs:
     # SwiftLint comment near the custom rules for the fast local guard.
     # SECURITY: same-repo guard — fork-PR code must not build on the self-hosted runner.
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true')
-    timeout-minutes: 25
+    timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -319,7 +319,7 @@ jobs:
           # on failure so the cause is visible.
           xcodebuild build \
             -project "{{XCODEPROJ}}" \
-            -scheme "{{SCHEME}}" \
+            -scheme "{{IOS_CI_SCHEME}}" \
             -destination 'generic/platform=iOS' \
             -configuration Release \
             -derivedDataPath {{COMPONENT_PREFIX}}DerivedData \
@@ -332,7 +332,7 @@ jobs:
           }
 
   test:
-    name: Test
+    name: Test{{IOS_CI_PRODUCT_SUFFIX}}
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: [lint, changes]
     # Runs on push-to-main as well as on PRs, and skips only docs-only changes.
@@ -357,7 +357,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     # Per-step fail-fast timeouts below catch silent hangs; this is the generous
     # backstop with headroom for a cold, cache-cold build.
-    timeout-minutes: 20
+    timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -554,7 +554,7 @@ jobs:
           # Scoping the name rather than taking a lock keeps jobs independent: a
           # runner-level mutex would serialise the whole fleet behind the slowest
           # test suite, and GitHub's `concurrency` cannot span repositories.
-          SIM_NAME="CI-iPhone-${GITHUB_REPOSITORY_ID}"
+          SIM_NAME="CI-iPhone-${GITHUB_REPOSITORY_ID}{{IOS_CI_SIM_SUFFIX}}"
 
           # Stale simulators from THIS repository's earlier runs, and no others.
           # The carryover this guards against (residual xctestd / CoreSimulator
@@ -564,7 +564,7 @@ jobs:
           # with no leftover simulator the grep pipeline exits 1, which aborts the
           # assignment and kills the step. That is the CLEAN-runner case — a
           # fresh machine, or the run right after the cleanup workflow.
-          STALE_IDS=$(xcrun simctl list devices | grep "$SIM_NAME" | grep -oE '[A-F0-9-]{36}' || true)
+          STALE_IDS=$(xcrun simctl list devices | grep "$SIM_NAME{{IOS_CI_SIM_MATCH}}" | grep -oE '[A-F0-9-]{36}' || true)
           for id in $STALE_IDS; do
             echo "Deleting stale simulator: $id"
             xcrun simctl shutdown "$id" 2>/dev/null || true
@@ -635,10 +635,10 @@ jobs:
           EXIT_CODE=0
           xcodebuild test \
             -project "{{XCODEPROJ}}" \
-            -scheme "{{SCHEME}}" \
+            -scheme "{{IOS_CI_SCHEME}}" \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -derivedDataPath {{COMPONENT_PREFIX}}DerivedData \
-            "-only-testing:{{PROJECT_NAME}}Tests" \
+            {{IOS_CI_ONLY_TESTING}} \
             -parallel-testing-enabled NO \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
@@ -782,15 +782,15 @@ jobs:
       - name: Check Coverage
         if: always() && hashFiles('TestResults.xcresult') != ''
         run: |
-          # Calculate coverage for {{PROJECT_NAME}}.app only (excludes third-party dependencies)
+          # Calculate coverage for {{IOS_CI_APP_TARGET}} only (excludes third-party dependencies)
           APP_COVERAGE=$(xcrun xccov view --report --json TestResults.xcresult | \
-            jq '.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100' | \
+            jq {{IOS_CI_COVERAGE_JQ}} | \
             xargs printf "%.1f")
 
           {
             echo "## iOS Test Coverage: ${APP_COVERAGE}%"
             echo ""
-            echo "_Coverage calculated for {{PROJECT_NAME}}.app target only (excludes third-party dependencies)_"
+            echo "_Coverage calculated for {{IOS_CI_APP_TARGET}} target only (excludes third-party dependencies)_"
           } >> "$GITHUB_STEP_SUMMARY"
 
           {
@@ -812,7 +812,7 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-          name: ios-test-results
+          name: ios-test-results{{IOS_CI_ARTIFACT_SUFFIX}}
           path: TestResults.xcresult
           if-no-files-found: ignore
           retention-days: 1
