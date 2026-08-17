@@ -257,3 +257,68 @@ func TestDependabotGroupsRoutineUpdatesButNotMajors(t *testing.T) {
 		}
 	}
 }
+
+// A component the lacquer does NOT manage still gets its dependencies watched.
+//
+// This is the gap that motivated `stack`. Entries used to render from `profiles`
+// alone, so a component with hand-written CI and no profile got nothing — one
+// project had a Next.js admin app with 36 npm dependencies watched by nothing,
+// and it was invisible because the file that should have listed it looked
+// complete.
+//
+// Watching dependencies and adopting shared CI are different decisions. A
+// project may keep its own workflows and still want security updates.
+func TestDependabotWatchesUnmanagedComponents(t *testing.T) {
+	cfg := &config.Config{
+		Project: config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "ios/P.xcodeproj"},
+		Components: []config.Component{
+			{Path: "ios", Profiles: []string{"ios"}},
+			// Declared, detected as web, deliberately unmanaged.
+			{Path: "admin", Stack: "web"},
+		},
+	}
+	got := ecosystemsAt(renderDependabot(t, cfg))
+	if dir, ok := got["npm"]; !ok || dir != "/admin" {
+		t.Errorf("an unmanaged web component got npm=%q (present=%v); want /admin", dir, ok)
+	}
+	if got["swift"] != "/ios" {
+		t.Errorf("the managed ios component lost its entry: %q", got["swift"])
+	}
+}
+
+// A stack with no dependency manifest Dependabot supports must emit NOTHING
+// rather than an entry pointing at configuration. supabase/config.toml is
+// config, not a lockfile — an entry there is a promise the tool cannot keep.
+func TestDependabotSkipsStacksWithNoManifest(t *testing.T) {
+	cfg := &config.Config{
+		Project:    config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
+		Components: []config.Component{{Path: "server", Stack: "supabase"}},
+	}
+	doc := renderDependabot(t, cfg)
+	for _, u := range doc.Updates {
+		if u.Directory == "/server" {
+			t.Errorf("supabase component got a %q entry at /server; it has no manifest Dependabot reads", u.Ecosystem)
+		}
+	}
+	// github-actions must still be there — that is repo-wide, not per-stack.
+	if ecosystemsAt(doc)["github-actions"] != "/" {
+		t.Error("the repo-wide github-actions entry went missing")
+	}
+}
+
+// Stack and profile naming the same ecosystem must not double up.
+func TestDependabotDoesNotDuplicateEcosystems(t *testing.T) {
+	cfg := &config.Config{
+		Project:    config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
+		Components: []config.Component{{Path: "web", Stack: "web", Profiles: []string{"web"}}},
+	}
+	n := 0
+	for _, u := range renderDependabot(t, cfg).Updates {
+		if u.Ecosystem == "npm" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("got %d npm entries for one component; stack and profile agreeing must not double up", n)
+	}
+}

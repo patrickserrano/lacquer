@@ -515,9 +515,49 @@ func (p Product) SecretsPath() string {
 	return "Secrets.xcconfig"
 }
 
+// knownStacks are the stacks `lacquer` can detect, and StackEcosystem maps each
+// to the Dependabot ecosystem that watches it. A stack with no entry in
+// StackEcosystem is detectable but has no dependency manifest Dependabot
+// supports — supabase is the case: `supabase/config.toml` is configuration, not
+// a lockfile, and an entry pointing at it would be a promise the tool cannot
+// keep.
+var knownStacks = map[string]bool{
+	"web": true, "ios": true, "supabase": true, "rust": true, "go": true,
+}
+
+// StackEcosystem maps a component stack to its Dependabot package-ecosystem.
+var StackEcosystem = map[string]string{
+	"web":  "npm",
+	"ios":  "swift",
+	"rust": "cargo",
+	"go":   "gomod",
+}
+
+func knownStackList() string {
+	out := make([]string, 0, len(knownStacks))
+	for k := range knownStacks {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
+}
+
 type Component struct {
 	Path     string   `toml:"path"`
 	Profiles []string `toml:"profiles"`
+	// Stack is what this component IS, independent of whether the lacquer
+	// manages it. `profiles` says "apply these shared assets here"; `stack` says
+	// "this is a Node app" whether or not anyone asked for the shared CI.
+	//
+	// The two were conflated, and dependency watching paid for it: Dependabot
+	// entries rendered from `profiles` alone, so a component with hand-written
+	// CI and no profile got no entries at all. One project had a Next.js admin
+	// app with 36 npm dependencies watched by nothing for exactly that reason —
+	// invisible, because the file it should have appeared in looked complete.
+	//
+	// Security updates and shared tooling are different decisions. A project may
+	// legitimately keep its own CI and still want its dependencies watched.
+	Stack string `toml:"stack"`
 }
 
 // Baseline is a project's stance on the lacquer-owned project baseline. A project
@@ -685,6 +725,12 @@ func Load(path string) (*Config, error) {
 				return nil, fmt.Errorf("profile %q is declared by two components (%q and %q); one component per profile is supported", p, prev, c.Path)
 			}
 			seenProfile[p] = c.Path
+		}
+		// A typo here silently drops dependency coverage for the component,
+		// which is the failure this field exists to prevent — so the set is
+		// closed rather than free-form.
+		if c.Stack != "" && !knownStacks[c.Stack] {
+			return nil, fmt.Errorf("component %q: unknown stack %q (known: %s)", c.Path, c.Stack, knownStackList())
 		}
 	}
 	return &cfg, nil
