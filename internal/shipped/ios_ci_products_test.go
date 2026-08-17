@@ -192,6 +192,7 @@ type iosCIJobs struct {
 		Env   map[string]string `yaml:"env"`
 		Steps []struct {
 			ID   string            `yaml:"id"`
+			If   string            `yaml:"if"`
 			Name string            `yaml:"name"`
 			Run  string            `yaml:"run"`
 			With map[string]string `yaml:"with"`
@@ -431,7 +432,7 @@ func TestIOSCISimulatorsDoNotCollide(t *testing.T) {
 	staleLine := mustFind(t, regexp.MustCompile(`(?m)^\s*(STALE_IDS=.*)$`), script, "the stale-simulator cleanup")
 
 	// The other leg's simulator, booted and mid-test.
-	const victim = "    CI-iPhone-77-stepsfree (AAAAAAAA-1111-2222-3333-444444444444) (Booted)"
+	const victim = "    CI-iPhone-99887766-stepsfree (AAAAAAAA-1111-2222-3333-444444444444) (Booted)"
 
 	run := func(slug string) string {
 		t.Helper()
@@ -440,7 +441,7 @@ func TestIOSCISimulatorsDoNotCollide(t *testing.T) {
 		prog := "xcrun() { printf '%s\\n' \"$LISTING\"; }\n" + simLine + "\n" + staleLine + "\nprintf '%s' \"$STALE_IDS\"\n"
 		cmd := exec.Command("bash", "-c", prog)
 		cmd.Env = append(os.Environ(),
-			"GITHUB_REPOSITORY_ID=77", "PRODUCT_SLUG="+slug, "LISTING="+victim)
+			"GITHUB_RUN_ID=99887766", "PRODUCT_SLUG="+slug, "LISTING="+victim)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("extracted simulator shell failed: %v\n%s", err, out)
@@ -513,5 +514,55 @@ func TestCIOKAggregatesMatrixJobs(t *testing.T) {
 					failed, tc.wantFail, tc.results, out)
 			}
 		})
+	}
+}
+
+// Two runs of the SAME repository must not share a simulator name.
+//
+// Scoping per repository was not enough, and the gap was not theoretical: a push
+// landing while a pull request is still testing, or two PRs updated together,
+// both build a device of the same name and delete each other's mid-test. One
+// project hit exactly that, fixed it locally with a per-run name, and this is
+// that fix promoted.
+func TestIOSCISimulatorNameIsUniquePerRun(t *testing.T) {
+	cfg := &config.Config{Project: config.Project{
+		ProjectName: "Solo", Scheme: "Solo", BundleID: "com.x.s", AscAppID: "1",
+		Xcodeproj: "Solo.xcodeproj", SwiftVersion: "6.0",
+	}}
+	script := stepRun(t, parseIOSCI(t, cfg), "test", "Setup Simulator")
+	simLine := mustFind(t, regexp.MustCompile(`(?m)^\s*(SIM_NAME=.*)$`), script, "the SIM_NAME assignment")
+
+	if !strings.Contains(simLine, "GITHUB_RUN_ID") {
+		t.Errorf("SIM_NAME is not keyed on the run: %q", simLine)
+	}
+	// GITHUB_REPOSITORY_ID is stable across runs of one repo, so keying on it
+	// lets two concurrent runs of that repo collide — the exact bug this fixes.
+	if strings.Contains(simLine, "GITHUB_REPOSITORY_ID") {
+		t.Errorf("SIM_NAME still keyed on the repository, which is shared across concurrent runs: %q", simLine)
+	}
+
+	// Per-run names give up the implicit cleanup the old fixed name had, where
+	// the NEXT run reclaimed the previous device by recreating it. Without a
+	// teardown every run leaks a simulator until the nightly cleanup.
+	steps := parseIOSCI(t, cfg).Jobs["test"].Steps
+	var teardown, idx = -1, -1
+	for i, st := range steps {
+		if strings.Contains(st.Run, "simctl delete") && strings.Contains(st.Run, "GITHUB_RUN_ID") {
+			teardown = i
+		}
+		if strings.Contains(st.Name, "Collect Simulator Diagnostics") {
+			idx = i
+		}
+	}
+	if teardown < 0 {
+		t.Fatal("no teardown deletes this run's simulators; per-run names leak without one")
+	}
+	if !strings.Contains(steps[teardown].If, "always()") {
+		t.Errorf("teardown is not always(): cancelled and failed runs are exactly the ones that leak (if=%q)", steps[teardown].If)
+	}
+	// Ordering is load-bearing: deleting before diagnostics destroys the device
+	// that step exists to inspect.
+	if idx >= 0 && teardown < idx {
+		t.Errorf("teardown at step %d runs BEFORE Collect Simulator Diagnostics at %d", teardown, idx)
 	}
 }
