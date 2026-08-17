@@ -73,6 +73,74 @@ const (
 	// Nothing errors and nothing runs, which is the worst way for a release
 	// pipeline to break.
 	IOSReleaseTags = "{{IOS_RELEASE_TAGS}}"
+	// The IOS_CI_* family makes the iOS CI workflow build and test EVERY declared
+	// [[product]] instead of the one scheme in [project].
+	//
+	// They exist as a family of small tokens, rather than one big block, because
+	// of a constraint that dominates every other consideration here: TWELVE
+	// projects declare no [[product]] at all, and each of these must render to
+	// EXACTLY the text ci.yml carried before products reached it. Any difference
+	// — a re-indented line, a stray blank line, a variable where a literal was —
+	// is drift in twelve repositories at once, on the same day.
+	//
+	// So each token sits inline, at the one place its value differs, and the
+	// single-product value is by construction the old spelling. The matrix legs
+	// only appear when there is genuinely more than one product to build.
+	//
+	// TestIOSCISingleProductRenderIsUnchanged pins that: it renders the template
+	// twice — once through these functions, once with each token replaced by its
+	// documented legacy spelling — and requires the two to be byte-identical.
+	//
+	// IOSCIProductSuffix is appended to the `name:` of the matrixed jobs, so the
+	// legs are distinguishable in the checks list. Empty for one product, where
+	// GitHub would otherwise show "Test (Demo)" where it has always shown "Test".
+	IOSCIProductSuffix = "{{IOS_CI_PRODUCT_SUFFIX}}"
+	// IOSCIBuildStrategy and IOSCITestStrategy expand to the `strategy:` block
+	// (plus the job-level `env:` hoisting the leg's values) for the build and
+	// test jobs, or to nothing at all.
+	//
+	// They sit at the END of the preceding line — `timeout-minutes: 25{{…}}` —
+	// and open with their own newline. A token alone on its own line would leave
+	// a BLANK line behind when it renders empty, and a blank line is a byte
+	// difference in twelve repositories.
+	IOSCIBuildStrategy = "{{IOS_CI_BUILD_STRATEGY}}"
+	IOSCITestStrategy  = "{{IOS_CI_TEST_STRATEGY}}"
+	// IOSCIScheme is what `xcodebuild -scheme` is given: the literal scheme for
+	// one product, the hoisted `$PRODUCT_SCHEME` for a matrix.
+	IOSCIScheme = "{{IOS_CI_SCHEME}}"
+	// IOSCIOnlyTesting is the `-only-testing:` argument list — one selector, or
+	// two when the product declares a UI test target.
+	IOSCIOnlyTesting = "{{IOS_CI_ONLY_TESTING}}"
+	// IOSCIAppTarget is the built product coverage is reported for, as it appears
+	// in prose and in the step summary.
+	IOSCIAppTarget = "{{IOS_CI_APP_TARGET}}"
+	// IOSCICoverageJQ is the whole `jq` argument for the coverage query. It is a
+	// token rather than a scalar inside the program because the program is in
+	// SINGLE quotes, where a shell variable does not expand — the matrix form has
+	// to pass the target through `--arg` instead, which changes the argument list
+	// and not just a value inside it.
+	IOSCICoverageJQ = "{{IOS_CI_COVERAGE_JQ}}"
+	// IOSCIArtifactSuffix scopes the test-results artifact per product. Two legs
+	// uploading `ios-test-results` would collide.
+	IOSCIArtifactSuffix = "{{IOS_CI_ARTIFACT_SUFFIX}}"
+	// IOSCISimSuffix and IOSCISimMatch scope the CI simulator per product.
+	//
+	// This is the sharp edge of putting a matrix on the test job. The simulator
+	// is named `CI-iPhone-${GITHUB_REPOSITORY_ID}` and the job DELETES every
+	// simulator matching that name before creating its own — a design that is
+	// correct only while one job per repository exists at a time. Two matrix legs
+	// on the same repository would share the name, and the second leg's cleanup
+	// would delete the simulator the first is mid-test on. That failure is not
+	// hypothetical: it is the same one the repository-scoping was introduced to
+	// fix, reported as "the test runner crashed before establishing connection".
+	//
+	// IOSCISimMatch exists because the cleanup greps UNANCHORED. With products
+	// named Steps and StepsFree — a real pair — `CI-iPhone-1-steps` is a
+	// substring of `CI-iPhone-1-stepsfree`, so scoping the name alone would not
+	// have fixed anything. Matching `"$SIM_NAME ("` pins the match to the end of
+	// the name in `simctl list devices` output, where ` (` always follows it.
+	IOSCISimSuffix = "{{IOS_CI_SIM_SUFFIX}}"
+	IOSCISimMatch  = "{{IOS_CI_SIM_MATCH}}"
 	// DependabotUpdates expands to the `updates:` list of .github/dependabot.yml:
 	// one github-actions entry for the repo, plus one npm entry per web
 	// component, each pointing at that component's directory.
@@ -106,6 +174,20 @@ var registry = []entry{
 	{IOSProductChoices, false},
 	{IOSProductSecrets, false},
 	{IOSReleaseTags, false},
+	{IOSCIProductSuffix, false},
+	{IOSCIBuildStrategy, false},
+	{IOSCITestStrategy, false},
+	// Required, exactly as {{SCHEME}} and {{PROJECT_NAME}} were before these
+	// replaced them in ci.yml. A manifest with a blank scheme or project_name
+	// must keep failing the sync loudly; it must not quietly render
+	// `-only-testing:Tests` against a scheme nobody named.
+	{IOSCIScheme, true},
+	{IOSCIOnlyTesting, true},
+	{IOSCIAppTarget, true},
+	{IOSCICoverageJQ, true},
+	{IOSCIArtifactSuffix, false},
+	{IOSCISimSuffix, false},
+	{IOSCISimMatch, false},
 	{DependabotUpdates, false},
 }
 
@@ -140,8 +222,205 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSProductChoices: ProductChoices(products),
 		IOSProductSecrets: ProductSecrets(products),
 		IOSReleaseTags:    ReleaseTags(products),
+
+		IOSCIProductSuffix:  CIProductSuffix(products),
+		IOSCIBuildStrategy:  CIBuildStrategy(products),
+		IOSCITestStrategy:   CITestStrategy(products),
+		IOSCIScheme:         CIScheme(products),
+		IOSCIOnlyTesting:    CIOnlyTesting(products),
+		IOSCIAppTarget:      CIAppTarget(products),
+		IOSCICoverageJQ:     CICoverageJQ(products),
+		IOSCIArtifactSuffix: CIArtifactSuffix(products),
+		IOSCISimSuffix:      CISimSuffix(products),
+		IOSCISimMatch:       CISimMatch(products),
+
 		DependabotUpdates: dependabotUpdates(cfg),
 	}
+}
+
+// multi reports whether the iOS CI workflow needs a matrix at all.
+//
+// One product — declared or synthesised from [project] — renders the flat,
+// pre-matrix workflow. That is not an optimisation; it is the requirement. The
+// twelve projects that declare nothing must receive a byte-identical file.
+func multi(products []config.Product) bool { return len(products) > 1 }
+
+// CIProductSuffix distinguishes the matrix legs in the checks list.
+func CIProductSuffix(products []config.Product) string {
+	if !multi(products) {
+		return ""
+	}
+	return " ${{ matrix.product.name }}"
+}
+
+// CIBuildStrategy renders the Build (Release) job's matrix, or nothing.
+func CIBuildStrategy(products []config.Product) string {
+	if !multi(products) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n    # One leg per shippable app. This block is GENERATED from the manifest's")
+	b.WriteString("\n    # [[product]] entries and is absent entirely for a project that declares")
+	b.WriteString("\n    # none — which is what lets one workflow serve both without a second code")
+	b.WriteString("\n    # path, and why forking it to build a free variant is no longer necessary.")
+	b.WriteString(ciMatrixHeader())
+	for _, p := range products {
+		fmt.Fprintf(&b, "\n          - name: %q", p.Name)
+		fmt.Fprintf(&b, "\n            scheme: %q", p.Scheme)
+	}
+	b.WriteString("\n    env:")
+	// Hoisted once, exactly as the release workflow does it: shell steps read
+	// $PRODUCT_*, and `with:` / `name:` blocks read ${{ matrix.product.* }}
+	// directly because job env is not in scope there.
+	b.WriteString("\n      PRODUCT_SCHEME: ${{ matrix.product.scheme }}")
+	return b.String()
+}
+
+// CITestStrategy renders the Test job's matrix, or nothing.
+//
+// It carries more per-leg values than the build matrix because a paid and a free
+// variant do not merely build from different schemes — they compile different
+// test bundles and produce differently-named .app targets. Running the paid
+// product's test target against the free scheme is not a failure; it is a green
+// run over a suite that never touched the code that shipped, which is the exact
+// silent pass this change exists to prevent.
+func CITestStrategy(products []config.Product) string {
+	if !multi(products) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n    # One leg per shippable app, GENERATED from [[product]]. A paid and a free")
+	b.WriteString("\n    # variant compile DIFFERENT test bundles, so testing one target is not a")
+	b.WriteString("\n    # partial result — it is a green run over a suite that never covered the")
+	b.WriteString("\n    # code the other app ships.")
+	b.WriteString("\n    #")
+	b.WriteString("\n    # PRODUCT_SLUG below also scopes this leg's simulator name and its uploaded")
+	b.WriteString("\n    # results. Two legs sharing either one would have the second delete the")
+	b.WriteString("\n    # simulator the first is mid-test on, or fail its artifact upload.")
+	b.WriteString(ciMatrixHeader())
+	for _, p := range products {
+		fmt.Fprintf(&b, "\n          - name: %q", p.Name)
+		fmt.Fprintf(&b, "\n            scheme: %q", p.Scheme)
+		fmt.Fprintf(&b, "\n            test_target: %q", p.TestTargetName())
+		// Always emitted, blank included: a key missing from one leg and present
+		// on another makes `matrix.product.ui_test_target` undefined there, and
+		// the job env would render an empty value anyway. Stating it keeps the
+		// legs the same shape and the intent readable.
+		fmt.Fprintf(&b, "\n            ui_test_target: %q", p.UITestTarget)
+		fmt.Fprintf(&b, "\n            app_target: %q", p.AppTargetName())
+		fmt.Fprintf(&b, "\n            artifact: %q", p.Slug())
+	}
+	b.WriteString("\n    env:")
+	b.WriteString("\n      PRODUCT_SCHEME: ${{ matrix.product.scheme }}")
+	b.WriteString("\n      PRODUCT_SLUG: ${{ matrix.product.artifact }}")
+	b.WriteString("\n      TEST_TARGET: ${{ matrix.product.test_target }}")
+	b.WriteString("\n      UI_TEST_TARGET: ${{ matrix.product.ui_test_target }}")
+	b.WriteString("\n      APP_TARGET: ${{ matrix.product.app_target }}")
+	return b.String()
+}
+
+// ciMatrixHeader is the part every matrixed CI job shares.
+//
+// fail-fast stays false for the reason it is false in the release workflow: one
+// product failing must not cancel the other's run. A cancelled sibling reports
+// as `cancelled`, which the CI OK aggregator treats as a failure — so a single
+// real failure in the paid app would present as both apps being broken, and the
+// free app's genuine result would never have been computed.
+func ciMatrixHeader() string {
+	return "\n    strategy:" +
+		"\n      # One product failing must not cancel the other's run: they are" +
+		"\n      # separate apps with separate outcomes, and a cancelled sibling" +
+		"\n      # reports no result at all." +
+		"\n      fail-fast: false" +
+		"\n      matrix:" +
+		"\n        product:"
+}
+
+// CIScheme is the value of `xcodebuild -scheme`, already inside quotes in the
+// template.
+func CIScheme(products []config.Product) string {
+	if multi(products) {
+		return "$PRODUCT_SCHEME"
+	}
+	return products[0].Scheme
+}
+
+// CIOnlyTesting renders the `-only-testing:` arguments.
+//
+// The matrix form uses `${UI_TEST_TARGET:+…}` rather than a GitHub expression so
+// a blank UI target contributes no argument at all. An empty `-only-testing:`
+// selector is not ignored by xcodebuild — it matches nothing, and a test run
+// that selects nothing exits 0.
+func CIOnlyTesting(products []config.Product) string {
+	if multi(products) {
+		return `"-only-testing:$TEST_TARGET" ${UI_TEST_TARGET:+"-only-testing:$UI_TEST_TARGET"}`
+	}
+	p := products[0]
+	name := p.TestTargetName()
+	if name == "" {
+		return "" // fail closed: the token is required, so sync reports it missing
+	}
+	out := fmt.Sprintf("%q", "-only-testing:"+name)
+	if p.UITestTarget != "" {
+		out += " " + fmt.Sprintf("%q", "-only-testing:"+p.UITestTarget)
+	}
+	return out
+}
+
+// CIAppTarget is the built product coverage is reported for.
+func CIAppTarget(products []config.Product) string {
+	if multi(products) {
+		return "$APP_TARGET"
+	}
+	return products[0].AppTargetName()
+}
+
+// CICoverageJQ is the full `jq` argument list for the coverage query.
+//
+// The single-product form inlines the target into the program, which is what
+// shipped and is safe: the value is charset-validated and the program is single-
+// quoted. The matrix form cannot do that — a shell variable does not expand
+// inside single quotes — so it passes the name in with `--arg` instead, which is
+// also the form that would survive a target name containing a quote if the
+// charset ever widened.
+func CICoverageJQ(products []config.Product) string {
+	if multi(products) {
+		return `--arg app "$APP_TARGET" '.targets[] | select(.name == $app) | .lineCoverage * 100'`
+	}
+	app := products[0].AppTargetName()
+	if app == "" {
+		return "" // fail closed, as above
+	}
+	return fmt.Sprintf(`'.targets[] | select(.name == %q) | .lineCoverage * 100'`, app)
+}
+
+// CIArtifactSuffix scopes the uploaded test results per product.
+func CIArtifactSuffix(products []config.Product) string {
+	if !multi(products) {
+		return ""
+	}
+	// `with:` cannot read job env, so this reads the matrix directly.
+	return "-${{ matrix.product.artifact }}"
+}
+
+// CISimSuffix scopes the CI simulator's NAME per product, and CISimMatch scopes
+// what the stale-simulator cleanup matches. See the token declarations for why
+// the second one is not redundant.
+func CISimSuffix(products []config.Product) string {
+	if !multi(products) {
+		return ""
+	}
+	return "-${PRODUCT_SLUG}"
+}
+
+// CISimMatch anchors the cleanup's grep to the end of the simulator name.
+func CISimMatch(products []config.Product) string {
+	if !multi(products) {
+		return ""
+	}
+	// `simctl list devices` prints "    <name> (<udid>) (<state>)", so " (" is
+	// always what follows a name and never appears inside a slug.
+	return " ("
 }
 
 // ProductCatalog renders every product as one line of JSON.

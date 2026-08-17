@@ -54,9 +54,41 @@ asc_app_id = "0987654321"
 The release workflow becomes a matrix with one leg per product: separate
 archive, IPA, TestFlight upload and GitHub Release asset for each.
 
+**CI does the same.** `Build (Release)` and `Test` get one leg per product, so
+the free variant is compiled and its own test bundle is run. Three optional
+fields drive the test leg, each defaulting to the historical single-app value:
+
+```toml
+[[product]]
+name = "MyApp Lite"
+scheme = "MyApp Lite"
+bundle_id = "com.example.myapp.lite"
+asc_app_id = "0987654321"
+tag_prefix = "myapplite"
+test_target = "MyApp LiteTests"      # defaults to "<name>Tests"
+ui_test_target = ""                   # blank = this variant has no UI tests
+app_target = "MyApp.app"              # coverage target; defaults to "<name>.app"
+```
+
+`app_target` is declared rather than derived because a scheme and its built
+product genuinely differ — one app in this fleet builds `A Bible Verse
+Daily.app` from a scheme named `A Bible Verse Each Day Free`. A derived value
+would select no coverage row, and `jq` selecting nothing reports 0.0%, not an
+error.
+
+`ui_test_target` is conditional in the shell rather than always passed: an empty
+`-only-testing:` selector matches nothing and still exits 0.
+
+Each leg's simulator and uploaded test results are scoped by a slug derived from
+the product name. Two legs sharing one simulator name means the second leg's
+stale-simulator cleanup deletes the simulator the first is mid-test on, which
+reports as "the test runner crashed before establishing connection" and reads
+like an app bug.
+
 **Declare nothing and you get exactly one product**, synthesised from
 `[project]`. That is not a special case in the workflow — it is a one-entry
-matrix, the same code path. A single-app project's release is unchanged.
+matrix, the same code path. A single-app project's release is unchanged, and its
+CI workflow is rendered byte-for-byte as it was before products existed.
 
 `fail-fast: false` because the products are separate App Store submissions with
 separate review outcomes: one failing validation must not cancel the other's

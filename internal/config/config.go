@@ -440,6 +440,70 @@ type Product struct {
 	// notices: it builds, signs, uploads, passes review, and serves the wrong
 	// ads or no subscriptions to real users.
 	SecretFormats map[string]string `toml:"secret_formats"`
+	// TestTarget is the unit-test target CI runs for this product, as an
+	// `-only-testing:` selector. Optional: it defaults to `<name>Tests`, which is
+	// what every single-product project in this fleet already uses and is exactly
+	// what ci.yml hardcoded before products reached it.
+	//
+	// It has to be per-product rather than per-project because a paid and a free
+	// variant compile DIFFERENT test bundles. Running only the paid target
+	// against the free scheme is not a failure — it is a green run over a suite
+	// that never covered the code that shipped.
+	TestTarget string `toml:"test_target"`
+	// UITestTarget is an optional SECOND `-only-testing:` selector for this
+	// product's UI test bundle. Blank is the norm and means "no UI tests" — one
+	// real project declares a UI target for its paid variant and none for the
+	// free one, which is why this is per-product and why blank has to stay a
+	// first-class value rather than a missing one.
+	UITestTarget string `toml:"ui_test_target"`
+	// AppTarget is the built product name coverage is measured against —
+	// `xccov`'s target names, e.g. "A Bible Verse Daily.app".
+	//
+	// It is a separate field and NOT derived from the scheme because those two
+	// genuinely differ: the project this was built for has a scheme named
+	// "A Bible Verse Each Day Free" producing "A Bible Verse Daily.app". Deriving
+	// it would silently select no target, and `jq` selecting nothing yields an
+	// empty coverage number rather than an error. Defaults to `<name>.app`.
+	AppTarget string `toml:"app_target"`
+}
+
+// TestTargetName is the `-only-testing:` selector for this product's unit tests.
+// Empty only when there is nothing to derive it from, so a blank manifest fails
+// closed at substitution time rather than rendering `-only-testing:Tests`.
+func (p Product) TestTargetName() string {
+	if p.TestTarget != "" {
+		return p.TestTarget
+	}
+	if p.Name == "" {
+		return ""
+	}
+	return p.Name + "Tests"
+}
+
+// AppTargetName is the built product coverage is reported for.
+func (p Product) AppTargetName() string {
+	if p.AppTarget != "" {
+		return p.AppTarget
+	}
+	if p.Name == "" {
+		return ""
+	}
+	return p.Name + ".app"
+}
+
+// slugRe matches the runs of characters that are not safe in an artifact name or
+// a simulator name.
+var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// Slug is the product's name reduced to a lowercase identifier, used to scope
+// per-product CI artifacts and simulators.
+//
+// Derived rather than declared: a product already has a unique name, and an
+// extra field would be one more thing to keep in sync for no added expressive
+// power. Names are validated to start with an alphanumeric, so this is never
+// empty.
+func (p Product) Slug() string {
+	return strings.Trim(slugRe.ReplaceAllString(strings.ToLower(p.Name), "-"), "-")
 }
 
 // SecretsPath is the xcconfig this product's release-time secrets are written
@@ -506,6 +570,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	seenProduct := map[string]bool{}
+	seenSlug := map[string]bool{}
 	for i, p := range cfg.Product {
 		// Every field is substituted into synced CI YAML and shell, so each is
 		// held to the same charset as its [project] counterpart.
@@ -521,6 +586,32 @@ func Load(path string) (*Config, error) {
 		if !projAscVal.MatchString(p.AscAppID) {
 			return nil, fmt.Errorf("[[product]] %q: invalid asc_app_id %q (want the numeric Apple ID)", p.Name, p.AscAppID)
 		}
+		// The CI targets. Substituted into the test job's shell (inside
+		// `-only-testing:"…"`) and into a jq program, so they are held to the same
+		// charset as scheme — which already permits the spaces a real Xcode target
+		// name carries ("A Bible Verse Each Day FreeTests") and excludes every
+		// quote, backslash and shell metacharacter. Blank is valid for all three
+		// and means "derive it" (test/app) or "there are none" (ui).
+		for _, f := range []struct{ field, val string }{
+			{"test_target", p.TestTarget},
+			{"ui_test_target", p.UITestTarget},
+			{"app_target", p.AppTarget},
+		} {
+			if f.val != "" && !projNameVal.MatchString(f.val) {
+				return nil, fmt.Errorf("[[product]] %q: invalid %s %q", p.Name, f.field, f.val)
+			}
+		}
+		// The slug scopes this product's test-results artifact and its CI
+		// simulator. Two products sharing one would have the second leg's artifact
+		// upload collide with the first's, and — far worse — one leg's stale-
+		// simulator cleanup would delete the simulator the other leg is mid-test
+		// on, which surfaces as "the test runner crashed before establishing
+		// connection" and reads like an app bug rather than a name collision.
+		slug := p.Slug()
+		if seenSlug[slug] {
+			return nil, fmt.Errorf("[[product]] %q reduces to the same CI slug %q as an earlier product; give them names that differ by more than punctuation", p.Name, slug)
+		}
+		seenSlug[slug] = true
 		// A blank prefix means "every tag releases this product". That is exactly
 		// right with one product and incoherent with two: the other product's
 		// tags would release this one as well, which is the fan-out that fails
