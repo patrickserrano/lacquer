@@ -586,6 +586,24 @@ type Config struct {
 	Components []Component `toml:"component"`
 	Product    []Product   `toml:"product"`
 	Baseline   Baseline    `toml:"baseline"`
+	// Root is the directory the manifest was loaded from: the project root. Set
+	// by Load, never read from the file (`toml:"-"`, so a stray top-level `root =`
+	// key cannot redirect it).
+	//
+	// It is here because one rendered value cannot be derived from the manifest
+	// alone. A Dependabot `swift` entry has to name a directory that really holds
+	// a Swift manifest, and the manifest file does not say where one is — see
+	// tokens.dependabotUpdates and detect.IndexSwiftManifests. Carrying the root
+	// on the Config rather than threading a second `root` argument through
+	// tokens.Values and every caller in internal/{assets,sync,audit} is not only
+	// less churn: it makes the two IMPOSSIBLE to disagree. Load is always given
+	// <project>/.lacquer.toml, so the root is a property of the manifest that was
+	// read, and internal/fleet — which loads many projects' manifests in one
+	// process — gets the right root for each without threading anything.
+	//
+	// Empty for a Config built in memory (tests). Consumers must treat that as
+	// "unknown", not as the current directory.
+	Root string `toml:"-"`
 }
 
 // Products returns every shippable app, synthesising one from [project] when
@@ -615,6 +633,13 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
 		return nil, err
+	}
+	// Absolute, so a caller that loaded with a relative path still yields a root
+	// that means the same thing after any chdir — and so renders memoised by root
+	// key on it consistently.
+	cfg.Root = filepath.Dir(path)
+	if abs, err := filepath.Abs(cfg.Root); err == nil {
+		cfg.Root = abs
 	}
 	if err := validateProject(cfg.Project); err != nil {
 		return nil, err

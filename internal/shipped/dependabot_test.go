@@ -2,6 +2,7 @@ package shipped
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,6 +56,64 @@ func ecosystemsAt(doc dependabotFile) map[string]string {
 	return m
 }
 
+// dirsFor is every directory an ecosystem is watched at, in file order. Needed
+// because ecosystemsAt collapses repeats, and "how many swift entries" is exactly
+// what several of these tests are about.
+func dirsFor(doc dependabotFile, eco string) []string {
+	var out []string
+	for _, u := range doc.Updates {
+		if u.Ecosystem == eco {
+			out = append(out, u.Directory)
+		}
+	}
+	return out
+}
+
+// swiftProject builds a throwaway git repository: every path in tracked is
+// written AND committed, every path in untracked is written only. It returns the
+// root to put in Config.Root.
+//
+// Real repositories rather than plain directories, because what makes a Swift
+// manifest real to Dependabot is that the REPOSITORY contains it. rail has a
+// Package.resolved on disk at exactly the path Steps has one; the difference
+// between the repo whose swift updates work and the repo whose Dependabot job
+// aborts daily is a single `*.resolved` line in .gitignore. A fixture that only
+// wrote files would call those two cases identical.
+func swiftProject(t *testing.T, tracked, untracked []string) string {
+	t.Helper()
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(rel string) {
+		t.Helper()
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "-q")
+	for _, f := range tracked {
+		write(f)
+	}
+	if len(tracked) > 0 {
+		git(append([]string{"add", "--"}, tracked...)...)
+		git("commit", "-qm", "contents")
+	}
+	for _, f := range untracked {
+		write(f)
+	}
+	return repo
+}
+
 // Every repo has workflows, and a pinned action SHA is the dependency most
 // likely to rot unnoticed: nothing fails when one goes stale.
 func TestDependabotAlwaysWatchesActions(t *testing.T) {
@@ -72,13 +131,18 @@ func TestDependabotAlwaysWatchesActions(t *testing.T) {
 // 2026-03-31; it now discovers Package.resolved inside .xcodeproj bundles, which
 // is the layout every iOS project here uses. Dropping this entry would leave
 // twelve repos' SPM dependencies unwatched.
+//
+// This is the Steps shape, and Steps' swift updates work: the entry is at "/" and
+// the resolved file is committed inside the .xcodeproj at the component root.
 func TestDependabotWatchesSwiftForIOS(t *testing.T) {
+	repo := swiftProject(t, []string{"P.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
 	cfg := &config.Config{
+		Root:       repo,
 		Project:    config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
 		Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
 	}
-	if _, ok := ecosystemsAt(renderDependabot(t, cfg))["swift"]; !ok {
-		t.Error("an ios component got no swift entry")
+	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 1 || got[0] != "/" {
+		t.Errorf("swift directories = %v, want [/]", got)
 	}
 }
 
@@ -86,7 +150,9 @@ func TestDependabotWatchesSwiftForIOS(t *testing.T) {
 // in a subdirectory must be named. kit keeps its project at Kit/Kit.xcodeproj,
 // where "/" finds nothing at all.
 func TestDependabotFollowsComponentDirectories(t *testing.T) {
+	repo := swiftProject(t, []string{"Kit/Kit.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
 	cfg := &config.Config{
+		Root:       repo,
 		Project:    config.Project{ProjectName: "Kit", Scheme: "Kit", BundleID: "com.x.k", AscAppID: "1", Xcodeproj: "Kit/Kit.xcodeproj"},
 		Components: []config.Component{{Path: "Kit", Profiles: []string{"ios"}}},
 	}
@@ -95,10 +161,108 @@ func TestDependabotFollowsComponentDirectories(t *testing.T) {
 	}
 }
 
+// A bundled Package.resolved BELOW the component's own directory keeps the entry
+// at the component, because Dependabot's search for one is recursive.
+//
+// kit is the proof and it is the reason this rule is a rule rather than a guess:
+// its component is ".", its resolved file is at Kit/Kit.xcodeproj/…, and its
+// swift PRs (purchases-ios-spm, sentry-cocoa) open. Naming the deeper directory
+// instead would be a change with nothing wrong to fix.
+func TestDependabotKeepsTheComponentDirWhenTheBundleIsDeeper(t *testing.T) {
+	repo := swiftProject(t, []string{"Kit/Kit.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
+	cfg := &config.Config{
+		Root:       repo,
+		Project:    config.Project{ProjectName: "Kit", Scheme: "Kit", BundleID: "com.x.k", AscAppID: "1", Xcodeproj: "Kit/Kit.xcodeproj"},
+		Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
+	}
+	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 1 || got[0] != "/" {
+		t.Errorf("swift directories = %v, want [/]", got)
+	}
+}
+
+// A component with NO Swift manifest in the repository gets no swift entry at all.
+//
+// Not a harmless no-op, which is what the previous unconditional entry assumed.
+// Dependabot aborts the whole job — "Error during file fetching; aborting: Repo
+// must contain a Package.swift configuration file or an .xcodeproj/.xcworkspace
+// directory with a Package.resolved file" — so the entry also took down the
+// github-actions updates in the same file. Queueify is this shape: an ios
+// component at ios/ whose xcodeproj is excluded from the repo by .gitignore.
+func TestDependabotEmitsNoSwiftEntryWithoutAManifest(t *testing.T) {
+	repo := swiftProject(t, []string{"ios/Queueify/Queueify.xcodeproj/project.pbxproj"}, nil)
+	cfg := &config.Config{
+		Root:       repo,
+		Project:    config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "com.x.q", AscAppID: "1", Xcodeproj: "ios/Queueify/Queueify.xcodeproj"},
+		Components: []config.Component{{Path: "ios", Profiles: []string{"ios"}}},
+	}
+	doc := renderDependabot(t, cfg)
+	if got := dirsFor(doc, "swift"); len(got) != 0 {
+		t.Errorf("swift entries = %v, want none: every one of those fails the whole Dependabot job daily", got)
+	}
+	// The rest of the file must survive. The abort this prevents was costing the
+	// repo its action updates, so dropping them here would trade one silence for
+	// another.
+	if ecosystemsAt(doc)["github-actions"] != "/" {
+		t.Error("the repo-wide github-actions entry went missing")
+	}
+}
+
+// A manifest that exists on disk but NOT in the repository does not count.
+//
+// This is rail, exactly: Rail.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+// Package.resolved is right there in the working tree, and `*.resolved` in
+// .gitignore keeps it out of the repo — so Dependabot fetches nothing and aborts.
+// RailCore/Package.swift and RailData/Package.swift ARE committed and still do not
+// qualify: no entry in this fleet has been observed to work without a resolved
+// file, and a wrong entry costs a failed job every day where a missing one costs
+// visibility. Prefer nothing.
+func TestDependabotIgnoresManifestsTheRepoDoesNotContain(t *testing.T) {
+	repo := swiftProject(t,
+		[]string{"RailCore/Package.swift", "RailData/Package.swift"},
+		[]string{"Rail.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"})
+	cfg := &config.Config{
+		Root:       repo,
+		Project:    config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.x.r", AscAppID: "1", Xcodeproj: "Rail.xcodeproj"},
+		Components: []config.Component{{Path: ".", Profiles: []string{"ios", "supabase"}}},
+	}
+	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 0 {
+		t.Errorf("swift entries = %v, want none: nothing there is in the repository Dependabot reads", got)
+	}
+}
+
+// A nested SwiftPM package is named exactly, because Dependabot does not find one
+// from above.
+//
+// windsock is the case: WindsockKit/Package.swift and WindsockKit/Package.resolved
+// are committed one level below the root, its entry pointed at "/", and it has
+// never opened a swift PR — only the actions ones. The asymmetry with the test
+// above (bundles found recursively, bare packages not) is empirical, not
+// documented, which is why both directions have a test.
+func TestDependabotPointsSwiftAtANestedPackage(t *testing.T) {
+	repo := swiftProject(t, []string{
+		"Windsock.xcodeproj/project.pbxproj", // an app project with no resolved file of its own
+		"WindsockKit/Package.swift",
+		"WindsockKit/Package.resolved",
+	}, nil)
+	cfg := &config.Config{
+		Root:       repo,
+		Project:    config.Project{ProjectName: "Windsock", Scheme: "Windsock", BundleID: "com.x.w", AscAppID: "1", Xcodeproj: "Windsock.xcodeproj"},
+		Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
+	}
+	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 1 || got[0] != "/WindsockKit" {
+		t.Errorf("swift directories = %v, want [/WindsockKit]", got)
+	}
+}
+
 // A repo shipping both stacks must get both, each at its own path — this is the
 // shape that a single hand-written file gets wrong.
 func TestDependabotCoversEveryComponent(t *testing.T) {
+	repo := swiftProject(t, []string{
+		"ios/Rail.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+		"web/package.json",
+	}, nil)
 	cfg := &config.Config{
+		Root:    repo,
 		Project: config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.x.r", AscAppID: "1", Xcodeproj: "ios/Rail.xcodeproj"},
 		Components: []config.Component{
 			{Path: "ios", Profiles: []string{"ios"}},
@@ -110,6 +274,32 @@ func TestDependabotCoversEveryComponent(t *testing.T) {
 		if got[eco] != want {
 			t.Errorf("%s directory = %q, want %q", eco, got[eco], want)
 		}
+	}
+}
+
+// npm and github-actions are derived from the manifest alone and must stay that
+// way: a web component was detected BY its package.json, so its entry cannot
+// point at nothing, and requiring a git lookup for it would make an in-memory
+// project lose coverage for no reason. Only swift consults the repository.
+func TestDependabotNeedsNoRepoForNpmOrActions(t *testing.T) {
+	cfg := &config.Config{ // no Root: nothing on disk to consult
+		Project: config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
+		Components: []config.Component{
+			{Path: "site", Stack: "web"},
+			{Path: "ios", Profiles: []string{"ios"}},
+		},
+	}
+	got := ecosystemsAt(renderDependabot(t, cfg))
+	if got["npm"] != "/site" {
+		t.Errorf("npm directory = %q, want /site", got["npm"])
+	}
+	if got["github-actions"] != "/" {
+		t.Errorf("github-actions directory = %q, want /", got["github-actions"])
+	}
+	// And the swift entry is absent rather than guessed, because an unknown root
+	// is not evidence of a manifest.
+	if dir, ok := got["swift"]; ok {
+		t.Errorf("swift entry at %q from a project with no known root; that is the guess that fails jobs", dir)
 	}
 }
 
@@ -270,7 +460,12 @@ func TestDependabotGroupsRoutineUpdatesButNotMajors(t *testing.T) {
 // Watching dependencies and adopting shared CI are different decisions. A
 // project may keep its own workflows and still want security updates.
 func TestDependabotWatchesUnmanagedComponents(t *testing.T) {
+	repo := swiftProject(t, []string{
+		"ios/P.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+		"admin/package.json",
+	}, nil)
 	cfg := &config.Config{
+		Root:    repo,
 		Project: config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "ios/P.xcodeproj"},
 		Components: []config.Component{
 			{Path: "ios", Profiles: []string{"ios"}},
