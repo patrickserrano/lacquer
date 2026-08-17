@@ -37,6 +37,19 @@ type Project struct {
 	Tools   []string    `toml:"tools"`
 	Exclude []Exclusion `toml:"exclude"`
 	Skills  []string    `toml:"skills"`
+	// OptionalWorkflows opts a project INTO a workflow the lacquer ships but does
+	// not install by default, named without its `.yml` — e.g.
+	// optional_workflows = ["testflight-feedback"].
+	//
+	// The default-off set exists because a workflow that needs credentials nobody
+	// has does not fail loudly, it fails DAILY and quietly. testflight-feedback
+	// wants APP_STORE_CONNECT_FEEDBACK_ISSUER_ID and two siblings; no project in
+	// this fleet had them, so it had been red on every scheduled run since it was
+	// added, in every repository that received it. A scheduled job nobody can
+	// satisfy is worse than a missing feature: it trains people to ignore red.
+	//
+	// Shipping it on request keeps the capability without imposing the failure.
+	OptionalWorkflows []string `toml:"optional_workflows"`
 	// BuildEnv names repository secrets the project's build needs at BUILD time,
 	// rendered into the synced web CI job's env block as
 	// `NAME: ${{ secrets.NAME }}`.
