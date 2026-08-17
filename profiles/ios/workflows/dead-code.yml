@@ -115,6 +115,9 @@ jobs:
     needs: [periphery]
     permissions:
       # `gh issue list/comment/create` needs issues; checkout needs contents.
+      # `gh label create` needs issues:write too, which this already grants —
+      # worth stating, because a missing label is what silently broke this job in
+      # every iOS repository until the labels were created here.
       contents: read
       issues: write
     if: >
@@ -185,6 +188,20 @@ jobs:
 
             echo "Updated existing issue #$ISSUE_NUMBER"
           else
+            # Create the labels first. `gh issue create --label` FAILS on a label
+            # the repository does not have — "could not add label: 'dead-code'
+            # not found" — and that killed this job in all nine iOS repositories,
+            # every one of which was missing both. The scan itself had been
+            # working; nothing ever filed the issue it produced.
+            #
+            # `|| true` because "already exists" is a success condition here, and
+            # this runs on every scan. Creating them here rather than documenting
+            # a manual step keeps a fresh repository working on its first run.
+            gh label create dead-code --color ededed \
+              --description "Unused declarations found by Periphery" 2>/dev/null || true
+            gh label create maintenance --color ededed \
+              --description "Housekeeping, not a user-facing change" 2>/dev/null || true
+
             # Create new issue
             gh issue create \
               --title "Dead Code Cleanup - $DATE ($TOTAL items)" \

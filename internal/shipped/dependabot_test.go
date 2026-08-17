@@ -322,3 +322,59 @@ func TestDependabotDoesNotDuplicateEcosystems(t *testing.T) {
 		t.Errorf("got %d npm entries for one component; stack and profile agreeing must not double up", n)
 	}
 }
+
+// The dead-code job must CREATE the labels it files issues with.
+//
+// `gh issue create --label` fails outright on a label the repository does not
+// have — "could not add label: 'dead-code' not found" — and that killed this job
+// in all nine iOS repositories, none of which had either label. The scan worked
+// the whole time; nothing ever filed the issue it produced, which is the quiet
+// kind of broken: green scan, no output, no error anyone reads.
+func TestDeadCodeCreatesItsOwnLabels(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(root(t), "profiles", "ios", "workflows", "dead-code.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := lacquerToken.ReplaceAllString(string(raw), "x")
+
+	var doc struct {
+		Jobs map[string]struct {
+			Permissions map[string]string `yaml:"permissions"`
+			Steps       []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatal(err)
+	}
+	job, ok := doc.Jobs["create-issue"]
+	if !ok {
+		t.Fatal("no create-issue job")
+	}
+
+	var create, label int
+	for _, st := range job.Steps {
+		if strings.Contains(st.Run, "gh issue create") {
+			create++
+			for _, l := range []string{"dead-code", "maintenance"} {
+				if !strings.Contains(st.Run, "gh label create "+l) {
+					t.Errorf("the step running `gh issue create` does not create the %q label first; the call fails outright if it is missing", l)
+				}
+			}
+			// Idempotence matters: this runs on every scan, and "already exists"
+			// must not fail the job.
+			if !strings.Contains(st.Run, "|| true") {
+				t.Error("label creation is not tolerant of an existing label, so the second scan would fail")
+			}
+			label++
+		}
+	}
+	if create == 0 {
+		t.Error("no step creates an issue")
+	}
+	// Creating a label needs issues:write, same as creating the issue.
+	if job.Permissions["issues"] != "write" {
+		t.Errorf("create-issue has issues=%q; label creation needs write", job.Permissions["issues"])
+	}
+}
