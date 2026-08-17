@@ -25,6 +25,23 @@ tests run by nothing at any gate.
 `internal/detect.Drift` closes the other half, for projects that grow a stack
 after onboarding anyway.
 
+## Before the code exists
+
+An archetype's whole point is being usable before there is anything to detect,
+so the pre-code state has to be a *legal* state, not a tolerated one. Two checks
+pull against each other there:
+
+- `sync` refuses to render the iOS CI, commands, and hooks with a blank
+  `{{XCODEPROJ}}`, so the manifest must name the `.xcodeproj` its CI will build.
+- the baseline check errors on a configured `.xcodeproj` that is not on disk,
+  because a renamed or mistyped path must never read as a pass.
+
+Together those two once made every archetype-onboarded project audit red from
+its first commit, for doing exactly what this page says to do. So the baseline
+check now reports **Unchecked** — visible, never a pass — when the declared
+`.xcodeproj` is absent *and* the component has no Swift in it. The first
+`.swift` file that lands turns the same absence back into an error.
+
 ## Choosing one
 
 Name the archetype in the brief/PCD under **Stack**, then pass it to `init`.
