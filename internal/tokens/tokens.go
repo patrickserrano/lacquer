@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/detect"
 )
 
 // Token names.
@@ -600,7 +602,7 @@ func ReleaseTags(products []config.Product) string {
 
 // dependabotUpdates renders one Dependabot entry per ecosystem present in the
 // project: github-actions for the repo itself, plus npm for each web component
-// and swift for each ios one.
+// and swift for each ios one that has a Swift manifest Dependabot can read.
 //
 // Swift used to be impossible here. Dependabot's swift ecosystem required a
 // top-level Package.swift, and every iOS project in this fleet declares its SPM
@@ -610,8 +612,25 @@ func ReleaseTags(products []config.Product) string {
 //
 //	Steps.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 //
-// A project with no SPM dependencies simply has nothing for it to find, so the
-// entry is harmless there rather than needing to be conditional.
+// Swift is also the ONLY ecosystem here whose directory cannot be derived from
+// the manifest. This function used to emit a swift entry for every ios component
+// at that component's own directory, reasoning that a project with no SPM
+// dependencies has nothing for Dependabot to find and the entry is therefore
+// harmless. That was wrong twice over, and both halves were failing daily in
+// production:
+//
+//   - Dependabot does not no-op, it ABORTS THE JOB — "Error during file fetching;
+//     aborting: Repo must contain a Package.swift configuration file or an
+//     .xcodeproj/.xcworkspace directory with a Package.resolved file" — taking the
+//     repo's github-actions updates down with it. Queueify and rail, twice each.
+//   - The manifest is not always at the component root. windsock has one, at
+//     WindsockKit/Package.resolved, while its entry pointed at "/".
+//
+// So the directory is resolved against the repository (see
+// detect.IndexSwiftManifests) instead of assumed, and a component with nothing
+// readable gets NO swift entry. A missing entry silently stops watching
+// dependencies and a wrong one fails a job every day; both are bad, and the
+// second one is the one that also takes the other ecosystems with it.
 func dependabotUpdates(cfg *config.Config) string {
 	entry := func(ecosystem, dir string) string {
 		return fmt.Sprintf(`  - package-ecosystem: %s
@@ -661,11 +680,8 @@ func dependabotUpdates(cfg *config.Config) string {
 	// a Next.js app with 36 npm dependencies watched by nothing for exactly that
 	// reason, and the gap was invisible because the config file it should have
 	// appeared in looked complete.
+	swift := swiftManifests(cfg.Root)
 	for _, c := range cfg.Components {
-		dir := "/"
-		if c.Path != "" && c.Path != "." {
-			dir = "/" + strings.TrimSuffix(c.Path, "/")
-		}
 		seen := map[string]bool{}
 		emit := func(stack string) {
 			eco, ok := config.StackEcosystem[stack]
@@ -677,7 +693,16 @@ func dependabotUpdates(cfg *config.Config) string {
 				return
 			}
 			seen[eco] = true
-			b.WriteString(entry(eco, dir))
+			// swift is the one ecosystem whose directory is a fact about the
+			// repository rather than about the manifest, so it is looked up. Zero
+			// directories means zero entries.
+			if eco == "swift" {
+				for _, d := range swift.DependabotDirs(c.Path) {
+					b.WriteString(entry(eco, dependabotDir(d)))
+				}
+				return
+			}
+			b.WriteString(entry(eco, dependabotDir(c.Path)))
 		}
 		if c.Stack != "" {
 			emit(c.Stack)
@@ -688,3 +713,49 @@ func dependabotUpdates(cfg *config.Config) string {
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
+
+// dependabotDir spells a component path as a Dependabot `directory` value: "."
+// and "" are the repo root, "/".
+func dependabotDir(compPath string) string {
+	if compPath == "" || compPath == "." {
+		return "/"
+	}
+	return "/" + strings.TrimSuffix(compPath, "/")
+}
+
+// swiftManifests resolves root's Swift manifests, memoised per root for the life
+// of the process.
+//
+// Memoised because Values is called once per managed unit — `lacquer audit`
+// re-renders every region and every asset, so a single run asks this question
+// around a hundred times, and each answer costs a `git ls-files`. Caching it is
+// safe for the reason the cache is keyed the way it is: the answer is a property
+// of one repository's index, and nothing the lacquer does writes a Package.swift
+// or a Package.resolved — sync writes CLAUDE.md, workflows and configs. A run
+// that could invalidate this does not exist.
+//
+// An unknown root (a Config built in memory rather than loaded) and a root that
+// is not a git repository both yield the empty index, which renders no swift
+// entry. Nothing is silently mis-pointed; something is silently absent, which is
+// the direction to fail in, and sync refuses to write assets outside a git
+// repository anyway.
+func swiftManifests(root string) detect.SwiftManifestIndex {
+	if root == "" {
+		return detect.SwiftManifestIndex{}
+	}
+	swiftMu.Lock()
+	defer swiftMu.Unlock()
+	if ix, ok := swiftCache[root]; ok {
+		return ix
+	}
+	// A git failure is indistinguishable here from "no manifests", and Values has
+	// no error path to report it on. Fail closed: no entry.
+	ix, _ := detect.IndexSwiftManifests(root)
+	swiftCache[root] = ix
+	return ix
+}
+
+var (
+	swiftMu    sync.Mutex
+	swiftCache = map[string]detect.SwiftManifestIndex{}
+)
