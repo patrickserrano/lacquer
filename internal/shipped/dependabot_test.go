@@ -254,6 +254,28 @@ func TestDependabotPointsSwiftAtANestedPackage(t *testing.T) {
 	}
 }
 
+// A manifest in a SIBLING directory whose name merely starts with the
+// component's is not in the component.
+//
+// "ios" and "iosSupport" share a prefix and nothing else, and the distinction is
+// a single "/" inside a path comparison. Getting it wrong points the entry at a
+// directory Dependabot then finds nothing in — the failure this whole change
+// exists to stop — so it is worth a test of its own rather than trust in a
+// helper.
+func TestDependabotDoesNotAcceptASiblingDirectory(t *testing.T) {
+	repo := swiftProject(t, []string{
+		"iosSupport/Support.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+	}, nil)
+	cfg := &config.Config{
+		Root:       repo,
+		Project:    config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "ios/P.xcodeproj"},
+		Components: []config.Component{{Path: "ios", Profiles: []string{"ios"}}},
+	}
+	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 0 {
+		t.Errorf("swift entries = %v; iosSupport/ is not inside ios/", got)
+	}
+}
+
 // A repo shipping both stacks must get both, each at its own path — this is the
 // shape that a single hand-written file gets wrong.
 func TestDependabotCoversEveryComponent(t *testing.T) {
@@ -274,6 +296,41 @@ func TestDependabotCoversEveryComponent(t *testing.T) {
 		if got[eco] != want {
 			t.Errorf("%s directory = %q, want %q", eco, got[eco], want)
 		}
+	}
+}
+
+// The root a real project renders with comes from config.Load, and nothing else
+// in this file would notice if it stopped arriving.
+//
+// Every other test here sets Config.Root by hand, so all of them would keep
+// passing while `lacquer sync` silently rendered no swift entry for any project
+// on earth — the quiet half of this bug reintroduced by deleting one line in
+// Load. This is the only test that goes through the manifest on disk.
+func TestDependabotResolvesManifestsForALoadedProject(t *testing.T) {
+	repo := swiftProject(t, []string{"P.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
+	manifest := filepath.Join(repo, ".lacquer.toml")
+	if err := os.WriteFile(manifest, []byte(`
+[project]
+name = "P"
+project_name = "P"
+scheme = "P"
+bundle_id = "com.x.p"
+asc_app_id = "1"
+xcodeproj = "P.xcodeproj"
+swift_version = "6"
+
+[[component]]
+path = "."
+profiles = ["ios"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 1 || got[0] != "/" {
+		t.Errorf("swift directories = %v, want [/]; a loaded manifest must know its own root", got)
 	}
 }
 

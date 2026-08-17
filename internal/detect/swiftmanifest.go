@@ -165,10 +165,12 @@ func (ix SwiftManifestIndex) DependabotDirs(comp string) []string {
 // bundleParent reports the directory containing the outermost .xcodeproj /
 // .xcworkspace bundle on p's path, when p is inside one.
 //
-// Outermost, because a Package.resolved lives at
-// Foo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved — two
-// nested bundle-suffixed directories — and the entry has to be relative to the
-// .xcodeproj, not to the workspace inside it.
+// Outermost matters for what gets RECORDED, not for any answer: a Package.resolved
+// lives at Foo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+// — two nested bundle-suffixed directories — and only ancestors of the recorded
+// directory are ever consulted, so both spellings resolve the same today. The
+// outer one is the directory a person would name when asked where the project is,
+// which is what makes it the right thing to keep.
 func bundleParent(p string) (string, bool) {
 	segs := strings.Split(p, "/")
 	for i, s := range segs {
