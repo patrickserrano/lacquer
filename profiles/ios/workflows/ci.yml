@@ -554,7 +554,18 @@ jobs:
           # Scoping the name rather than taking a lock keeps jobs independent: a
           # runner-level mutex would serialise the whole fleet behind the slowest
           # test suite, and GitHub's `concurrency` cannot span repositories.
-          SIM_NAME="CI-iPhone-${GITHUB_REPOSITORY_ID}{{IOS_CI_SIM_SUFFIX}}"
+          #
+          # Keyed on the RUN, not the repository. Per-repository was not enough:
+          # two runs of the SAME repository overlap constantly — a push landing
+          # while a pull request is still testing, or two pull requests updated
+          # together — and both would build a device of the same name and delete
+          # each other's mid-test. One project hit exactly that and fixed it
+          # locally; this is that fix promoted, so every project gets it.
+          #
+          # GITHUB_RUN_ID is shared by matrix legs of one run, so the product
+          # suffix still has to be there: run-id alone would collide between a
+          # paid and a free leg.
+          SIM_NAME="CI-iPhone-${GITHUB_RUN_ID}{{IOS_CI_SIM_SUFFIX}}"
 
           # Stale simulators from THIS repository's earlier runs, and no others.
           # The carryover this guards against (residual xctestd / CoreSimulator
@@ -816,6 +827,30 @@ jobs:
           path: TestResults.xcresult
           if-no-files-found: ignore
           retention-days: 1
+
+      # Delete the devices this run created.
+      #
+      # Naming them per run removed the implicit cleanup the old fixed name had,
+      # where the next run reclaimed the previous one's device by recreating it.
+      # Without this every run leaks a simulator until the nightly cleanup
+      # workflow, and a busy day fills the disk on the one shared Mac.
+      #
+      # always(), so cancelled and failed runs clean up too — those are exactly
+      # the runs that would otherwise leak, and cancellation is common here
+      # because same-ref runs cancel each other by design.
+      #
+      # LAST in the job, deliberately: placed before "Collect Simulator
+      # Diagnostics" it would delete the simulator that step exists to inspect.
+      - name: Delete this run's simulators
+        if: always()
+        run: |
+          set -uo pipefail
+          ids=$(xcrun simctl list devices | grep "CI-iPhone-${GITHUB_RUN_ID}" | grep -oE '[A-F0-9-]{36}' || true)
+          for id in $ids; do
+            echo "Deleting this run's simulator: $id"
+            xcrun simctl shutdown "$id" 2>/dev/null || true
+            xcrun simctl delete "$id" 2>/dev/null || true
+          done
 
   baseline:
     name: Baseline
