@@ -109,6 +109,27 @@ the next reader that dates in this file are noise.
 ships. It suppresses nothing, so it is dead text that still reads like a live
 decision — delete it.
 
+**Retirement.** `[project].retired` is the third opt-out, and it is not per-file:
+
+```toml
+[project]
+retired = { since = "2026-08-18", reason = "not a viable app" }
+```
+
+It means **stop the spend, stay consistent.** Everything that holds the repo to
+the fleet's shape keeps syncing — PR CI, lint/format configs, `CLAUDE.md`,
+`.gitignore`, hooks, skills — so the project still audits clean. Everything that
+costs money or attention **on a schedule** stops: any workflow whose `on:` block
+carries `schedule:` (read from the workflow's content, not a filename list), plus
+`.github/dependabot.yml`. Both fields are required; a malformed entry is a hard
+error, not a silent no-op. There is deliberately no `until` — retirement is not
+debt with a term, and an expiry would quietly turn a dead project's cron jobs
+back on. `status` and `audit` lead with the retirement and its date. Nothing is
+deleted: files already in the repo stay until someone removes them by hand.
+
+Reach for `exclude` when this project owns one file. Reach for `retired` when the
+project itself is over.
+
 ## Auditing every project at once
 
 `lacquer audit` answers a question about ONE project, which is what a project's

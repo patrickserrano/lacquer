@@ -59,6 +59,44 @@ people to ignore red.
 
 A name with no matching file is an error, not a silent no-op.
 
+### Retired projects
+
+`retired` marks a project that is no longer worth investing in but is not being
+deleted:
+
+```toml
+[project]
+retired = { since = "2026-08-18", reason = "not a viable app" }
+```
+
+Retired means **stop the spend, stay consistent.** `sync` keeps shipping
+everything that holds the repo to the fleet's shape — PR-triggered CI, lint and
+format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, hooks, skills — so the
+project still audits clean and can be picked back up. It stops shipping
+everything that costs money or attention **on a schedule**:
+
+| Dropped | Kept |
+|---------|------|
+| Any workflow whose `on:` block has a `schedule:` trigger (`*-docs.yml`, `ios-cleanup-ci.yml`, `ios-dead-code.yml`, `ios-dependency-audit.yml`, `ios-quality-review.yml`, `supabase-health.yml`, …) | `*-ci.yml`, `web-dependency-review.yml`, `web-env-validation.yml`, `ios-claude.yml`, `ios-issue-deduplication.yml`, `ios-release.yml` |
+| `.github/dependabot.yml` | every non-workflow asset |
+
+"Is scheduled" is read from each workflow's **content**, not from a list of
+filenames — a filename list silently misses the next scheduled workflow someone
+adds. A workflow declaring `workflow_dispatch:` beside `schedule:` is still
+dropped: the dispatch entry is a convenience, the cron is what runs unattended.
+
+Both fields are required and a malformed entry fails the load. `retired = true`
+records that someone retired the project and not why, and six months later why is
+the only thing anyone wants to know. Unlike `[baseline.relax]` and the dated form
+of `exclude`, retirement takes **no `until`** — it is not debt with a term, and an
+expiry would either be rubber-stamped forever or quietly turn a dead project's
+cron jobs back on.
+
+`lacquer status` and `lacquer audit` both lead with the retirement and its date,
+and `audit` still exits 0: the dropped assets stop being managed units, so they
+read as neither drift nor missing. Nothing is deleted — files already in the repo
+stay until someone removes them by hand.
+
 `skills` entries are `"<owner>/<repo>@<skill-name>"` strings, installed by
 `lacquer skills` — see [Third-party
 skills](/lacquer/guides/getting-started/#third-party-skills).
