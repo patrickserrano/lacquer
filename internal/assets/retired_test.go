@@ -209,6 +209,29 @@ func TestExclusionOfAScheduledWorkflowStaysLiveWhenRetired(t *testing.T) {
 	}
 }
 
+// A workflow the detector cannot read must abort the plan, not be quietly kept
+// (a bill on a dead project) or quietly dropped (a gate missing from a live one).
+// Only a retired project pays this cost: a live one never reads workflow content.
+func TestRetiredPlanFailsOnAnUnclassifiableWorkflow(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "profiles", "web", "workflows", "mystery.yml"),
+		"name: mystery\njobs:\n  build:\n    runs-on: ubuntu-latest\n")
+
+	cfg := &config.Config{Components: []config.Component{{Path: ".", Profiles: []string{"web"}}}}
+	if _, err := Plan(h, cfg); err != nil {
+		t.Fatalf("a live project must not read workflow content at all: %v", err)
+	}
+
+	cfg.Project.Retired = &config.Retirement{Since: "2026-08-18", Reason: "not a viable app"}
+	_, err := Plan(h, cfg)
+	if err == nil {
+		t.Fatal("Plan succeeded on a workflow with no `on:` block")
+	}
+	if !strings.Contains(err.Error(), "mystery") {
+		t.Errorf("the error must name the workflow, got %q", err)
+	}
+}
+
 func contains(list []string, s string) bool {
 	for _, e := range list {
 		if e == s {
