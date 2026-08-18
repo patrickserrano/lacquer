@@ -21,9 +21,17 @@ on:
   # SECURITY: workflow_run runs from the default branch WITH secrets, even when
   # the run that triggered it came from a fork — the classic way a fork PR
   # reaches a privileged job. That path does not exist here: all three named
-  # workflows trigger only on `push: branches: [main]` and workflow_dispatch,
-  # never on pull_request. Keep it that way. If a docs workflow ever gains a PR
-  # trigger, this job must gate on `github.event.workflow_run.event == 'push'`.
+  # workflows trigger only on `schedule` and `workflow_dispatch`, never on
+  # pull_request. Neither can be initiated by a fork at all, so the fork route
+  # is closed at the source. Keep it that way.
+  #
+  # If a docs workflow ever gains a PR trigger, gate this job on the upstream
+  # event — but gate it on what the docs workflows actually use. The obvious
+  # `github.event.workflow_run.event == 'push'` would disable this deployer
+  # entirely: a cron-triggered run reports `schedule`, not `push`, so the one
+  # path that fires in practice would stop matching. (That comparison was
+  # correct when the docs workflows ran on push to main; they were moved to an
+  # overnight cron, which is exactly how a security note goes quietly stale.)
   workflow_run:
     workflows: ["iOS Docs", "Web Docs", "Supabase Docs"]
     types: [completed]
