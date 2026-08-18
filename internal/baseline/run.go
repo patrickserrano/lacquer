@@ -2,8 +2,10 @@ package baseline
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -33,6 +35,16 @@ type Report struct {
 // because there is no standard to hold it to. A target with a standard but no
 // configured xcodeproj yields a report carrying Unchecked: "we could not look"
 // must be visible, since rendering it as a pass is how a gap goes unnoticed.
+//
+// A configured xcodeproj that is absent is an error — a renamed or mistyped path
+// must not read as a pass — *unless* the component has no Swift on disk at all.
+// That case is a project onboarded from an archetype and not yet written: `sync`
+// requires a non-empty {{XCODEPROJ}} to render the iOS CI, commands, and hooks,
+// so "declare the stack before the code exists" forces a path that cannot exist
+// yet, and every such project audited red from its first commit for doing
+// exactly what archetypes/README.md tells it to. Absent xcodeproj + no Swift is
+// therefore Unchecked (visible, not a pass); the moment one .swift file lands,
+// the same absence is an error again.
 func Run(lacquerRoot, projectRoot string, targets []Target, relax map[string]Relax, now time.Time) ([]Report, error) {
 	var reports []Report
 	for _, t := range targets {
@@ -53,6 +65,14 @@ func Run(lacquerRoot, projectRoot string, targets []Target, relax map[string]Rel
 
 		path := filepath.Join(projectRoot, filepath.FromSlash(t.Xcodeproj))
 		if _, err := os.Stat(path); err != nil {
+			// Only a not-yet-created project is excused. An xcodeproj that exists
+			// but cannot be read (permissions, a broken symlink) is still an error:
+			// that is a real project whose baseline went unverified.
+			if os.IsNotExist(err) && !hasSwiftSources(filepath.Join(projectRoot, filepath.FromSlash(t.Component))) {
+				rep.Unchecked = fmt.Sprintf("xcodeproj %q is declared but not created yet, and %s has no Swift sources", t.Xcodeproj, t.Component)
+				reports = append(reports, rep)
+				continue
+			}
 			return nil, fmt.Errorf("baseline: %s names xcodeproj %q which is not readable: %w", t.Component, t.Xcodeproj, err)
 		}
 		d, err := ReadXcodeproj(path)
@@ -85,4 +105,36 @@ func FormatReports(reports []Report) string {
 		out += Format(r.Profile, r.Findings)
 	}
 	return out
+}
+
+// hasSwiftSources reports whether dir contains any Swift on disk, which is what
+// separates "this project has not been written yet" from "this project's
+// xcodeproj path is wrong". It walks rather than globs because a component root
+// (often ".") holds its sources several directories down.
+//
+// Build output and vendored code are skipped: DerivedData and .build carry Swift
+// that the project did not write, and node_modules is large enough on a
+// component shared with a web profile to dominate the walk. Any unreadable
+// subtree is skipped rather than fatal — this answers one yes/no question and
+// must not turn a permissions quirk into a failed audit.
+func hasSwiftSources(dir string) bool {
+	var found bool
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // unreadable subtree: skip it, do not fail the walk
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if path != dir && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "DerivedData") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".swift") {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
 }

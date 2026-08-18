@@ -38,6 +38,20 @@ func projectDirs(t *testing.T, pbxproj string) (lacquerRoot, projectRoot string)
 	return lacquerRoot, projectRoot
 }
 
+// writeSwift drops a Swift file at a project-relative path, creating parents.
+// Baseline checks never read these — their only job is to make a fixture look
+// like a project that has been written, as opposed to one that has not.
+func writeSwift(t *testing.T, projectRoot, rel string) {
+	t.Helper()
+	path := filepath.Join(projectRoot, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("import Foundation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 const compliantPbx = `
 /* Begin XCBuildConfiguration section */
 		APP1 /* Debug */ = {
@@ -157,11 +171,52 @@ func TestRunReportsUncheckableComponent(t *testing.T) {
 	}
 }
 
-// A configured xcodeproj that does not exist on disk is an error, not a pass.
+// A configured xcodeproj that does not exist on disk is an error, not a pass —
+// for a project that has Swift in it. That is the renamed/mistyped-path case,
+// and it must never render as a pass.
 func TestRunMissingXcodeprojIsAnError(t *testing.T) {
 	lr, pr := projectDirs(t, "")
+	writeSwift(t, pr, filepath.Join("ios", "App", "App.swift"))
 	if _, err := Run(lr, pr, iosTarget(), nil, now); err == nil {
 		t.Fatal("want an error for a configured xcodeproj that is absent, got nil")
+	}
+}
+
+// The pre-code case: a project onboarded from an archetype declares the
+// xcodeproj its CI will build before any Swift is written, because `sync`
+// refuses to render the iOS assets with a blank {{XCODEPROJ}}. That is the
+// documented workflow (archetypes/README.md), so it must not audit red. It is
+// Unchecked — visible — rather than a pass.
+func TestRunPreCodeXcodeprojIsUncheckedNotAnError(t *testing.T) {
+	lr, pr := projectDirs(t, "")
+	reps, err := Run(lr, pr, iosTarget(), nil, now)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(reps) != 1 {
+		t.Fatalf("got %d reports, want 1", len(reps))
+	}
+	if reps[0].Unchecked == "" {
+		t.Error("want an Unchecked reason for an xcodeproj declared before the code exists")
+	}
+	if len(reps[0].Findings) != 0 {
+		t.Error("an unchecked component must not fabricate findings")
+	}
+}
+
+// The excuse is Swift the project wrote, not Swift that landed in it. Build
+// output under DerivedData must not flip a not-yet-written project into the
+// hard-error case, or the fix regresses the moment anyone builds once.
+func TestRunPreCodeIgnoresSwiftInBuildOutput(t *testing.T) {
+	lr, pr := projectDirs(t, "")
+	writeSwift(t, pr, filepath.Join("ios", "DerivedData", "Build", "Generated.swift"))
+	writeSwift(t, pr, filepath.Join("ios", ".build", "checkouts", "Dep", "Dep.swift"))
+	reps, err := Run(lr, pr, iosTarget(), nil, now)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(reps) != 1 || reps[0].Unchecked == "" {
+		t.Errorf("reports = %+v, want one Unchecked report — build output is not the project's own Swift", reps)
 	}
 }
 
