@@ -90,6 +90,16 @@ func syncedProject(t *testing.T, preexisting string) string {
 	// global identity would otherwise fail there rather than here.
 	git(t, project, "config", "user.email", "test@example.com")
 	git(t, project, "config", "user.name", "Test")
+	// Answer from THIS repository's .gitignore and nothing else. A developer's
+	// ~/.gitignore_global is part of git's answer by default, and this author's
+	// contains `.env` — so the assertions below passed on this machine with the
+	// `.env` rule deleted from the shipped block, and would have shipped a hole
+	// straight into every repo that has no such global file. Repo-local config
+	// overrides the global excludesFile.
+	git(t, project, "config", "core.excludesFile", os.DevNull)
+	if err := os.WriteFile(filepath.Join(project, ".git", "info", "exclude"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := os.WriteFile(filepath.Join(project, ".lacquer.toml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
@@ -105,25 +115,54 @@ func syncedProject(t *testing.T, preexisting string) string {
 	return project
 }
 
-// ignored reports whether git itself would ignore path in project. The path need
-// not exist: check-ignore answers on the patterns alone, which is what a
-// developer's `git add -A` consults.
+// ignoredBy reports whether git itself would ignore path in project, and which
+// file the winning pattern came from. The path need not exist: check-ignore
+// answers on the patterns alone, which is what a developer's `git add -A`
+// consults.
+//
+// The SOURCE is returned, not just a yes/no, because "git ignores it" and "this
+// project's .gitignore ignores it" are different claims and only the second one
+// is what the lacquer ships.
+func ignoredBy(t *testing.T, project, path string) (bool, string) {
+	t.Helper()
+	// -q, exit status only, is the authoritative yes/no. `-v` is NOT: it also
+	// reports — and exits 0 for — a path matched by a NEGATIVE pattern, so
+	// `!.env.example` would read as "ignored" and every re-include assertion
+	// below would invert.
+	q := exec.Command("git", "check-ignore", "-q", "--", path)
+	q.Dir = project
+	if err := q.Run(); err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok || ee.ExitCode() != 1 {
+			// Exit 128 is check-ignore failing to run at all. Reporting that as
+			// "not ignored" would turn every assertion below into a false alarm,
+			// and reporting it as "ignored" would make them all vacuously pass.
+			t.Fatalf("git check-ignore %s: %v\n%s", path, err, ee.Stderr)
+		}
+		return false, ""
+	}
+	// Ignored — now ask which file the winning pattern lives in.
+	v := exec.Command("git", "check-ignore", "-v", "--", path)
+	v.Dir = project
+	out, err := v.Output()
+	if err != nil {
+		t.Fatalf("git check-ignore -v %s: %v", path, err)
+	}
+	// `<source>:<line>:<pattern>\t<path>`
+	source, _, _ := strings.Cut(string(out), ":")
+	return true, source
+}
+
+// ignored is ignoredBy narrowed to "and the rule came from this project's
+// .gitignore".
 func ignored(t *testing.T, project, path string) bool {
 	t.Helper()
-	cmd := exec.Command("git", "check-ignore", "-q", "--", path)
-	cmd.Dir = project
-	err := cmd.Run()
-	if err == nil {
-		return true
+	yes, source := ignoredBy(t, project, path)
+	if yes && source != gitignore.Name {
+		t.Errorf("%s is ignored by %s, not by the project's %s — that rule does not ship with the lacquer",
+			path, source, gitignore.Name)
 	}
-	ee, ok := err.(*exec.ExitError)
-	if !ok || ee.ExitCode() != 1 {
-		// Exit 128 is check-ignore failing to run at all. Reporting that as "not
-		// ignored" would turn every assertion below into a false alarm, and
-		// reporting it as "ignored" would make them all vacuously pass.
-		t.Fatalf("git check-ignore %s: %v", path, err)
-	}
-	return false
+	return yes
 }
 
 // TestGitignoreRegionIgnoresCredentials is the whole point: the files that grant
@@ -283,6 +322,48 @@ func TestGitignoreSkillRulesFollowTheManifest(t *testing.T) {
 	// leaves it untracked-but-unignored, which is the worst of both.
 	if ignored(t, project, "skills-lock.json") {
 		t.Error("skills-lock.json is ignored — a lockfile that is not committed pins nothing")
+	}
+}
+
+// TestGitignoreBodyIsDeterministic is the precondition TestSyncingTwiceChangesNothing
+// depends on, asserted directly because that test only catches a violation
+// PROBABILISTICALLY.
+//
+// The body is built from maps (the tool-directory set, the managed-skill set),
+// and Go randomizes map iteration. One `lacquer sync` renders this body three
+// separate times — once in the clobber guard's audit, once for the write, once
+// for the lock — so an unsorted render does not merely churn between runs, it
+// writes a lock that disagrees with the file it just wrote, in a single run.
+// With only three tool directories an unsorted render still happens to come out
+// in the same order about a third of the time, so a single before/after
+// comparison lets it through. Fifty renders do not.
+func TestGitignoreBodyIsDeterministic(t *testing.T) {
+	r := root(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".lacquer.toml")
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := assets.Plan(r, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := gitignore.Body(cfg, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 50 {
+		got, err := gitignore.Body(cfg, plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != first {
+			t.Fatalf("render %d differs from the first — the body is not deterministic, so one sync writes a lock that disagrees with the file it wrote:\n--- first ---\n%s\n--- got ---\n%s", i, first, got)
+		}
 	}
 }
 
