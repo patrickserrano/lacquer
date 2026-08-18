@@ -135,7 +135,7 @@ to find regressions. This catches bug classes the implementer's own tests
 miss. Reserve this for the categories above — bolting a review step onto
 every task adds cost without benefit; current models already self-check.
 
-### Local checks match CI
+## Local checks match CI
 
 A local hook runs the same command, with the same strictness, as the CI job it
 stands in for. A hook that's weaker than CI is worse than no hook: it reports
@@ -155,16 +155,31 @@ Lacquer-managed files are identical or excluded — there's no third state. The
 files carrying these checks are rendered from the lacquer, so editing one in a
 project silently diverges it from every other project. The `No lacquer drift` CI
 job runs `lacquer audit` and fails on exit 3 when a managed file was edited
-locally. If a project genuinely owns a file, say so:
+locally — and on exit 6 when the project runs a **stack** the manifest never
+declared, which is the same failure one level up: a whole toolchain with no
+hooks, no CI, and no CLAUDE region, reported by nothing. Run `lacquer adopt` to
+record it. If a project genuinely owns a file, say so:
 
 ```toml
 [project]
-exclude = ["lefthook.yml"]
+exclude = [
+  # Permanent: a real, ongoing difference between this project and the fleet.
+  { path = "lefthook.yml", reason = "monorepo runs hooks from the workspace root" },
+  # Temporary: debt with a term. Past `until`, audit fails with exit 4.
+  { path = ".github/workflows/ios-ci.yml", reason = "local xcresult fix pending upstream", until = "2026-10-01" },
+]
 ```
 
-The lacquer then neither distributes nor tracks it. A project never synced has no
-`.lacquer.lock`, so drift can't be attributed and nothing blocks — the job warns
-rather than reporting a pass.
+The lacquer then neither distributes nor tracks it. **The `reason` is a field,
+not a comment** — `audit` reports every exclusion that lacks one, and `until` is
+what separates "we differ" from "we haven't got to it yet". Omit `until` only
+when no future date could make the exclusion wrong; an invented date you renew
+forever teaches the next reader that dates in this file mean nothing. An
+exclusion that stops matching anything the lacquer ships is reported as stale so
+it can be deleted, because dead config reads exactly like a live decision.
+
+A project never synced has no `.lacquer.lock`, so drift can't be attributed and
+nothing blocks — the job warns rather than reporting a pass.
 
 ### Retiring a project
 

@@ -30,6 +30,75 @@ started](/lacquer/guides/getting-started/).
 - **Terms of Use (EULA).** Configure a custom EULA in App Store Connect → License Agreement (if you set none, Apple's standard EULA applies automatically). Separately, App Review requires a functional Terms of Use link in the App Store description — link your custom EULA, or Apple's standard EULA: `https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`. A missing/broken EULA link is a common rejection.
 - **Privacy Policy link.** Required for every app: set the Privacy Policy URL in App Store Connect → App Information, and make the policy reachable inside the app. Include the link in the App Store description too. A non-functional or missing privacy policy link is a frequent rejection.
 - **Subscription / IAP apps (Guideline 3.1.2):** the paywall/purchase screen itself must clearly show price, duration, auto-renewal terms, and how to cancel — not just the description — and both the privacy policy and terms of use (EULA) links must be clickable on that screen (in the binary, not only in metadata). See [Premium / subscription gating](#premium--subscription-gating-if-monetized).
+- **No price in the app name or icon (Guideline 2.3.7).** "Free", "Lite (Free)", a price, or a `FREE` badge burned into the icon artwork all get rejected — in the App Store name, the on-device name, and the icon image itself. The description is exempt. On a free/paid pair this bites the free product: set both `CFBundleDisplayName` and `CFBundleName` (the fallback iOS shows in Settings, which otherwise defaults to `$(PRODUCT_NAME)`), and check the 1024pt icon for baked-in badge text.
+- **A version train closes permanently once its version reaches `READY_FOR_SALE`.** Uploading another build against that same marketing version fails with error 90186 ("Invalid Pre-Release Train"), no matter the build number. A shipped app needs a version bump to accept a new build. In a repo shipping several apps, this is why one release trigger must never fan out to every product: the already-shipped one can only fail.
+
+## Shipping more than one app from one repository
+
+A repository that ships a paid and a free variant declares each as a
+`[[product]]` in `.lacquer.toml`:
+
+```toml
+[[product]]
+name = "MyApp"
+scheme = "MyApp"
+bundle_id = "com.example.myapp"
+asc_app_id = "1234567890"
+
+[[product]]
+name = "MyApp Lite"
+scheme = "MyApp Lite"
+bundle_id = "com.example.myapp.lite"
+asc_app_id = "0987654321"
+```
+
+The release workflow becomes a matrix with one leg per product: separate archive,
+IPA, TestFlight upload and GitHub Release asset for each.
+
+**CI does the same.** `Build (Release)` and `Test` get one leg per product, so
+the free variant is compiled and its own test bundle is run. Three optional
+fields drive the test leg, each defaulting to the historical single-app value:
+
+```toml
+[[product]]
+name = "MyApp Lite"
+scheme = "MyApp Lite"
+bundle_id = "com.example.myapp.lite"
+asc_app_id = "0987654321"
+tag_prefix = "myapplite"
+test_target = "MyApp LiteTests"      # defaults to "<name>Tests"
+ui_test_target = ""                   # blank = this variant has no UI tests
+app_target = "MyApp.app"              # coverage target; defaults to "<name>.app"
+```
+
+`app_target` is declared rather than derived because a scheme and its built
+product genuinely differ — one app in this fleet builds `A Bible Verse Daily.app`
+from a scheme named `A Bible Verse Each Day Free`. A derived value would select
+no coverage row, and `jq` selecting nothing reports 0.0%, not an error.
+`ui_test_target` is conditional in the shell rather than always passed: an empty
+`-only-testing:` selector matches nothing and still exits 0.
+
+Each leg's simulator and uploaded test results are scoped by a slug derived from
+the product name. Two legs sharing one simulator name means the second leg's
+stale-simulator cleanup deletes the simulator the first is mid-test on, which
+reports as "the test runner crashed before establishing connection" and reads
+like an app bug.
+
+**Declare nothing and you get exactly one product**, synthesised from
+`[project]` — not a special case in the workflow, a one-entry matrix down the
+same code path. A single-app project's CI workflow is rendered byte-for-byte as
+it was before products existed.
+
+`fail-fast: false` because the products are separate App Store submissions with
+separate review outcomes: one failing validation must not cancel the other's
+upload. `max-parallel: 1` because both legs sign on the same runner and share its
+certificate directory.
+
+Two things bite specifically on a paid/free pair, both learned the hard way:
+Guideline 2.3.7 rejects a price reference in the *name or icon* of the free
+product, and error 90186 means a release trigger that fans out to a product which
+has already shipped that version can only fail — see [App Store
+requirements](#app-store-requirements) above.
 
 ## Secrets & service keys
 
@@ -39,12 +108,36 @@ Two separate buckets — never mix them.
 
 Service keys the app needs at runtime (RevenueCat, Aptabase, …) live in a gitignored `Secrets.xcconfig`, never in source or the committed `project.yml`. The lacquer syncs a `Secrets.xcconfig.example` template into the component dir. See the `ios-secrets-setup` skill for wiring a new key through `project.yml` into `Info.plist` and reading it at runtime. `Secrets.xcconfig` values are build-time — they're baked into the binary, so treat them as obfuscated, not secret. A truly sensitive secret belongs on a server, never in the app.
 
+:::caution[RevenueCat ships two different keys — don't confuse them]
+`REVENUECAT_API_KEY` is the **public SDK key** (`appl_…`), safe to compile into
+the app. RevenueCat's **REST API** uses a separate **secret key** (`sk_…`) that
+grants full account access — it must never go in `Secrets.xcconfig` or the
+binary. It is a CI/server secret (`REVENUECAT_REST_API_KEY`, below).
+:::
+
 ### CI / server secrets → GitHub Actions (never in the app)
 
-The release and quality workflows — and any server-side job that calls a vendor REST API — read these from repo/org GitHub Actions secrets, never from an xcconfig. Set each at the project's org:
+The release and quality workflows — and any server-side job that calls a vendor REST API — read these from repo/org GitHub Actions secrets, never from an xcconfig.
+
+**Organization secrets only exist for organizations.** `gh secret set --org` 404s
+against a personal account, so check which `{{GITHUB_ORG}}` is before choosing:
 
 ```bash
-gh secret set <NAME> --org {{GITHUB_ORG}}
+gh api /orgs/{{GITHUB_ORG}} >/dev/null 2>&1 \
+  && gh secret set <NAME> --org {{GITHUB_ORG}} \
+  || gh secret set <NAME> -R {{GITHUB_ORG}}/<repo>   # personal account: per repo
+```
+
+This is not a nitpick. Every repo in this fleet was missing
+`CLAUDE_CODE_OAUTH_TOKEN` for months because the instruction here was
+unconditionally org-level and the account owning them is personal — so the
+command silently could not have worked, and four workflows failed on every run.
+When a secret is per-repo, fan it out deliberately rather than one at a time:
+
+```bash
+for r in $(gh repo list <owner> --limit 200 --json name --jq '.[].name'); do
+  gh secret set <NAME> -R <owner>/"$r" < secret.txt
+done
 ```
 
 | Secret | Used by | Source |
@@ -53,8 +146,11 @@ gh secret set <NAME> --org {{GITHUB_ORG}}
 | `ASC_ISSUER_ID` | release | same page (issuer ID) |
 | `ASC_KEY_CONTENT` | release | the `.p8` private key contents |
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
-| `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's login-keychain password — set this as an org-level secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step re-locks it so the keychain never stays unlocked past the job) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | quality-review | `claude setup-token` |
+| `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's login-keychain password — set this as an org-level secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step restores the keychain's prior settings and re-locks it, so neither the unlocked window nor the timeout change outlives the run) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | claude, quality-review, dependency-audit, issue-deduplication | `claude setup-token` |
+| `SENTRY_AUTH_TOKEN` | release (dSYM upload) | Sentry → Settings → Auth Tokens, scoped to `project:releases` |
+| `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug |
+| `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug — differs per repo, so this one is never org-level |
 | `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → secret key (`sk_…`) — full account access |
 | `APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER` | testflight-feedback | a separate, least-privilege ASC API key id (read-only) |
 | `APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` | testflight-feedback | issuer id for that key |
@@ -62,7 +158,38 @@ gh secret set <NAME> --org {{GITHUB_ORG}}
 
 The TestFlight-feedback job uses its own App Store Connect key, distinct from the release/signing key (`ASC_*`) — it only needs read access to beta feedback, and it runs on a GitHub-hosted runner, so it must never carry the signing key.
 
+**Several of these are opt-in, and skip rather than fail when unset**, so a
+project that hasn't provisioned a vendor isn't permanently red:
+
+- **TestFlight feedback.** Without all three `APP_STORE_CONNECT_FEEDBACK_*`
+  secrets the daily run skips with a `::notice::` and stays green; a manual
+  `workflow_dispatch` fails loudly instead, because someone deliberately asked
+  for feedback and a green check with zero results is indistinguishable from "no
+  new feedback".
+- **Sentry dSYM upload.** All three `SENTRY_*` secrets must be present or the
+  step skips — a project with no Sentry gets a clean release, not a red one.
+- **The four Claude-powered workflows** (`ios-claude.yml`,
+  `ios-quality-review.yml`, `ios-dependency-audit.yml`,
+  `ios-issue-deduplication.yml`) hard-fail inside the action when
+  `CLAUDE_CODE_OAUTH_TOKEN` is empty, so each checks for it first and behaves
+  according to who is waiting. Unattended runs (quality-review,
+  dependency-audit, issue-deduplication) skip with a `::warning::` and stay
+  green, because a permanently red scheduled run trains you to stop reading the
+  Actions tab. The interactive one (`ios-claude.yml`) fails *and* comments on the
+  thread saying why — someone typed `@claude` and is waiting.
+
 `GITHUB_TOKEN` is provided automatically by Actions — do not set it.
+
+**The release job borrows your login keychain, so it must give it back.** It
+unlocks the login keychain to sign, and sets an auto-lock timeout to keep it open
+across a 45-minute job. That timeout is a change to a keychain the job doesn't
+own, and it used to be permanent: a runner Mac that is also somebody's personal
+machine was left with `lock-on-sleep timeout=3600s` — macOS defaults to neither —
+so it locked hourly and on every sleep, days later, with nothing in any run
+saying why. The final `always()` step now captures the prior settings and
+restores them. If your runner is dedicated hardware nobody logs into, none of
+this is visible; if it's also a machine you use, it's worth knowing CI reaches
+your login keychain at all.
 
 ## CI runners
 
@@ -161,6 +288,41 @@ During RED/GREEN, run targeted tests only (`-only-testing:<YourApp>Tests/SomeSui
 
 The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in tests — they cause flaky failures. See the `swift-testing-wait-until` skill for the polling helper to add to your test target instead.
 
+## Local checks vs CI
+
+Every CI gate and where it runs before push. See [core "Local checks match
+CI"](/lacquer/guides/agent-rules/#local-checks-match-ci) — a new CI job adds a
+row here, and a hook never runs weaker than its CI twin.
+
+| CI job / step | Local |
+|---|---|
+| `Lint` → SwiftLint `--strict` | pre-commit `swiftlint` (**`--strict`**, staged files) |
+| `Lint` → SwiftFormat `--lint` | pre-commit `swiftformat` (writes; a changed file fails the commit) |
+| `Docs` → `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
+| `Docs` → DocC builds clean | **pre-push** `docs-build` (too slow for pre-commit) |
+| `Test` | pre-commit `swift-test` |
+| `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |
+| `Build (Release)` | CI-only: a full Release archive is not a commit-time cost |
+| `No lacquer drift` | `lacquer audit` (exit 3) — run it locally any time |
+
+The `--strict` flags are the load-bearing part. `line_length`, `file_length`,
+`type_body_length` and `function_body_length` are all **warning** severity in
+`.swiftlint.yml`, so without `--strict` they print and pass locally and then fail
+the PR. A hook carrying `|| true`, or missing `--strict`, is the single most
+common way this fleet produces a "worked on my machine" failure — and it is now a
+drift violation, not just a bad idea.
+
+**The editor hook counts too.** The `PostToolUse` hooks in
+`.claude/settings.json` run on every Swift write, and they were the worst
+offender of all: `swiftlint lint --path "$FP" --quiet 2>/dev/null || true`.
+`--path` has not been a valid SwiftLint option for some time — the command
+errored on every single invocation, and `2>/dev/null || true` swallowed the
+error, so the hook linted **nothing, ever**, and looked healthy doing it. It now
+passes the path positionally, names the project config explicitly, runs
+`--strict`, and on a violation exits 2 so the diagnostic reaches the agent that
+just wrote the file. The formatter hook likewise names `--config` explicitly, and
+neither hook suppresses stderr any more.
+
 ## Documentation (DocC)
 
 DocC is a requirement — see [core documentation
@@ -211,6 +373,17 @@ patterns (Timeline entry limits, animation cleanup, Low Power Mode guards,
 constrained-network config, observer/task cleanup under `@Observable`).
 
 ## Swift 6 concurrency & default actor isolation
+
+**Swift 6 language mode is the baseline, in every build configuration — not just
+the app target.** `SWIFT_VERSION = 6` and `SWIFT_TREAT_WARNINGS_AS_ERRORS = YES`
+are asserted by the lacquer and checked two ways: `lacquer audit` reads the
+pbxproj statically across every configuration, and the CI `Baseline` job reads
+the effective settings via `xcodebuild -showBuildSettings`. Below Swift 6,
+data-race diagnostics are warnings rather than errors, so violations accrue
+invisibly until the migration has to happen as one large risky change. A target
+left behind (tests, widget, watch app) reports as a coverage ratio like `4/12`,
+not as a pass. Genuine exceptions go in `[baseline.relax]` with a reason and an
+expiry.
 
 If the app target sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (approachable concurrency), classes without an explicit isolation annotation — including services — are implicitly `@MainActor`.
 

@@ -135,6 +135,58 @@ jobs:
           fi
           echo "No stray breaking-change marker."
 
+      # The site's rule pages are hand-maintained mirrors of the shipped rule
+      # files, and nothing compared them, so they drifted silently:
+      # agent-rules.md documented `exclude = ["lefthook.yml"]` for months after
+      # core/CLAUDE.core.md moved to the attributed `{ path, reason, until }`
+      # form — the published docs handing readers config the tool no longer
+      # accepts. This is the floor: it does not prove the two agree, it only
+      # removes the failure that actually happened, which is editing one and
+      # forgetting the other. The content check is
+      # internal/docsmirror.TestMirrorsShowNoCodeTheSourceDoesNot, in the `test`
+      # job below.
+      #
+      # Lives in this job rather than a new one because a job is billed at a
+      # one-minute minimum, so job COUNT is the cost. This job already checks
+      # out at fetch-depth 0 and already has BASE/HEAD.
+      #
+      # The PAIRS list is duplicated from internal/docsmirror.Pairs, and
+      # TestWorkflowPairsMatchPairs parses this file and fails if the two ever
+      # disagree — a drift checker that has itself drifted is worse than none.
+      # Keep the tab-separated `source<TAB>mirror` shape it greps for.
+      - name: Rule-file mirrors change together
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Three-dot for the same reason as the guards above: two-dot would
+          # include main's own commits inverted once main advances.
+          changed=$(git diff --name-only "$BASE...$HEAD")
+          rc=0
+          # `while read` + heredoc, not `for x in $var`: the paths are read one
+          # line at a time regardless of how the shell word-splits.
+          while IFS=$'\t' read -r src mirror; do
+            [ -n "$src" ] || continue
+            # -qxF: exact whole-line, fixed-string. A path that merely CONTAINS
+            # another must not satisfy it.
+            if printf '%s\n' "$changed" | grep -qxF "$src" \
+               && ! printf '%s\n' "$changed" | grep -qxF "$mirror"; then
+              echo "::error file=${src}::${src} changed but ${mirror} did not. That page restates this file for readers of the published docs, and nothing else compares them — leaving it behind is how it ended up documenting config the tool no longer accepts. Update the mirror in this change, or say in the PR why the edit does not reach it."
+              rc=1
+            fi
+          done <<'PAIRS'
+          core/CLAUDE.core.md	site/src/content/docs/guides/agent-rules.md
+          profiles/ios/CLAUDE.ios.md	site/src/content/docs/guides/ios-rules.md
+          profiles/web/CLAUDE.web.md	site/src/content/docs/guides/web-rules.md
+          profiles/supabase/CLAUDE.supabase.md	site/src/content/docs/guides/supabase-rules.md
+          PAIRS
+          if [ "$rc" -ne 0 ]; then
+            exit 1
+          fi
+          echo "Rule-file mirrors OK."
+
   test:
     runs-on: ubuntu-latest
     steps:
