@@ -66,14 +66,42 @@ func TestRowsReportBehindAndUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Rows: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("got %d rows, want 2", len(rows))
+	// core, ios, and the .gitignore region.
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
 	}
-	// rows[0] = core, rows[1] = ios
 	if rows[0].Key != "core" || rows[0].Stamped != v(5) || rows[0].Behind {
 		t.Errorf("core row = %+v, want stamped=5 behind=false", rows[0])
 	}
 	if rows[1].Key != "ios" || rows[1].Stamped != v(3) || !rows[1].Behind {
 		t.Errorf("ios row = %+v, want stamped=3 behind=true", rows[1])
+	}
+	// This project has no .gitignore at all, which is the state the whole fleet
+	// was in. It must read as missing-and-behind rather than being left out of
+	// the report entirely.
+	if rows[2].Key != "gitignore" || rows[2].Path != ".gitignore" || rows[2].Found || !rows[2].Behind {
+		t.Errorf("gitignore row = %+v, want path=.gitignore found=false behind=true", rows[2])
+	}
+}
+
+// A .gitignore region is stamped with `#` comments, and the status reader has to
+// use that syntax to see it. Reading it as markdown finds nothing, which reports
+// a synced project as never-synced — the exact false alarm that teaches people
+// to ignore `lacquer status`.
+func TestRowsReadTheHashStampedGitignoreRegion(t *testing.T) {
+	lacquer := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "5\n")
+	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"acme\"\n")
+	writeFile(t, filepath.Join(project, ".gitignore"),
+		"DerivedData/\n\n# lacquer:gitignore:start v5\n*.p8\n# lacquer:gitignore:end\n")
+
+	rows, err := Rows(lacquer, project)
+	if err != nil {
+		t.Fatalf("Rows: %v", err)
+	}
+	last := rows[len(rows)-1]
+	if last.Key != "gitignore" || !last.Found || last.Stamped != v(5) || last.Behind {
+		t.Errorf("gitignore row = %+v, want found=true stamped=5 behind=false", last)
 	}
 }
