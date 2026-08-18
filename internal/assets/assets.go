@@ -13,6 +13,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/gitguard"
+	"github.com/patrickserrano/lacquer/internal/retire"
 	"github.com/patrickserrano/lacquer/internal/safepath"
 	"github.com/patrickserrano/lacquer/internal/tokens"
 )
@@ -102,6 +103,10 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 	var out []Asset
 	var suppressed []string
 	seen := map[string]bool{}
+	// A workflow this cannot classify must not be silently kept or silently
+	// dropped. add() has no error return (it is called from inside four walks),
+	// so the first failure is held here and returned before the plan is used.
+	var retireErr error
 
 	add := func(src, dest, prefix string) {
 		if seen[dest] {
@@ -111,9 +116,32 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 		// Project-declared exclusions stay project-owned: the lacquer neither
 		// distributes nor (via audit) tracks them. Used to keep a project's
 		// hand-tuned CI/config local while still adopting the rest of the lacquer.
+		//
+		// This is checked BEFORE retirement on purpose. Both drop the asset, but
+		// only an exclusion is recorded in `suppressed`, and that record is what
+		// tells a live exclusion from dead text. Retiring a project must not turn
+		// its exclusion of a scheduled workflow into "excludes a path the lacquer
+		// no longer ships — it can be deleted": the lacquer still ships it, this
+		// project has simply stopped receiving it, and deleting the exclusion on
+		// that advice would quietly re-adopt the file the day it is un-retired.
 		if cfg.Project.Excludes(dest) {
 			suppressed = append(suppressed, dest)
 			return
+		}
+		// Retirement is an implicit exclusion set covering scheduled work only —
+		// see internal/retire. Deliberately NOT added to `suppressed`: nothing in
+		// the manifest names these paths, so there is no declaration to review.
+		if cfg.Project.IsRetired() {
+			drop, err := retire.Drops(src, dest)
+			if err != nil {
+				if retireErr == nil {
+					retireErr = err
+				}
+				return
+			}
+			if drop {
+				return
+			}
 		}
 		out = append(out, Asset{Src: src, Dest: dest, Prefix: prefix})
 	}
@@ -224,6 +252,9 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 		}
 	}
 
+	if retireErr != nil {
+		return nil, nil, retireErr
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Dest < out[j].Dest })
 	return out, suppressed, nil
 }

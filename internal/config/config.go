@@ -67,7 +67,93 @@ type Project struct {
 	// reads each from `secrets`, so an unset secret is empty rather than
 	// baked in.
 	BuildEnv []string `toml:"build_env"`
+	// Retired marks a project that is no longer worth investing in but is not
+	// being deleted. Nil for every ordinary project. See Retirement.
+	Retired *Retirement `toml:"retired"`
 }
+
+// Retirement is the [project].retired entry: a project the fleet keeps but stops
+// spending on.
+//
+//	[project]
+//	retired = { since = "2026-08-18", reason = "not a viable app" }
+//
+// Retired means STOP THE SPEND, STAY CONSISTENT. The lacquer keeps syncing core
+// files — CI that runs on pull requests, lint and format configs, CLAUDE.md /
+// AGENTS.md, .gitignore — so the repository does not rot or drift out of the
+// fleet, and so an audit still means something. What it stops shipping is
+// everything that costs money or attention ON A SCHEDULE: every workflow with a
+// `schedule:` trigger, and .github/dependabot.yml. See internal/retire.
+//
+// Both fields are required, and the shape deliberately mirrors [baseline.relax]
+// rather than a bare `retired = true`. A boolean records that someone retired
+// the project and nothing else; six months later "why" is the only thing anyone
+// actually wants to know, and a comment beside the key is in the one place no
+// tool can read or report. A malformed or half-written entry is a hard error,
+// because the alternative — ignoring it — is a project that believes it is
+// retired while quietly running (and paying for) every nightly job it has.
+//
+// Unlike [baseline.relax] and the dated form of [project].exclude, retirement
+// has NO expiry, and deliberately so. Those two are debt: a temporary divergence
+// with a term, which must come back for review or it becomes policy by default.
+// Retirement is not debt, it is a decision that has already been made and will
+// not be revisited on a timer. An `until` here would either be invented and
+// rubber-stamped forever, or would silently un-retire a dead project and turn
+// its cron jobs back on — a bill nobody asked for, arriving as a surprise.
+type Retirement struct {
+	Since  string `toml:"since"`  // required, YYYY-MM-DD
+	Reason string `toml:"reason"` // required
+}
+
+// UnmarshalTOML rejects everything that is not a table with known keys.
+//
+// A bare `retired = true` is the specific mistake worth naming: it is what
+// anyone would write first, it decodes into nothing useful, and the error has to
+// say what to write instead rather than "incompatible types".
+func (r *Retirement) UnmarshalTOML(v any) error {
+	t, ok := v.(map[string]any)
+	if !ok {
+		return fmt.Errorf("[project].retired must be a table like "+
+			"`retired = { since = \"2026-08-18\", reason = \"…\" }`, got %T "+
+			"(a bare value records that someone retired the project and not why)", v)
+	}
+	for key := range t {
+		switch key {
+		case "since", "reason":
+		default:
+			// `until` is the likely typo, since every other exemption in this
+			// manifest carries one. Retirement does not expire; silently dropping
+			// the key would leave the author believing it does.
+			return fmt.Errorf("unknown [project].retired key %q (known keys: reason, since; retirement has no expiry)", key)
+		}
+	}
+	str := func(key string) (string, error) {
+		raw, ok := t[key]
+		if !ok {
+			return "", nil
+		}
+		s, ok := raw.(string)
+		if !ok {
+			return "", fmt.Errorf("[project].retired %s must be a string, got %T", key, raw)
+		}
+		return s, nil
+	}
+	var err error
+	if r.Since, err = str("since"); err != nil {
+		return err
+	}
+	if r.Reason, err = str("reason"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// SinceDate parses Since. Validated at load, so this only fails on a Retirement
+// built in memory.
+func (r Retirement) SinceDate() (time.Time, error) { return time.Parse("2006-01-02", r.Since) }
+
+// IsRetired reports whether this project has been retired.
+func (p Project) IsRetired() bool { return p.Retired != nil }
 
 // Exclusion is one [project].exclude entry: a path the lacquer neither
 // distributes nor tracks.
@@ -373,6 +459,20 @@ func validateProject(p Project) error {
 			if !e.Attributed() {
 				return fmt.Errorf("[project].exclude %q has an until but no reason (an expiry no one can interpret cannot be reviewed)", e.Path)
 			}
+		}
+	}
+	// Retirement turns off every scheduled asset the lacquer ships. A half-written
+	// entry must fail here rather than be tolerated: the two fields ARE the
+	// record, and an entry missing one is a decision nobody can review.
+	if r := p.Retired; r != nil {
+		if strings.TrimSpace(r.Reason) == "" {
+			return fmt.Errorf("[project].retired needs a non-empty reason (six months from now it is the only thing anyone will want to know)")
+		}
+		if r.Since == "" {
+			return fmt.Errorf("[project].retired needs a since date (YYYY-MM-DD); when the spend stopped is half the record")
+		}
+		if _, err := r.SinceDate(); err != nil {
+			return fmt.Errorf("[project].retired has an invalid since %q (want YYYY-MM-DD)", r.Since)
 		}
 	}
 	if _, err := p.ParsedSkills(); err != nil {

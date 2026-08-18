@@ -166,6 +166,33 @@ The lacquer then neither distributes nor tracks it. A project never synced has n
 `.lacquer.lock`, so drift can't be attributed and nothing blocks — the job warns
 rather than reporting a pass.
 
+### Retiring a project
+
+A project no longer worth investing in is retired, not abandoned. Abandoning it
+leaves a repo that rots out of the fleet while its nightly jobs keep running and
+keep billing. Retiring it says so in the manifest:
+
+```toml
+[project]
+retired = { since = "2026-08-18", reason = "not a viable app" }
+```
+
+Retired means **stop the spend, stay consistent.** The lacquer keeps syncing
+everything that holds the repo to the fleet's shape — PR-triggered CI, lint and
+format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, hooks, skills — so the
+project still audits clean. What it stops shipping is everything that costs money
+or attention **on a schedule**: every workflow whose `on:` block carries a
+`schedule:` trigger, and `.github/dependabot.yml`. That set is derived from each
+workflow's content, never from a list of filenames. A workflow declaring
+`workflow_dispatch:` beside `schedule:` still goes — the cron is the point.
+
+Both fields are required and a malformed entry is a hard error: `retired = true`
+records that someone retired the project and not why. Unlike `[baseline.relax]`
+or a dated exclusion, retirement has no `until` — it isn't debt with a term, and
+an expiry would quietly turn a dead project's cron jobs back on. `lacquer status`
+and `lacquer audit` both lead with the retirement and its date. Neither deletes
+anything already in the repo.
+
 ## CI hygiene
 
 - Keep CI action/tool versions **consistent across all workflows** — drift causes subtle job-to-job behavior differences.

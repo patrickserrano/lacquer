@@ -204,6 +204,42 @@ drifted six months ago" into a failing check on the PR that does it.
 > be attributed and nothing can block. The job warns instead of reporting a pass
 > — run `lacquer sync` to establish the baseline.
 
+### Retiring a project
+
+**A project that is no longer worth investing in is retired, not abandoned.**
+Abandoning it leaves a repository that silently rots out of the fleet while its
+nightly jobs keep running and keep billing. Retiring it says so in the manifest:
+
+```toml
+[project]
+retired = { since = "2026-08-18", reason = "not a viable app" }
+```
+
+Retired means **stop the spend, stay consistent.** The lacquer keeps syncing
+everything that holds the repo to the fleet's shape — PR-triggered CI, lint and
+format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, hooks, skills — so the
+project still audits clean and can be picked back up. What it stops shipping is
+everything that costs money or attention **on a schedule**: every workflow whose
+`on:` block carries a `schedule:` trigger, and `.github/dependabot.yml`.
+
+That set is derived from each workflow's **content**, never from a list of
+filenames — a filename list is correct right up until someone adds the next
+scheduled workflow, and then silently is not. A workflow that declares
+`workflow_dispatch:` beside `schedule:` still goes: the dispatch entry is a
+convenience, the cron is the point.
+
+Both fields are required and a malformed entry is a hard error, for the same
+reason `[baseline.relax]` needs both: `retired = true` records that someone
+retired the project and not why, and six months later why is the only thing
+anyone wants to know. Unlike a relaxation or a dated exclusion, **retirement has
+no `until`** — it is not debt with a term, it is a decision already made. An
+expiry would either be rubber-stamped forever or would quietly un-retire a dead
+project and turn its cron jobs back on.
+
+`lacquer status` and `lacquer audit` both lead with the retirement and its date,
+so a retired project is never read as a healthy one. Neither deletes anything:
+files already in the repo stay until someone removes them by hand.
+
 ## CI Hygiene
 
 - Keep CI action/tool versions **consistent across all workflows** (one pin each for shared actions) — drift causes subtle job-to-job behavior differences.

@@ -24,6 +24,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
+	"github.com/patrickserrano/lacquer/internal/retire"
 	"github.com/patrickserrano/lacquer/internal/rootcheck"
 	"github.com/patrickserrano/lacquer/internal/skillsync"
 	"github.com/patrickserrano/lacquer/internal/status"
@@ -263,6 +264,15 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
+		cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
+		if err != nil {
+			return fail(stderr, fmt.Errorf("load manifest: %w", err))
+		}
+		// Ahead of the classification, because it explains it. A retired project's
+		// report is SHORT — the scheduled workflows and dependabot.yml are simply
+		// not managed units any more — and a short clean report is exactly what a
+		// healthy project produces. Without this line the two are indistinguishable.
+		fmt.Fprint(stdout, retire.Notice(cfg))
 		rows, ver, err := audit.Classify(lacquerRoot, projectRoot)
 		if err != nil {
 			return fail(stderr, err)
@@ -283,10 +293,6 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// projects furthest out of date got the least information, and had to fix
 		// one problem before being told about the next. Reporting is not the same
 		// decision as gating: print everything known, then rank.
-		cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
-		if err != nil {
-			return fail(stderr, fmt.Errorf("load manifest: %w", err))
-		}
 		findings, err := detect.Drift(lacquerRoot, projectRoot, cfg)
 		if err != nil {
 			return fail(stderr, fmt.Errorf("re-detect components: %w", err))
@@ -430,6 +436,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
+		cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
+		if err != nil {
+			return fail(stderr, fmt.Errorf("load manifest: %w", err))
+		}
+		// First line of the first thing anyone runs. `status` is the command
+		// people use to ask "is this project fine?", and a retired one must never
+		// answer that question with a table of ok/behind rows and nothing else.
+		fmt.Fprint(stdout, retire.Notice(cfg))
 		rows, err := status.Rows(lacquerRoot, projectRoot)
 		if err != nil {
 			return fail(stderr, err)
@@ -442,10 +456,6 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		}
 		if out := baseline.FormatReports(reports); out != "" {
 			fmt.Fprint(stdout, "\n"+out)
-		}
-		cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
-		if err != nil {
-			return fail(stderr, fmt.Errorf("load manifest: %w", err))
 		}
 		findings, err := detect.Drift(lacquerRoot, projectRoot, cfg)
 		if err != nil {
