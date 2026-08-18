@@ -148,7 +148,7 @@ editor** — the objects exist, but no row was written to
 `supabase_migrations.schema_migrations`, so the CLI can't tell the difference
 between "already applied" and "skipped".
 
-:::danger[Don't reach for `--include-all`, and never put it in the workflow]
+:::danger[Don't reach for --include-all, and never put it in the workflow]
 It reorders a production schema silently. Look at the divergence first:
 
 ```sh
