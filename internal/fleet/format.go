@@ -37,11 +37,22 @@ func Text(w io.Writer, reports []Report) {
 		}
 	}
 
-	var blocking, healthy int
+	var blocking, healthy, retired int
 	for _, r := range reports {
 		notes := Notes(r)
 		if r.Blocking() {
 			blocking++
+		}
+		// Retired is reported before the clean path and counted apart from it.
+		// A retired project has its scheduled work dropped from the plan, so it
+		// audits clean with nothing left to be behind on — it would otherwise
+		// print `ok` and swell the "clean" tally, making a sweep look healthier
+		// each time something was abandoned. Still shown, never hidden: a dead
+		// project you cannot see is one you cannot decide to delete.
+		if r.IsRetired() && !r.Blocking() {
+			retired++
+			fmt.Fprintf(w, "  --    %-*s  retired %s — %s\n", width, r.Name, r.Retired.Since, r.Retired.Reason)
+			continue
 		}
 		if len(notes) == 0 {
 			healthy++
@@ -58,6 +69,10 @@ func Text(w io.Writer, reports []Report) {
 		}
 	}
 
+	if retired > 0 {
+		fmt.Fprintf(w, "\n%d project(s): %d clean, %d blocking, %d retired\n", len(reports), healthy, blocking, retired)
+		return
+	}
 	fmt.Fprintf(w, "\n%d project(s): %d clean, %d blocking\n", len(reports), healthy, blocking)
 
 	if h := horizon(reports); len(h) > 0 {

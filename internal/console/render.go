@@ -73,6 +73,13 @@ func Text(w io.Writer, res Result) {
 // summary is the one-line right-hand side: the shape of this project right now.
 func summary(r Row) []string {
 	var out []string
+	// First, so it frames everything after it. A retired project audits clean by
+	// design, so it would otherwise read "clear" — indistinguishable from a live
+	// project in good health, and the one row where "clear" means "nobody is
+	// looking at this" rather than "this is fine".
+	if r.Retired {
+		out = append(out, "retired")
+	}
 	if n := len(r.Notes); n > 0 {
 		out = append(out, fmt.Sprintf("%d finding(s)", n))
 	}

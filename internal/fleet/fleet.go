@@ -176,7 +176,18 @@ type Report struct {
 	// individual entries would bury the two numbers that matter — how many are
 	// file-scoped (unbounded) and how many carry no reason.
 	Suppress suppress.Summary `json:"suppressions"`
+	// Retired carries [project].retired when the project has been retired.
+	//
+	// A retired project audits clean by design — its scheduled work is dropped
+	// from the plan, so there is nothing left to be behind on. Without this it
+	// therefore renders as `ok` and counts toward "clean", which is precisely
+	// wrong: a sweep would report a dead project as one of the healthy ones,
+	// and the clean count would climb every time something was retired.
+	Retired *config.Retirement `json:"retired,omitempty"`
 }
+
+// IsRetired reports whether this project has been retired.
+func (r Report) IsRetired() bool { return r.Retired != nil }
 
 // Blocking reports whether this project would fail its own `lacquer audit`.
 // Mirrors that command's exit codes exactly: a clobbered unit, a baseline
@@ -227,6 +238,8 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		r.Error = fmt.Sprintf("load manifest: %v", err)
 		return r
 	}
+
+	r.Retired = cfg.Project.Retired
 
 	rows, ver, err := audit.Classify(lacquerRoot, e.Path)
 	if err != nil {

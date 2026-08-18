@@ -65,6 +65,10 @@ type Row struct {
 	Sessions []Session
 	PRs      []PR
 	Blocking bool
+	// Retired marks a project kept for reference but no longer invested in. It
+	// audits clean by design, so without this the console shows it as an
+	// ordinary healthy row and it competes for attention with live work.
+	Retired bool
 }
 
 // Result is the whole console view plus whatever could not be gathered.
@@ -93,7 +97,7 @@ func Gather(lacquerRoot string, roster fleet.Roster, now time.Time) Result {
 	}
 
 	for _, rep := range reports {
-		row := Row{Name: rep.Name, Repo: rep.Repo, Path: rep.Path, Blocking: rep.Blocking()}
+		row := Row{Name: rep.Name, Repo: rep.Repo, Path: rep.Path, Blocking: rep.Blocking(), Retired: rep.IsRetired()}
 		row.Notes = fleet.Notes(rep)
 		for _, s := range sessions {
 			if under(s.CWD, rep.Path) {
