@@ -367,12 +367,12 @@ func TestGitignoreBodyIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestSyncingTwiceChangesNothing. A managed region that rewrites itself on every
+// TestSyncingTwiceLeavesTheGitignoreRegionAlone. A managed region that rewrites itself on every
 // run is indistinguishable from real drift: `lacquer audit` reports it, CI's
 // drift gate wakes for it, and the fleet learns to ignore both. The .gitignore
 // body is rendered from maps (products, skills, tool dirs), and an unsorted
 // render is exactly how that happens.
-func TestSyncingTwiceChangesNothing(t *testing.T) {
+func TestSyncingTwiceLeavesTheGitignoreRegionAlone(t *testing.T) {
 	project := syncedProject(t, "# project-owned\nDerivedData/\n")
 
 	// The second sync's clobber guard refuses to overwrite uncommitted work, so
