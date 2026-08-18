@@ -231,3 +231,98 @@ func TestMergeRejectsDanglingLegacyStart(t *testing.T) {
 		t.Fatal("want error for a dangling legacy start marker")
 	}
 }
+
+// --- comment syntaxes ---
+
+// The markdown markers are load-bearing BYTES, not a formatting choice: every
+// CLAUDE.md and AGENTS.md in the fleet already carries them on disk. Change one
+// character and Merge stops matching the existing block, appends a second one,
+// and every project grows duplicate regions on its next sync. Asserted as a
+// literal so a refactor of Syntax has to notice.
+func TestMarkdownMarkersAreExactBytes(t *testing.T) {
+	got, err := Merge("", "core", mustParse(t, "0.84.1"), "BODY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "<!-- lacquer:core:start v0.84.1 -->\nBODY\n<!-- lacquer:core:end -->\n"
+	if got != want {
+		t.Errorf("markdown region bytes changed:\n got %q\nwant %q", got, want)
+	}
+}
+
+// A .gitignore comment runs to end of line, so the marker carries no closing
+// delimiter. A stray ` -->` here would be part of the comment text, and — worse
+// — the `#` prefix would be missing from nothing, so the file would still parse
+// as a .gitignore and the breakage would be invisible.
+func TestHashMarkersAreExactBytes(t *testing.T) {
+	got, err := Hash.Merge("", "gitignore", mustParse(t, "0.84.1"), "*.p8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# lacquer:gitignore:start v0.84.1\n*.p8\n# lacquer:gitignore:end\n"
+	if got != want {
+		t.Errorf("hash region bytes changed:\n got %q\nwant %q", got, want)
+	}
+}
+
+// Every marker line a Hash region writes must be a comment. A marker git reads
+// as a PATTERN would silently ignore a file named after it, and nothing would
+// report that.
+func TestHashMarkerLinesAreComments(t *testing.T) {
+	got, err := Hash.Merge("own\n", "gitignore", mustParse(t, "1.0.0"), "*.p8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "lacquer:") && !strings.HasPrefix(line, "#") {
+			t.Errorf("marker line is not a comment, so git reads it as a pattern: %q", line)
+		}
+	}
+}
+
+// The two syntaxes must not see each other's blocks. If Hash matched a markdown
+// marker, syncing the .gitignore region into a file that happens to contain one
+// would replace the wrong block; if Markdown matched a hash marker, the
+// CLAUDE.md path would start rewriting .gitignore text.
+func TestSyntaxesDoNotCrossMatch(t *testing.T) {
+	md, err := Merge("", "core", mustParse(t, "1.0.0"), "MD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := Hash.Merge("", "core", mustParse(t, "1.0.0"), "HASH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := Hash.ExtractBody(md, "core"); found {
+		t.Error("Hash matched a markdown block")
+	}
+	if _, found := Markdown.ExtractBody(hash, "core"); found {
+		t.Error("Markdown matched a hash block")
+	}
+	// And a merge in the other syntax appends rather than replacing, leaving the
+	// foreign block untouched.
+	both, err := Hash.Merge(md, "core", mustParse(t, "1.0.0"), "HASH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(both, "<!-- lacquer:core:start v1.0.0 -->\nMD\n<!-- lacquer:core:end -->") {
+		t.Errorf("a hash merge damaged the markdown block:\n%s", both)
+	}
+}
+
+// A hash region replaces in place, keeping the file's own lines. Same guarantee
+// as markdown, asserted separately because it is a different regex path.
+func TestHashMergeReplacesInPlace(t *testing.T) {
+	content := "DerivedData/\n\n# lacquer:gitignore:start v0.80.0\nOLD\n# lacquer:gitignore:end\n\n*.log\n"
+	got, err := Hash.Merge(content, "gitignore", mustParse(t, "0.84.1"), "NEW")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "DerivedData/\n\n# lacquer:gitignore:start v0.84.1\nNEW\n# lacquer:gitignore:end\n\n*.log\n"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	if strings.Count(got, ":start") != 1 {
+		t.Errorf("block duplicated rather than replaced:\n%s", got)
+	}
+}

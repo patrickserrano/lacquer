@@ -322,6 +322,10 @@ func TestDriftGateCoversEveryManagedPath(t *testing.T) {
 		}
 	}
 	managed = append(managed,
+		// The managed .gitignore region — a region like CLAUDE.md, not an asset,
+		// so assets.Plan does not surface it. Editing the credential rules
+		// inside the markers is drift, and the gate has to wake for it.
+		".gitignore",
 		// The manifest and the lock: every token, exclusion and baseline
 		// relaxation audit evaluates comes out of these.
 		".lacquer.toml", ".lacquer.lock",

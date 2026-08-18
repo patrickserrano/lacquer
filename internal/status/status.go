@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/region"
 	"github.com/patrickserrano/lacquer/internal/safepath"
 	"github.com/patrickserrano/lacquer/internal/version"
@@ -34,17 +35,21 @@ func Rows(lacquerRoot, projectRoot string) ([]Row, error) {
 	}
 
 	var rows []Row
-	rows = append(rows, rowFor(projectRoot, "CLAUDE.md", "core", latest))
+	rows = append(rows, rowFor(projectRoot, "CLAUDE.md", "core", latest, region.Markdown))
 	for _, c := range cfg.Components {
 		rel := filepath.Join(c.Path, "CLAUDE.md")
 		for _, p := range c.Profiles {
-			rows = append(rows, rowFor(projectRoot, rel, p, latest))
+			rows = append(rows, rowFor(projectRoot, rel, p, latest, region.Markdown))
 		}
 	}
+	// The .gitignore region is stamped like any other, and a project that has
+	// never received it reads as `missing` here — which is the state every
+	// project in the fleet is in until it syncs, and the point of showing it.
+	rows = append(rows, rowFor(projectRoot, gitignore.Name, gitignore.Key, latest, gitignore.Syntax))
 	return rows, nil
 }
 
-func rowFor(projectRoot, rel, key string, latest version.Version) Row {
+func rowFor(projectRoot, rel, key string, latest version.Version, syn region.Syntax) Row {
 	// Confine the read within the project root; a symlinked component dir that
 	// escapes the root is treated as having no readable region rather than
 	// reading a file outside the project.
@@ -52,7 +57,7 @@ func rowFor(projectRoot, rel, key string, latest version.Version) Row {
 	if target, err := safepath.Resolve(projectRoot, rel); err == nil {
 		content, _ = os.ReadFile(target)
 	}
-	stamped, found := region.StampedVersion(string(content), key)
+	stamped, found := syn.StampedVersion(string(content), key)
 	return Row{
 		Key:     key,
 		Path:    rel,

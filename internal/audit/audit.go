@@ -18,6 +18,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/lock"
 	"github.com/patrickserrano/lacquer/internal/region"
 	"github.com/patrickserrano/lacquer/internal/tokens"
@@ -58,6 +59,7 @@ type unit struct {
 	dest      string // project-relative path
 	kind      string // "region" | "asset"
 	regionKey string // marker key (regions only)
+	syntax    region.Syntax
 	content   string // rendered content the lacquer would produce
 }
 
@@ -77,20 +79,21 @@ func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 
 	type regionSrc struct {
 		dest, key, body, prefix string
+		syntax                  region.Syntax
 	}
 	var srcs []regionSrc
 	coreBody, err := os.ReadFile(filepath.Join(lacquerRoot, "core", "CLAUDE.core.md"))
 	if err != nil {
 		return nil, version.Version{}, fmt.Errorf("read core body: %w", err)
 	}
-	srcs = append(srcs, regionSrc{"CLAUDE.md", "core", string(coreBody), ""})
+	srcs = append(srcs, regionSrc{"CLAUDE.md", "core", string(coreBody), "", region.Markdown})
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
 			body, err := os.ReadFile(filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md"))
 			if err != nil {
 				return nil, version.Version{}, fmt.Errorf("read profile %s body: %w", p, err)
 			}
-			srcs = append(srcs, regionSrc{filepath.Join(c.Path, "CLAUDE.md"), p, string(body), tokens.Prefix(c.Path)})
+			srcs = append(srcs, regionSrc{filepath.Join(c.Path, "CLAUDE.md"), p, string(body), tokens.Prefix(c.Path), region.Markdown})
 		}
 	}
 	if cfg.Project.WantsAgentsMd() {
@@ -103,6 +106,20 @@ func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 		srcs = append(srcs, mirror...)
 	}
 
+	// The plan is needed before the region list is final: the .gitignore region's
+	// skill rules are derived from it (so the lacquer's own skills stay tracked),
+	// and this set has to mirror sync's exactly or the lock written by one would
+	// not line up with the units audited by the other.
+	plan, err := assets.Plan(lacquerRoot, cfg)
+	if err != nil {
+		return nil, version.Version{}, fmt.Errorf("plan assets: %w", err)
+	}
+	ignoreBody, err := gitignore.Body(cfg, plan)
+	if err != nil {
+		return nil, version.Version{}, fmt.Errorf("render %s region: %w", gitignore.Name, err)
+	}
+	srcs = append(srcs, regionSrc{gitignore.Name, gitignore.Key, ignoreBody, "", gitignore.Syntax})
+
 	var units []unit
 	for _, r := range srcs {
 		body, _ := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix))
@@ -111,14 +128,11 @@ func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 			dest:      r.dest,
 			kind:      "region",
 			regionKey: r.key,
+			syntax:    r.syntax,
 			content:   body,
 		})
 	}
 
-	plan, err := assets.Plan(lacquerRoot, cfg)
-	if err != nil {
-		return nil, version.Version{}, fmt.Errorf("plan assets: %w", err)
-	}
 	for _, a := range plan {
 		data, err := os.ReadFile(a.Src)
 		if err != nil {
@@ -197,11 +211,11 @@ func readUnit(projectRoot string, u unit) (content string, present bool, stamped
 		return "", false, version.Version{}
 	}
 	if u.kind == "region" {
-		body, found := region.ExtractBody(string(data), u.regionKey)
+		body, found := u.syntax.ExtractBody(string(data), u.regionKey)
 		if !found {
 			return "", false, version.Version{}
 		}
-		v, _ := region.StampedVersion(string(data), u.regionKey)
+		v, _ := u.syntax.StampedVersion(string(data), u.regionKey)
 		return body, true, v
 	}
 	return string(data), true, version.Version{}

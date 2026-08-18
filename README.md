@@ -2,7 +2,8 @@
 
 A Go CLI plus a set of profile templates that standardize how Claude Code works
 across every project in `~/Developer`. The lacquer renders shared content —
-`CLAUDE.md` rules, skills, commands, CI workflows, git hooks, tool configs — into
+`CLAUDE.md` rules, skills, commands, CI workflows, git hooks, tool configs, the
+credential rules in `.gitignore` — into
 each project and tracks how far each project has drifted, so a lesson pinned once
 propagates everywhere instead of being copy-pasted and left to rot.
 
@@ -302,6 +303,29 @@ workflow leaves a hand-set value alone.
 The version is stamped into each managed region's marker so `lacquer status` can
 report stamped-vs-latest. A project last synced before semver carries the old
 integer form (`v70`); that reads as `0.70.0` and is re-stamped on its next sync.
+
+## Managed regions
+
+A **region** is a block the lacquer owns inside a file the project also owns.
+Everything outside the markers is left untouched, which is what lets a project
+keep its own content in the same file.
+
+| File | Marker key | Comment form |
+|------|-----------|--------------|
+| `CLAUDE.md`, `AGENTS.md` (root) | `core` | `<!-- ... -->` |
+| `<component>/CLAUDE.md`, `<component>/AGENTS.md` | the profile name | `<!-- ... -->` |
+| `.gitignore` (root) | `gitignore` | `# ...` |
+
+The `.gitignore` region carries the ignore rules that must not be a per-project
+decision: App Store Connect keys (`*.p8`), signing material, `Secrets.xcconfig`,
+`.env` and friends — with the committed templates (`Secrets.xcconfig.example`,
+`.env.example`, `.env.schema`) re-included. It also names the third-party skill
+trees installed from `[project].skills`, one by one, so the skills the lacquer
+syncs into the same directories stay tracked and auditable. `skills-lock.json`
+is deliberately tracked: it is a lockfile.
+
+Everything else in a project's `.gitignore` — `DerivedData/`, build outputs,
+per-project junk — stays project-owned and survives every sync.
 
 ## Docs
 
