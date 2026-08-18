@@ -70,16 +70,116 @@ comment on column public.sessions.ended_at is 'Null while the session is still r
 ```
 
 This is the only documentation a client library, `supabase gen types`, or someone
-reading the schema in Studio will actually see.
+reading the schema in Studio will actually see. A column whose meaning isn't
+obvious from its name — a nullable flag, a unit, an enum-like text field, a
+denormalized counter — needs one.
 
 ## Secrets
 
 - Server secrets (service-role key, `R2_*`, third-party keys) live in `supabase secrets set …` for deployed functions and in GitHub Actions secrets for CI — and in a gitignored `.env.local` for local dev. Commit `.env.example`.
 - Never log a secret or return it in a response.
 
+## Local checks vs CI
+
+Every CI gate and where it runs before push. See [core "Local checks match
+CI"](/lacquer/guides/agent-rules/#local-checks-match-ci) — a new CI job adds a
+row here, and a hook never runs weaker than its CI twin.
+
+| CI job / step | Local |
+|---|---|
+| `check` → `deno fmt --check` | pre-commit `fmt` |
+| `check` → `deno lint` | pre-commit `lint` |
+| `check` → `deno check` | pre-push `typecheck` |
+| `check` → `deno test` | pre-push `test` |
+| `Docs` → `deno doc --lint` | pre-commit `docs` |
+| `DB Lint (Splinter)`, `DB Test (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
+| `Deploy migrations` | CI-only, and only on merge to main — it is the step that touches production. |
+| `No lacquer drift` | `lacquer audit` (exit 3) |
+
+`deno fmt --check` and `deno lint` are **not** scoped to staged files — they check
+everything in `deno.jsonc`'s `include` (`supabase/functions/`). So the first
+commit after these hooks start running reports every unformatted file in the
+tree, not just the one you touched. That's the gate working, not a
+misconfiguration: run `deno fmt` once to bring the tree into line, commit that on
+its own, and it stays quiet after.
+
+## Deploying migrations
+
+**`supabase db push` runs on merge to `main`, behind the schema jobs.** A
+migration can't reach production without `DB Lint (Splinter)` and `DB Tests
+(pgTAP)` having passed on it, which is why the deploy job lives in `ci.yml`
+rather than a workflow of its own — `needs:` can't reach across files.
+
+Configure **either** a direct connection string, or the link route. The job
+**skips with a warning** rather than failing when neither is present, so a
+project that hasn't wired deployment up isn't permanently red:
+
+```sh
+# Preferred: one secret, no linking step
+gh secret set SUPABASE_DB_URL -R <owner>/<repo>          # Dashboard → Settings → Database
+
+# Or the link route, which needs all three
+gh secret set SUPABASE_ACCESS_TOKEN -R <owner>/<repo>    # supabase.com/dashboard/account/tokens
+gh secret set SUPABASE_DB_PASSWORD -R <owner>/<repo>     # the database password
+gh variable set SUPABASE_PROJECT_REF -R <owner>/<repo>   # the ref in your project URL
+```
+
+The project ref is a **variable, not a secret** — it's already public in your
+project URL, and a variable is readable in the workflow log, which is what you
+want when diagnosing a deploy that went to the wrong project.
+
+`--project-ref` is **not** a flag on `db push`; it belongs to `link`, and push
+names an already-linked project with `--linked`. Older CLI versions accepted it
+on push, so a workflow copied from an older project fails with `Unrecognized
+flag` on its first merge.
+
+### When the push refuses: diverged history
+
+`db push` refuses, rather than guessing, when it finds a local migration that
+sorts **before** the last one already applied remotely:
+
+```
+Found local migration files to be inserted before the last migration on remote database.
+Rerun the command with --include-all flag to apply these migrations: …
+```
+
+That almost always means someone applied a migration **by hand in the SQL
+editor** — the objects exist, but no row was written to
+`supabase_migrations.schema_migrations`, so the CLI can't tell the difference
+between "already applied" and "skipped".
+
+:::danger[Don't reach for --include-all, and never put it in the workflow]
+It reorders a production schema silently. Look at the divergence first:
+
+```sh
+supabase migration list --linked                  # local vs remote, side by side
+supabase db push --linked --dry-run               # what would be applied
+supabase migration repair --status applied <ver>  # objects exist: record it, don't re-run
+supabase migration repair --status reverted <ver> # objects do NOT exist: let push apply it
+```
+
+Confirm which case you're in before repairing — dump the remote schema and look
+for the objects (`supabase db dump --linked --schema public`) rather than
+assuming. Marking something applied when it isn't leaves production missing the
+objects with nothing left to tell you.
+:::
+
+**Watch for this when onboarding an existing project onto the lacquer.** One
+project had this exact job hand-rolled inside its own `ci.yml`, and onboarding
+retired that file wholesale — the deploy went with it while its secret stayed
+configured, so nothing looked broken and migrations silently stopped shipping.
+That is the failure this job in the profile exists to prevent: if it's here, a
+future sync restores it instead of dropping it.
+
+**Edge Functions are deliberately not deployed by CI.** `db push` applies a
+reviewed, ordered, append-only migration set; `functions deploy` swaps running
+code. A project may reasonably want the first automatic and the second
+deliberate, so run `supabase functions deploy <name>` yourself, or add the step
+if you want it on merge.
+
 ## Git hooks & commits
 
-`lefthook.yml` is synced — install once with `npx lefthook install` (or `brew install lefthook`). It runs `deno fmt --check` + `deno lint` (scoped to the component via lefthook's `root:`) and a secrets scan pre-commit, and enforces Conventional Commits via the shared `scripts/check-commit-msg.sh`.
+`lefthook.yml` is synced — install once with `pnpm exec lefthook install` (or `brew install lefthook`). It runs `deno fmt --check` + `deno lint` (scoped to the component via lefthook's `root:`) and a secrets scan pre-commit, and enforces Conventional Commits via the shared `scripts/check-commit-msg.sh`.
 
 :::caution[Git hooks in a mixed repo]
 If this repo also contains an iOS component, the iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a `lefthook.yml` — both write `.git/hooks`, and whichever `install`s last silently wins. Don't install both. The iOS `pre-commit` framework should own `.git/hooks`; the Supabase checks always run in CI regardless, so rely on that. To keep them running locally too, add them as `repo: local` hooks in the iOS `.pre-commit-config.yaml` (e.g. an entry that runs `deno fmt --check`/`deno lint` scoped to the supabase component) rather than installing lefthook alongside pre-commit.
