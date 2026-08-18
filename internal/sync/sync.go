@@ -11,6 +11,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
+	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/lock"
 	"github.com/patrickserrano/lacquer/internal/region"
 	"github.com/patrickserrano/lacquer/internal/safepath"
@@ -24,10 +25,15 @@ type Result struct {
 	Regions, Assets int
 }
 
-// region is a CLAUDE.md region to write: destination rel path, marker key, body,
+// region is a managed region to write: destination rel path, marker key, body,
 // and the {{COMPONENT_PREFIX}} value for that region's component ("" for core).
+//
+// syntax is the destination file's comment form. It is per-region rather than
+// global because the set is no longer markdown-only: .gitignore takes the same
+// merge with `#` comments.
 type regionWrite struct {
 	rel, key, body, prefix string
+	syntax                 region.Syntax
 }
 
 // Run syncs core + each component's profiles into the project's CLAUDE.md files,
@@ -81,14 +87,14 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("read core body: %w", err)
 	}
-	regions = append(regions, regionWrite{"CLAUDE.md", "core", string(coreBody), ""})
+	regions = append(regions, regionWrite{"CLAUDE.md", "core", string(coreBody), "", region.Markdown})
 	for _, c := range cfg.Components {
 		for _, p := range c.Profiles {
 			body, err := os.ReadFile(filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md"))
 			if err != nil {
 				return Result{}, fmt.Errorf("read profile %s body: %w", p, err)
 			}
-			regions = append(regions, regionWrite{filepath.Join(c.Path, "CLAUDE.md"), p, string(body), tokens.Prefix(c.Path)})
+			regions = append(regions, regionWrite{filepath.Join(c.Path, "CLAUDE.md"), p, string(body), tokens.Prefix(c.Path), region.Markdown})
 		}
 	}
 
@@ -112,6 +118,16 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("plan assets: %w", err)
 	}
+
+	// The .gitignore region. Derived from the manifest and the asset plan rather
+	// than read from a file, because its skill rules have to name exactly the
+	// third-party skills this project declares — ignoring the directories
+	// wholesale would untrack the lacquer's own synced skills with them.
+	ignoreBody, err := gitignore.Body(cfg, plan)
+	if err != nil {
+		return Result{}, fmt.Errorf("render %s region: %w", gitignore.Name, err)
+	}
+	regions = append(regions, regionWrite{gitignore.Name, gitignore.Key, ignoreBody, "", gitignore.Syntax})
 
 	// Token preflight — fail closed before any write.
 	var missing []string
@@ -167,7 +183,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// Writes: substitute + merge region bodies.
 	for _, r := range regions {
 		body, _ := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix))
-		if err := mergeInto(projectRoot, r.rel, r.key, ver, body); err != nil {
+		if err := mergeInto(projectRoot, r.rel, r.key, ver, body, r.syntax); err != nil {
 			return Result{}, err
 		}
 	}
@@ -198,7 +214,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 // against symlinked directories), reads the target (a missing file is treated as
 // empty), merges the managed region, and writes it back, creating parent
 // directories as needed.
-func mergeInto(projectRoot, rel, key string, ver version.Version, body string) error {
+func mergeInto(projectRoot, rel, key string, ver version.Version, body string, syn region.Syntax) error {
 	target, err := safepath.Resolve(projectRoot, rel)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", rel, err)
@@ -213,7 +229,7 @@ func mergeInto(projectRoot, rel, key string, ver version.Version, body string) e
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read %s: %w", target, err)
 	}
-	merged, err := region.Merge(string(existing), key, ver, body)
+	merged, err := syn.Merge(string(existing), key, ver, body)
 	if err != nil {
 		return fmt.Errorf("merge %s region in %s: %w", key, target, err)
 	}

@@ -83,7 +83,7 @@ jobs:
           # drift — and covers all three classes of audit input:
           #   1. every destination `lacquer sync` writes: the skills/commands/
           #      agents dirs (.claude, .codex, .agents), .github/**, scripts/**,
-          #      the managed CLAUDE.md / AGENTS.md regions, and each profile's
+          #      the managed CLAUDE.md / AGENTS.md and .gitignore regions, and each profile's
           #      config files (.swiftlint.yml, biome.json, deno.jsonc, ...), which
           #      land under the component dir rather than the repo root;
           #   2. .lacquer.toml and .lacquer.lock, which drive every token, every
@@ -95,7 +95,7 @@ jobs:
           # component prefix, for the same reason the deny-list above carries no
           # prefix: an empty prefix produces the empty ERE alternative `^(|...)`
           # that some greps reject.
-          lacquer_paths='(^|/)\.lacquer\.(toml|lock)$|(^|/)(CLAUDE|AGENTS)\.md$|(^|/)\.(claude|codex|agents|github)/|(^|/)scripts/|(^|/)(Brewfile|lefthook\.yml|\.mcp\.json|\.pre-commit-config\.yaml)$|(^|/)(\.swiftlint\.yml|\.swiftlint-docs\.yml|\.swiftformat|\.periphery\.yml|Secrets\.xcconfig\.example)$|(^|/)(\.env\.schema|tsconfig\.base\.json|typedoc\.json|biome\.json|deno\.jsonc)$|(^|/)(package\.json|Cargo\.toml|go\.mod|Package\.swift|project\.yml)$|(^|/)supabase/config\.toml$|\.xcodeproj/'
+          lacquer_paths='(^|/)\.gitignore$|(^|/)\.lacquer\.(toml|lock)$|(^|/)(CLAUDE|AGENTS)\.md$|(^|/)\.(claude|codex|agents|github)/|(^|/)scripts/|(^|/)(Brewfile|lefthook\.yml|\.mcp\.json|\.pre-commit-config\.yaml)$|(^|/)(\.swiftlint\.yml|\.swiftlint-docs\.yml|\.swiftformat|\.periphery\.yml|Secrets\.xcconfig\.example)$|(^|/)(\.env\.schema|tsconfig\.base\.json|typedoc\.json|biome\.json|deno\.jsonc)$|(^|/)(package\.json|Cargo\.toml|go\.mod|Package\.swift|project\.yml)$|(^|/)supabase/config\.toml$|\.xcodeproj/'
           if echo "$changed" | grep -qE "$lacquer_paths"; then
             echo "lacquer=true" >> "$GITHUB_OUTPUT"
           else
