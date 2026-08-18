@@ -45,6 +45,22 @@ const (
 	// repo root would point vcs.root one level ABOVE the repository, where biome
 	// aborts with the same error against the parent directory (measured). "." is
 	// the only correct value there.
+	//
+	// vcs.root is relative to the CONFIG FILE's directory, not to the working
+	// directory. Those are the same on every shipped invocation — CI, lefthook
+	// and `lacquer fix` all run biome FROM the component directory — so the two
+	// readings are indistinguishable there, and getting it wrong would put the
+	// value on the wrong thing the first time something ran from elsewhere. It
+	// was measured apart on biome 2.5.5 by running from a directory BELOW the
+	// config: config in `admin/`, cwd `admin/src/`, `root: ".."` looked in the
+	// repo root and `root: "../.."` one above it. So the depth that decides this
+	// value is the CONFIG's depth — which is exactly what the component prefix
+	// records.
+	//
+	// (Under `--config-path` the resolution is not this simple; it was measured
+	// and not characterised. No shipped invocation passes that flag; the only
+	// caller that does is `lacquer doctor`, whose biome probes this fix repairs
+	// — see profiles/web/doctor.toml.)
 	ComponentToRoot = "{{COMPONENT_TO_ROOT}}"
 	// WebBuildEnv expands to an entire job-level `env:` block, or to nothing.
 	// Unlike every other token it is not a scalar spliced into a line: a project
