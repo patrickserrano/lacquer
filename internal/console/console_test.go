@@ -180,3 +180,25 @@ func TestDryRunStartsNothing(t *testing.T) {
 		t.Errorf("a dry run must say it did nothing:\n%s", out)
 	}
 }
+
+// A retired project has no findings, so its summary would read "clear" — the
+// same word a healthy project gets. That is the one row where "clear" means
+// "nobody is looking at this" rather than "this is fine", so it has to say so.
+func TestRetiredRowDoesNotReadAsClear(t *testing.T) {
+	got := summary(Row{Name: "atlas", Retired: true})
+	for _, s := range got {
+		if s == "clear" {
+			t.Fatalf("retired project summarised as %q — indistinguishable from a healthy one: %v", "clear", got)
+		}
+	}
+	if len(got) == 0 || got[0] != "retired" {
+		t.Errorf("retired not surfaced first in the summary: %v", got)
+	}
+}
+
+func TestLiveRowStillReadsAsClear(t *testing.T) {
+	got := summary(Row{Name: "kit"})
+	if len(got) != 1 || got[0] != "clear" {
+		t.Errorf("a live project with nothing to report should still read clear, got %v", got)
+	}
+}
