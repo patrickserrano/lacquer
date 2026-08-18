@@ -128,7 +128,24 @@ jobs:
         run: deno check supabase/functions/*/index.ts
 
       - name: Test
-        run: deno test --allow-all supabase/functions/
+        # `deno test` exits 1 with "No test modules found" on an empty set, so a
+        # supabase component that has not written its first edge-function test
+        # yet cannot pass CI at all — a new project has to fail before it can
+        # succeed. That is the state momfriend was in; the fmt step happened to
+        # fail first, so this one never got the chance to report it.
+        #
+        # `--permit-no-files` alone would fix that by making zero tests pass
+        # silently, which is the "check that cannot fail" defect this profile
+        # exists to prevent. So permit the empty set AND say so out loud: the
+        # project stays unblocked, and nobody mistakes green for tested.
+        run: |
+          set -euo pipefail
+          count=$(find supabase/functions \
+            \( -name '*_test.ts' -o -name '*.test.ts' \) | wc -l | tr -d ' ')
+          if [ "$count" -eq 0 ]; then
+            echo "::warning::No Deno tests found under supabase/functions/ — edge functions are shipping untested."
+          fi
+          deno test --allow-all --permit-no-files supabase/functions/
 
       # Prove the checks above can actually FAIL. Everything else in this job
       # asks "does this project pass?"; doctor asks "would these checks notice
