@@ -203,27 +203,24 @@ explanation belongs.
 
 ### Where the sites are hosted
 
-GitHub Pages is the default and needs no secrets. Each stack's docs workflow
-writes its own subdirectory of a `gh-pages` branch and the root index is
+The `gh-pages` branch is the site, and needs no secrets. Each stack's docs
+workflow writes its own subdirectory of a `gh-pages` branch and the root index is
 regenerated from whatever is present, so `gh-pages` *is* the composed site and
-adding a stack later needs no coordination. Turn it on once per repo:
-Settings → Pages → Source → *Deploy from a branch* → `gh-pages` / (root).
+adding a stack later needs no coordination. Read it by checking the branch out,
+or browsing it on GitHub.
 
-Cloudflare is an optional second target for that same tree. Set
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and `docs-cloudflare.yml`
-deploys `gh-pages` to Workers Static Assets after each publish; leave them unset
-and it skips with a notice.
+There is no second publishing target, and that is deliberate. The docs are
+internal, so `gh-pages` in a private repository is exactly where they should
+stop. A Cloudflare Workers deployer used to ship here; it was removed, because
+its whole purpose was to copy the same tree onto a public edge network.
 
-- **Workers, not Pages.** Pages is still supported, but Cloudflare has said all
-  new investment goes to Workers, which serves static assets at the same cost.
-- **Not Cloudflare Drop.** Drop is the obvious-looking fit — upload a folder, no
-  account — but it's drag-and-drop in the dashboard with no CLI or API, and the
-  deployment expires after an hour unless a human claims it. It's for sharing a
-  preview, not for publishing.
-- **The site is served under `/<repo>/`,** matching GitHub Pages exactly. DocC
-  bakes its hosting base path into every asset URL at build time, so serving the
-  same archive at a domain root would 404 on its own CSS. Nesting means one build
-  serves both targets; the bare domain redirects.
+**Do not turn GitHub Pages on for a private project.** A Pages site is served
+publicly even when its repository is private — that is the plan's behaviour, not
+a misconfiguration — so enabling it publishes the API documentation, and with it
+the internal type and module names, to anyone with the URL. Private Pages needs
+an Enterprise plan. Leaving Pages off costs nothing: the composed site is still
+built and committed to `gh-pages`, browsable in the repository by anyone who can
+already read the code.
 
 A project that can't comply yet relaxes it — time-boxed, never open-ended, in
 its own `.lacquer.toml`:
