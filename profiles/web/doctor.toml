@@ -20,6 +20,23 @@
 # `requires` closes it: a missing tool is reported as a missing tool whatever the
 # probe expects. Exit codes below were observed against biome 2.5.3 and TypeDoc
 # 0.28.20, not assumed.
+#
+# The three biome probes had a SECOND version of the same defect, and it survived
+# the fix above. biome.json sets `vcs.useIgnoreFile: true` with no `vcs.root`, so
+# biome looked for an ignore file beside the config, found none, and aborted:
+# "Biome couldn't find an ignore file… Biome exited because the configuration
+# resulted in errors." That is exit 1, and `expect = "fail"` reads any non-zero
+# exit as "the check correctly rejected the bad input" — so all three reported OK
+# without biome ever having linted the fixture. Measured in this exact probe
+# shape (biome 2.5.5, scratch cwd, absolute --config-path): before, the run
+# aborted and noExplicitAny never fired; after `vcs.root` was added to the
+# shipped biome.json, the abort is gone and the fixture is rejected on
+# noExplicitAny, which is what the probe claims to be testing.
+#
+# A probe that reports OK because the tool never ran is the exact defect doctor
+# exists to catch. That is now twice for this file; if a third arrives, the
+# expect="fail" contract itself needs to assert WHY it failed, not just that it
+# did.
 
 [[probe]]
 name = "biome ci rejects an error-severity lint violation"

@@ -3,7 +3,8 @@
   "vcs": {
     "enabled": true,
     "clientKind": "git",
-    "useIgnoreFile": true
+    "useIgnoreFile": true,
+    "root": "{{COMPONENT_TO_ROOT}}"
   },
   "files": {
     "ignoreUnknown": false,

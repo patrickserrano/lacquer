@@ -24,6 +24,44 @@ const (
 	SwiftVersion    = "{{SWIFT_VERSION}}"
 	GithubOrg       = "{{GITHUB_ORG}}"
 	ComponentPrefix = "{{COMPONENT_PREFIX}}"
+	// ComponentToRoot is the inverse of ComponentPrefix: the relative path from
+	// a component's own directory back UP to the repo root — "." at the root,
+	// ".." one level down, "../.." two. ComponentPrefix points down and can only
+	// be read from the repo root; this points up and can only be read from inside
+	// the component. A config file that ships INTO the component dir and has to
+	// name something at the repo root needs the second one, and until this token
+	// existed there was no way to write it.
+	//
+	// It exists because of biome. profiles/web/config/biome.json sets
+	// `vcs.useIgnoreFile: true`, and biome resolves that against biome.json's OWN
+	// folder: with the config in `admin/` and the only .gitignore at the repo
+	// root, biome does not merely skip the ignore file, it refuses to start —
+	// "Biome couldn't find an ignore file in the following folder: …/admin",
+	// then "Biome exited because the configuration resulted in errors". Every
+	// fresh web component was lint-broken out of the box. `vcs.root` moves the
+	// lookup to the repo root, and its value is exactly this token.
+	//
+	// The root layout is why this cannot be a hardcoded "..": a component AT the
+	// repo root would point vcs.root one level ABOVE the repository, where biome
+	// aborts with the same error against the parent directory (measured). "." is
+	// the only correct value there.
+	//
+	// vcs.root is relative to the CONFIG FILE's directory, not to the working
+	// directory. Those are the same on every shipped invocation — CI, lefthook
+	// and `lacquer fix` all run biome FROM the component directory — so the two
+	// readings are indistinguishable there, and getting it wrong would put the
+	// value on the wrong thing the first time something ran from elsewhere. It
+	// was measured apart on biome 2.5.5 by running from a directory BELOW the
+	// config: config in `admin/`, cwd `admin/src/`, `root: ".."` looked in the
+	// repo root and `root: "../.."` one above it. So the depth that decides this
+	// value is the CONFIG's depth — which is exactly what the component prefix
+	// records.
+	//
+	// (Under `--config-path` the resolution is not this simple; it was measured
+	// and not characterised. No shipped invocation passes that flag; the only
+	// caller that does is `lacquer doctor`, whose biome probes this fix repairs
+	// — see profiles/web/doctor.toml.)
+	ComponentToRoot = "{{COMPONENT_TO_ROOT}}"
 	// WebBuildEnv expands to an entire job-level `env:` block, or to nothing.
 	// Unlike every other token it is not a scalar spliced into a line: a project
 	// with no [project].build_env must get NO env key at all, and one with
@@ -171,6 +209,13 @@ var registry = []entry{
 	{SwiftVersion, true},
 	{GithubOrg, false}, // empty is valid: a project may not have a repo/org yet
 	{ComponentPrefix, false},
+	// Required, unlike ComponentPrefix. The two are not symmetric: the empty
+	// prefix is the correct rendering for a root layout, whereas ToRoot never
+	// returns "" for any valid component path — the root case is ".". An empty
+	// value here could only mean the derivation broke, and the failure it would
+	// ship is silent: `"root": ""` sends biome's ignore-file lookup back to the
+	// config's own folder, which is the exact abort this token exists to prevent.
+	{ComponentToRoot, true},
 	{WebBuildEnv, false}, // empty is valid and common: most projects need no build secrets
 	{IOSProductCatalog, false},
 	{IOSProductChoices, false},
@@ -201,6 +246,30 @@ func Prefix(path string) string {
 	return path + "/"
 }
 
+// ToRoot inverts Prefix: given a component PREFIX ("", "ios/", "apps/web/") it
+// returns the relative path from that component's directory back up to the repo
+// root — ".", "..", "../..".
+//
+// It takes the prefix rather than the raw component path because that is what
+// every substitution site already carries (assets.Asset.Prefix, regionWrite.
+// prefix); deriving both values from the same input keeps them from drifting
+// apart on a layout the other one handled.
+//
+// "." for the root case, not "": callers splice this into a config value where
+// the empty string means something else entirely (see the ComponentToRoot
+// comment), and "." is what a path-relative-to-itself is written as.
+//
+// Segment counting is safe here because config.validateComponentPath has
+// already rejected absolute paths, "..", and anything that is not a plain
+// slash-separated name — so a prefix is always N literal segments deep.
+func ToRoot(prefix string) string {
+	p := strings.Trim(prefix, "/")
+	if p == "" || p == "." {
+		return "."
+	}
+	return strings.TrimSuffix(strings.Repeat("../", strings.Count(p, "/")+1), "/")
+}
+
 // Values builds the substitution map from the [project] values plus the derived
 // component prefix for the content being substituted.
 //
@@ -219,6 +288,7 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		SwiftVersion:      p.SwiftVersion,
 		GithubOrg:         p.GithubOrg,
 		ComponentPrefix:   prefix,
+		ComponentToRoot:   ToRoot(prefix),
 		WebBuildEnv:       BuildEnvBlock(p.BuildEnv),
 		IOSProductCatalog: ProductCatalog(products),
 		IOSProductChoices: ProductChoices(products),
