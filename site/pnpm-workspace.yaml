@@ -1,0 +1,15 @@
+# pnpm blocks dependency install scripts by default. esbuild's postinstall is
+# what fetches its platform binary, so without this the install fails outright
+# with ERR_PNPM_IGNORED_BUILDS and Astro has no bundler to run. sharp is listed
+# for the same reason — it resolves a prebuilt binary on install.
+#
+# This file rather than a `pnpm` key in package.json: pnpm 11 reads its settings
+# from pnpm-workspace.yaml and silently ignores the package.json field, so the
+# same config placed there would look correct and do nothing.
+#
+# `allowBuilds` (a map), not `onlyBuiltDependencies` (a list) — pnpm 11.17
+# rewrites the latter into the former with a placeholder, so the list form is
+# not a working spelling of this setting.
+allowBuilds:
+  esbuild: true
+  sharp: true

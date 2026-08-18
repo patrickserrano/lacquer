@@ -14,10 +14,10 @@ those change upstream — this site does not read them dynamically.
 
 | Command | Action |
 |---------|--------|
-| `npm install` | Install dependencies |
-| `npm run dev` | Local dev server at `localhost:4321/lacquer/` |
-| `npm run build` | Build to `./dist/` |
-| `npm run preview` | Preview the production build locally |
+| `pnpm install` | Install dependencies |
+| `pnpm run dev` | Local dev server at `localhost:4321/lacquer/` |
+| `pnpm run build` | Build to `./dist/` |
+| `pnpm run preview` | Preview the production build locally |
 
 Deploys via `.github/workflows/docs.yml` on push to `main` (GitHub Pages must be
 enabled in repo settings, source: GitHub Actions).
