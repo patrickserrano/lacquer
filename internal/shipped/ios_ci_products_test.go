@@ -525,6 +525,18 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 		}
 	})
 
+	t.Run("a longer bundle name does not stand in for the selector", func(t *testing.T) {
+		// The shape a rename leaves behind: CoreKitTests became
+		// CoreKitTestsSupport, the manifest still names the old one, and a
+		// substring comparison would find it inside the new name and report the
+		// old suite as having run.
+		out, code := run(t, bundle("DemoTests", "CoreKitTestsSupport", "Feature KitTests"))
+		if code == 0 {
+			t.Fatalf("the guard accepted CoreKitTestsSupport as CoreKitTests; the comparison has to "+
+				"be whole-line, or a renamed target keeps reporting as run:\n%s", out)
+		}
+	})
+
 	t.Run("an unreadable result bundle is not a pass", func(t *testing.T) {
 		// Fail closed. Tool missing, schema changed, bundle corrupt — every path
 		// that cannot reach a verdict has to be red, because "I could not tell"
