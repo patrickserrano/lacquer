@@ -55,7 +55,7 @@ The release workflow becomes a matrix with one leg per product: separate
 archive, IPA, TestFlight upload and GitHub Release asset for each.
 
 **CI does the same.** `Build (Release)` and `Test` get one leg per product, so
-the free variant is compiled and its own test bundle is run. Three optional
+the free variant is compiled and its own test bundle is run. Four optional
 fields drive the test leg, each defaulting to the historical single-app value:
 
 ```toml
@@ -67,6 +67,7 @@ asc_app_id = "0987654321"
 tag_prefix = "myapplite"
 test_target = "MyApp LiteTests"      # defaults to "<name>Tests"
 ui_test_target = ""                   # blank = this variant has no UI tests
+extra_test_targets = []               # local package suites to run as well
 app_target = "MyApp.app"              # coverage target; defaults to "<name>.app"
 ```
 
@@ -78,6 +79,32 @@ error.
 
 `ui_test_target` is conditional in the shell rather than always passed: an empty
 `-only-testing:` selector matches nothing and still exits 0.
+
+`extra_test_targets` exists because `-only-testing:` is a **whitelist**. A local
+Swift package's test target that no selector names is run by nothing — the app's
+selector excludes it, xcodebuild exits 0, and a maintained suite (and any
+coverage rule over the code it covers) is enforced by no one. The observed
+workaround was copying an assertion into the app's test target via `@testable
+import` purely so something would execute it.
+
+```toml
+extra_test_targets = ["CoreKitTests", "Feature KitTests"]
+```
+
+Per-product, for the same reason `test_target` is: a package linked into one
+scheme and not the other must not be selected on the leg that cannot run it,
+where it would match nothing and pass. The selectors are built as a shell
+**array**, so a target name containing a space stays one argument rather than
+word-splitting into two selectors that each match nothing.
+
+Declaring any turns on a `Verify Test Selectors Matched` step, which reads the
+result bundle back and **fails the job for any selector that produced no test
+bundle** — the only thing standing between an extra selector and a green run
+over a suite that did not execute. It fails closed: an unreadable bundle, a
+missing tool or a changed schema is red, not a pass. Opting in hardens
+`test_target` and `ui_test_target` too, since the step checks every selector the
+job passed. The pre-commit `Swift Tests` hook runs the same extras, so the fast
+local loop does not cover less than CI.
 
 Each leg's simulator and uploaded test results are scoped by a slug derived from
 the product name. Two legs sharing one simulator name means the second leg's

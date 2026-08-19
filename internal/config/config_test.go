@@ -758,6 +758,116 @@ func TestLoadRejectsUnsafeProductCITargets(t *testing.T) {
 	}
 }
 
+// extraTargetsBase is a valid single-product manifest that the extra_test_targets
+// cases append one line to.
+const extraTargetsBase = "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n" +
+	"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\ntag_prefix=\"lite-v\"\n"
+
+// extra_test_targets is what makes a local package's suite run at all. The
+// selector list is a WHITELIST, so a package test target the app's own selector
+// does not name is executed by nothing — and xcodebuild reports that as success.
+func TestExtraTestTargetsLoad(t *testing.T) {
+	cfg, err := loadString(t, extraTargetsBase+
+		"test_target = \"Lite AppTests\"\nui_test_target = \"Lite UITests\"\n"+
+		"extra_test_targets = [\"CoreKitTests\", \"Feature KitTests\"]\n")
+	if err != nil {
+		t.Fatalf("a valid extra_test_targets list must load: %v", err)
+	}
+	p := cfg.Product[0]
+	want := []string{"CoreKitTests", "Feature KitTests"}
+	if len(p.ExtraTestTargets) != len(want) {
+		t.Fatalf("ExtraTestTargets = %v, want %v", p.ExtraTestTargets, want)
+	}
+	for i, w := range want {
+		if p.ExtraTestTargets[i] != w {
+			t.Errorf("ExtraTestTargets[%d] = %q, want %q", i, p.ExtraTestTargets[i], w)
+		}
+	}
+	// Order is the order the arguments are passed, and the order the CI
+	// verification step checks them back in.
+	gotSel := strings.Join(p.TestSelectors(), "|")
+	wantSel := "Lite AppTests|Lite UITests|CoreKitTests|Feature KitTests"
+	if gotSel != wantSel {
+		t.Errorf("TestSelectors = %q, want %q", gotSel, wantSel)
+	}
+}
+
+// TestSelectors is what the CI guard checks against, so it must never report a
+// selector the job does not actually pass — and never omit one it does.
+func TestSelectorsOmitsWhatIsNotPassed(t *testing.T) {
+	// No test_target: the name-derived default is what ci.yml passes.
+	p := Product{Name: "Solo", ExtraTestTargets: []string{"CoreKitTests"}}
+	if got := strings.Join(p.TestSelectors(), "|"); got != "SoloTests|CoreKitTests" {
+		t.Errorf("TestSelectors = %q, want the derived unit target then the extras", got)
+	}
+	// A blank ui_test_target passes NO argument, so claiming it as a selector
+	// would make the CI guard demand a bundle that was never asked for — the
+	// guard would fail every run of every product without UI tests.
+	if got := strings.Join(Product{Name: "Solo", UITestTarget: ""}.TestSelectors(), "|"); got != "SoloTests" {
+		t.Errorf("TestSelectors = %q, want no entry for a blank ui_test_target", got)
+	}
+	// Nothing to derive from: no selector rather than a bare "Tests".
+	if got := (Product{}).TestSelectors(); len(got) != 0 {
+		t.Errorf("a nameless product yielded selectors %v", got)
+	}
+}
+
+// Every way an extra selector could silently select NOTHING has to be rejected
+// at the manifest, because xcodebuild will not reject it at run time: it accepts
+// the argument, matches no tests, and exits 0.
+func TestLoadRejectsUnrunnableExtraTestTargets(t *testing.T) {
+	for _, tc := range []struct{ name, line, wantErr string }{
+		{
+			// `-only-testing:` with nothing after it. The single highest-value
+			// case: it is what a trailing comma or a placeholder entry produces.
+			"empty entry",
+			"extra_test_targets = [\"CoreKitTests\", \"\"]\n",
+			"matches no tests",
+		},
+		{
+			"injection", "extra_test_targets = [\"$(whoami)\"]\n", "invalid extra_test_targets",
+		},
+		{
+			"quote", "extra_test_targets = [\"Core\\\"KitTests\"]\n", "invalid extra_test_targets",
+		},
+		{
+			// Passing the same selector twice runs nothing extra, so it is only
+			// ever a list somebody meant to make different.
+			"repeats itself",
+			"extra_test_targets = [\"CoreKitTests\", \"CoreKitTests\"]\n",
+			"already selected",
+		},
+		{
+			// The same, against the derived unit target: "LiteTests" here is
+			// exactly what test_target defaults to.
+			"repeats the unit target",
+			"extra_test_targets = [\"LiteTests\"]\n",
+			"already selected",
+		},
+		{
+			"repeats the ui target",
+			"ui_test_target = \"Lite UITests\"\nextra_test_targets = [\"Lite UITests\"]\n",
+			"already selected",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadString(t, extraTargetsBase+tc.line)
+			if err == nil {
+				t.Fatalf("%s must be rejected; xcodebuild exits 0 on a selector that matches nothing, "+
+					"so nothing downstream would notice", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error should say %q, got: %v", tc.wantErr, err)
+			}
+		})
+	}
+	// A real-world list must still load: spaces are ordinary in a package's test
+	// target name.
+	if _, err := loadString(t, extraTargetsBase+"extra_test_targets = [\"CoreKitTests\", \"Feature KitTests\"]\n"); err != nil {
+		t.Errorf("a valid list must load: %v", err)
+	}
+}
+
 // Defaults keep every single-app project on the values ci.yml hardcoded before
 // products existed. Blank Name yields blank rather than "Tests", so a manifest
 // missing project_name still fails the sync loudly instead of rendering

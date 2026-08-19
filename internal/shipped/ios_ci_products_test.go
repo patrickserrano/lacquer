@@ -1,6 +1,7 @@
 package shipped
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,10 +104,16 @@ var legacyIOSCITokens = map[string]string{
 	"{{IOS_CI_ARTIFACT_SUFFIX}}": "",
 	"{{IOS_CI_SIM_SUFFIX}}":      "",
 	"{{IOS_CI_SIM_MATCH}}":       "",
-	"{{IOS_CI_SCHEME}}":          "{{SCHEME}}",
-	"{{IOS_CI_ONLY_TESTING}}":    `"-only-testing:{{PROJECT_NAME}}Tests"`,
-	"{{IOS_CI_APP_TARGET}}":      "{{PROJECT_NAME}}.app",
-	"{{IOS_CI_COVERAGE_JQ}}":     `'.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100'`,
+	// Both empty unless a product declares extra_test_targets. A project that
+	// declares none gets neither the array setup nor the verification step —
+	// which is what makes the extra selectors an opt-in rather than an edit to
+	// twelve workflows.
+	"{{IOS_CI_EXTRA_TEST_SETUP}}": "",
+	"{{IOS_CI_VERIFY_SELECTORS}}": "",
+	"{{IOS_CI_SCHEME}}":           "{{SCHEME}}",
+	"{{IOS_CI_ONLY_TESTING}}":     `"-only-testing:{{PROJECT_NAME}}Tests"`,
+	"{{IOS_CI_APP_TARGET}}":       "{{PROJECT_NAME}}.app",
+	"{{IOS_CI_COVERAGE_JQ}}":      `'.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100'`,
 }
 
 // iosCITokenRe finds every IOS_CI_* placeholder in the template.
@@ -318,6 +325,274 @@ func TestIOSCIMatrixCoversEveryProduct(t *testing.T) {
 	if !strings.Contains(upload["name"], "matrix.product.artifact") {
 		t.Errorf("test results upload to %q — every leg would use one artifact name", upload["name"])
 	}
+}
+
+// withExtras is a single-product project whose repository also holds two local
+// Swift packages with their own maintained suites.
+//
+// The shape this feature exists for: `-only-testing:` is a whitelist, so a
+// package test target the app's selector does not name is run by NOTHING, and
+// xcodebuild reports that as a pass. One of these deliberately contains a space,
+// because Xcode target names do and a joined-and-word-split argument list would
+// turn it into two selectors that each match nothing.
+func withExtras() *config.Config {
+	cfg := soloConfig()
+	cfg.Product = []config.Product{{
+		Name: "Demo", Scheme: "Demo", BundleID: "com.x.demo", AscAppID: "1",
+		ExtraTestTargets: []string{"CoreKitTests", "Feature KitTests"},
+	}}
+	return cfg
+}
+
+// TestIOSCIRunsEveryDeclaredTestTarget: a declared extra target that does not
+// reach the command line is the whole defect, restated. It looks like a config
+// that took effect and is a suite that still never runs.
+func TestIOSCIRunsEveryDeclaredTestTarget(t *testing.T) {
+	script := stepRun(t, parseIOSCI(t, withExtras()), "test", "Run Tests")
+	for _, want := range []string{
+		`"-only-testing:DemoTests"`,
+		`"-only-testing:CoreKitTests"`,
+		`"-only-testing:Feature KitTests"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the test run does not pass %s, so that suite does not execute and the job "+
+				"still goes green:\n%s", want, script)
+		}
+	}
+	// Quoted as ONE argument. Unquoted, "Feature KitTests" splits into
+	// `-only-testing:Feature` and `KitTests` — the first matches nothing (exit 0)
+	// and the second is read as a build setting.
+	if strings.Contains(script, `-only-testing:Feature KitTests `) &&
+		!strings.Contains(script, `"-only-testing:Feature KitTests"`) {
+		t.Errorf("a target name containing a space is not quoted as a single argument:\n%s", script)
+	}
+}
+
+// TestIOSCIMatrixCarriesPerProductExtras. The extras are per-product for the
+// same reason test_target is: a package linked into the paid scheme and not the
+// free one must not be selected on the leg that cannot build it, where it would
+// match nothing and pass.
+func TestIOSCIMatrixCarriesPerProductExtras(t *testing.T) {
+	cfg := twoIOSProducts()
+	cfg.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Paid FeatureTests"}
+	doc := parseIOSCI(t, cfg)
+	test := doc.Jobs["test"]
+
+	wantExtras := map[string]string{
+		"Paid": "CoreKitTests\nPaid FeatureTests",
+		// Declared nothing, and that is a value: the key must be present on
+		// every leg or the expression is undefined where it is missing.
+		"Free": "",
+	}
+	for _, leg := range test.Strategy.Matrix.Product {
+		got, ok := leg["extra_test_targets"]
+		if !ok {
+			t.Errorf("test leg %q has no extra_test_targets key; a key on one leg and not another "+
+				"makes matrix.product.extra_test_targets undefined there", leg["name"])
+			continue
+		}
+		if want := wantExtras[leg["name"]]; got != want {
+			t.Errorf("test leg %q: extra_test_targets = %q, want %q", leg["name"], got, want)
+		}
+	}
+	assertUsesMatrix(t, "test", test.Env, "EXTRA_TEST_TARGETS", "matrix.product.extra_test_targets")
+
+	script := stepRun(t, doc, "test", "Run Tests")
+	// An ARRAY, expanded quoted. A joined string would word-split "Paid
+	// FeatureTests" into two selectors that each match nothing and exit 0 —
+	// which is the failure this whole feature has to avoid manufacturing.
+	if !strings.Contains(script, `EXTRA_ONLY_TESTING+=("-only-testing:$extra_target")`) {
+		t.Errorf("the leg's extra selectors are not built one argument at a time:\n%s", script)
+	}
+	if !strings.Contains(script, `"${EXTRA_ONLY_TESTING[@]}"`) {
+		t.Errorf("the extra selectors are never passed to xcodebuild:\n%s", script)
+	}
+}
+
+// TestIOSCIExtraTestTargetsAreOptIn is the companion to
+// TestIOSCISingleProductRenderIsUnchanged, for the projects that DO declare
+// products. Neither the array setup nor the verification step may appear until
+// somebody asks for extras, or this is an edit to every workflow in the fleet.
+func TestIOSCIExtraTestTargetsAreOptIn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  *config.Config
+	}{
+		{"no products", soloConfig()},
+		{"two products, no extras", twoIOSProducts()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := renderIOSCI(t, tc.cfg)
+			for _, unwanted := range []string{
+				"EXTRA_TEST_TARGETS", "EXTRA_ONLY_TESTING", "extra_test_targets",
+				"Verify Test Selectors Matched",
+			} {
+				if strings.Contains(out, unwanted) {
+					t.Errorf("a project declaring no extra_test_targets renders %q — every repo "+
+						"with this workflow would see a diff it did not ask for", unwanted)
+				}
+			}
+		})
+	}
+	// And the argument list itself is the pre-change text, character for
+	// character. Asserting on the absence of new strings alone would pass if the
+	// old spelling had merely been rewritten.
+	got := stepRun(t, parseIOSCI(t, twoIOSProducts()), "test", "Run Tests")
+	const legacy = `"-only-testing:$TEST_TARGET" ${UI_TEST_TARGET:+"-only-testing:$UI_TEST_TARGET"} \`
+	if !strings.Contains(got, legacy) {
+		t.Errorf("the matrix -only-testing arguments are no longer the pre-change text %q", legacy)
+	}
+}
+
+// TestIOSCIVerifiesEverySelectorMatched runs the SHIPPED guard.
+//
+// This is the defence the extra selectors are not safe without, so it is
+// executed rather than pattern-matched: `xcodebuild` exits 0 for an
+// `-only-testing:` selector that matches no tests, which makes every additional
+// selector an additional way to convert a maintained suite into a silent no-op.
+//
+// Both directions are asserted. A one-directional test here would be unsound in
+// the usual way: if `jq` were missing, or the extraction broke, the executed-
+// bundle list would come back empty, EVERY selector would be reported missing,
+// and a test that only checked "the bad case fails" would pass for exactly the
+// wrong reason.
+func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
+	script := stepRun(t, parseIOSCI(t, withExtras()), "test", "Verify Test Selectors Matched")
+
+	// A result bundle in Apple's `get test-results tests` shape. The name with a
+	// space is the one a word-splitting comparison gets wrong.
+	bundle := func(names ...string) string {
+		var b strings.Builder
+		b.WriteString(`{"testNodes":[{"nodeType":"Test Plan","name":"Demo","children":[`)
+		for i, n := range names {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			b.WriteString(`{"nodeType":"Unit test bundle","name":"` + n + `","children":[` +
+				`{"nodeType":"Test Case","name":"aTest","result":"Passed"}]}`)
+		}
+		b.WriteString(`]}]}`)
+		return b.String()
+	}
+
+	run := func(t *testing.T, results string) (string, int) {
+		t.Helper()
+		// Stub the one command that needs a Mac; everything the guard actually
+		// decides with — jq, the loop, the comparison — is the shipped code.
+		prog := "xcrun() { printf '%s' \"$RESULTS\"; }\n" + script
+		cmd := exec.Command("bash", "-c", prog)
+		cmd.Env = append(os.Environ(), "RESULTS="+results)
+		out, err := cmd.CombinedOutput()
+		code := 0
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatalf("could not run the extracted guard: %v\n%s", err, out)
+		}
+		return string(out), code
+	}
+
+	t.Run("every selector ran", func(t *testing.T) {
+		out, code := run(t, bundle("DemoTests", "CoreKitTests", "Feature KitTests"))
+		if code != 0 {
+			t.Fatalf("the guard failed a run in which every selector DID match (exit %d). A guard "+
+				"that cannot pass gets deleted, and it would also mean this test's failing case "+
+				"proves nothing.\n%s", code, out)
+		}
+	})
+
+	t.Run("a package suite silently did not run", func(t *testing.T) {
+		// Exactly what a renamed or misspelled target produces: xcodebuild ran,
+		// exited 0, and one whole suite is simply absent from the results.
+		out, code := run(t, bundle("DemoTests", "Feature KitTests"))
+		if code == 0 {
+			t.Fatalf("the guard passed a run where -only-testing:CoreKitTests matched nothing. "+
+				"That is a green check over a suite that did not execute.\n%s", out)
+		}
+		if !strings.Contains(out, "CoreKitTests") {
+			t.Errorf("the guard failed without naming the selector that matched nothing:\n%s", out)
+		}
+	})
+
+	t.Run("a target name with a space is compared whole", func(t *testing.T) {
+		// "Feature KitTests" absent, "Feature" and "KitTests" present. A
+		// comparison that word-split the selector would find both halves and
+		// report success over a suite that never ran.
+		out, code := run(t, bundle("DemoTests", "CoreKitTests", "Feature", "KitTests"))
+		if code == 0 {
+			t.Fatalf("the guard accepted the two HALVES of a target name as the target itself:\n%s", out)
+		}
+	})
+
+	t.Run("an unreadable result bundle is not a pass", func(t *testing.T) {
+		// Fail closed. Tool missing, schema changed, bundle corrupt — every path
+		// that cannot reach a verdict has to be red, because "I could not tell"
+		// reported as green is the original defect in this workflow's history.
+		out, code := run(t, "not json at all")
+		if code == 0 {
+			t.Fatalf("an unparseable result bundle passed the guard:\n%s", out)
+		}
+	})
+}
+
+// TestPrecommitRunsTheSameSelectorsAsCI. The hook hardcoded the app's own test
+// bundle, so a project adding a package suite would run it in CI and never
+// locally — the fast loop covering strictly less than the slow one. A hook and a
+// CI job that disagree about which suites exist is a trap in both directions:
+// the PR fails on something pre-commit just approved, or the hook passes work CI
+// was never going to run.
+func TestPrecommitRunsTheSameSelectorsAsCI(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(root(t), "profiles", "ios", "root", ".pre-commit-config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(cfg *config.Config) string {
+		t.Helper()
+		out, missing := tokens.Substitute(string(raw), tokens.Values(cfg, ""))
+		if len(missing) > 0 {
+			t.Fatalf("pre-commit config has unsubstituted tokens: %v", missing)
+		}
+		return out
+	}
+
+	// Unchanged for a project that declares no extras: this file ships to every
+	// repo, and the hook's base selector is what they all already run.
+	if got := render(soloConfig()); !strings.Contains(got, `"-only-testing:DemoTests" -quiet`) {
+		t.Errorf("the hook's selector list changed for a project with no extra_test_targets")
+	}
+
+	got := render(withExtras())
+	for _, want := range []string{`"-only-testing:DemoTests"`, `"-only-testing:CoreKitTests"`, `"-only-testing:Feature KitTests"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the pre-commit hook does not run %s, so the local gate covers less than CI:\n%s",
+				want, hookLine(t, got))
+		}
+	}
+	// One product's extras must not be enough. The hook runs one scheme and has
+	// no product to pick, so it takes the union — otherwise a two-product project
+	// would have half its package suites unrun locally.
+	two := twoIOSProducts()
+	two.Product[0].ExtraTestTargets = []string{"CoreKitTests"}
+	two.Product[1].ExtraTestTargets = []string{"Lite OnlyTests"}
+	union := render(two)
+	for _, want := range []string{`"-only-testing:CoreKitTests"`, `"-only-testing:Lite OnlyTests"`} {
+		if !strings.Contains(union, want) {
+			t.Errorf("the hook omits %s; with one scheme and two products it has to run the union:\n%s",
+				want, hookLine(t, union))
+		}
+	}
+}
+
+// hookLine is the Swift Tests entry, for readable failures.
+func hookLine(t *testing.T, rendered string) string {
+	t.Helper()
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, "xcodebuild test") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return "(no xcodebuild line in the rendered hook)"
 }
 
 func assertUsesMatrix(t *testing.T, job string, env map[string]string, key, want string) {

@@ -569,6 +569,29 @@ type Product struct {
 	// free one, which is why this is per-product and why blank has to stay a
 	// first-class value rather than a missing one.
 	UITestTarget string `toml:"ui_test_target"`
+	// ExtraTestTargets are ADDITIONAL `-only-testing:` selectors run alongside
+	// TestTarget and UITestTarget — typically the test targets of local Swift
+	// packages, which live in the repository, ship in the app, and are invisible
+	// to a selector naming only the app's own bundle.
+	//
+	// It exists because `-only-testing:` is a whitelist. A project with a local
+	// package holding a maintained suite gets that suite run by exactly nothing:
+	// the app's selector excludes it, xcodebuild reports success, and a coverage
+	// mandate on code inside that package is enforced by no one. The observed
+	// workaround was to copy an assertion into the app's test target via
+	// `@testable import` purely so something would execute it.
+	//
+	// Per-product for the same reason TestTarget is: a paid and a free variant
+	// compile different bundles, and a package linked into one scheme and not
+	// the other must not be selected on the leg that cannot run it — a selector
+	// matching nothing is a green run, not a failure.
+	//
+	// Declaring any of these turns on the "Verify Test Selectors Matched" CI
+	// step, which reads the result bundle and fails the job for any selector
+	// that matched no tests. Without it this field would be a per-line licence
+	// to run nothing and call it green. A project that declares none renders the
+	// pre-existing workflow byte for byte, guard included — that is, absent.
+	ExtraTestTargets []string `toml:"extra_test_targets"`
 	// AppTarget is the built product name coverage is measured against —
 	// `xccov`'s target names, e.g. "A Bible Verse Daily.app".
 	//
@@ -591,6 +614,29 @@ func (p Product) TestTargetName() string {
 		return ""
 	}
 	return p.Name + "Tests"
+}
+
+// TestSelectors is every `-only-testing:` target this product's CI leg runs, in
+// the order the arguments are passed: the unit bundle, the UI bundle when there
+// is one, then the extras.
+//
+// Callers use it to check what ran, so it deliberately omits the blank values a
+// selector list must never contain: a missing name renders `-only-testing:` with
+// nothing after it, which matches nothing and exits 0.
+func (p Product) TestSelectors() []string {
+	out := make([]string, 0, 2+len(p.ExtraTestTargets))
+	if name := p.TestTargetName(); name != "" {
+		out = append(out, name)
+	}
+	if p.UITestTarget != "" {
+		out = append(out, p.UITestTarget)
+	}
+	for _, t := range p.ExtraTestTargets {
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // AppTargetName is the built product coverage is reported for.
@@ -1008,6 +1054,37 @@ func Load(path string) (*Config, error) {
 			if f.val != "" && !projNameVal.MatchString(f.val) {
 				return nil, fmt.Errorf("[[product]] %q: invalid %s %q", p.Name, f.field, f.val)
 			}
+		}
+		// The extra selectors. Held to the same charset, but — unlike the three
+		// above — blank is NOT valid here and neither is a repeat.
+		//
+		// Blank is rejected because there is nothing for it to mean. A missing
+		// test_target derives one and a missing ui_test_target passes no argument
+		// at all, whereas a blank entry in this list is an entry: it renders
+		// `-only-testing:` with no target after it, which xcodebuild accepts,
+		// matches against nothing, and exits 0. That is the defect this feature
+		// is most able to introduce, so it is rejected at the manifest.
+		//
+		// A repeat is rejected because it is silent either way — passing the same
+		// selector twice changes nothing — and it is the shape a copy-pasted list
+		// takes when somebody meant to name a DIFFERENT suite and did not.
+		seenTarget := map[string]bool{}
+		for _, t := range []string{p.TestTargetName(), p.UITestTarget} {
+			if t != "" {
+				seenTarget[t] = true
+			}
+		}
+		for j, t := range p.ExtraTestTargets {
+			if t == "" {
+				return nil, fmt.Errorf("[[product]] %q: extra_test_targets[%d] is empty — that renders a bare `-only-testing:` selector, which matches no tests and still exits 0", p.Name, j)
+			}
+			if !projNameVal.MatchString(t) {
+				return nil, fmt.Errorf("[[product]] %q: invalid extra_test_targets[%d] %q", p.Name, j, t)
+			}
+			if seenTarget[t] {
+				return nil, fmt.Errorf("[[product]] %q: extra_test_targets[%d] %q is already selected by this product; a repeated selector runs nothing extra", p.Name, j, t)
+			}
+			seenTarget[t] = true
 		}
 		// The slug scopes this product's test-results artifact and its CI
 		// simulator. Two products sharing one would have the second leg's artifact
