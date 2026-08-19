@@ -149,8 +149,52 @@ const (
 	// one product, the hoisted `$PRODUCT_SCHEME` for a matrix.
 	IOSCIScheme = "{{IOS_CI_SCHEME}}"
 	// IOSCIOnlyTesting is the `-only-testing:` argument list — one selector, or
-	// two when the product declares a UI test target.
+	// two when the product declares a UI test target, plus one per entry in
+	// extra_test_targets.
 	IOSCIOnlyTesting = "{{IOS_CI_ONLY_TESTING}}"
+	// IOSCIExtraTestSetup builds the `-only-testing:` arguments for a MATRIX
+	// leg's extra_test_targets, as a bash array, before xcodebuild is invoked.
+	//
+	// An array rather than a bare string because an Xcode target name may contain
+	// spaces ("A Bible Verse Each Day FreeTests" is a real one), so word-splitting
+	// a joined value would pass two selectors that each match nothing — and
+	// matching nothing exits 0. The legs' lists are carried through the matrix
+	// newline-separated for the same reason: the target charset admits spaces and
+	// forbids newlines, so the newline is the only separator that cannot occur
+	// inside a value.
+	//
+	// Empty unless the project has a matrix AND some product declares extras, so
+	// every project that predates this field renders the workflow it already had.
+	IOSCIExtraTestSetup = "{{IOS_CI_EXTRA_TEST_SETUP}}"
+	// IOSCIVerifySelectors is the whole "Verify Test Selectors Matched" step, or
+	// nothing.
+	//
+	// `xcodebuild` exits 0 for an `-only-testing:` selector that matches no
+	// tests. Every additional selector is therefore an additional way to convert
+	// a maintained suite into a no-op and report it as a pass — the same silent
+	// green this repository keeps finding. The step reads the result bundle back
+	// and fails the job for any selector that produced no test bundle.
+	//
+	// It renders only for a product that declares extra_test_targets. Rendering
+	// it for everyone would be the better guard and is not available: it would
+	// change the workflow in every repository that has one, which is the one
+	// thing this file is not allowed to do. Opting in hardens test_target and
+	// ui_test_target too, since the step checks every selector the job passed.
+	IOSCIVerifySelectors = "{{IOS_CI_VERIFY_SELECTORS}}"
+	// IOSPrecommitOnlyTesting is the `-only-testing:` argument list for the
+	// pre-commit `Swift Tests` hook.
+	//
+	// The hook hardcoded `-only-testing:{{PROJECT_NAME}}Tests`, so a project that
+	// added a package suite would have it run in CI and not locally: the hook
+	// passes, the PR fails, and the developer's fastest feedback loop is the one
+	// covering least. That divergence is the trap, so the extras are emitted in
+	// both places.
+	//
+	// The base selector stays PROJECT_NAME + "Tests" rather than becoming the
+	// first product's test_target. That spelling is what every repository already
+	// renders, and changing it here would rewrite the hook in all of them — a
+	// separate defect for a separate change.
+	IOSPrecommitOnlyTesting = "{{IOS_PRECOMMIT_ONLY_TESTING}}"
 	// IOSCIAppTarget is the built product coverage is reported for, as it appears
 	// in prose and in the step summary.
 	IOSCIAppTarget = "{{IOS_CI_APP_TARGET}}"
@@ -230,6 +274,15 @@ var registry = []entry{
 	// `-only-testing:Tests` against a scheme nobody named.
 	{IOSCIScheme, true},
 	{IOSCIOnlyTesting, true},
+	// Required for the same reason: the hook's selector list is never legitimately
+	// empty, and an empty one would render `xcodebuild test` with no
+	// `-only-testing:` at all — which runs a DIFFERENT (larger) set than CI and
+	// would look like the hook simply got slower.
+	{IOSPrecommitOnlyTesting, true},
+	// Not required: empty is the correct and overwhelmingly common rendering —
+	// no extra selectors declared, so no array to build and nothing to verify.
+	{IOSCIExtraTestSetup, false},
+	{IOSCIVerifySelectors, false},
 	{IOSCIAppTarget, true},
 	{IOSCICoverageJQ, true},
 	{IOSCIArtifactSuffix, false},
@@ -295,11 +348,16 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSProductSecrets: ProductSecrets(products),
 		IOSReleaseTags:    ReleaseTags(products),
 
-		IOSCIProductSuffix:  CIProductSuffix(products),
-		IOSCIBuildStrategy:  CIBuildStrategy(products),
-		IOSCITestStrategy:   CITestStrategy(products),
-		IOSCIScheme:         CIScheme(products),
-		IOSCIOnlyTesting:    CIOnlyTesting(products),
+		IOSCIProductSuffix:   CIProductSuffix(products),
+		IOSCIBuildStrategy:   CIBuildStrategy(products),
+		IOSCITestStrategy:    CITestStrategy(products),
+		IOSCIScheme:          CIScheme(products),
+		IOSCIOnlyTesting:     CIOnlyTesting(products),
+		IOSCIExtraTestSetup:  CIExtraTestSetup(products),
+		IOSCIVerifySelectors: CIVerifySelectors(products),
+
+		IOSPrecommitOnlyTesting: PrecommitOnlyTesting(p.ProjectName, products),
+
 		IOSCIAppTarget:      CIAppTarget(products),
 		IOSCICoverageJQ:     CICoverageJQ(products),
 		IOSCIArtifactSuffix: CIArtifactSuffix(products),
@@ -360,6 +418,7 @@ func CITestStrategy(products []config.Product) string {
 	if !multi(products) {
 		return ""
 	}
+	hasExtras := anyExtra(products)
 	var b strings.Builder
 	b.WriteString("\n    # One leg per shippable app, GENERATED from [[product]]. A paid and a free")
 	b.WriteString("\n    # variant compile DIFFERENT test bundles, so testing one target is not a")
@@ -379,6 +438,19 @@ func CITestStrategy(products []config.Product) string {
 		// the job env would render an empty value anyway. Stating it keeps the
 		// legs the same shape and the intent readable.
 		fmt.Fprintf(&b, "\n            ui_test_target: %q", p.UITestTarget)
+		// Only when some product declares extras, so a project that predates the
+		// field keeps the exact legs it already renders. Emitted for EVERY leg
+		// once any leg needs it, blank included, for the reason above: a key
+		// present on one leg and absent on another makes the expression undefined
+		// where it is missing.
+		//
+		// Newline-separated inside a double-quoted YAML scalar (Go's %q writes the
+		// separator as \n, which YAML unescapes). Target names may contain spaces
+		// and may not contain newlines, so this is the one separator that cannot
+		// appear inside a value and split a target in half.
+		if hasExtras {
+			fmt.Fprintf(&b, "\n            extra_test_targets: %q", strings.Join(p.ExtraTestTargets, "\n"))
+		}
 		fmt.Fprintf(&b, "\n            app_target: %q", p.AppTargetName())
 		fmt.Fprintf(&b, "\n            artifact: %q", p.Slug())
 	}
@@ -387,8 +459,27 @@ func CITestStrategy(products []config.Product) string {
 	b.WriteString("\n      PRODUCT_SLUG: ${{ matrix.product.artifact }}")
 	b.WriteString("\n      TEST_TARGET: ${{ matrix.product.test_target }}")
 	b.WriteString("\n      UI_TEST_TARGET: ${{ matrix.product.ui_test_target }}")
+	if hasExtras {
+		b.WriteString("\n      EXTRA_TEST_TARGETS: ${{ matrix.product.extra_test_targets }}")
+	}
 	b.WriteString("\n      APP_TARGET: ${{ matrix.product.app_target }}")
 	return b.String()
+}
+
+// anyExtra reports whether any product declares extra `-only-testing:`
+// selectors.
+//
+// Every renderer below branches on it rather than on "does this product have
+// extras", because the matrix legs and the job env must have the same SHAPE as
+// each other — and because a project that declares none has to receive the
+// workflow it already has, byte for byte.
+func anyExtra(products []config.Product) bool {
+	for _, p := range products {
+		if len(p.ExtraTestTargets) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // ciMatrixHeader is the part every matrixed CI job shares.
@@ -423,9 +514,20 @@ func CIScheme(products []config.Product) string {
 // a blank UI target contributes no argument at all. An empty `-only-testing:`
 // selector is not ignored by xcodebuild — it matches nothing, and a test run
 // that selects nothing exits 0.
+//
+// The single-product form inlines the extras as literals; the matrix form
+// appends the array CIExtraTestSetup built, and only when there is one, so a
+// project declaring no extras renders the argument list it already renders.
 func CIOnlyTesting(products []config.Product) string {
 	if multi(products) {
-		return `"-only-testing:$TEST_TARGET" ${UI_TEST_TARGET:+"-only-testing:$UI_TEST_TARGET"}`
+		out := `"-only-testing:$TEST_TARGET" ${UI_TEST_TARGET:+"-only-testing:$UI_TEST_TARGET"}`
+		if anyExtra(products) {
+			// Quoted array expansion, so a target name with a space stays one
+			// argument. Empty on a leg that declares no extras, which adds no
+			// argument rather than an empty one.
+			out += ` "${EXTRA_ONLY_TESTING[@]}"`
+		}
+		return out
 	}
 	p := products[0]
 	name := p.TestTargetName()
@@ -435,6 +537,138 @@ func CIOnlyTesting(products []config.Product) string {
 	out := fmt.Sprintf("%q", "-only-testing:"+name)
 	if p.UITestTarget != "" {
 		out += " " + fmt.Sprintf("%q", "-only-testing:"+p.UITestTarget)
+	}
+	for _, t := range p.ExtraTestTargets {
+		out += " " + fmt.Sprintf("%q", "-only-testing:"+t)
+	}
+	return out
+}
+
+// CIExtraTestSetup builds the matrix leg's extra selectors into a bash array.
+//
+// Only the matrix form needs it: with one product the selectors are literals in
+// the command line already. Empty otherwise, including for a matrix where no
+// product declares extras.
+func CIExtraTestSetup(products []config.Product) string {
+	if !multi(products) || !anyExtra(products) {
+		return ""
+	}
+	return "\n" +
+		"\n          # This leg's extra `-only-testing:` selectors, newline-separated in" +
+		"\n          # EXTRA_TEST_TARGETS. Built as an ARRAY because an Xcode target name may" +
+		"\n          # contain spaces, and a joined string would word-split into selectors that" +
+		"\n          # each match nothing — which xcodebuild reports as success." +
+		"\n          EXTRA_ONLY_TESTING=()" +
+		"\n          while IFS= read -r extra_target; do" +
+		"\n            [ -n \"$extra_target\" ] || continue" +
+		"\n            EXTRA_ONLY_TESTING+=(\"-only-testing:$extra_target\")" +
+		"\n          done <<< \"$EXTRA_TEST_TARGETS\""
+}
+
+// CIVerifySelectors renders the step that proves the selectors this job passed
+// actually selected something.
+//
+// This is the defence the extra selectors are not safe without. xcodebuild does
+// not fail on an `-only-testing:` selector that matches no tests: it runs the
+// rest, exits 0, and the check goes green over a suite that did not execute. A
+// stale target name, a renamed package, a typo — each produces a passing run
+// that covers less than the day before, and nothing in the output says so.
+//
+// So the step reads the result bundle back and requires every selector to appear
+// among the bundles that ran. It fails CLOSED: an unreadable bundle, a missing
+// tool or a changed schema all leave the executed-bundle list empty, every
+// selector unmatched, and the job red. "I could not tell" is not a pass.
+//
+// Empty for a project with no extras, which is what keeps every existing
+// repository's workflow byte-identical.
+func CIVerifySelectors(products []config.Product) string {
+	if !anyExtra(products) {
+		return ""
+	}
+	// The heredoc body: literal names with one product, the hoisted env values
+	// with a matrix. It is an UNQUOTED heredoc either way — target names are
+	// charset-validated to letters, digits, space, dot, underscore and dash, so
+	// a literal name cannot contain anything the shell would expand.
+	var body string
+	if multi(products) {
+		body = "\n          $TEST_TARGET" +
+			"\n          $UI_TEST_TARGET" +
+			"\n          $EXTRA_TEST_TARGETS"
+	} else {
+		for _, sel := range products[0].TestSelectors() {
+			body += "\n          " + sel
+		}
+	}
+	return "\n" +
+		"\n      - name: Verify Test Selectors Matched" +
+		"\n        # `xcodebuild` exits 0 when an `-only-testing:` selector matches NOTHING." +
+		"\n        # Every selector is therefore a way to turn a maintained suite into a" +
+		"\n        # no-op and still report a pass — a renamed package, a stale target, a" +
+		"\n        # typo. This step reads the results back and fails the job for any" +
+		"\n        # selector that produced no test bundle, so \"it ran\" is checked rather" +
+		"\n        # than assumed." +
+		"\n        #" +
+		"\n        # GENERATED from [[product]].extra_test_targets. A project declaring none" +
+		"\n        # does not render this step at all." +
+		"\n        if: always() && hashFiles('TestResults.xcresult') != ''" +
+		"\n        run: |" +
+		"\n          set -o pipefail" +
+		"\n          # The bundles that actually executed, one name per line. `.xctest` is" +
+		"\n          # stripped because a selector names the TARGET, not the built bundle." +
+		"\n          #" +
+		"\n          # No `|| true` anywhere: if this cannot be read the list is empty, every" +
+		"\n          # selector below is unmatched, and the job fails. That is deliberate —" +
+		"\n          # a verification that cannot verify must not report success." +
+		"\n          RAN=$(xcrun xcresulttool get test-results tests --path TestResults.xcresult \\" +
+		"\n            | jq -r '.. | objects | select(.nodeType? == \"Unit test bundle\" or .nodeType? == \"UI test bundle\") | .name' \\" +
+		"\n            | sed 's/\\.xctest$//')" +
+		"\n          MISSED=\"\"" +
+		"\n          while IFS= read -r selector; do" +
+		"\n            [ -n \"$selector\" ] || continue" +
+		"\n            printf '%s\\n' \"$RAN\" | grep -Fxq \"$selector\" || MISSED=\"${MISSED}${MISSED:+, }$selector\"" +
+		"\n          done <<SELECTORS" +
+		body +
+		"\n          SELECTORS" +
+		"\n          if [ -n \"$MISSED\" ]; then" +
+		"\n            echo \"::error::These -only-testing: selectors matched no tests: $MISSED. xcodebuild exits 0 for a selector that matches nothing, so those suites did not run and this job would otherwise be green.\"" +
+		"\n            echo \"Test bundles that did run:\"" +
+		"\n            printf '%s\\n' \"$RAN\"" +
+		"\n            exit 1" +
+		"\n          fi" +
+		"\n          echo \"Every -only-testing: selector matched a test bundle that ran.\""
+}
+
+// PrecommitOnlyTesting is the `-only-testing:` list the pre-commit Swift Tests
+// hook runs.
+//
+// The hook and CI must select the same suites. They did not: the hook hardcoded
+// the app's own bundle, so a project adding a package suite would have it run in
+// CI and never locally — the fast loop covering strictly less than the slow one,
+// which is the wrong way round and shows up as a PR that fails on something
+// pre-commit just approved.
+//
+// The extras are the UNION across products, deduplicated in declaration order.
+// The hook runs [project].scheme, one scheme, so there is no product to pick;
+// and a selector naming a suite that scheme does not build costs nothing here,
+// because xcodebuild ignores it. That asymmetry is only safe locally — CI, where
+// ignoring it would be a false green, has the verification step instead.
+func PrecommitOnlyTesting(projectName string, products []config.Product) string {
+	if projectName == "" {
+		return "" // fail closed: the token is required, so sync reports it missing
+	}
+	// The base is PROJECT_NAME + "Tests", which is what the hook already
+	// rendered in every repository. Changing it to the product's test_target
+	// would be a fix to a different bug and would rewrite the hook everywhere.
+	out := fmt.Sprintf("%q", "-only-testing:"+projectName+"Tests")
+	seen := map[string]bool{projectName + "Tests": true}
+	for _, p := range products {
+		for _, t := range p.ExtraTestTargets {
+			if t == "" || seen[t] {
+				continue
+			}
+			seen[t] = true
+			out += " " + fmt.Sprintf("%q", "-only-testing:"+t)
+		}
 	}
 	return out
 }

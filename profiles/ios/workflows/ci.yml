@@ -640,7 +640,7 @@ jobs:
 
           # Heartbeat watchdog: prints every 60s so GitHub doesn't treat this as a silent/stuck step
           ( while true; do sleep 60; echo "[watchdog $(date -u +%H:%M:%S)] xcodebuild still running..."; done ) &
-          WATCHDOG_PID=$!
+          WATCHDOG_PID=$!{{IOS_CI_EXTRA_TEST_SETUP}}
 
           # Run tests and capture exit code, also save output for fallback parsing
           EXIT_CODE=0
@@ -740,7 +740,7 @@ jobs:
             exit $EXIT_CODE
           else
             echo "test_result=passed" >> "$GITHUB_OUTPUT"
-          fi
+          fi{{IOS_CI_VERIFY_SELECTORS}}
 
       - name: Collect Simulator Diagnostics
         if: failure()

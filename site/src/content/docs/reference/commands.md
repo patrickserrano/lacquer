@@ -148,7 +148,7 @@ unchanged.
 
 The iOS CI workflow builds and tests **every** declared product — one
 `Build (Release)` leg and one `Test` leg each, with `fail-fast: false` so one
-product failing does not cancel the other's run. Three optional fields describe
+product failing does not cancel the other's run. Four optional fields describe
 the test leg:
 
 ```toml
@@ -160,8 +160,17 @@ asc_app_id = "1111111111"
 tag_prefix = "myapplite"
 test_target = "MyAppLiteTests"   # defaults to "<name>Tests"
 ui_test_target = ""              # blank = no UI tests for this variant
+extra_test_targets = ["CoreKitTests"]  # local package suites to run as well
 app_target = "MyApp.app"         # coverage target; defaults to "<name>.app"
 ```
+
+`extra_test_targets` adds `-only-testing:` selectors for suites the app's own
+bundle does not contain — typically a local Swift package's test target, which
+is otherwise run by nothing while xcodebuild still exits 0. Declaring any turns
+on a CI step that reads the result bundle back and fails the job for a selector
+that matched no tests; blank and repeated entries are rejected at load, because
+both render a selector that runs nothing. The pre-commit `Swift Tests` hook runs
+the same extras.
 
 `app_target` is declared, not derived: a scheme and the product it builds
 genuinely differ in real projects, and a wrong target selects no coverage row at
