@@ -1061,6 +1061,16 @@ type newProjectCase struct {
 	// shape a brief chose, detection is what happens without one.
 	stack   string
 	markers map[string]string
+	// wantProfiles is the exact set of profiles the written manifest must
+	// declare, and it is required rather than optional.
+	//
+	// Without it a case is far weaker than it looks: `init` records a component
+	// with an EMPTY profiles list when the lacquer does not ship the detected
+	// profile, and the resulting project then syncs, audits and doctors
+	// perfectly — while receiving none of that stack's rules, CI or hooks. A
+	// battery that only asks "did sync succeed" reports green on exactly that,
+	// which is the shape of every defect this package was written for.
+	wantProfiles []string
 	// wantComponents, when set, are the component paths the written manifest must
 	// declare. Only worth stating where detection alone would not produce them —
 	// i.e. where the archetype is doing the work.
@@ -1083,26 +1093,33 @@ type newProjectCase struct {
 // in one place.
 var newProjectCases = []newProjectCase{
 	{
-		name:    "ios",
-		stack:   "ios",
-		markers: map[string]string{"Acme.xcodeproj/project.pbxproj": "// trimmed\n"},
+		name:         "ios",
+		stack:        "ios",
+		wantProfiles: []string{"ios"},
+		markers:      map[string]string{"Acme.xcodeproj/project.pbxproj": "// trimmed\n"},
 	},
 	{
-		name:    "web",
-		stack:   "web",
-		markers: map[string]string{"package.json": "{ \"name\": \"acme\", \"packageManager\": \"pnpm@10.20.0\" }\n"},
+		name:         "web",
+		stack:        "web",
+		wantProfiles: []string{"web"},
+		markers:      map[string]string{"package.json": "{ \"name\": \"acme\", \"packageManager\": \"pnpm@10.20.0\" }\n"},
 	},
 	{
 		// Never exercised end to end before this. supabase has a full profile —
 		// deno config, lefthook, three workflows, a CLAUDE region — and no test
 		// had ever run `init` for it, let alone synced it.
-		name:    "supabase",
-		stack:   "web-supabase",
-		markers: map[string]string{"supabase/config.toml": "project_id = \"acme\"\n[api]\nenabled = true\n"},
+		name: "supabase",
+		// No --stack: every archetype containing supabase also contains another
+		// stack, and this case exists to prove the supabase profile stands on its
+		// own. Detection alone decides.
+		stack:        "",
+		wantProfiles: []string{"supabase"},
+		markers:      map[string]string{"supabase/config.toml": "project_id = \"acme\"\n[api]\nenabled = true\n"},
 	},
 	{
-		name:  "ios+web",
-		stack: "ios-web",
+		name:         "ios+web",
+		stack:        "ios-web",
+		wantProfiles: []string{"ios", "web"},
 		markers: map[string]string{
 			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
 			"web/package.json":                   "{ \"name\": \"acme-web\", \"packageManager\": \"pnpm@10.20.0\" }\n",
@@ -1110,8 +1127,9 @@ var newProjectCases = []newProjectCase{
 		long: true,
 	},
 	{
-		name:  "ios+supabase",
-		stack: "ios-supabase",
+		name:         "ios+supabase",
+		stack:        "ios-supabase",
+		wantProfiles: []string{"ios", "supabase"},
 		markers: map[string]string{
 			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
 			"server/supabase/config.toml":        "project_id = \"acme\"\n[api]\nenabled = true\n",
@@ -1119,8 +1137,9 @@ var newProjectCases = []newProjectCase{
 		long: true,
 	},
 	{
-		name:  "web+supabase",
-		stack: "web-supabase",
+		name:         "web+supabase",
+		stack:        "web-supabase",
+		wantProfiles: []string{"supabase", "web"},
 		markers: map[string]string{
 			"package.json":                "{ \"name\": \"acme\", \"packageManager\": \"pnpm@10.20.0\" }\n",
 			"server/supabase/config.toml": "project_id = \"acme\"\n[api]\nenabled = true\n",
@@ -1131,8 +1150,9 @@ var newProjectCases = []newProjectCase{
 		// The full fleet shape, created from nothing rather than copied from a
 		// fixture — so a change that breaks `init` for it is caught even if the
 		// fixture manifest still happens to be valid.
-		name:  "ios+web+supabase",
-		stack: "ios-web-supabase",
+		name:         "ios+web+supabase",
+		stack:        "ios-web-supabase",
+		wantProfiles: []string{"ios", "supabase", "web"},
 		markers: map[string]string{
 			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
 			"web/package.json":                   "{ \"name\": \"acme-web\", \"packageManager\": \"pnpm@10.20.0\" }\n",
@@ -1146,8 +1166,9 @@ var newProjectCases = []newProjectCase{
 		// ios marker silently overwrote the supabase one, so a whole profile
 		// (deno config, lefthook, CI, RLS rules) was never synced and the
 		// manifest looked complete.
-		name:  "ios+supabase at the repo root",
-		stack: "",
+		name:         "ios+supabase at the repo root",
+		stack:        "",
+		wantProfiles: []string{"ios", "supabase"},
 		markers: map[string]string{
 			"Acme.xcodeproj/project.pbxproj": "// trimmed\n",
 			"supabase/config.toml":           "project_id = \"acme\"\n[api]\nenabled = true\n",
@@ -1163,8 +1184,9 @@ var newProjectCases = []newProjectCase{
 		// ios-supabase` declares `server` before the directory exists, which is
 		// the whole reason archetypes exist ("a stack that arrives later arrives
 		// ungated"). Sync must create the component and put its config there.
-		name:  "ios-with-a-declared-supabase-backend",
-		stack: "ios-supabase",
+		name:         "ios-with-a-declared-supabase-backend",
+		stack:        "ios-supabase",
+		wantProfiles: []string{"ios", "supabase"},
 		markers: map[string]string{
 			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
 		},
@@ -1182,6 +1204,21 @@ func TestNewProjectsAlwaysWork(t *testing.T) {
 			}
 			t.Parallel()
 			p := fromInit(t, tc.stack, tc.markers)
+
+			// The profile set the manifest declares, before anything is synced.
+			// An empty profiles list is what `init` writes when the lacquer does
+			// not ship a detected profile, and everything downstream then passes
+			// while the stack is gated by nothing at all.
+			var declared []string
+			for _, c := range p.config().Components {
+				declared = append(declared, c.Profiles...)
+			}
+			sort.Strings(declared)
+			if got, want := strings.Join(declared, ","), strings.Join(tc.wantProfiles, ","); got != want {
+				t.Fatalf("the written manifest declares profiles [%s], want [%s]. "+
+					"A component recorded with no profile receives no rules, no CI and no hooks, "+
+					"and every check below would still pass", got, want)
+			}
 
 			if len(tc.wantComponents) > 0 {
 				got := map[string]bool{}
@@ -1203,6 +1240,17 @@ func TestNewProjectsAlwaysWork(t *testing.T) {
 			// filled in here.
 			p.commit("init")
 			p.sync()
+
+			// Each declared profile must have actually landed. The CI workflow is
+			// the signature: it is the one asset every profile ships, its name is
+			// stack-prefixed, and it is the thing whose absence means the stack is
+			// running with no gate in front of it.
+			for _, prof := range tc.wantProfiles {
+				ci := filepath.Join(".github", "workflows", prof+"-ci.yml")
+				if _, err := os.Stat(filepath.Join(p.root, ci)); err != nil {
+					t.Errorf("the manifest declares the %q profile but sync wrote no %s: %v", prof, ci, err)
+				}
+			}
 
 			for _, want := range tc.wantFiles {
 				if _, err := os.Stat(filepath.Join(p.root, filepath.FromSlash(want))); err != nil {
