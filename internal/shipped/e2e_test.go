@@ -677,11 +677,12 @@ func runDoctor(t *testing.T, p *project) {
 	sort.Strings(only)
 	sort.Strings(skipped)
 
-	// `only` empty means "run everything", which is the opposite of what is
-	// wanted when no profile qualified — so pass a name that matches nothing.
+	// doctor.Run treats an EMPTY `only` as "prove every profile", which is the
+	// exact opposite of what is wanted when no profile qualified. Pass a name no
+	// profile has instead, so the scope is genuinely empty and only core runs.
 	scope := only
 	if len(scope) == 0 {
-		scope = []string{"\x00none"}
+		scope = []string{"no-such-profile"}
 	}
 
 	var out strings.Builder
@@ -689,8 +690,19 @@ func runDoctor(t *testing.T, p *project) {
 	if err != nil {
 		t.Fatalf("doctor: %v\n%s", err, out.String())
 	}
-	if len(results) == 0 {
-		t.Fatal("doctor ran no probes at all; core's probes must always run")
+	// Core's probes run in every project regardless of toolchain, so their count
+	// is the floor. Without this the whole check goes vacuous the moment
+	// something stops core's probes loading: zero probes run, zero failures
+	// reported, green.
+	coreProbes, err := doctor.LoadProbes(p.lacquerRoot, doctor.CoreLayer)
+	if err != nil {
+		t.Fatalf("LoadProbes(core): %v", err)
+	}
+	if len(coreProbes) == 0 {
+		t.Fatal("core ships no doctor probes; the secrets scanner and commit-message check are proved by nothing")
+	}
+	if len(results) < len(coreProbes) {
+		t.Fatalf("doctor ran %d probe(s) but core alone ships %d; core's probes must always run", len(results), len(coreProbes))
 	}
 	for _, r := range doctor.Failures(results) {
 		t.Errorf("doctor: %s/%s: %s\n%s", r.Profile, r.Name, r.Detail, out.String())
