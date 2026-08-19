@@ -204,6 +204,46 @@ drifted six months ago" into a failing check on the PR that does it.
 > be attributed and nothing can block. The job warns instead of reporting a pass
 > — run `lacquer sync` to establish the baseline.
 
+### Refusing a dependency update
+
+**`.github/dependabot.yml` offers every update; the only thing ever withheld is
+one that cannot be merged at all.** Volume is managed by grouping — minor and
+patch arrive as one PR per ecosystem, majors stay individual — because grouping
+changes how many PRs carry the updates, not which updates are offered.
+
+Some updates genuinely cannot be taken. A docs generator whose newest release
+peers at the previous major of its compiler doesn't produce a noisy PR; it
+produces a hard crash before any work happens, on every upstream release,
+forever. Say so in the component that has the problem:
+
+```toml
+[[component]]
+path = "admin"
+stack = "web"
+dependabot_ignore = [
+  { dependency = "typedoc", versions = ["0.29.x"], reason = "crashes on the compiler's new major — upstream issue 1234", until = "2026-11-30" },
+]
+```
+
+That renders into the generated `.github/dependabot.yml` as a real Dependabot
+`ignore` rule, carrying the reason and the date as comments so the next reader
+of that file doesn't have to go find the manifest.
+
+**Every field is required, and there is no permanent form.** This is the one
+place the rules are stricter than `[project].exclude`, which does permit an
+undated entry: a macOS-only app really does differ from the fleet forever, but no
+incompatibility does. It ends when upstream ships, when the pin is dropped, or
+when the project accepts the breakage — and without a date nobody ever asks which
+happened. Past `until`, `audit` fails with exit 4, exactly like an expired
+exclusion. An ignore naming a dependency the component doesn't actually declare
+is reported as stale, the same way an exclusion that suppresses nothing is.
+
+There is deliberately **no `update_types` field**, though Dependabot has one, and
+wildcards in the dependency name are rejected. Those are how an ignore quietly
+becomes a volume control — one line hiding every minor and patch in an ecosystem,
+forever. Name the versions that are broken. If what you want is fewer PRs, the
+lever is grouping, and it's already pulled.
+
 ### Retiring a project
 
 **A project that is no longer worth investing in is retired, not abandoned.**

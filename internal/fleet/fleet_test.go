@@ -375,3 +375,75 @@ func TestSnapshotRoundTripsThroughDisk(t *testing.T) {
 		t.Errorf("round trip lost data: %+v", back)
 	}
 }
+
+// projectWithIgnore builds a project whose single component carries one
+// dependabot_ignore, and whose package.json declares deps.
+func projectWithIgnore(t *testing.T, name, deps, ignore string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
+	write(t, filepath.Join(dir, "package.json"), deps)
+	write(t, filepath.Join(dir, ".lacquer.toml"),
+		"[project]\nname = \""+name+"\"\n\n"+
+			"[[component]]\npath = \".\"\nprofiles = [\"web\"]\nstack = \"web\"\n"+
+			"dependabot_ignore = ["+ignore+"]\n")
+	return dir
+}
+
+// An expired ignore blocks the sweep exactly as an expired exclusion does.
+//
+// The sweep's whole job is answering "what is true across everything I own",
+// and a project quietly holding an ignore past its own term is precisely the
+// thing nobody would find by looking at one repository at a time.
+func TestExpiredDependabotIgnoreBlocks(t *testing.T) {
+	lq := lacquerRoot(t)
+	p := projectWithIgnore(t, "p", `{"devDependencies":{"typedoc":"0.28.20"}}`,
+		`{ dependency = "typedoc", versions = ["0.29.x"], reason = "r", until = "2020-01-01" }`)
+	r := find(t, Run(lq, rosterFor(t, map[string]string{"p": p}), day("2026-08-09")), "p")
+	if len(r.DepIgnores) != 1 || r.DepIgnores[0].Status != "expired" {
+		t.Fatalf("dependabot ignores = %+v", r.DepIgnores)
+	}
+	if !r.Blocking() {
+		t.Error("an expired ignore must block, exactly as `lacquer audit` gates on it")
+	}
+	if !strings.Contains(strings.Join(Notes(r), "\n"), "typedoc") {
+		t.Errorf("the sweep does not name the expired ignore: %v", Notes(r))
+	}
+}
+
+// An in-term ignore on a dependency the component really has is healthy: it
+// neither blocks nor appears in the attention list.
+func TestHealthyDependabotIgnoreDoesNotBlock(t *testing.T) {
+	lq := lacquerRoot(t)
+	p := projectWithIgnore(t, "p", `{"devDependencies":{"typedoc":"0.28.20"}}`,
+		`{ dependency = "typedoc", versions = ["0.29.x"], reason = "r", until = "2099-01-01" }`)
+	r := find(t, Run(lq, rosterFor(t, map[string]string{"p": p}), day("2026-08-09")), "p")
+	if r.Blocking() {
+		t.Errorf("a well-attributed, in-term ignore must not block: %+v", r.DepIgnores)
+	}
+	if got := strings.Join(Notes(r), "\n"); strings.Contains(got, "typedoc") {
+		t.Errorf("a healthy ignore was reported as needing attention: %s", got)
+	}
+	// It still appears on the expiry horizon: "this expires in nine days" is the
+	// signal the sweep exists to produce, and it must not wait for the failure.
+	if got := strings.Join(horizon([]Report{r}), "\n"); !strings.Contains(got, "typedoc") {
+		t.Errorf("the horizon omits a dated ignore, so nothing warns before it expires: %s", got)
+	}
+}
+
+// A stale ignore is reported without blocking: the component declares no such
+// dependency, so the rule withholds nothing.
+func TestStaleDependabotIgnoreIsReportedNotBlocked(t *testing.T) {
+	lq := lacquerRoot(t)
+	p := projectWithIgnore(t, "p", `{"dependencies":{"react":"^19"}}`,
+		`{ dependency = "typedoc", versions = ["0.29.x"], reason = "r", until = "2099-01-01" }`)
+	r := find(t, Run(lq, rosterFor(t, map[string]string{"p": p}), day("2026-08-09")), "p")
+	if len(r.DepIgnores) != 1 || !r.DepIgnores[0].Stale {
+		t.Fatalf("want one stale ignore, got %+v", r.DepIgnores)
+	}
+	if r.Blocking() {
+		t.Error("a stale ignore must not block; it is a documentation defect, not a hazard")
+	}
+	if got := strings.Join(Notes(r), "\n"); !strings.Contains(got, "stale dependabot ignore") {
+		t.Errorf("the sweep does not surface the stale ignore: %s", got)
+	}
+}

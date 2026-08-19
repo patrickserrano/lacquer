@@ -136,6 +136,16 @@ func Notes(r Report) []string {
 			out = append(out, fmt.Sprintf("stale exclusion (suppresses nothing): %s", e.Path))
 		}
 	}
+	// Same two facts, for the other time-boxed exemption. There is no
+	// "unattributed" case: config will not load an ignore without a reason.
+	for _, d := range r.DepIgnores {
+		if d.Status == "expired" {
+			out = append(out, fmt.Sprintf("EXPIRED dependabot ignore %s in %s (%s)", d.Dependency, d.Component, d.Until))
+		}
+		if d.Stale {
+			out = append(out, fmt.Sprintf("stale dependabot ignore (withholds nothing): %s in %s", d.Dependency, d.Component))
+		}
+	}
 	// Only the two facts that need a decision. A project with attributed,
 	// line-scoped suppressions has done the right thing and should not be nagged
 	// — the count alone would make this line permanent noise in every project.
@@ -174,6 +184,19 @@ func horizon(reports []Report) []string {
 				state = "  ** EXPIRED **"
 			}
 			items = append(items, item{e.Until, fmt.Sprintf("%s  %s  %s%s", e.Until, r.Name, e.Path, state)})
+		}
+		// Ignores share the horizon rather than getting their own list. It is one
+		// question — "what expires next across everything I own?" — and splitting
+		// it into two tables is how the second one stops being read.
+		for _, d := range r.DepIgnores {
+			if d.Until == "" {
+				continue
+			}
+			state := ""
+			if d.Status == "expired" {
+				state = "  ** EXPIRED **"
+			}
+			items = append(items, item{d.Until, fmt.Sprintf("%s  %s  dependabot ignore %s in %s%s", d.Until, r.Name, d.Dependency, d.Component, state)})
 		}
 	}
 	sort.Slice(items, func(i, j int) bool {

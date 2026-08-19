@@ -454,3 +454,60 @@ func TestAuditExits4OnExpiredRelaxation(t *testing.T) {
 		t.Errorf("report should mark the relaxation expired:\n%s", out.String())
 	}
 }
+
+// An EXPIRED dependabot ignore must fail `lacquer audit` with exit 4.
+//
+// This is the wiring the whole mechanism rests on, and it is the part that can
+// break without any unit test noticing: internal/depignore can classify an
+// ignore as expired perfectly while `audit` never asks it. Then the escape hatch
+// silently becomes what it was designed not to be — a permanent one — and the
+// only thing that would ever have said so is this exit code.
+func TestAuditExits4OnExpiredDependabotIgnore(t *testing.T) {
+	extra := `
+[[component]]
+path = "admin"
+stack = "web"
+dependabot_ignore = [
+  { dependency = "typedoc", versions = ["0.29.x"], reason = "crashes on the compiler major", until = "2020-01-01" },
+]
+`
+	hr, pr := auditFixture(t, pbxCompliant, extra)
+	chdir(t, pr)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 4 {
+		t.Fatalf("exit code = %d, want 4\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	// And it must say WHICH one and why, since exit 4 is shared with baseline
+	// violations and expired exclusions.
+	for _, want := range []string{"EXPIRED", "typedoc", "crashes on the compiler major"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report does not mention %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// An in-term ignore clears the gate and prints nothing about itself, which is
+// what makes the escape hatch usable in practice rather than in theory.
+func TestAuditExits0UnderAnInTermDependabotIgnore(t *testing.T) {
+	extra := `
+[[component]]
+path = "admin"
+stack = "web"
+dependabot_ignore = [
+  { dependency = "typedoc", versions = ["0.29.x"], reason = "crashes on the compiler major", until = "2099-01-01" },
+]
+`
+	hr, pr := auditFixture(t, pbxCompliant, extra)
+	chdir(t, pr)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	if strings.Contains(out.String(), "dependabot ignores needing attention") {
+		t.Errorf("a healthy ignore was reported as needing attention:\n%s", out.String())
+	}
+}

@@ -6,14 +6,41 @@
 # somebody remembered, and the point of this file is the manifests nobody is
 # watching.
 #
-# Daily, with no `ignore` or `allow` rules: every update opens a PR. The limit is
-# 20 rather than the default 5 because at five, a repo that falls behind stops
-# opening PRs for the rest and says nothing — the queue looks empty because it is
-# full.
+# Daily, with no `allow` rules: every update is offered. The limit is 20 rather
+# than the default 5 because at five, a repo that falls behind stops opening PRs
+# for the rest and says nothing — the queue looks empty because it is full.
 #
-# Minor and patch updates are GROUPED into one PR per ecosystem; majors stay
-# individual. Grouping is the lever for volume, not `ignore`: it changes how many
-# PRs carry the updates, not which updates are offered.
+# THE POLICY, in one sentence: volume is managed by GROUPING, and the only thing
+# ever withheld is an update that is known to be unmergeable, by name, with a
+# reason and a review date.
+#
+# Those are two different levers and the difference is the whole design:
+#
+#   - `groups` changes how many PRs carry the updates, not which updates are
+#     offered. Minor and patch arrive as one PR per ecosystem; MAJORS stay
+#     individual, because they are the ones that break and a major buried in a
+#     batch of twenty is a major nobody read.
+#   - `ignore` changes which updates are offered at all, and therefore never
+#     appears here as a volume control. It renders only from
+#     [[component]].dependabot_ignore, and only in the shape that mechanism
+#     permits: one named dependency, named version ranges, a required `reason`,
+#     and a required `until`.
+#
+# The `ignore` escape hatch exists because "every update opens a PR" was not
+# quite true — some updates cannot be accepted at all. The measured case: a web
+# component whose docs generator peers at the PREVIOUS major of its compiler and
+# CRASHES on the new one before doing any work. Typecheck, lint and the full test
+# suite pass; only the docs build dies. Dependabot re-proposes it on every
+# upstream release, and each one costs a CI cycle and ends in a close.
+#
+# What keeps that from becoming the thing this policy was written to prevent is
+# that it cannot be written any other way. There is no `update-types` field on a
+# lacquer ignore, wildcards in the dependency name are rejected, and an undated
+# ignore does not load. Past its `until`, `lacquer audit` reports the ignore as
+# expired and exits 4 — so an ignore that outlives its reason comes back for
+# review rather than quietly becoming permanent. Every rendered `ignore` entry
+# below carries its reason and its date as comments, so this file explains its
+# own exceptions without anyone opening .lacquer.toml.
 version: 2
 updates:
 {{DEPENDABOT_UPDATES}}

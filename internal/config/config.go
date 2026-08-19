@@ -671,6 +671,236 @@ type Component struct {
 	// Security updates and shared tooling are different decisions. A project may
 	// legitimately keep its own CI and still want its dependencies watched.
 	Stack string `toml:"stack"`
+	// DependabotIgnore names dependency versions this component cannot accept, and
+	// renders them into the generated .github/dependabot.yml as `ignore` rules.
+	//
+	// It sits on the COMPONENT rather than on [project] because Dependabot's
+	// `ignore` is a property of one update entry, and an update entry is a
+	// (ecosystem, directory) pair — which is exactly what a component renders to.
+	// A project-level list would have to be broadcast to every entry, silencing a
+	// dependency in components that never had the problem.
+	//
+	// The repo-wide github-actions entry has no component and therefore takes no
+	// ignores. That is deliberate and not an oversight: see DependabotIgnore.
+	DependabotIgnore []DependabotIgnore `toml:"dependabot_ignore"`
+}
+
+// DependabotIgnore is one dependency version range this component cannot take.
+//
+// This is the ONE exception to "every update opens a PR", and its shape is built
+// so it cannot become anything else.
+//
+// The policy it carves out of exists because grouping, not silencing, is how PR
+// volume is managed: grouping changes how many PRs carry the updates, `ignore`
+// changes which updates are offered at all. That distinction is worth keeping,
+// and an unconstrained `ignore` key erodes it one convenient entry at a time.
+//
+// But a genuinely unmergeable update is not volume. The measured case: a web
+// component pinned to a docs generator whose newest release peers at the
+// PREVIOUS major of its compiler, and crashes on the new one before doing any
+// work — `TypeError: Cannot read properties of undefined` out of the generator's
+// own entry point. Typecheck, lint and the whole test suite pass under the new
+// compiler; only the docs build dies, which is the job that looks least like the
+// cause. Dependabot re-proposes it on every upstream release, and each one costs
+// a CI cycle and ends in a close. Nothing about that is a volume problem, and
+// grouping does not touch it.
+//
+// Four constraints keep this from decaying into the thing it carves out of, and
+// each is enforced at load:
+//
+//   - `until` is REQUIRED. This is the deliberate divergence from Exclusion,
+//     which permits a permanent, undated entry because a macOS-only app really
+//     does differ from the fleet forever. No incompatibility is like that: it
+//     ends when upstream fixes it, when the pin is dropped, or when the project
+//     accepts the breakage. An ignore that outlives its reason must come back
+//     for review, so there is no undated form to write.
+//   - `reason` is REQUIRED, and it is rendered into the generated YAML as a
+//     comment. A reader of .github/dependabot.yml sees why an update is being
+//     withheld without going to find the manifest.
+//   - There is NO `update_types` field, though Dependabot supports one. That
+//     key is precisely how an ignore becomes volume control — one line hides
+//     every minor and patch in an ecosystem forever. Version ranges name what
+//     is broken; update types name how much noise you want.
+//   - `dependency` is one exact name, wildcards rejected, and every `versions`
+//     entry must contain a digit. Together those mean an ignore can only ever
+//     withhold identified versions of an identified package. `dependency-name:
+//     "*"` — which Dependabot does accept — cannot be written here.
+//
+// Expiry is reported and BLOCKS, exactly as an expired exclusion does; an ignore
+// naming a dependency the component does not declare is reported as stale. See
+// internal/depignore.
+type DependabotIgnore struct {
+	// Dependency is the package name, spelled as its ecosystem spells it:
+	// "typescript", "@scope/pkg", "github.com/owner/mod", "serde_json". It is
+	// rendered as Dependabot's `dependency-name`.
+	Dependency string `toml:"dependency"`
+	// Versions are the ranges to withhold, in the package manager's own range
+	// syntax — npm "7.x" or "^7.0.0", Cargo/Bundler "~> 2.0", Maven "[1.4,)".
+	// Rendered as Dependabot's `versions`.
+	//
+	// Dependabot does not validate these against the ecosystem's grammar, and an
+	// unparseable range does not error: it matches nothing, and the file goes on
+	// looking correct while ignoring nothing. That failure mode is the reason the
+	// rendered output is asserted against Dependabot's schema in a test rather
+	// than eyeballed.
+	Versions []string `toml:"versions"`
+	// Reason is why this cannot be merged. Required, and rendered into the
+	// generated YAML as a comment above the rule.
+	Reason string `toml:"reason"`
+	// Until is the review date, YYYY-MM-DD. Required. Past it, `lacquer audit`
+	// reports the ignore as expired and exits 4.
+	Until string `toml:"until"`
+}
+
+// UntilDate parses Until.
+func (d DependabotIgnore) UntilDate() (time.Time, error) { return time.Parse("2006-01-02", d.Until) }
+
+// depNameVal is one exact package name across every ecosystem this tool renders
+// entries for: npm ("typescript", "@scope/pkg"), Go module paths
+// ("github.com/owner/mod"), Cargo ("serde_json"), and SwiftPM identifiers.
+//
+// "*" is excluded on purpose even though Dependabot accepts it in
+// `dependency-name`. A wildcard turns a named incompatibility into a blanket,
+// and a blanket is the volume control this whole mechanism is written to avoid.
+// The value is also interpolated into generated YAML, so the charset stays
+// closed for the same reason every other rendered value's does.
+var depNameVal = regexp.MustCompile(`^[A-Za-z0-9@][A-Za-z0-9._/+-]*$`)
+
+// depVersionVal is the union of the range syntaxes Dependabot forwards to the
+// package managers: "7.x", "^7.0.0", ">=2.0, <3.0", "~> 2.0", "[1.4,)", "7.*".
+//
+// Deliberately permissive about GRAMMAR — this tool does not know npm's semver
+// dialect from Maven's, and a validator that guessed would reject valid ranges.
+// It is strict about CHARSET, because the value lands inside a generated YAML
+// scalar.
+var depVersionVal = regexp.MustCompile(`^[A-Za-z0-9^~<>=*.,()\[\] +-]+$`)
+
+// hasDigit reports whether s contains a digit.
+//
+// Every real version range does. The ones that do not — "*", "x", "" — are the
+// blanket spellings, and a blanket ignore is not a named incompatibility, it is
+// the ecosystem switched off. Cheap, and it catches what someone would actually
+// type; it is not a proof that no blanket can be expressed (">=0.0.0" would
+// pass), and it is not meant to be one.
+func hasDigit(s string) bool {
+	return strings.ContainsAny(s, "0123456789")
+}
+
+// UnmarshalTOML accepts only the table form with a closed key set.
+//
+// Unlike Exclusion there is no bare-string spelling to stay compatible with:
+// nothing has ever written one of these, so the attributed form is the only
+// form, and a typo'd key is an error rather than a silently dropped field. A
+// dropped `until` would turn a time-boxed ignore into a permanent one, which is
+// the exact decay this type exists to prevent.
+func (d *DependabotIgnore) UnmarshalTOML(v any) error {
+	t, ok := v.(map[string]any)
+	if !ok {
+		return fmt.Errorf("[[component]].dependabot_ignore entry must be a table "+
+			"{ dependency = \"…\", versions = [\"…\"], reason = \"…\", until = \"YYYY-MM-DD\" }, got %T", v)
+	}
+	for key := range t {
+		switch key {
+		case "dependency", "versions", "reason", "until":
+		default:
+			// update_types is named explicitly because it is the one somebody
+			// will reach for, it is real Dependabot syntax, and the generic
+			// "unknown key" message would read as an oversight rather than a
+			// decision.
+			if key == "update_types" || key == "update-types" {
+				return fmt.Errorf("[[component]].dependabot_ignore does not support %q: "+
+					"update types silence a whole class of updates forever, which is what grouping is for. "+
+					"Name the broken versions instead", key)
+			}
+			return fmt.Errorf("unknown [[component]].dependabot_ignore key %q "+
+				"(known keys: dependency, versions, reason, until)", key)
+		}
+	}
+	str := func(key string) (string, error) {
+		raw, ok := t[key]
+		if !ok {
+			return "", nil
+		}
+		s, ok := raw.(string)
+		if !ok {
+			return "", fmt.Errorf("[[component]].dependabot_ignore %s must be a string, got %T", key, raw)
+		}
+		return s, nil
+	}
+	var err error
+	if d.Dependency, err = str("dependency"); err != nil {
+		return err
+	}
+	if d.Reason, err = str("reason"); err != nil {
+		return err
+	}
+	if d.Until, err = str("until"); err != nil {
+		return err
+	}
+	if raw, ok := t["versions"]; ok {
+		list, ok := raw.([]any)
+		if !ok {
+			return fmt.Errorf("[[component]].dependabot_ignore versions must be an array of strings, got %T", raw)
+		}
+		for _, item := range list {
+			s, ok := item.(string)
+			if !ok {
+				return fmt.Errorf("[[component]].dependabot_ignore versions must be an array of strings, got a %T element", item)
+			}
+			d.Versions = append(d.Versions, s)
+		}
+	}
+	return nil
+}
+
+// validateDependabotIgnore checks one entry's shape. Every field is required:
+// a half-written entry is a decision nobody can review, and — unlike a
+// half-written exclusion, which merely fails to exclude — a half-written ignore
+// renders a rule that silently matches nothing while the file looks configured.
+func validateDependabotIgnore(comp string, d DependabotIgnore) error {
+	where := fmt.Sprintf("component %q: dependabot_ignore", comp)
+	if d.Dependency == "" {
+		return fmt.Errorf("%s entry needs a dependency", where)
+	}
+	if !depNameVal.MatchString(d.Dependency) {
+		if strings.Contains(d.Dependency, "*") {
+			return fmt.Errorf("%s %q must name ONE dependency; a wildcard makes it a blanket, "+
+				"and blanket silencing is what this deliberately cannot express", where, d.Dependency)
+		}
+		return fmt.Errorf("%s %q is not a valid dependency name (must match %s)", where, d.Dependency, depNameVal.String())
+	}
+	if strings.TrimSpace(d.Reason) == "" {
+		// Same standard as [baseline.relax] and an attributed exclusion. Six
+		// months from now the reason is the only thing anyone wants to know, and
+		// it is rendered into the generated file where the reader already is.
+		return fmt.Errorf("%s %q needs a reason (it is rendered into .github/dependabot.yml, "+
+			"where the next reader of that file will be)", where, d.Dependency)
+	}
+	if d.Until == "" {
+		// The divergence from [project].exclude, which permits an undated
+		// permanent entry. An incompatibility is not a permanent divergence; it
+		// ends when upstream ships, when the pin is dropped, or when the project
+		// takes the breakage. Without a date nobody ever asks which happened.
+		return fmt.Errorf("%s %q needs an until date (YYYY-MM-DD); an ignore with no term never "+
+			"comes back for review, and \"every update opens a PR\" quietly stops being true", where, d.Dependency)
+	}
+	if _, err := d.UntilDate(); err != nil {
+		return fmt.Errorf("%s %q has an invalid until %q (want YYYY-MM-DD)", where, d.Dependency, d.Until)
+	}
+	if len(d.Versions) == 0 {
+		return fmt.Errorf("%s %q needs at least one versions entry; an ignore with no versions "+
+			"withholds the dependency entirely, forever", where, d.Dependency)
+	}
+	for _, v := range d.Versions {
+		if !depVersionVal.MatchString(v) {
+			return fmt.Errorf("%s %q has an invalid versions entry %q (must match %s)", where, d.Dependency, v, depVersionVal.String())
+		}
+		if !hasDigit(v) {
+			return fmt.Errorf("%s %q has a versions entry %q with no version in it; "+
+				"name the releases that are broken, not every release", where, d.Dependency, v)
+		}
+	}
+	return nil
 }
 
 // Baseline is a project's stance on the lacquer-owned project baseline. A project
@@ -869,6 +1099,26 @@ func Load(path string) (*Config, error) {
 		// closed rather than free-form.
 		if c.Stack != "" && !knownStacks[c.Stack] {
 			return nil, fmt.Errorf("component %q: unknown stack %q (known: %s)", c.Path, c.Stack, knownStackList())
+		}
+		// Shape only, and loudly. Whether an ignore has EXPIRED is an audit-time
+		// question for the same reason a dated exclusion's is: Load runs inside
+		// `sync` and `fix`, and a manifest that will not load is a manifest whose
+		// own repair tooling is unavailable. An expired ignore must fail CI, not
+		// lock the project out of the command that renews or removes it.
+		seenDep := map[string]bool{}
+		for _, d := range c.DependabotIgnore {
+			if err := validateDependabotIgnore(c.Path, d); err != nil {
+				return nil, err
+			}
+			// Two entries for one dependency render two `dependency-name` rules
+			// in the same `ignore` list. Dependabot takes the union, so the
+			// narrower one is invisible — including its reason and its date,
+			// which is how an ignore outlives the term somebody wrote for it.
+			if seenDep[d.Dependency] {
+				return nil, fmt.Errorf("component %q: dependabot_ignore names %q twice; "+
+					"the rules merge, so one entry's until date silently stops meaning anything", c.Path, d.Dependency)
+			}
+			seenDep[d.Dependency] = true
 		}
 	}
 	return &cfg, nil
