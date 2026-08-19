@@ -2,6 +2,15 @@ name: Dead Code Analysis
 
 on:
   schedule:
+    # Monday. quality-review.yml deliberately sits on Wednesday rather than
+    # sharing this slot — see the reasoning there. Both are self-hosted macOS
+    # jobs of roughly half an hour and the fleet has one Mac, so the day they
+    # run on is what decides how long the queue is.
+    #
+    # Still the same minute in all ~12 iOS repositories, because the cron is a
+    # literal in a shipped template. Spreading them apart from each other needs
+    # a per-project token; internal/tokens has none, and this change does not
+    # add one.
     - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
   workflow_dispatch:
 
@@ -24,8 +33,50 @@ jobs:
 
       - name: Run Periphery
         run: |
+          set -euo pipefail
           cd {{COMPONENT_PREFIX}}.
-          periphery scan --config .periphery.yml --format json > periphery-report.json || true
+
+          # This step used to end in "|| true", writing straight onto the
+          # artifact path. The two together made the whole job unfailable, and
+          # core/CLAUDE.core.md bans the first for exactly this: the redirect
+          # CREATES periphery-report.json before periphery has run, so a scan
+          # that dies still leaves a file behind, the "is the report missing"
+          # guard below never fires, and jq on the wreckage reports zero.
+          #
+          # Measured against periphery 3.8 with the shipped config, all three
+          # shapes of a failed scan reported GREEN: an unresolvable project:
+          # (exit 1, EMPTY stdout) printed "Found **** unused declarations",
+          # and a partial write or a prose error on stdout printed
+          # "No dead code found!". Thirty Mac-minutes a week, per repository,
+          # to reach a conclusion the scan never supported.
+          #
+          # So: a separate .part file, an explicit exit code, and no swallowing.
+          rm -f periphery-report.json periphery-report.json.part
+
+          # An "if" condition, not "|| true": under set -e this is the one form
+          # that reads the status without discarding it.
+          if periphery scan --config .periphery.yml --format json > periphery-report.json.part; then
+            rc=0
+          else
+            rc=$?
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::periphery scan exited $rc. This is a FAILED scan, not a clean one — see the log above for what periphery could not do."
+            exit "$rc"
+          fi
+
+          # Exit 0 is necessary and not sufficient. periphery warns rather than
+          # fails on a config key it does not recognise, and a scan that indexed
+          # nothing can still exit 0 with output jq cannot read as findings. The
+          # only report worth believing is a JSON array, so demand one here
+          # rather than letting the counting step interpret rubble.
+          if ! jq -e 'type == "array"' periphery-report.json.part > /dev/null; then
+            echo "::error::periphery exited 0 but did not emit a JSON array. The scan produced no usable report, which is a failure and must not be read as zero dead code."
+            head -c 400 periphery-report.json.part
+            exit 1
+          fi
+
+          mv periphery-report.json.part periphery-report.json
 
       - name: Upload Report
         uses: actions/upload-artifact@v7.0.1
@@ -37,17 +88,31 @@ jobs:
       - name: Analyze Results
         id: analyze
         run: |
+          set -euo pipefail
           cd {{COMPONENT_PREFIX}}.
+
+          # Fail closed. The scan step only leaves this file behind when the
+          # scan SUCCEEDED and emitted a JSON array, so its absence here cannot
+          # mean "there is no dead code" — it means something went wrong between
+          # the two steps. Answering count=0 to that, which is what this branch
+          # used to do, is the same silent green the scan step's "|| true" gave.
           if [ ! -f periphery-report.json ]; then
-            {
-              echo "count=0"
-              echo "has_dead_code=false"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::periphery-report.json is missing after a scan that reported success. Nothing was counted; this is not a clean result."
+            exit 1
           fi
 
-          # Count total issues
-          COUNT=$(jq 'length' periphery-report.json 2>/dev/null || echo "0")
+          # No "2>/dev/null || echo 0". That turned every way jq can fail — a
+          # truncated report, a schema change, jq missing from the runner — into
+          # "no dead code found", and hid the tool's own error message while
+          # doing it. core/CLAUDE.core.md calls suppressing stderr the most
+          # dangerous of these precisely because it hides the TOOL failing.
+          COUNT=$(jq 'length' periphery-report.json)
+          case "$COUNT" in
+            '' | *[!0-9]*)
+              echo "::error::jq reported a count of '$COUNT', which is not a number. The report could not be counted, so no conclusion about dead code is available."
+              exit 1
+              ;;
+          esac
           {
             echo "count=$COUNT"
             if [ "$COUNT" -gt "0" ]; then

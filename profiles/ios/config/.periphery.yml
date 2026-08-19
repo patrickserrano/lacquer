@@ -1,14 +1,57 @@
-project: "{{PROJECT_NAME}}.xcodeproj"
+# Read by the Dead Code Analysis workflow, which runs `periphery scan` from THIS
+# directory (the component root), so every path here is relative to it.
+
+# {{XCODEPROJ}} is the declared, repo-relative path to the project, joined back
+# through {{COMPONENT_TO_ROOT}} because periphery resolves this against its own
+# working directory and this file is read from inside the component. Measured on
+# periphery 3.8: `project: "../ios/App.xcodeproj"` from `ios/` resolves to
+# `ios/App.xcodeproj`.
+#
+# It used to be "{{PROJECT_NAME}}.xcodeproj" — derived, and wrong for two whole
+# layouts this fleet has: a project nested below its config directory, and any
+# repo whose project file is not named after [project].name. A derived path that
+# misses exits 1 with "The project cannot be found at …", which the workflow's
+# former `|| true` then reported as zero dead code. The declared value cannot
+# miss.
+project: "{{COMPONENT_TO_ROOT}}/{{XCODEPROJ}}"
+
+# The scheme decides what is scanned. Periphery 3 builds these schemes and scans
+# every target they build, test targets included (there is an --exclude-tests
+# opt-out, and this deliberately does not take it: a declaration used only by
+# tests is still used).
 schemes:
   - "{{SCHEME}}"
-targets:
-  - "{{PROJECT_NAME}}"
-  - "{{PROJECT_NAME}}Tests"
+
+# There is deliberately no `targets:` key. It was
+#
+#   targets:
+#     - "{{PROJECT_NAME}}"
+#     - "{{PROJECT_NAME}}Tests"
+#
+# and it was two separate defects at once. Periphery 3 REMOVED the option, so the
+# key is not merely unused — it is rejected: "warning: .periphery.yml: invalid
+# key 'targets'" (measured, periphery 3.8). And the values were derived from
+# [project].name, which profiles/ios/CLAUDE.ios.md documents as the wrong source:
+# a scheme and its built product genuinely differ in this fleet, which is why
+# `app_target` is a declared field rather than a computed one. A target name that
+# matches nothing scans nothing.
+#
+# Nothing replaces it because nothing needs to: `schemes:` above already selects
+# the targets, from a value the manifest declares.
 
 retain_public: true
 retain_objc_accessible: true
 retain_unused_protocol_func_params: true
 
-exclude:
-  - "{{PROJECT_NAME}}/Generated/**"
+# `report_exclude`, not `exclude`. `exclude` is not a periphery key at all — it
+# drew "warning: .periphery.yml: invalid key 'exclude'" on every scan and
+# filtered nothing, so generated code and previews have been reported as dead
+# this whole time.
+#
+# The globs are layout-independent for the same reason .swiftlint.yml has no
+# `included` allowlist: a guessed source-directory name ("{{PROJECT_NAME}}/")
+# does not match projects that keep sources in App/, Sources/, or a package, and
+# a filter that matches nothing fails silently.
+report_exclude:
+  - "**/Generated/**"
   - "**/*+Preview.swift"

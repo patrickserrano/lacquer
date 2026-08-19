@@ -2,7 +2,21 @@ name: Scheduled Quality Review
 
 on:
   schedule:
-    - cron: "0 9 * * 1" # Mondays at 09:00 UTC
+    # Wednesday, not Monday — and the day is the whole point.
+    #
+    # This and dead-code.yml were both "0 9 * * 1". They are the two heaviest
+    # scheduled jobs in the profile, they both want [self-hosted, macOS], and
+    # there is ONE such runner for the whole fleet. Across ~12 iOS repositories
+    # that is 24 heavy jobs demanding one Mac at the same instant every Monday
+    # morning, which the runner can only answer by serialising them — so the
+    # last repository's review started hours after the annotation it produces
+    # stopped being timely, and Monday's CI and releases queued behind all of it.
+    #
+    # Splitting by DAY rather than by hour, because the constraint is total Mac
+    # time and not the start instant: each of these is ~30 minutes per
+    # repository, so a shared day is ~12 hours of serial Mac and two days is ~6
+    # hours each.
+    - cron: "0 9 * * 3" # Wednesdays at 09:00 UTC
   workflow_dispatch:
 
 jobs:
