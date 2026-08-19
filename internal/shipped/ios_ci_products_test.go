@@ -645,8 +645,14 @@ func TestIOSCITestJobShellParses(t *testing.T) {
 					t.Fatal(err)
 				}
 				out, err := exec.Command("bash", "-n", f.Name()).CombinedOutput()
-				if err != nil {
-					t.Errorf("the %q step is not valid shell: %v\n%s\n--- script ---\n%s",
+				// Output as well as exit status. `bash -n` exits 0 on a heredoc
+				// delimited by end-of-file and only WARNS — and that is the worst
+				// case here, not a benign one: a misspelled terminator makes the
+				// heredoc swallow the rest of the step, including the `exit 1`
+				// that fails the job. A check that reads only the exit status
+				// would call that valid.
+				if err != nil || len(out) > 0 {
+					t.Errorf("the %q step is not clean shell: %v\n%s\n--- script ---\n%s",
 						st.Name, err, out, st.Run)
 				}
 			}
