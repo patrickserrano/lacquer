@@ -631,6 +631,20 @@ func TestPrecommitRunsTheSameSelectorsAsCI(t *testing.T) {
 	if got := render(soloConfig()); !strings.Contains(got, `"-only-testing:DemoTests" -quiet`) {
 		t.Errorf("the hook's selector list changed for a project with no extra_test_targets")
 	}
+	// Including when a product declares a test_target that differs from it. The
+	// hook has always run <project_name>Tests and the extras are ADDITIVE; making
+	// the base follow test_target may well be right, but it would rewrite this
+	// file in every repository that has one, which is a different change with a
+	// different blast radius.
+	custom := soloConfig()
+	custom.Product = []config.Product{{
+		Name: "Demo", Scheme: "Demo", BundleID: "com.x.demo", AscAppID: "1",
+		TestTarget: "DemoUnitTests",
+	}}
+	if got := render(custom); !strings.Contains(got, `"-only-testing:DemoTests" -quiet`) {
+		t.Errorf("the hook's base selector now follows test_target — a behaviour change shipped to "+
+			"every repo by a change that was meant to be additive:\n%s", hookLine(t, got))
+	}
 
 	got := render(withExtras())
 	for _, want := range []string{`"-only-testing:DemoTests"`, `"-only-testing:CoreKitTests"`, `"-only-testing:Feature KitTests"`} {
