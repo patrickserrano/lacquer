@@ -38,11 +38,12 @@ import (
 // codebase, a Swift package with no Xcode project.
 //
 // Those are not exotic. Every one of them is a shape that has already broken:
-// biome refused to start in a component directory because a synced config
-// pointed its VCS root one level above the repository; a Dependabot entry
-// rendered for an iOS component with no committed Package.resolved aborted the
-// whole update run daily in three repositories; two projects forked the release
-// workflow to ship a second app and one of them fell 247 versions behind.
+// biome refused to start in every nested web component, because a synced config
+// asked it for an ignore file relative to its own folder and the only .gitignore
+// was at the repo root; a Dependabot entry rendered for an iOS component with no
+// committed Package.resolved aborted the whole update run daily in three
+// repositories; two projects forked the release workflow to ship a second app,
+// and one of them fell 247 versions behind maintaining the copy.
 //
 // This file covers two populations, and they fail differently on purpose:
 //
