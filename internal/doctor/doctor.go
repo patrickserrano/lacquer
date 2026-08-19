@@ -29,7 +29,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -68,6 +70,31 @@ type Probe struct {
 	// Expect is "fail" (the usual case: known-bad input must be rejected) or
 	// "pass" (the command must succeed, e.g. a tool exists and runs).
 	Expect string `toml:"expect"`
+	// ExpectOutput is a regular expression that must match the command's
+	// combined output. It is what makes expect="fail" an assertion about WHY
+	// the command failed rather than merely THAT it did.
+	//
+	// An exit status is one bit, and every way a probe can go wrong sets it:
+	// a config that will not parse, a binary that is not there, a script with a
+	// syntax error, exit 127, a tool that aborted before it ever read the
+	// fixture. All of those look exactly like "the check correctly rejected the
+	// bad input". `Requires` closes the missing-tool case only; it says nothing
+	// about the tool that ran and then gave up early, which is the failure this
+	// package shipped twice in the web profile — three times counting the core
+	// probes that ran `bash {component}/scripts/check-secrets.sh` and would have
+	// reported all five green had that script been deleted.
+	//
+	// So a probe names the diagnostic only its INTENDED failure produces: the
+	// rule id, the specific message, the file the tool says it rejected. A
+	// pattern loose enough to match any error output rebuilds the hole one layer
+	// up, which is why the shipped set is held to that in doctor_test.go.
+	//
+	// It applies to expect="pass" too, and for the same reason: exit 0 is also
+	// one bit. A shell probe can reach it by never running the tool, by a
+	// swallowed `|| true`, or — the case the web deprecation probe shipped — by
+	// an inverted pipeline where any non-deprecation failure produced no output,
+	// grep found nothing, and `!` turned that into success.
+	ExpectOutput string `toml:"expect_output"`
 }
 
 type probeFile struct {
@@ -115,6 +142,9 @@ func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 		case "fail", "pass":
 		default:
 			return nil, fmt.Errorf("%s: probe %q has expect=%q, want \"fail\" or \"pass\"", path, p.Name, p.Expect)
+		}
+		if _, err := compileExpectOutput(p.ExpectOutput); err != nil {
+			return nil, fmt.Errorf("%s: probe %q: %w", path, p.Name, err)
 		}
 	}
 	return f.Probe, nil
@@ -271,25 +301,67 @@ func runProbe(p Probe, compPath, profile, compDir string) Result {
 
 	switch p.Expect {
 	case "fail":
-		if failed {
-			r.OK = true
+		if !failed {
+			r.Detail = "the check PASSED on deliberately broken input — it is not verifying what it claims to"
+			if s := firstLine(output); s != "" {
+				r.Detail += "\n        tool said: " + s
+			}
 			return r
-		}
-		r.Detail = "the check PASSED on deliberately broken input — it is not verifying what it claims to"
-		if s := firstLine(output); s != "" {
-			r.Detail += "\n        tool said: " + s
 		}
 	case "pass":
-		if !failed {
-			r.OK = true
+		if failed {
+			r.Detail = fmt.Sprintf("expected success, got %v", runErr)
+			if s := firstLine(output); s != "" {
+				r.Detail += "\n        tool said: " + s
+			}
 			return r
 		}
-		r.Detail = fmt.Sprintf("expected success, got %v", runErr)
-		if s := firstLine(output); s != "" {
-			r.Detail += "\n        tool said: " + s
-		}
 	}
+
+	// The exit status came out the way the probe expects. That is one bit, and
+	// on its own it does not say the tool ever reached the fixture — so a probe
+	// may also name the diagnostic its intended outcome produces.
+	re, err := compileExpectOutput(p.ExpectOutput)
+	if err != nil {
+		// Unreachable via LoadProbes, which rejects this at load. Kept because
+		// the alternative to failing here is passing here, and a probe whose
+		// assertion could not be evaluated has proved nothing.
+		r.Detail = fmt.Sprintf("this probe's expect_output could not be used: %v", err)
+		return r
+	}
+	if re == nil || re.Match(output) {
+		r.OK = true
+		return r
+	}
+	if p.Expect == "fail" {
+		r.Detail = fmt.Sprintf("the command failed, but NOT for the reason this probe asserts:"+
+			" its output never matched %s.\n        A check that aborts before it reads the fixture"+
+			" also exits non-zero, and that is not evidence the check works.", strconv.Quote(p.ExpectOutput))
+	} else {
+		r.Detail = fmt.Sprintf("the command succeeded, but NOT by doing what this probe asserts:"+
+			" its output never matched %s.", strconv.Quote(p.ExpectOutput))
+	}
+	r.Detail += excerpt(output)
 	return r
+}
+
+// compileExpectOutput turns a probe's pattern into a matcher, or nil when the
+// probe declares none. A pattern that matches empty output is refused: it would
+// accept a command that printed nothing at all, which is the silent pass the
+// field exists to prevent.
+func compileExpectOutput(pattern string) (*regexp.Regexp, error) {
+	if pattern == "" {
+		return nil, nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("expect_output is not a valid regexp: %w", err)
+	}
+	if re.MatchString("") {
+		return nil, fmt.Errorf("expect_output %s matches empty output, so it would accept a command that printed nothing;"+
+			" name the diagnostic the intended failure actually produces", strconv.Quote(pattern))
+	}
+	return re, nil
 }
 
 // missingTool returns a human-readable finding when req is unavailable, or "".
@@ -319,6 +391,32 @@ func Failures(rs []Result) []Result {
 		if !r.OK {
 			out = append(out, r)
 		}
+	}
+	return out
+}
+
+// excerpt renders what the command actually said, so a reader diagnosing an
+// expect_output miss can see the gap between the assertion and reality. A first
+// line alone is not enough here: the interesting diagnostic is usually further
+// down, and several tools open with a blank line.
+func excerpt(b []byte) string {
+	const max = 8
+	var kept []string
+	for _, ln := range strings.Split(string(b), "\n") {
+		if ln = strings.TrimRight(ln, " \t\r"); strings.TrimSpace(ln) == "" {
+			continue
+		}
+		kept = append(kept, ln)
+		if len(kept) == max {
+			break
+		}
+	}
+	if len(kept) == 0 {
+		return "\n        the command printed nothing at all"
+	}
+	out := "\n        it said:"
+	for _, ln := range kept {
+		out += "\n          " + ln
 	}
 	return out
 }

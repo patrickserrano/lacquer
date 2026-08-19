@@ -1,33 +1,114 @@
 # Self-tests for the supabase profile — see profiles/ios/doctor.toml for the
-# contract: every probe feeds KNOWN-BAD input and asserts the check rejects it.
+# contract: every probe feeds KNOWN-BAD input and asserts the check rejects it,
+# and every expect="fail" probe names the diagnostic that rejection produces.
+#
+# These probes used to run bare `deno fmt --check {dir}` with no config at all,
+# while ios and web probes all pointed at the synced config. So they proved that
+# DENO'S BUILT-IN DEFAULTS reject bad input — which they do, and which nothing in
+# this repo controls. The shipped deno.jsonc was covered by nothing: delete it
+# and all three still passed.
+#
+# Two changes fix that. The config is copied into the scratch directory and the
+# fixture is staged under supabase/functions/, so `deno fmt --check` and
+# `deno lint` run with NO path argument — byte for byte the command in
+# supabase/workflows/ci.yml and root/lefthook.yml, discovering ./deno.jsonc the
+# same way and resolving its `include` globs the same way. An explicit path
+# argument, which is what these probes used to pass, overrides `include`
+# entirely and would not notice that glob going wrong.
+#
+# And the assertions are written against something only the SHIPPED config
+# produces. `fmt.lineWidth` is 100 where Deno's default is 80, so the fixture
+# carries an 86-character line: the config under test leaves it alone, Deno's
+# default wraps it. The expected diff is therefore proof the file was loaded,
+# not merely that some formatter ran.
+#
+# NO_COLOR is exported because deno colours its output even when stdout is not a
+# terminal, and the escape sequences land in the middle of the text an assertion
+# has to match.
 
 [[probe]]
-name = "deno fmt --check rejects unformatted code"
+name = "deno fmt --check rejects unformatted code, under the shipped deno.jsonc"
 why = """
 Reported as 'not enforced'. It was in fact wired into both lefthook and CI; the
 project had simply drifted. This probe makes the wiring provable rather than
 arguable.
+
+It proves three separate things, and each was losable on its own: that
+`deno fmt --check` rejects badly formatted code at all; that deno.jsonc's
+`fmt.include` still points at supabase/functions/, since the fixture is found
+with no path argument; and that `fmt.lineWidth` is in force, since the
+86-character `wide` line survives formatting unwrapped. Under Deno's default
+width of 80 that line comes back split across three lines and the assertion goes
+red — which is exactly what a lost or ignored deno.jsonc looks like.
 """
 file = "probe.ts"
-content = "export   const  probe =    1\n"
-argv = ["deno", "fmt", "--check", "{dir}"]
+content = """
+export   const  probe =    1
+export const wide = (alpha: number, bravo: number): number  =>   alpha + bravo + 1234567;
+"""
+requires = ["deno"]
+argv = ["sh", "-c", """
+set -eu
+export NO_COLOR=1
+cd {dir}
+cp {component}/deno.jsonc ./deno.jsonc || { echo "doctor: this component ships no deno.jsonc to prove"; exit 1; }
+mkdir -p supabase/functions
+mv probe.ts supabase/functions/probe.ts
+exec deno fmt --check
+"""]
 expect = "fail"
+expect_output = '(?s)supabase/functions/probe\.ts.*\+export const wide = \(alpha: number, bravo: number\): number => alpha \+ bravo \+ 1234567;'
 
 [[probe]]
-name = "deno lint rejects a lint violation"
-why = "A lint step that accepts anything is indistinguishable from no step."
+name = "deno lint rejects a lint violation, under the shipped deno.jsonc"
+why = """
+A lint step that accepts anything is indistinguishable from no step.
+
+deno.jsonc's `lint.rules.tags` is ["recommended"], which is also Deno's default,
+so this probe cannot distinguish the config from the defaults the way the fmt
+probe can. What it does hold is the two things that ARE the config's: that
+`lint.include` still reaches supabase/functions/ (the fixture is found with no
+path argument), and that nothing has been added to `lint.rules.exclude` that
+switches the recommended set off — asserting the rule id by name is what makes
+that visible, rather than accepting any non-zero exit.
+"""
 file = "probe.ts"
 content = "export function probe() { var x = 1; return x; }\n"
-argv = ["deno", "lint", "{dir}"]
+requires = ["deno"]
+argv = ["sh", "-c", """
+set -eu
+export NO_COLOR=1
+cd {dir}
+cp {component}/deno.jsonc ./deno.jsonc || { echo "doctor: this component ships no deno.jsonc to prove"; exit 1; }
+mkdir -p supabase/functions
+mv probe.ts supabase/functions/probe.ts
+exec deno lint
+"""]
 expect = "fail"
+expect_output = '(?s)error\[no-var\].*supabase/functions/probe\.ts'
 
 [[probe]]
 name = "deno doc --lint rejects an undocumented export"
 why = """
 This is the whole documentation gate for Edge Functions. Scoped to _shared/, it
 was silently a no-op in one project because that directory did not exist yet.
+
+Unlike the two probes above, this one does NOT pass deno.jsonc, and cannot:
+`deno doc` has no --config flag (checked against deno 2.9.4 — passing one makes
+deno treat "--config" as a module specifier and fail with "Module not found",
+which is a failure that would have satisfied a bare expect="fail"). CI and
+lefthook invoke it the same way, with explicit file arguments and no config, so
+there is nothing here for deno.jsonc to govern. The assertion names the
+documentation diagnostic instead, which is what separates "the gate rejected an
+undocumented export" from "deno could not load the module at all".
 """
 file = "probe.ts"
 content = "export function undocumentedProbe(): number { return 1; }\n"
-argv = ["deno", "doc", "--lint", "{dir}/probe.ts"]
+requires = ["deno"]
+argv = ["sh", "-c", """
+set -eu
+export NO_COLOR=1
+exec deno doc --lint {dir}/probe.ts
+"""]
 expect = "fail"
+expect_output = '(?s)error\[missing-jsdoc\].*exported symbol is missing JSDoc documentation.*probe\.ts'
