@@ -36,9 +36,17 @@ point of the `git check-ignore` assertions is that the *shipped* region is what
 ignores `*.p8`, `Secrets.xcconfig` and `.env`, and a fixture that ignored them
 itself would make those assertions pass for the wrong reason.
 
-`project.pbxproj` files are trimmed to a structurally recognisable stub. A real
-one runs to thousands of lines and nothing in the lacquer reads past the
-directory name; a full copy would be noise a reader has to scroll through.
+`project.pbxproj` files are trimmed, but not to a stub. A real one runs to
+thousands of lines of object graph and a full copy would be noise, so these keep
+only the objects the lacquer reads — and they keep *all* of them. The
+`XCBuildConfiguration` blocks are the part that matters: `internal/baseline`
+scans them for the settings the shipped standard asserts (Swift language mode,
+warnings-as-errors, strict concurrency) and reports coverage as "n of m
+Swift-compiling configurations". A pbxproj with no build settings yields m = 0,
+which reads as "this component compiles no Swift", and every baseline assertion
+then passes having looked at nothing. That was the state of these fixtures until
+a mutation test — moving the asserted Swift version to one nothing declares —
+went green.
 
 ## Changing one
 
