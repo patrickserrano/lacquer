@@ -418,7 +418,7 @@ func CITestStrategy(products []config.Product) string {
 	if !multi(products) {
 		return ""
 	}
-	anyExtra := anyExtra(products)
+	hasExtras := anyExtra(products)
 	var b strings.Builder
 	b.WriteString("\n    # One leg per shippable app, GENERATED from [[product]]. A paid and a free")
 	b.WriteString("\n    # variant compile DIFFERENT test bundles, so testing one target is not a")
@@ -448,7 +448,7 @@ func CITestStrategy(products []config.Product) string {
 		// separator as \n, which YAML unescapes). Target names may contain spaces
 		// and may not contain newlines, so this is the one separator that cannot
 		// appear inside a value and split a target in half.
-		if anyExtra {
+		if hasExtras {
 			fmt.Fprintf(&b, "\n            extra_test_targets: %q", strings.Join(p.ExtraTestTargets, "\n"))
 		}
 		fmt.Fprintf(&b, "\n            app_target: %q", p.AppTargetName())
@@ -459,7 +459,7 @@ func CITestStrategy(products []config.Product) string {
 	b.WriteString("\n      PRODUCT_SLUG: ${{ matrix.product.artifact }}")
 	b.WriteString("\n      TEST_TARGET: ${{ matrix.product.test_target }}")
 	b.WriteString("\n      UI_TEST_TARGET: ${{ matrix.product.ui_test_target }}")
-	if anyExtra {
+	if hasExtras {
 		b.WriteString("\n      EXTRA_TEST_TARGETS: ${{ matrix.product.extra_test_targets }}")
 	}
 	b.WriteString("\n      APP_TARGET: ${{ matrix.product.app_target }}")
