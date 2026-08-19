@@ -334,6 +334,28 @@ func validateSyncedProject(t *testing.T, p *project) {
 		if n := baseline.Blocking(reports); n > 0 {
 			t.Errorf("exit 4: %d blocking baseline finding(s):\n%s", n, baseline.FormatReports(reports))
 		}
+		// And the baseline actually LOOKED. Check returns no findings at all when
+		// it can see no Swift-compiling configuration, so a pbxproj carrying no
+		// build settings makes every baseline assertion pass without reading
+		// anything — the exact vacuous green this package exists to catch. A
+		// report that is explicitly Unchecked is fine (it says so out loud); a
+		// silently empty one is not.
+		for _, r := range reports {
+			if r.Unchecked != "" {
+				continue
+			}
+			var looked bool
+			for _, f := range r.Findings {
+				if f.Total > 0 {
+					looked = true
+					break
+				}
+			}
+			if !looked {
+				t.Errorf("the %s baseline reported nothing for component %q and did not say it was unchecked — "+
+					"it found no Swift-compiling build configuration, so it verified nothing", r.Profile, r.Component)
+			}
+		}
 
 		// Exit 4, second spelling: an exclusion whose term ran out, or one that
 		// suppresses a path the lacquer no longer ships.
@@ -1148,6 +1170,93 @@ type newProjectCase struct {
 	long bool
 }
 
+// newXcodeproj is the project.pbxproj the from-scratch matrix writes as its iOS
+// marker.
+//
+// Not a one-line stub, and the difference is load-bearing. internal/baseline
+// scans this file for the build settings the shipped standard asserts, and
+// reports coverage as "n of m Swift-compiling configurations". A file with no
+// XCBuildConfiguration in it yields m = 0, which Check reads as "this component
+// compiles no Swift" — so every baseline assertion passes having looked at
+// nothing. A project Xcode actually created has these settings; a fixture that
+// omits them is testing a repository that does not exist.
+const newXcodeproj = `// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXProject section */
+		AA00000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			buildConfigurationList = AA00000000000000000010 /* Build configuration list for PBXProject "Acme" */;
+			compatibilityVersion = "Xcode 15.0";
+			targets = (
+				AA00000000000000000002 /* Acme */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin XCConfigurationList section */
+		AA00000000000000000010 /* Build configuration list for PBXProject "Acme" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00000000000000000020 /* Debug */,
+				AA00000000000000000021 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+		};
+		AA00000000000000000011 /* Build configuration list for PBXNativeTarget "Acme" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00000000000000000030 /* Debug */,
+				AA00000000000000000031 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCBuildConfiguration section */
+		AA00000000000000000020 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AA00000000000000000021 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		AA00000000000000000030 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		AA00000000000000000031 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+	};
+	rootObject = AA00000000000000000001 /* Project object */;
+}
+`
+
 // A NEW PROJECT MUST ALWAYS WORK.
 //
 // Every stack on its own, then every combination of them that a repository in
@@ -1162,7 +1271,7 @@ var newProjectCases = []newProjectCase{
 		name:         "ios",
 		stack:        "ios",
 		wantProfiles: []string{"ios"},
-		markers:      map[string]string{"Acme.xcodeproj/project.pbxproj": "// trimmed\n"},
+		markers:      map[string]string{"Acme.xcodeproj/project.pbxproj": newXcodeproj},
 	},
 	{
 		name:         "web",
@@ -1187,7 +1296,7 @@ var newProjectCases = []newProjectCase{
 		stack:        "ios-web",
 		wantProfiles: []string{"ios", "web"},
 		markers: map[string]string{
-			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
+			"ios/Acme.xcodeproj/project.pbxproj": newXcodeproj,
 			"web/package.json":                   "{ \"name\": \"acme-web\", \"packageManager\": \"pnpm@10.20.0\" }\n",
 		},
 		long: true,
@@ -1197,7 +1306,7 @@ var newProjectCases = []newProjectCase{
 		stack:        "ios-supabase",
 		wantProfiles: []string{"ios", "supabase"},
 		markers: map[string]string{
-			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
+			"ios/Acme.xcodeproj/project.pbxproj": newXcodeproj,
 			"server/supabase/config.toml":        "project_id = \"acme\"\n[api]\nenabled = true\n",
 		},
 		long: true,
@@ -1220,7 +1329,7 @@ var newProjectCases = []newProjectCase{
 		stack:        "ios-web-supabase",
 		wantProfiles: []string{"ios", "supabase", "web"},
 		markers: map[string]string{
-			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
+			"ios/Acme.xcodeproj/project.pbxproj": newXcodeproj,
 			"web/package.json":                   "{ \"name\": \"acme-web\", \"packageManager\": \"pnpm@10.20.0\" }\n",
 			"server/supabase/config.toml":        "project_id = \"acme\"\n[api]\nenabled = true\n",
 		},
@@ -1236,7 +1345,7 @@ var newProjectCases = []newProjectCase{
 		stack:        "",
 		wantProfiles: []string{"ios", "supabase"},
 		markers: map[string]string{
-			"Acme.xcodeproj/project.pbxproj": "// trimmed\n",
+			"Acme.xcodeproj/project.pbxproj": newXcodeproj,
 			"supabase/config.toml":           "project_id = \"acme\"\n[api]\nenabled = true\n",
 		},
 		long: true,
@@ -1254,7 +1363,7 @@ var newProjectCases = []newProjectCase{
 		stack:        "ios-supabase",
 		wantProfiles: []string{"ios", "supabase"},
 		markers: map[string]string{
-			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
+			"ios/Acme.xcodeproj/project.pbxproj": newXcodeproj,
 		},
 		wantComponents: []string{"ios", "server"},
 		wantFiles:      []string{"server/deno.jsonc", "server/CLAUDE.md"},
@@ -1386,7 +1495,7 @@ func TestDoctorSurvivesAProjectPathWithASpace(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "Acme.xcodeproj"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "Acme.xcodeproj", "project.pbxproj"), []byte("// trimmed\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "Acme.xcodeproj", "project.pbxproj"), []byte(newXcodeproj), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	lacquerRoot := root(t)
