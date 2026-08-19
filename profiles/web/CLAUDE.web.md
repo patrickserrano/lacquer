@@ -258,6 +258,16 @@ Biome + typecheck + a secrets scan pre-commit (each scoped to the component via
 lefthook's `root:`), coverage + build pre-push, and enforces **Conventional
 Commits** via the shared `scripts/check-commit-msg.sh` (`type(scope): summary`).
 
+**Git hooks in a web + Supabase repo.** Both profiles ship a `lefthook.yml` to
+the repository root, so `lacquer sync` MERGES them into one file rather than
+letting one silently win. Every command keeps the `root:` of the component it
+came from; a command both profiles ship identically (the secrets scan, the
+commit-message check) appears once; a command they ship differently keeps both,
+suffixed with its profile — the pre-push `test` becomes `test-web` and
+`test-supabase`. Run one of them by its suffixed name (`lefthook run pre-push
+--commands test-web`). Don't hand-edit the merged file: the next sync rewrites
+it, and `lacquer audit` reports the edit as drift.
+
 **Git hooks in a mixed repo.** If this repo ALSO contains an iOS component, the
 iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a
 `lefthook.yml` — both write `.git/hooks`, and whichever `install`s last silently

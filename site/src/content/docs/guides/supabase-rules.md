@@ -181,6 +181,10 @@ if you want it on merge.
 
 `lefthook.yml` is synced — install once with `pnpm exec lefthook install` (or `brew install lefthook`). It runs `deno fmt --check` + `deno lint` (scoped to the component via lefthook's `root:`) and a secrets scan pre-commit, and enforces Conventional Commits via the shared `scripts/check-commit-msg.sh`.
 
+:::note[Git hooks in a web + Supabase repo]
+Both profiles ship a `lefthook.yml` to the repository root, so `lacquer sync` merges them into one file rather than letting one silently win. Every command keeps the `root:` of the component it came from; a command both profiles ship identically (the secrets scan, the commit-message check) appears once; a command they ship differently keeps both, suffixed with its profile — the pre-push `test` becomes `test-supabase` and `test-web`. Run one of them by its suffixed name (`lefthook run pre-push --commands test-supabase`). Don't hand-edit the merged file: the next sync rewrites it, and `lacquer audit` reports the edit as drift.
+:::
+
 :::caution[Git hooks in a mixed repo]
 If this repo also contains an iOS component, the iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a `lefthook.yml` — both write `.git/hooks`, and whichever `install`s last silently wins. Don't install both. The iOS `pre-commit` framework should own `.git/hooks`; the Supabase checks always run in CI regardless, so rely on that. To keep them running locally too, add them as `repo: local` hooks in the iOS `.pre-commit-config.yaml` (e.g. an entry that runs `deno fmt --check`/`deno lint` scoped to the supabase component) rather than installing lefthook alongside pre-commit.
 :::
