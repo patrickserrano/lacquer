@@ -134,12 +134,14 @@ func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 	}
 
 	for _, a := range plan {
-		data, err := os.ReadFile(a.Src)
+		// assets.Render, not a read-and-substitute of a.Src: a destination several
+		// profiles claim is composed from all of them, and auditing one fragment
+		// against a merged file would report drift on every synced project.
+		content, _, err := assets.Render(a, cfg)
 		if err != nil {
-			return nil, version.Version{}, fmt.Errorf("read asset %s: %w", a.Src, err)
+			return nil, version.Version{}, err
 		}
-		content, _ := tokens.Substitute(string(data), tokens.Values(cfg, a.Prefix))
-		units = append(units, unit{lockKey: a.Dest, dest: a.Dest, kind: "asset", content: content})
+		units = append(units, unit{lockKey: a.Dest, dest: a.Dest, kind: "asset", content: string(content)})
 	}
 	return units, ver, nil
 }

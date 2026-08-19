@@ -24,17 +24,57 @@ import (
 func MissingTokens(plan []Asset, cfg *config.Config) ([]string, error) {
 	var out []string
 	for _, a := range plan {
-		data, err := os.ReadFile(a.Src)
+		_, missing, err := Render(a, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("read asset %s: %w", a.Src, err)
+			return nil, err
 		}
-		if _, missing := tokens.Substitute(string(data), tokens.Values(cfg, a.Prefix)); len(missing) > 0 {
-			for _, m := range missing {
-				out = append(out, fmt.Sprintf("%s (%s)", m, a.Dest))
-			}
+		for _, m := range missing {
+			out = append(out, fmt.Sprintf("%s (%s)", m, a.Dest))
 		}
 	}
 	return out, nil
+}
+
+// Render returns the exact bytes an asset's destination receives, plus any
+// registered placeholder that had no project value.
+//
+// Every consumer goes through here — sync writes it, audit hashes it — so a
+// merged destination cannot be written as one thing and audited as another. That
+// symmetry is what keeps `lacquer audit` meaningful: before the merge existed,
+// audit reported OK for a lefthook.yml holding one profile's hooks because that
+// is genuinely the file the lacquer would have written.
+func Render(a Asset, cfg *config.Config) ([]byte, []string, error) {
+	if len(a.Merged) == 0 {
+		data, err := os.ReadFile(a.Src)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read asset %s: %w", a.Src, err)
+		}
+		body, missing := tokens.Substitute(string(data), tokens.Values(cfg, a.Prefix))
+		return []byte(body), missing, nil
+	}
+
+	merge, ok := mergerFor(a.Dest)
+	if !ok {
+		// Unreachable via plan(), which only ever sets Merged for a destination
+		// that has one. Fail loud rather than silently write the first fragment.
+		return nil, nil, fmt.Errorf("no merge strategy for %s, but %d profiles claim it", a.Dest, len(a.Merged))
+	}
+	var missing []string
+	frags := make([]Fragment, 0, len(a.Merged))
+	for _, m := range a.Merged {
+		data, err := os.ReadFile(m.src)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read asset %s: %w", m.src, err)
+		}
+		body, miss := tokens.Substitute(string(data), tokens.Values(cfg, m.prefix))
+		missing = append(missing, miss...)
+		frags = append(frags, Fragment{Profile: m.profile, Src: m.src, Content: body})
+	}
+	body, err := merge(a.Dest, frags)
+	if err != nil {
+		return nil, nil, err
+	}
+	return body, missing, nil
 }
 
 // ToolSkillsDir maps a configured agent tool to its project-level skills
@@ -67,6 +107,18 @@ type Asset struct {
 	// owning component's path as a prefix: "" for root, "ios/" for a subdir).
 	// Core assets have an empty prefix.
 	Prefix string
+	// Merged is set only when several profiles claim this destination and a
+	// merger is registered for it (see merge.go). Src/Prefix then describe the
+	// first claimant and are not enough to render the file — call Render, which
+	// every consumer does.
+	Merged []claim
+}
+
+// claim is one profile's stake in a destination.
+type claim struct {
+	src     string
+	prefix  string
+	profile string // "" for core assets, which never merge
 }
 
 // Plan returns every asset to copy for core plus the profiles named by the
@@ -102,17 +154,55 @@ func Suppressed(lacquerRoot string, cfg *config.Config) ([]string, error) {
 func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 	var out []Asset
 	var suppressed []string
-	seen := map[string]bool{}
+	// seen records, per destination, which profile claimed it and where the
+	// resulting Asset sits in `out` (-1 when the destination was dropped by an
+	// exclusion or by retirement, so a later claimant has nothing to merge into).
+	type placed struct {
+		idx     int
+		profile string
+	}
+	seen := map[string]placed{}
 	// A workflow this cannot classify must not be silently kept or silently
 	// dropped. add() has no error return (it is called from inside four walks),
 	// so the first failure is held here and returned before the plan is used.
 	var retireErr error
+	// Likewise for two profiles claiming one destination with nothing registered
+	// to merge them — see merge.go for why that must not be survivable.
+	var collideErr error
 
-	add := func(src, dest, prefix string) {
-		if seen[dest] {
+	add := func(src, dest, prefix, profile string) {
+		if prev, taken := seen[dest]; taken {
+			switch {
+			case profile == "" || prev.profile == "" || prev.profile == profile:
+				// Core-vs-profile (either order) or the same profile twice. First
+				// writer wins, exactly as before: core taking precedence over a
+				// same-named profile skill is a deliberate rule, not a collision.
+				return
+			case prev.idx < 0:
+				// The destination was excluded or retired away. A second claimant
+				// does not resurrect it.
+				return
+			}
+			if _, ok := mergerFor(dest); !ok {
+				if collideErr == nil {
+					collideErr = fmt.Errorf(
+						"the %s and %s profiles both ship %s and nothing merges them. One of the two would "+
+							"silently win and the other's contents would never reach the project — with `lacquer "+
+							"audit` reporting OK throughout, because the lacquer really would write the winner. "+
+							"Give the two profiles different destinations, or register a merge strategy for this "+
+							"one in internal/assets/merge.go",
+						prev.profile, profile, dest)
+				}
+				return
+			}
+			a := &out[prev.idx]
+			if len(a.Merged) == 0 {
+				a.Merged = []claim{{src: a.Src, prefix: a.Prefix, profile: prev.profile}}
+			}
+			a.Merged = append(a.Merged, claim{src: src, prefix: prefix, profile: profile})
 			return
 		}
-		seen[dest] = true
+		seen[dest] = placed{idx: -1, profile: profile}
 		// Project-declared exclusions stay project-owned: the lacquer neither
 		// distributes nor (via audit) tracks them. Used to keep a project's
 		// hand-tuned CI/config local while still adopting the rest of the lacquer.
@@ -144,6 +234,7 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 			}
 		}
 		out = append(out, Asset{Src: src, Dest: dest, Prefix: prefix})
+		seen[dest] = placed{idx: len(out) - 1, profile: profile}
 	}
 
 	tools := cfg.Project.EffectiveTools()
@@ -159,20 +250,20 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 			return nil, nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
 		}
 		if err := walkInto(filepath.Join(lacquerRoot, "core", "skills"),
-			func(src, rel string) { add(src, filepath.Join(dir, rel), "") }); err != nil {
+			func(src, rel string) { add(src, filepath.Join(dir, rel), "", "") }); err != nil {
 			return nil, nil, err
 		}
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "commands"),
-		func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), "") }); err != nil {
+		func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), "", "") }); err != nil {
 		return nil, nil, err
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "agents"),
-		func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), "") }); err != nil {
+		func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), "", "") }); err != nil {
 		return nil, nil, err
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "root"),
-		func(src, rel string) { add(src, rel, "") }); err != nil {
+		func(src, rel string) { add(src, rel, "", "") }); err != nil {
 		return nil, nil, err
 	}
 
@@ -198,22 +289,22 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 				return nil, nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
 			}
 			if err := walkInto(filepath.Join(base, "skills"),
-				func(src, rel string) { add(src, filepath.Join(dir, rel), prefix) }); err != nil {
+				func(src, rel string) { add(src, filepath.Join(dir, rel), prefix, p) }); err != nil {
 				return nil, nil, err
 			}
 		}
 		if err := walkInto(filepath.Join(base, "commands"),
-			func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), prefix) }); err != nil {
+			func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), prefix, p) }); err != nil {
 			return nil, nil, err
 		}
 		if err := walkInto(filepath.Join(base, "agents"),
-			func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), prefix) }); err != nil {
+			func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), prefix, p) }); err != nil {
 			return nil, nil, err
 		}
 		// workflows -> .github/workflows/<p>-<file> (stack-prefixed; flat)
 		if err := walkInto(filepath.Join(base, "workflows"),
 			func(src, rel string) {
-				add(src, filepath.Join(".github", "workflows", p+"-"+filepath.Base(rel)), prefix)
+				add(src, filepath.Join(".github", "workflows", p+"-"+filepath.Base(rel)), prefix, p)
 			}); err != nil {
 			return nil, nil, err
 		}
@@ -231,12 +322,12 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 				// failure this whole mechanism is meant to avoid.
 				return nil, nil, fmt.Errorf("[project].optional_workflows: %s has no optional workflow %q", p, want)
 			}
-			add(src, filepath.Join(".github", "workflows", p+"-"+want+".yml"), prefix)
+			add(src, filepath.Join(".github", "workflows", p+"-"+want+".yml"), prefix, p)
 		}
 
 		// profile root tree -> project root (verbatim relative paths)
 		if err := walkInto(filepath.Join(base, "root"),
-			func(src, rel string) { add(src, rel, prefix) }); err != nil {
+			func(src, rel string) { add(src, rel, prefix, p) }); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -246,7 +337,7 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 		prefix := tokens.Prefix(c.Path)
 		for _, p := range c.Profiles {
 			if err := walkInto(filepath.Join(lacquerRoot, "profiles", p, "config"),
-				func(src, rel string) { add(src, filepath.Join(c.Path, rel), prefix) }); err != nil {
+				func(src, rel string) { add(src, filepath.Join(c.Path, rel), prefix, p) }); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -254,6 +345,22 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 
 	if retireErr != nil {
 		return nil, nil, retireErr
+	}
+	if collideErr != nil {
+		return nil, nil, collideErr
+	}
+	// A merged destination's fragment order decides which profile's file header
+	// and hook comments lead the composed file, so it is pinned to sorted profile
+	// order rather than to whichever walk happened to reach the destination
+	// first. Src/Prefix are realigned to the leading fragment so the two
+	// descriptions of "first claimant" cannot disagree.
+	for i := range out {
+		if len(out[i].Merged) == 0 {
+			continue
+		}
+		sort.Slice(out[i].Merged, func(a, b int) bool { return out[i].Merged[a].profile < out[i].Merged[b].profile })
+		out[i].Src = out[i].Merged[0].src
+		out[i].Prefix = out[i].Merged[0].prefix
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Dest < out[j].Dest })
 	return out, suppressed, nil
@@ -331,15 +438,14 @@ func Copy(projectRoot string, plan []Asset, cfg *config.Config) error {
 func Write(projectRoot string, plan []Asset, cfg *config.Config, targets []string) error {
 	for i, a := range plan {
 		target := targets[i]
-		data, err := os.ReadFile(a.Src)
+		// Render substitutes per-project placeholders + each fragment's component
+		// prefix, and composes the fragments of a merged destination. Any missing
+		// token value should already have been caught by sync's preflight; render
+		// regardless (leaves an unresolved token rather than corrupting).
+		data, _, err := Render(a, cfg)
 		if err != nil {
-			return fmt.Errorf("read asset %s: %w", a.Src, err)
+			return err
 		}
-		// Substitute per-project placeholders + this asset's component prefix. Any
-		// missing value should already have been caught by sync's preflight;
-		// substitute regardless (leaves an unresolved token rather than corrupting).
-		substituted, _ := tokens.Substitute(string(data), tokens.Values(cfg, a.Prefix))
-		data = []byte(substituted)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}

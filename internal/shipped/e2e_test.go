@@ -909,40 +909,152 @@ func assertComponentLayout(t *testing.T, p *project) {
 		}
 	})
 
-	t.Run("the web and supabase profiles collide on lefthook.yml", assertLefthookCollision(p))
+	t.Run("every profile's git hooks reach the one lefthook.yml", assertLefthookMerge(p))
 }
 
-// assertLefthookCollision documents a REAL DEFECT found by this suite, and skips
-// rather than failing so the defect stays visible without blocking the branch.
+// lefthookHooks is the parsed shape of a rendered lefthook.yml.
 //
-// Both profiles ship a `root/lefthook.yml`, and both land at the repository
-// root. assets.plan dedupes by destination with first-writer-wins in sorted
-// profile order, so in an ios+web+supabase repository `supabase` wins and the
-// WEB profile's hooks are silently never installed: no biome check, no
-// typecheck, no pre-push test, build or audit on the web component. Nothing
-// reports it — `lacquer audit` sees one lefthook.yml matching what the lacquer
-// would write, because the lacquer really would write that one.
+// Parsed rather than grepped, for the reason this whole file exists: a `root:`
+// that landed one level too deep, or a command emitted at the wrong nesting,
+// still matches every substring you would think to search for. What matters is
+// the value lefthook itself reads.
+type lefthookHooks map[string]struct {
+	Parallel bool `yaml:"parallel"`
+	Commands map[string]struct {
+		Root string `yaml:"root"`
+		Run  string `yaml:"run"`
+		Glob string `yaml:"glob"`
+	} `yaml:"commands"`
+}
+
+// expectedHooks is every command a three-stack repository must end up with,
+// with the component each one has to run against.
 //
-// The fix is neither small nor obvious: two hook files have to become one merged
-// file, and getting the merge wrong turns a missing hook into a hook that runs
-// the wrong toolchain against the wrong directory. So it is stated here rather
-// than absorbed.
-func assertLefthookCollision(p *project) func(*testing.T) {
+// The `root:` column is the load-bearing half. Before the merge, supabase won
+// the destination outright and the six web entries below were installed
+// nowhere; the obvious naive fix — concatenating the command maps — would have
+// installed them all against ONE component, so the web hooks would have run
+// pnpm inside the supabase directory and failed every commit. A merged file
+// with the wrong roots is worse than the collision it replaces, so the roots are
+// asserted individually rather than "the web commands are present".
+//
+// `secrets` and `conventional` carry no root on purpose: check-secrets.sh and
+// check-commit-msg.sh read the whole staged set (or the message) themselves.
+var expectedHooks = []struct {
+	hook, cmd, root, run, why string
+}{
+	// From profiles/supabase, scoped to the `server` component.
+	{"pre-commit", "fmt", "server/", "deno fmt --check", ""},
+	{"pre-commit", "lint", "server/", "deno lint", ""},
+	{"pre-commit", "docs", "server/", "deno doc --lint", ""},
+	{"pre-push", "typecheck", "server/", "deno check", ""},
+	{"pre-push", "test-supabase", "server/", "deno test --allow-all", "both profiles ship a pre-push `test` and they are different commands"},
+
+	// From profiles/web, scoped to the `admin` component. Every one of these was
+	// silently absent from a real three-stack repository: the observed cost was
+	// a biome violation reaching CI that this pre-commit hook catches locally.
+	{"pre-commit", "biome", "admin/", "biome check --write --error-on-warnings", "the missing hook that let a lint violation reach CI"},
+	{"pre-commit", "typecheck", "admin/", "pnpm run typecheck", ""},
+	{"pre-push", "test-web", "admin/", "pnpm run test:coverage", "both profiles ship a pre-push `test` and they are different commands"},
+	{"pre-push", "build", "admin/", "pnpm run build", ""},
+	{"pre-push", "docs", "admin/", "typedoc", ""},
+	{"pre-push", "audit", "admin/", "pnpm audit --audit-level=critical", ""},
+
+	// Repo-root scans, shipped identically by both profiles.
+	{"pre-commit", "secrets", "", "scripts/check-secrets.sh", "repo-wide: the script reads `git diff --cached` itself"},
+	{"commit-msg", "conventional", "", "scripts/check-commit-msg.sh", "repo-wide: it reads the commit message file"},
+}
+
+// assertLefthookMerge is the regression test for a REAL DEFECT this suite found.
+//
+// profiles/web/root/lefthook.yml and profiles/supabase/root/lefthook.yml both
+// land at `lefthook.yml` in the repository root. assets.plan deduped by
+// destination and kept the first writer in sorted profile order, so in an
+// ios+web+supabase repository supabase won and every web hook was silently never
+// installed — with `lacquer audit` reporting OK throughout, because the lacquer
+// really would have written that exact file. The web component of the fleet's
+// most complex repository had no pre-commit protection at all.
+//
+// The two are now merged (internal/assets/merge.go). This asserts the outcome
+// the way a person would check it: parse the file lefthook will read, and look
+// for every command with the component it must run in.
+func assertLefthookMerge(p *project) func(*testing.T) {
 	return func(t *testing.T) {
 		body := p.read("lefthook.yml")
-		const webOnly = "./node_modules/.bin/biome check"
-		if !strings.Contains(body, webOnly) {
-			t.Skipf("KNOWN BUG (not fixed on this branch): profiles/web/root/lefthook.yml and "+
-				"profiles/supabase/root/lefthook.yml both target the repository root, and assets.plan "+
-				"keeps the first writer in sorted profile order — so supabase's file wins and the web "+
-				"profile's hooks (%q, typecheck, pre-push test/build/audit) are never installed in an "+
-				"ios+web+supabase repository. `lacquer audit` reports OK because the lacquer really "+
-				"would write that file. Unskip when the two are merged.", webOnly)
+		var doc lefthookHooks
+		if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+			t.Fatalf("the merged lefthook.yml is not valid YAML, so lefthook runs nothing at all: %v\n%s", err, body)
 		}
-		if !strings.Contains(body, "deno fmt --check") {
-			t.Error("lefthook.yml now carries the web hooks but has lost the supabase ones; the merge dropped a profile")
+		if len(doc) == 0 {
+			t.Fatal("the rendered lefthook.yml declares no hooks; nothing below could fail")
+		}
+
+		for _, want := range expectedHooks {
+			c, ok := doc[want.hook].Commands[want.cmd]
+			if !ok {
+				var have []string
+				for name := range doc[want.hook].Commands {
+					have = append(have, name)
+				}
+				sort.Strings(have)
+				t.Errorf("%s.%s is not installed (%s has %v)%s", want.hook, want.cmd, want.hook, have, because(want.why))
+				continue
+			}
+			if c.Root != want.root {
+				t.Errorf("%s.%s runs with root %q, want %q — a command scoped to the wrong component runs "+
+					"the wrong toolchain in the wrong directory, which is worse than not running at all",
+					want.hook, want.cmd, c.Root, want.root)
+			}
+			if !strings.Contains(c.Run, want.run) {
+				t.Errorf("%s.%s runs %q, which does not contain %q%s", want.hook, want.cmd, c.Run, want.run, because(want.why))
+			}
+		}
+
+		// No bare `test` survives: with two different commands under that name,
+		// its presence would mean one of them was thrown away.
+		if _, ok := doc["pre-push"].Commands["test"]; ok {
+			t.Error("pre-push still has a bare `test`; the web and supabase profiles ship different " +
+				"commands by that name, so one of them has been discarded")
+		}
+
+		// The repo-root scans appear exactly once. Emitting them per profile
+		// would rescan the whole staged set on every commit, once per stack, and
+		// report every hit as many times.
+		for _, hook := range []string{"pre-commit", "commit-msg"} {
+			counts := map[string]int{}
+			for name, c := range doc[hook].Commands {
+				if strings.Contains(c.Run, "check-secrets.sh") {
+					counts["check-secrets.sh"]++
+				}
+				if strings.Contains(c.Run, "check-commit-msg.sh") {
+					counts["check-commit-msg.sh"]++
+				}
+				_ = name
+			}
+			for script, n := range counts {
+				if n > 1 {
+					t.Errorf("%s runs %s %d times; it is a repository-wide scan and one copy is the whole point", hook, script, n)
+				}
+			}
+		}
+
+		// The scripts every merged command calls are actually synced. A hook
+		// naming a script that is not there fails every commit with "No such
+		// file or directory", which is a different way to be unprotected.
+		for _, script := range []string{"scripts/check-secrets.sh", "scripts/check-commit-msg.sh", "scripts/docs-relaxation.sh"} {
+			if _, err := os.Stat(filepath.Join(p.root, filepath.FromSlash(script))); err != nil {
+				t.Errorf("the merged hooks call %s and sync did not write it: %v", script, err)
+			}
 		}
 	}
+}
+
+// because renders an optional explanation for a failure message.
+func because(why string) string {
+	if why == "" {
+		return ""
+	}
+	return " — " + why
 }
 
 // assertMultiProduct: what `[[product]]` is for.
