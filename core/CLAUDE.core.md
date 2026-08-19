@@ -18,7 +18,9 @@ specifics (Swift, SwiftUI, Node, etc.) live in the matching profile body.
 
 6. **Use expert agents and orchestrate them to find the best solution.** When in doubt, stop and ask for input or clarification.
 
-7. **NEVER disable linting rules without explicit user confirmation.** If code triggers a lint error, FIX THE CODE. Do not add `// swiftlint:disable`, `// swiftformat:disable`, `// biome-ignore`, `// eslint-disable`, `// deno-lint-ignore`, `@ts-ignore`/`@ts-expect-error`, `@available`, or any similar suppression. If you truly believe a suppression is necessary, STOP and ask the user first.
+7. **NEVER disable linting rules without explicit user confirmation.** If code triggers a lint error, FIX THE CODE. Do not add `// swiftlint:disable`, `// swiftformat:disable`, `// biome-ignore`, `// eslint-disable`, `// deno-lint-ignore`, `@ts-ignore`/`@ts-expect-error`, or any similar suppression. If you truly believe a suppression is necessary, STOP and ask the user first.
+
+   **Platform availability is not a suppression.** `@available(iOS 26, *)` and `#available` are Swift's availability system, and the iOS profile *requires* them — see the `swiftui-liquid-glass` skill, which is entirely about gating iOS 26 APIs with a fallback. What this rule bans is the *deprecation* spelling: marking your own declaration `@available(*, deprecated)` or `@available(*, unavailable)` to make a warning go away. Swift does not warn about a deprecated call made from inside a deprecated declaration, so that annotation silences the diagnostic at the call site exactly the way `// swiftlint:disable` does — the fix is to stop calling the deprecated API.
 
 8. **NEVER bypass CI checks or use force flags without explicit user confirmation.** Do not use `--force`, `--force-with-lease`, `--no-verify`, `--admin` (bypasses branch protection on `gh pr merge`), or any other flags that bypass safety checks. Do not merge a PR with failing or pending required checks. If CI is failing, FIX THE ISSUE.
 
@@ -35,26 +37,6 @@ session. This is the baseline for every response; `core/skills/caveman` is a
 separate, user-invoked, much more aggressive compression style for when the user
 explicitly asks for it — it doesn't substitute for calibrating normally the rest of
 the time.
-
-## Effort and Thinking
-
-Current-generation Claude models run with adaptive thinking on by default. The old
-`think` / `think hard` / `think harder` / `ultrathink` keyword-to-token-budget
-mapping is from the prior manual extended-thinking API and no longer reflects how
-these models scale reasoning — Claude Sonnet 5 rejects a manual `budget_tokens`
-outright. The lever that matters now is **effort** (`low` / `medium` / `high` /
-`xhigh` / `max`), set via `/config`, an `Agent`/`Task` call's model options, or a
-`Workflow` script's `opts.effort`:
-
-- **`high`** — the default for most work; leave it unless you have a reason to move.
-- **`xhigh`** — the hardest coding and agentic tasks (large refactors, ambiguous
-  multi-file work — what you'd have reached for `ultrathink` for previously).
-- **`medium` / `low`** — cost- and latency-sensitive work where quality holds at the
-  lower tier; verify against your own results before defaulting to it broadly.
-
-If a task is under-thinking at its current effort, raise the effort level rather
-than adding a "think harder" instruction to the prompt — that no longer does
-anything on current models.
 
 ## Agent Delegation
 
@@ -90,6 +72,12 @@ Match the pattern to the scope of the work:
 - **One strategic decision needing a second opinion** → `advisor-checkpoint`.
 - **A batch of genuinely independent units (fleet-wide, multi-repo, overnight)** → `manager-loop`.
 - **Several angles on the same problem that should challenge each other** (competing-hypothesis debugging, parallel review from different lenses) → agent teams (teammates message each other and self-coordinate on a shared task list), not a subagent — a subagent only reports back to you, it can't debate a peer.
+
+When you do delegate, set the subagent's **effort** in the `Agent`/`Task` call's
+model options — that is the only reasoning lever you actually control. Raise it
+for hard, ambiguous, multi-file work rather than writing "think harder" into the
+prompt: the `think` / `ultrathink` keyword-to-token-budget mapping belonged to the
+prior manual extended-thinking API and does nothing on current models.
 
 On any run long enough to report progress partway through, ground the report in
 actual tool output — state only what you can point to evidence for from this
@@ -171,6 +159,9 @@ Two rules follow, and both are mechanical rather than aspirational:
    job and where it runs locally; a new job adds a row.
 
 **Lacquer-managed files are identical or excluded — there is no third state.**
+(The `working-with-lacquer` skill carries the full manifest reference — exit
+codes, exclusions, relaxations, retirement, fleet sweeps. Load it when you are
+actually resolving one of these, rather than working from what follows.)
 The files that carry these checks (`.pre-commit-config.yaml`, `lefthook.yml`,
 the CI workflows, the lint configs) are rendered from the lacquer, so editing one
 in a project silently diverges it from every other project. The `No lacquer

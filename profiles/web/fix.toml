@@ -1,6 +1,28 @@
 # Autofixers for the web profile — see profiles/ios/fix.toml for the contract.
 # `biome check --write` is format + lint autofix in one pass.
+#
+# `pnpm exec`, never `npx`. This file ran `npx --no-install biome` long after
+# doctor.toml, lefthook.yml and web-ci.yml had all been fixed — the profile's own
+# rule ("the local binary, never a downloading runner", CLAUDE.web.md) written
+# down in four places while the one command that `lacquer fix` runs over every
+# file in the project still shelled out to npx. npx resolves whatever is
+# reachable, which on a machine with a Homebrew biome is the GLOBAL binary rather
+# than the version the project pins; without `--no-install` it would install the
+# unrelated npm package that owns the bare name `biome` (the linter is
+# `@biomejs/biome`). `pnpm exec` runs the component's own install and fails when
+# there is none, so the downloading behaviour cannot happen by accident — that
+# lives on a separate verb, `pnpm dlx`.
+#
+# It is `pnpm exec biome` here rather than the `./node_modules/.bin/biome` that
+# lefthook and CI use, and the difference is mechanical, not a second opinion.
+# fixcmd resolves argv[0] with exec.LookPath BEFORE setting the command's
+# working directory, and LookPath reads a slash-bearing path relative to the
+# process's cwd — the project root. In a nested layout the install is at
+# `<component>/node_modules`, so a relative binary path would be reported as
+# "skipped: not installed" for every component that is not the root. `pnpm` is
+# found on PATH and resolves the local binary from the working directory fixcmd
+# does set, which is the component.
 
 [[command]]
 name = "biome check --write"
-argv = ["npx", "--no-install", "biome", "check", "--write", "."]
+argv = ["pnpm", "exec", "biome", "check", "--write", "."]
