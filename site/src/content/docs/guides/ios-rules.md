@@ -233,7 +233,7 @@ See the `macos-ci-recipes` skill for the reasoning and copy-in recipes when the 
 
 ## Build & test tooling (flowdeck)
 
-**Use `flowdeck` for all Apple-platform work** — build, run, test, simulator, device, logs, UI automation. Do not use `xcodebuild`, `xcrun`, `simctl`, or `devicectl` directly (raw `simctl`/`devicectl` are typically hook-blocked).
+**In an interactive session, reach for `flowdeck` first** — build, run, test, simulator, device, logs, UI automation. It resolves schemes and destinations, keeps DerivedData where you point it, and returns structured output, so it beats hand-assembling an `xcodebuild` line every time.
 
 ```bash
 flowdeck simulator list           # find an available simulator UDID (names are ambiguous across OS versions)
@@ -243,6 +243,12 @@ flowdeck project packages update  # bump SPM deps within constraints (no .pbxpro
 ```
 
 Prefer a UDID over a simulator name — names duplicate across OS versions and resolve ambiguously.
+
+:::caution[This is a preference, not a wall — nothing blocks the raw tools]
+The synced `.claude/settings.json` blocks exactly three things: Xcode project files, `.entitlements`, and force flags (see [Editor hooks](#editor-hooks-claudesettingsjson)). `simctl` and `devicectl` are **not** blocked — running one simply works.
+:::
+
+Raw `xcodebuild`/`xcrun` is correct in non-interactive contexts, and this profile ships it that way. `.pre-commit-config.yaml` runs `xcodebuild test` with an explicit `-scheme`/`-destination`; `ios-ci.yml` and `ios-release.yml` run `xcodebuild` for build, test and archive, `xcodebuild -showBuildSettings` in the Baseline job, and `xcrun simctl` for the whole simulator lifecycle. Those pin their destination and toolchain deliberately, and the steps around them parse their output — so don't "fix" a hook or a workflow to call flowdeck instead. That changes what CI actually verifies; it isn't a style cleanup.
 
 ### Working in worktrees
 

@@ -91,15 +91,30 @@ Also **check `vercel.json`** (or whatever deploys the project) for a pinned
 kept passing CI and failed every production deploy on the lockfile that no longer
 exists.
 
-**The local binary, never a downloading runner.** `npx <tool>` silently downloads
-a version when the project has none installed, so a project that never added
-`@biomejs/biome` gets a green lint step run by whatever npm served that minute.
-One project was in exactly that state — `biome.json` synced, the dependency in no
-`package.json`, the Biome step passing — and only `lacquer doctor` noticed the
-check could not be running at all. `@biomejs/biome` and `typedoc` must be real
-devDependencies. pnpm makes this the default rather than a rule to remember:
-`pnpm exec` runs the locally installed binary and fails when there is none, and
-the downloading behaviour moved to a separate verb, `pnpm dlx`.
+**Name the local binary by its path — `./node_modules/.bin/<tool>` — and use no
+runner at all.** `npx <tool>` silently downloads a version when the project has
+none installed, so a project that never added `@biomejs/biome` gets a green lint
+step run by whatever npm served that minute. One project was in exactly that
+state — `biome.json` synced, the dependency in no `package.json`, the Biome step
+passing — and only `lacquer doctor` noticed the check could not be running at
+all. `@biomejs/biome` and `typedoc` must be real devDependencies.
+
+`pnpm exec` is *not* the fix, and neither is `npx --no-install`. Both prepend
+`node_modules/.bin` and then fall through to `PATH`, so both fail only when the
+tool is nowhere at all — and the case this rule exists for is the one where it is
+somewhere. Measured in a directory with no `node_modules`, on a machine with
+Homebrew's biome:
+
+| Invocation | Result |
+|---|---|
+| `npx --no-install biome --version` | exit 0 — the **global** 2.5.5 |
+| `pnpm exec biome --version` | exit 0 — the **global** 2.5.5 |
+| `npx --no-install typedoc --version` | exit 0 — a cached copy under `~/.npm/_npx`; `--no-install` doesn't stop a previous download being reused |
+| `./node_modules/.bin/biome` | exit 126, naming the missing path |
+
+Only the last can't resolve something the project never pinned. `pnpm dlx` is the
+explicit downloading verb, so it won't happen by accident — but "not by accident"
+isn't "not at all", which is what the check needs.
 
 **`--error-on-warnings` is the whole gate.** Plain `biome ci` fails on
 error-severity rules only, so every warning-severity rule prints and passes —

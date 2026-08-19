@@ -94,20 +94,34 @@ removed, which reads like the setting not working.
 would have kept passing CI and failed every production deploy on the lockfile
 that no longer exists.
 
-**The local binary, never a downloading runner.** `npx <tool>` silently
-downloads a version when the project has none installed, so a project that never
-added `@biomejs/biome` gets a green lint step run by whatever npm served that
-minute. One project was in exactly that state — `biome.json` synced, the
-dependency in no `package.json`, the Biome step passing — and only
-`lacquer doctor` noticed the check could not be running at all. `@biomejs/biome`
-and `typedoc` must be real devDependencies.
+**Name the local binary by its path — `./node_modules/.bin/<tool>` — and use no
+runner at all.** `npx <tool>` silently downloads a version when the project has
+none installed, so a project that never added `@biomejs/biome` gets a green lint
+step run by whatever npm served that minute. One project was in exactly that
+state — `biome.json` synced, the dependency in no `package.json`, the Biome step
+passing — and only `lacquer doctor` noticed the check could not be running at
+all. `@biomejs/biome` and `typedoc` must be real devDependencies.
 
-pnpm makes this the default rather than a rule to remember: `pnpm exec` runs the
-locally installed binary and FAILS when there is none. The downloading behaviour
-moved to a separate verb, `pnpm dlx`, so it cannot happen by accident. pnpm's
-non-hoisted `node_modules` reinforces it — a package that is not a declared
-dependency has no `.bin` entry at all, where npm's flat layout could leave a
-transitive's binary sitting there and resolving.
+**`pnpm exec` is not the fix, and neither is `npx --no-install`.** Both prepend
+`node_modules/.bin` and then fall through to `PATH`, so both fail only when the
+tool is nowhere at all — and the case this rule exists for is the one where it
+is somewhere. Measured in a directory with no `node_modules`, on a machine with
+Homebrew's biome:
+
+| Invocation | Result |
+|---|---|
+| `npx --no-install biome --version` | exit 0 — the **global** 2.5.5 |
+| `pnpm exec biome --version` | exit 0 — the **global** 2.5.5 |
+| `npx --no-install typedoc --version` | exit 0 — a cached copy under `~/.npm/_npx`; `--no-install` does not stop a previous download from being reused |
+| `./node_modules/.bin/biome` | exit 126, naming the missing path |
+
+Only the last one cannot resolve something the project never pinned. `pnpm dlx`
+is the explicit downloading verb, so it will not happen by accident — but "not
+by accident" is not the same as "not at all", which is what the check needs.
+
+pnpm's non-hoisted `node_modules` does help underneath all this: a package that
+is not a declared dependency has no `.bin` entry at all, where npm's flat layout
+could leave a transitive's binary sitting there and resolving.
 
 **`--error-on-warnings` is the whole gate.** Plain `biome ci` fails on
 error-severity rules only, so every warning-severity rule prints and passes —
