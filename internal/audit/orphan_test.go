@@ -279,17 +279,29 @@ func TestGitignoreRegionOrphanIsFoundWithHashSyntax(t *testing.T) {
 	}
 }
 
-// A hand-edited lockfile is not a trusted source of paths.
+// A lockfile is committed and hand-editable, so its keys are not a trusted
+// source of paths. The escaping targets really exist on disk, so it is the
+// confinement check that rejects them and not merely a missing file.
 func TestOrphanIgnoresEscapingLockKeys(t *testing.T) {
 	lacquer, project := orphanSetup(t)
+	outside := filepath.Join(project, "..", "outside.yml")
+	writeFile(t, outside, "name: not yours\n")
+	t.Cleanup(func() { os.Remove(outside) })
+	absolute := filepath.Join(t.TempDir(), "absolute.yml")
+	writeFile(t, absolute, "name: not yours either\n")
+
 	lk, _, err := lock.Read(project)
 	if err != nil {
 		t.Fatal(err)
 	}
 	lk.Files["../outside.yml"] = "deadbeef"
-	lk.Files["/etc/hosts"] = "deadbeef"
+	lk.Files[absolute] = "deadbeef"
 	if err := lock.Write(project, lk); err != nil {
 		t.Fatal(err)
+	}
+	got := orphanLabels(t, lacquer, project)
+	if len(got) != 0 {
+		t.Errorf("orphans = %v; a lock key pointing outside the project was followed", got)
 	}
 	for _, o := range mustOrphans(t, lacquer, project) {
 		if strings.HasPrefix(o.Dest, "..") || filepath.IsAbs(o.Dest) {
