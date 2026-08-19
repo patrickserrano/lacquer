@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -1000,6 +1001,180 @@ func (c *Config) Products() []Product {
 	}}
 }
 
+// table is one TOML table a manifest may declare, and the keys it accepts.
+type table struct {
+	label string   // how the table is spelled in a manifest: "[project]", "[[component]]"
+	keys  []string // sorted, so an error message reads the same every run
+}
+
+// manifestTables maps a dotted table path to the keys that table accepts, with
+// "*" standing for an arbitrary map key ([baseline.relax].<name>). It is derived
+// by reflection from the Go types rather than written out, so adding a field can
+// never leave this list — and therefore the error messages below — stale.
+var manifestTables = buildManifestTables()
+
+func buildManifestTables() map[string]table {
+	out := map[string]table{}
+	walkTables(reflect.TypeOf(Config{}), "", "the top level", out)
+	return out
+}
+
+// walkTables records t's keys at path and recurses into every field that is
+// itself a table. Slices and pointers are followed to their element type; a map
+// contributes a "*" segment for its keys.
+func walkTables(t reflect.Type, path, label string, out map[string]table) {
+	for t.Kind() == reflect.Ptr || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return
+	}
+	if _, done := out[path]; done {
+		return // already recorded: also the cycle guard
+	}
+	var keys []string
+	type child struct {
+		name string
+		typ  reflect.Type
+	}
+	var children []child
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue // unexported
+		}
+		name := strings.Split(f.Tag.Get("toml"), ",")[0]
+		if name == "-" {
+			continue // deliberately not readable from the file (see Config.Root)
+		}
+		if name == "" {
+			name = f.Name
+		}
+		keys = append(keys, name)
+		children = append(children, child{name, f.Type})
+	}
+	sort.Strings(keys)
+	out[path] = table{label: label, keys: keys}
+	for _, c := range children {
+		childPath := c.name
+		if path != "" {
+			childPath = path + "." + c.name
+		}
+		ft := c.typ
+		for ft.Kind() == reflect.Ptr {
+			ft = ft.Elem()
+		}
+		switch ft.Kind() {
+		case reflect.Map:
+			// [baseline.relax] holds one table per named key, so the tables that
+			// carry the keys sit a level below under a wildcard segment.
+			walkTables(ft.Elem(), childPath+".*", "["+childPath+"].<name>", out)
+		case reflect.Slice:
+			walkTables(ft.Elem(), childPath, "[["+childPath+"]]", out)
+		default:
+			walkTables(ft, childPath, "["+childPath+"]", out)
+		}
+	}
+}
+
+// tableFor resolves the table a dotted key sits in, matching "*" against any one
+// segment.
+func tableFor(path string) (table, bool) {
+	if t, ok := manifestTables[path]; ok {
+		return t, true
+	}
+	want := strings.Split(path, ".")
+	for tmpl, t := range manifestTables {
+		if tmpl == "" {
+			continue
+		}
+		got := strings.Split(tmpl, ".")
+		if len(got) != len(want) {
+			continue
+		}
+		match := true
+		for i := range got {
+			if got[i] != "*" && got[i] != want[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return t, true
+		}
+	}
+	return table{}, false
+}
+
+// rejectUnknownKeys fails the load when the manifest carries a key nothing reads.
+//
+// A misspelled key would otherwise be dropped in silence, and a manifest that
+// quietly ignores half its own entry is the same class of defect as an exclusion
+// with no reason: it reads as configured while doing nothing. That is not
+// hypothetical here. Spell `profiles` as `profile` in a [[component]] and the
+// component gates nothing — no CI, no hooks, no CLAUDE region — while `lacquer
+// audit` exits 6 blaming an undeclared stack rather than the typo three
+// characters away. A `retired` key written before that feature existed read as a
+// working retirement and did nothing at all.
+//
+// This is a HARD failure at Load, unlike an expired exclusion or an expired
+// dependabot ignore, which are reported by audit precisely so that a project is
+// never locked out of `sync`/`fix` — the commands that repair it. The difference
+// is that an expiry is a time bomb: the manifest was correct when written and
+// becomes wrong on a schedule, possibly while nobody is looking, and the repair
+// may need tooling. A typo is wrong the moment it is typed, it is wrong in the
+// one file the author already has open, and the fix is to correct the spelling.
+// Deferring it to audit would mean `sync` keeps writing the wrong thing — the
+// component still gates nothing — while a different report blames something
+// else. Load already hard-fails for every other shape error in this file (an
+// unknown [baseline.relax] key, an unknown stack, an unknown tool, an unknown
+// [project].exclude key); tolerating only the misspelled key would be the odd
+// exception.
+//
+// COVERAGE NOTE. md.Undecoded() cannot see inside a type with a custom
+// UnmarshalTOML: BurntSushi's decoder hands the whole subtree to the unmarshaler
+// and records nothing below it, so this check is blind to the interior of
+// Exclusion, Retirement and DependabotIgnore. That is safe only because all
+// three close their own key sets and reject an unknown key at decode time — the
+// error surfaces from toml.DecodeFile above, not from here. If a nested type
+// ever grows a custom unmarshaler WITHOUT a closed key set, this check will go on
+// looking like it covers the whole manifest while covering less.
+func rejectUnknownKeys(path string, md toml.MetaData) error {
+	und := md.Undecoded()
+	if len(und) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(und))
+	for _, k := range und {
+		keys = append(keys, k.String())
+	}
+	sort.Strings(keys)
+	// An unknown TABLE reports itself and every key beneath it. Only the
+	// outermost is worth saying; the rest are consequences of it.
+	top := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if n := len(top); n > 0 && strings.HasPrefix(k, top[n-1]+".") {
+			continue
+		}
+		top = append(top, k)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "manifest %s has unknown key(s):", path)
+	for _, k := range top {
+		var parent string
+		if i := strings.LastIndex(k, "."); i >= 0 {
+			parent = k[:i]
+		}
+		if t, ok := tableFor(parent); ok {
+			fmt.Fprintf(&b, "\n  %s — %s accepts: %s", k, t.label, strings.Join(t.keys, ", "))
+		} else {
+			fmt.Fprintf(&b, "\n  %s — %q is not a known table", k, parent)
+		}
+	}
+	b.WriteString("\nNothing reads these. A misspelled key is dropped in silence, so the manifest reads as configured while that setting does nothing.")
+	return fmt.Errorf("%s", b.String())
+}
+
 // Load reads, parses, and validates the .lacquer.toml at path. It rejects any
 // component path that is absolute or escapes the project root, and any profile
 // name that is not a simple lowercase identifier — both are used to build
@@ -1007,7 +1182,11 @@ func (c *Config) Products() []Product {
 // intended directories.
 func Load(path string) (*Config, error) {
 	var cfg Config
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+	md, err := toml.DecodeFile(path, &cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownKeys(path, md); err != nil {
 		return nil, err
 	}
 	// Absolute, so a caller that loaded with a relative path still yields a root
