@@ -37,6 +37,18 @@
 # exists to catch. That is now twice for this file; if a third arrives, the
 # expect="fail" contract itself needs to assert WHY it failed, not just that it
 # did.
+#
+# A third arrived — probe 7 below, which was `! biome check biome.json | grep -q
+# DEPRECATED` with expect="pass". Any failure that is not a deprecation prints no
+# DEPRECATED, grep exits 1, `!` inverts that to 0, and the probe reports OK over a
+# config biome never successfully read. So `expect_output` now exists (see
+# internal/doctor's Probe.ExpectOutput) and every probe here declares one: the
+# exit status says a thing happened, the pattern says WHICH thing.
+#
+# `--colors=off` is passed for the same reason. Biome writes ANSI escapes even
+# when stdout is not a terminal, between characters as well as around them, and
+# an assertion cannot be written against text that has escape sequences inside
+# its words.
 
 [[probe]]
 name = "biome ci rejects an error-severity lint violation"
@@ -51,8 +63,13 @@ content = """
 export const value: any = 1
 """
 requires = ["{component}/node_modules/.bin/biome"]
-argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--colors=off", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
+# The rule id by name. This is the probe whose two previous silent passes are
+# described at the top of this file: both times biome exited 1 without ever
+# linting the fixture, and both times `expect = "fail"` called that a success.
+# noExplicitAny appearing in the output is the difference.
+expect_output = '(?s)probe\.ts:[0-9]+:[0-9]+ lint/suspicious/noExplicitAny'
 
 [[probe]]
 name = "biome ci rejects a WARNING-severity violation"
@@ -76,8 +93,13 @@ const maybe: string | undefined = process.env.HOME
 export const value = maybe!
 """
 requires = ["{component}/node_modules/.bin/biome"]
-argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--colors=off", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
+# Non-zero exit plus THIS rule is what proves the flag. noNonNullAssertion is
+# warning severity, so biome prints it either way and exits 0 without
+# --error-on-warnings (observed); the pair "exited non-zero" and "the warning it
+# was given" cannot both be true unless the flag promoted it.
+expect_output = '(?s)probe\.ts:[0-9]+:[0-9]+ lint/style/noNonNullAssertion'
 
 [[probe]]
 name = "biome ci rejects unformatted code"
@@ -93,8 +115,12 @@ content = """
 export const value   =    "double quoted and badly spaced"
 """
 requires = ["{component}/node_modules/.bin/biome"]
-argv = ["{component}/node_modules/.bin/biome", "ci", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
+argv = ["{component}/node_modules/.bin/biome", "ci", "--colors=off", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
+# The formatter half specifically. A lint-only invocation, or formatter.enabled
+# false, leaves the linter gating and this diagnostic absent — which the exit
+# code alone could not tell from a config that failed to load.
+expect_output = '(?s)probe\.ts format.*File content differs from formatting output'
 
 [[probe]]
 name = "TypeDoc can parse the shipped typedoc.json"
@@ -118,6 +144,10 @@ printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleReso
 exec {component}/node_modules/.bin/typedoc --options {component}/typedoc.json --entryPoints ./probe.ts --out ./out --tsconfig ./tsconfig.json
 """]
 expect = "pass"
+# Exit 0 is not enough for the claim being made. This probe says TypeDoc PARSED
+# the commented JSON and did the work, so it asserts the site was written and
+# that the run ended with no errors — not merely that the process came back.
+expect_output = '(?s)html generated at \./out.*Found 0 errors'
 
 [[probe]]
 name = "TypeDoc rejects an undocumented export"
@@ -139,6 +169,11 @@ printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleReso
 exec {component}/node_modules/.bin/typedoc --options {component}/typedoc.json --entryPoints ./probe.ts --out ./out --tsconfig ./tsconfig.json
 """]
 expect = "fail"
+# Names the symbol and the diagnostic. TypeDoc exits non-zero for a tsconfig it
+# cannot read, an entry point that does not resolve, and an unknown option in
+# typedoc.json — none of which say anything about the documentation gate, and
+# all of which used to satisfy this probe.
+expect_output = '(?s)undocumented \(Variable\), defined in .*probe\.ts, does not have any documentation'
 
 [[probe]]
 name = "a relaxed docs build still produces a site"
@@ -166,6 +201,11 @@ printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleReso
 test -d ./out
 """]
 expect = "pass"
+# Both halves in one pattern: the undocumented export really was seen (so the
+# fixture is still the input a relaxation exists to tolerate) AND a site came
+# out the other side. `test -d ./out` alone would pass over a stale directory or
+# a run that emitted nothing but did not fail.
+expect_output = '(?s)does not have any documentation.*html generated at \./out'
 
 [[probe]]
 name = "the shipped biome.json uses no deprecated configuration"
@@ -188,5 +228,30 @@ part of the file set being checked (which is how this probe first appeared to
 pass against a config that was in fact deprecated).
 """
 requires = ["{component}/node_modules/.bin/biome"]
-argv = ["sh", "-c", "cd {component} && ! ./node_modules/.bin/biome check biome.json 2>&1 | grep -q DEPRECATED"]
+# The pipeline this replaces was `! biome check biome.json | grep -q DEPRECATED`.
+# grep -q swallows the output it reads, so a biome that could not start printed
+# no DEPRECATED, grep exited 1, and `!` turned the whole thing green. The three
+# outcomes are separated here instead: biome failing is a finding, a deprecation
+# is a finding, and only a clean read is a pass.
+argv = ["sh", "-c", """
+cd {component} || exit 1
+out=$(./node_modules/.bin/biome check --colors=off biome.json 2>&1)
+rc=$?
+printf '%s\n' "$out"
+if [ "$rc" -ne 0 ]; then
+  echo "doctor: biome exited $rc, so it never got far enough to say whether biome.json is deprecated"
+  exit 1
+fi
+case "$out" in
+  *DEPRECATED*)
+    echo "doctor: biome reports a DEPRECATED key in the shipped biome.json"
+    exit 1 ;;
+esac
+echo "doctor: biome read the shipped biome.json and reported no deprecation"
+"""]
 expect = "pass"
+# `Checked 1 file` is load-bearing: it is biome saying it actually looked at
+# biome.json. Without it the probe would still pass if the config were excluded
+# from the file set — which is precisely how this check first appeared to pass
+# against a config that WAS deprecated.
+expect_output = '(?s)Checked 1 file.*doctor: biome read the shipped biome\.json and reported no deprecation'

@@ -7,7 +7,20 @@
 # is a credential in a public repo.
 #
 # Each probe stages a known-bad file in a scratch git repo and asserts the
-# scanner REJECTS it.
+# scanner REJECTS it — and, since every one of them reaches the scanner through
+# `bash {component}/scripts/check-secrets.sh`, asserts WHICH rejection it got.
+#
+# That second half is not decoration. `expect = "fail"` on its own is satisfied
+# by any non-zero exit, and bash produces one for every way this probe can go
+# wrong that has nothing to do with the scanner: the script deleted (exit 127,
+# "No such file or directory"), unreadable, or carrying a syntax error. All five
+# of these probes would have reported OK in that state, on the check the header
+# above calls the highest-stakes in the harness. `requires` does not close it —
+# bash and git are both present, and the thing that is missing is the subject.
+#
+# So each probe below names the report its own fixture produces: which of the
+# two scans fired, in which file, on which credential. Delete the script and
+# they go red on the assertion rather than green on the exit code.
 
 [[probe]]
 name = "the secrets scanner rejects a provider-prefixed credential"
@@ -36,6 +49,9 @@ git add leak.swift
 bash {component}/scripts/check-secrets.sh
 """]
 expect = "fail"
+# The VALUE-side scan, named explicitly: its report line differs from the
+# name-based scan's, so this cannot be satisfied by the other half firing.
+expect_output = '(?s)Provider credential found in staged files:.*leak\.swift:[0-9]+:sk-ant-api03-'
 
 [[probe]]
 name = "the secrets scanner rejects a named-assignment secret"
@@ -58,6 +74,9 @@ git add leak.swift
 bash {component}/scripts/check-secrets.sh
 """]
 expect = "fail"
+# The NAME-side scan. `api_key = "..."` matches no provider prefix, so only the
+# assignment regex can produce this report — which is the half being proved.
+expect_output = '(?s)Potential hardcoded secrets found in staged files:.*leak\.swift:[0-9]+:api_key = "abcdefgh'
 
 [[probe]]
 name = "the secrets scanner sees a credential inside markup"
@@ -85,6 +104,11 @@ git add leak.html
 bash {component}/scripts/check-secrets.sh
 """]
 expect = "fail"
+# Naming the .html file is the point: the bug this probe covers threw the
+# credential away because the LINE carried angle brackets, so an assertion that
+# only said "something was rejected" would not distinguish the fix from any
+# other reason bash exited non-zero.
+expect_output = '(?s)Provider credential found in staged files:.*leak\.html:[0-9]+:sk-ant-api03-'
 
 [[probe]]
 name = "the secrets scanner sees a credential under examples/"
@@ -119,6 +143,10 @@ git add examples/leak.swift other.swift
 bash {component}/scripts/check-secrets.sh
 """]
 expect = "fail"
+# The path must appear WITH its examples/ prefix: the old filter matched the
+# word `example` in grep's path prefix and dropped the finding, so the prefix is
+# precisely what has to survive into the report.
+expect_output = '(?s)Provider credential found in staged files:.*examples/leak\.swift:[0-9]+:sk-ant-api03-'
 
 [[probe]]
 name = "the secrets scanner fails loudly when it cannot run"
@@ -150,6 +178,10 @@ rm -f a.swift
 bash {component}/scripts/check-secrets.sh
 """]
 expect = "fail"
+# This is the probe the exit code could never have proved. It asserts the
+# scanner NOTICED that it could not run and said so; a bare expect="fail" is
+# satisfied by the scanner not running at all, which is the failure mode.
+expect_output = 'check-secrets: the scan could not run \(grep exit [0-9]+\) — refusing to report a pass\.'
 
 [[probe]]
 name = "the secrets scanner accepts ordinary source"
@@ -159,6 +191,14 @@ uninstalled scanner catches nothing. This fixture mentions a key prefix in prose
 with a placeholder — exactly what a README or an .example file looks like — and
 must NOT trip. Without this probe the only pressure on the patterns is toward
 broader, and broader is how a check gets switched off.
+
+This is the one probe here with no `expect_output`, and the gap is real rather
+than an oversight: the scanner is SILENT on success by design, so there is
+nothing it prints that could be asserted. That leaves one way for this probe to
+pass wrongly — the staged-file filter growing until it excludes docs.swift, so
+the scan exits 0 having looked at nothing. Closing it means making the script
+say what it scanned, which is a change to core/root/scripts/check-secrets.sh
+rather than to this file.
 """
 file = "docs.swift"
 content = """

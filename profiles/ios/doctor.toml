@@ -1,9 +1,16 @@
 # Self-tests for the ios profile, run by `lacquer doctor`.
 #
-# Each probe writes KNOWN-BAD code and asserts the check REJECTS it. That is the
-# opposite of what CI does, and it is the only way to catch a check that has
-# stopped checking. Every probe here exists because something in this list
-# actually broke and nothing noticed.
+# Each probe writes KNOWN-BAD code and asserts the check REJECTS it, and names
+# the diagnostic that rejection produces. That is the opposite of what CI does,
+# and it is the only way to catch a check that has stopped checking. Every probe
+# here exists because something in this list actually broke and nothing noticed.
+#
+# `expect_output` is the second half of the contract and it is not optional for
+# an expect="fail" probe: a non-zero exit is also what SwiftLint prints for an
+# unreadable config (exit 134), a removed flag (exit 64, "Unknown option"), or a
+# binary that is not there. Each probe below asserts the rule id it means to
+# trip, so "the check rejected the fixture" cannot be confused with "the check
+# could not start".
 
 [[probe]]
 name = "SwiftLint rejects a warning-severity violation under --strict"
@@ -28,6 +35,11 @@ struct DoctorProbeType {
 """
 argv = ["swiftlint", "--strict", "--config", "{component}/.swiftlint.yml", "{dir}"]
 expect = "fail"
+# `error:` is the whole point. line_length is WARNING severity in this band, so
+# the word only appears because --strict promoted it; without the flag SwiftLint
+# prints `warning:` and exits 0. Asserting the promoted severity is what makes
+# this a test of --strict rather than of line_length.
+expect_output = '(?s)Probe\.swift:[0-9]+:[0-9]+: error: Line Length Violation:.*\(line_length\)'
 
 [[probe]]
 name = "SwiftLint is invoked in a form it still accepts"
@@ -36,16 +48,34 @@ The editor hook called `swiftlint lint --path FILE`. --path had been removed
 from SwiftLint, so the command errored on every write and `2>/dev/null || true`
 swallowed it — nothing was linted for months. This probe fails if the modern
 positional-path invocation stops working.
+
+Two things about it were wrong until now, and they were the same thing twice.
+It ran against .swiftlint-docs.yml on an undocumented member, so it was
+satisfied by the missing_docs violation the probe below already tests — and,
+worse, equally satisfied by SwiftLint refusing the command line, by an
+unreadable config, or by exit 127. A probe for an INVOCATION FORM that passes
+when the invocation is rejected is inside out.
+
+It now runs the hook's own command line (see the PostToolUse hook in
+profiles/ios/root/.claude/settings.json: `swiftlint lint --strict --config
+<.swiftlint.yml> --quiet <file>`) against a force_unwrapping fixture, and
+asserts that specific rule. force_unwrapping is an opt-in rule this
+.swiftlint.yml enables and a warning that only --strict promotes, so the
+assertion covers the config, the flag and the argument shape at once. Restore
+`--path` and SwiftLint answers "Unknown option '--path'" at exit 64, which is
+non-zero and matches nothing here.
 """
 file = "Probe.swift"
 content = """
-/// A type with an undocumented member, so the run has something to report.
+/// A type the editor hook's own command line must still reject.
 struct DoctorProbeType {
-    func undocumented() {}
+    /// Force-unwraps, which .swiftlint.yml opts in to via force_unwrapping.
+    func value(_ input: Int?) -> Int { input! }
 }
 """
-argv = ["swiftlint", "lint", "--strict", "--quiet", "--config", "{component}/.swiftlint-docs.yml", "{dir}/Probe.swift"]
+argv = ["swiftlint", "lint", "--strict", "--quiet", "--config", "{component}/.swiftlint.yml", "{dir}/Probe.swift"]
 expect = "fail"
+expect_output = '(?s)Probe\.swift:[0-9]+:[0-9]+: error: Force Unwrapping Violation:.*\(force_unwrapping\)'
 
 [[probe]]
 name = "SwiftFormat --lint rejects unformatted code"
@@ -59,6 +89,10 @@ struct DoctorProbeType {
 """
 argv = ["swiftformat", "--lint", "--config", "{component}/.swiftformat", "{dir}"]
 expect = "fail"
+# Naming the rule proves SwiftFormat parsed the file and produced a diff. An
+# unreadable --config, or a rule name the running version no longer knows, also
+# exits non-zero and prints nothing of the sort.
+expect_output = '(?s)Probe\.swift:[0-9]+:[0-9]+: error: \(indent\).*Source input did not pass lint check\.'
 
 [[probe]]
 name = "missing_docs rejects an undocumented declaration"
@@ -75,6 +109,10 @@ struct DoctorProbeUndocumented {
 """
 argv = ["swiftlint", "--strict", "--config", "{component}/.swiftlint-docs.yml", "{dir}"]
 expect = "fail"
+# The failure mode this guards is the config matching NO files and exiting 0, so
+# the assertion has to be that missing_docs actually fired on the fixture — not
+# that swiftlint had some opinion or other.
+expect_output = '(?s)Probe\.swift:[0-9]+:[0-9]+: error: Missing Docs Violation:.*\(missing_docs\)'
 
 [[probe]]
 name = "the formatter and the linter agree on member order"
@@ -192,3 +230,12 @@ struct DoctorProbeNames {
 """
 argv = ["swiftlint", "--strict", "--config", "{component}/.swiftlint.yml", "{dir}"]
 expect = "fail"
+# Both halves, and it takes both clauses to hold them. Naming DoTheThing covers
+# the CATCHES half: widen `excluded` until it swallows an ordinary name and
+# SwiftLint exits 0, which is red (measured, with `excluded: [".*"]`). The
+# violation COUNT covers the ALLOWS half, which nothing asserted before: delete
+# the backtick exclusion and the sentence name is flagged too, DoTheThing is
+# still reported alongside it, and a pattern that only looked for DoTheThing
+# stayed green over a config that had started rejecting idiomatic test names
+# (also measured). Two violations is not one.
+expect_output = """(?s)Probe\\.swift:[0-9]+:[0-9]+: error: Identifier Name Violation: Function name 'DoTheThing\\(\\)' should start with a lowercase character \\(identifier_name\\).*Done linting! Found 1 violation, 1 serious in 1 file\\."""
