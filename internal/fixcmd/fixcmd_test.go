@@ -119,3 +119,75 @@ func TestFixerRunsToAFixedPoint(t *testing.T) {
 		t.Errorf("ran %d passes, above the %d cap", res[0].Passes, maxPasses)
 	}
 }
+
+// A component-local binary must be found in the COMPONENT, not in whatever
+// directory the lacquer process happens to be sitting in.
+//
+// Both exec.LookPath and exec.Command resolve a name carrying a separator
+// against this process's working directory rather than against cmd.Dir, so
+// without Binary a project laid out with components would silently report
+// "./node_modules/.bin/biome is not installed" and skip the fixer — the failure
+// mode that looks like a successful run.
+func TestComponentLocalBinaryIsResolvedAgainstTheComponent(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "profiles", "p", "fix.toml"),
+		"[[command]]\nname = \"local\"\nargv = [\"./node_modules/.bin/tool\"]\n")
+
+	proj := t.TempDir()
+	// The binary exists ONLY inside the component. A run that looks anywhere
+	// else finds nothing.
+	bin := filepath.Join(proj, "admin", "node_modules", ".bin", "tool")
+	// Writes into its working directory, which fixcmd sets to the component.
+	writeFile(t, bin, "#!/bin/sh\necho ran > ran.txt\n")
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// And the process cwd is the project ROOT, which is where the unresolved
+	// lookup would have gone.
+	chdir(t, proj)
+
+	cfg := &config.Config{Components: []config.Component{{Path: "admin", Profiles: []string{"p"}}}}
+	var out bytes.Buffer
+	res, err := Run(root, proj, cfg, &out)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("results = %+v, want one", res)
+	}
+	if strings.Contains(res[0].Status, "not installed") {
+		t.Fatalf("a binary that exists in the component was reported missing: %s\n%s", res[0].Status, out.String())
+	}
+	if _, err := os.Stat(filepath.Join(proj, "admin", "ran.txt")); err != nil {
+		t.Errorf("the component-local binary never ran: %v\n%s", err, out.String())
+	}
+}
+
+// A bare name is still a PATH lookup, and an absolute path is taken as given.
+// Rewriting either would break every existing fixer (swiftformat, deno).
+func TestBinaryLeavesPathLookupsAlone(t *testing.T) {
+	cases := []struct{ dir, argv0, want string }{
+		{"/proj/admin", "swiftformat", "swiftformat"},
+		{"/proj/admin", "deno", "deno"},
+		{"/proj/admin", "/usr/local/bin/biome", "/usr/local/bin/biome"},
+		{"/proj/admin", "./node_modules/.bin/biome", "/proj/admin/node_modules/.bin/biome"},
+		{"/proj/admin", "node_modules/.bin/biome", "/proj/admin/node_modules/.bin/biome"},
+	}
+	for _, c := range cases {
+		if got := Binary(c.dir, c.argv0); got != c.want {
+			t.Errorf("Binary(%q, %q) = %q, want %q", c.dir, c.argv0, got, c.want)
+		}
+	}
+}
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(prev) })
+}
