@@ -1,0 +1,7 @@
+# Trimmed. Present so the component looks like what it is: a pnpm workspace with
+# a committed lockfile, which is what `pnpm install --frozen-lockfile` in the
+# synced web CI job requires.
+lockfileVersion: '9.0'
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false

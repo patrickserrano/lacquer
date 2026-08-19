@@ -1,0 +1,4 @@
+# Project-owned ignore rules. Build output only — see the note in
+# ../rootapp/.gitignore for why there are no credential patterns here.
+.build/
+.swiftpm/

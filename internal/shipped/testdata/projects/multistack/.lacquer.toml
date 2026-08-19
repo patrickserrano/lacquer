@@ -1,0 +1,46 @@
+# Three stacks in one repository — the shape the `ios-web-supabase` archetype
+# describes, and the one most of this fleet's larger projects have.
+#
+# Every component sits under a prefix, which is what makes this fixture worth
+# having: `COMPONENT_PREFIX` renders "ios/", "admin/" and "server/" here, and
+# `COMPONENT_TO_ROOT` renders ".." for each. A root-layout project exercises
+# neither. profiles/web/config/biome.json is the file that cares — its
+# `vcs.root` has to point back at the repository root or biome refuses to start
+# in a component directory.
+#
+# `server` is the component, not `server/supabase`: detection marks the
+# directory that CONTAINS supabase/, which is where deno.jsonc and the CLAUDE
+# region belong.
+
+[project]
+name = "Multistack"
+project_name = "Multistack"
+scheme = "Multistack"
+xcodeproj = "ios/Multistack.xcodeproj"
+swift_version = "6"
+bundle_id = "com.example.multistack"
+asc_app_id = "1000000002"
+github_org = "example-org"
+stack = "ios-web-supabase"
+tools = ["claude", "codex", "antigravity"]
+
+# The admin app statically collects page data at build time and reads these at
+# module load, so the shared web CI job cannot build it without them. Names
+# only — the manifest is committed, and the rendered workflow reads each from
+# `secrets`.
+build_env = ["NEXT_PUBLIC_API_URL", "ADMIN_SESSION_SECRET"]
+
+[[component]]
+path = "admin"
+profiles = ["web"]
+stack = "web"
+
+[[component]]
+path = "ios"
+profiles = ["ios"]
+stack = "ios"
+
+[[component]]
+path = "server"
+profiles = ["supabase"]
+stack = "supabase"

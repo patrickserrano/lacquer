@@ -1,0 +1,23 @@
+{
+  "name": "@example/multistack-admin",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "scripts": {
+    "build": "next build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "next": "15.6.1",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.5",
+    "typedoc": "0.29.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

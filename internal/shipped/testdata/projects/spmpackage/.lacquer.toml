@@ -1,0 +1,31 @@
+# A bare SwiftPM package: Swift source with no Xcode project to build it.
+#
+# This fixture exists to pin a GAP THE LACQUER DECLARES OUT LOUD, not a feature.
+# internal/detect names the stack `swift` (detect.SwiftProfile), but no
+# profiles/swift/ ships and `swift` is not in config.knownStacks — so `init`
+# records the component with an EMPTY profiles list and prints a notice, and
+# `sync` writes core content only. Nothing gates the Swift.
+#
+# That is the honest answer while the profile does not exist, and it is reported
+# on every run rather than being silently absent. The e2e suite asserts the
+# component surfaces as UNSUPPORTED drift (detect.Unsupported) and never as
+# ADOPTABLE (detect.Adoptable) — if someone later makes this quietly succeed,
+# that assertion fails and says so.
+#
+# `stack` is not set: it names an archetype under archetypes/, and there is no
+# swift archetype either.
+
+[project]
+name = "Spmkit"
+project_name = ""
+scheme = ""
+xcodeproj = ""
+swift_version = ""
+bundle_id = ""
+asc_app_id = ""
+github_org = "example-org"
+tools = ["claude", "codex", "antigravity"]
+
+[[component]]
+path = "."
+profiles = []
