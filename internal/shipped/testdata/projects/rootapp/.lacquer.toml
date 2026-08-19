@@ -1,0 +1,25 @@
+# A single-stack iOS app laid out at the repository root — the shape the `ios`
+# archetype describes. One component at ".", so `COMPONENT_PREFIX` renders
+# empty and `COMPONENT_TO_ROOT` renders "."; there is nothing to keep out of
+# anything else's way, so the Xcode project, its lint configs and its CI all sit
+# at the top level.
+#
+# No [[product]] block: one app, so config.Products() synthesises the single
+# product from [project] and the iOS CI/release workflows render their flat,
+# pre-matrix form.
+
+[project]
+name = "Rootapp"
+project_name = "Rootapp"
+scheme = "Rootapp"
+xcodeproj = "Rootapp.xcodeproj"
+swift_version = "6"
+bundle_id = "com.example.rootapp"
+asc_app_id = "1000000001"
+github_org = "example-org"
+stack = "ios"
+tools = ["claude", "codex", "antigravity"]
+
+[[component]]
+path = "."
+profiles = ["ios"]

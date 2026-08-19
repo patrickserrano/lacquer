@@ -1,0 +1,10 @@
+# Project-owned ignore rules. Build output and editor junk only.
+#
+# Deliberately carries NO credential patterns: the lacquer's managed
+# `# lacquer:gitignore:start` region is what must ignore *.p8,
+# Secrets.xcconfig and .env, and the e2e suite asserts exactly that with
+# `git check-ignore`. A credential rule here would make that assertion pass
+# without the shipped region doing anything.
+DerivedData/
+*.xcuserstate
+.build/

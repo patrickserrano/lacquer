@@ -1,0 +1,20 @@
+// !$*UTF8*$!
+//
+// Trimmed — see ../../rootapp/Rootapp.xcodeproj/project.pbxproj.
+{
+	archiveVersion = 1;
+	objectVersion = 77;
+	objects = {
+		/* Begin PBXProject section */
+		2A0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			knownRegions = (en, Base);
+			targets = (
+				2A0000000000000000000002 /* Multistack */,
+				2A0000000000000000000003 /* MultistackTests */,
+			);
+		};
+		/* End PBXProject section */
+	};
+	rootObject = 2A0000000000000000000001 /* Project object */;
+}

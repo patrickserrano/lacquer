@@ -1,0 +1,23 @@
+// !$*UTF8*$!
+//
+// Trimmed — see ../rootapp/Rootapp.xcodeproj/project.pbxproj.
+{
+	archiveVersion = 1;
+	objectVersion = 77;
+	objects = {
+		/* Begin PBXProject section */
+		3A0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			knownRegions = (en, Base);
+			targets = (
+				3A0000000000000000000002 /* Duoapp Paid */,
+				3A0000000000000000000003 /* Duoapp Free */,
+				3A0000000000000000000004 /* DuoappPaidTests */,
+				3A0000000000000000000005 /* DuoappFreeTests */,
+				3A0000000000000000000006 /* DuoappPaidUITests */,
+			);
+		};
+		/* End PBXProject section */
+	};
+	rootObject = 3A0000000000000000000001 /* Project object */;
+}

@@ -1,0 +1,10 @@
+# Project-owned ignore rules. Build output and editor junk only — see the note
+# in ../rootapp/.gitignore for why there are no credential patterns here.
+#
+# Package.resolved is deliberately NOT ignored. Two repositories in this fleet
+# excluded it (one via a bare `*.resolved`), which made their Swift dependencies
+# unwatchable: Dependabot's swift ecosystem reads the REPOSITORY, not the working
+# tree, and aborted the whole run daily against a manifest it could not fetch.
+# A .resolved file is a lockfile, and lockfiles are tracked.
+DerivedData/
+*.xcuserstate

@@ -1,0 +1,6 @@
+# Project-owned ignore rules. Build output and editor junk only — see the note
+# in ../rootapp/.gitignore for why there are no credential patterns here.
+DerivedData/
+*.xcuserstate
+node_modules/
+.next/

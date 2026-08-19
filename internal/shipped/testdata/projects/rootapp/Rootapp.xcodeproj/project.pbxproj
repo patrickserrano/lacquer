@@ -1,0 +1,22 @@
+// !$*UTF8*$!
+//
+// Trimmed. A real project.pbxproj runs to several thousand lines of object
+// graph; nothing in the lacquer parses past the ".xcodeproj" directory name, so
+// this keeps only enough structure to be recognisable to a human reader.
+{
+	archiveVersion = 1;
+	objectVersion = 77;
+	objects = {
+		/* Begin PBXProject section */
+		1A0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			knownRegions = (en, Base);
+			targets = (
+				1A0000000000000000000002 /* Rootapp */,
+				1A0000000000000000000003 /* RootappTests */,
+			);
+		};
+		/* End PBXProject section */
+	};
+	rootObject = 1A0000000000000000000001 /* Project object */;
+}

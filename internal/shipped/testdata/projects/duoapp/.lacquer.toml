@@ -1,0 +1,68 @@
+# One repository, two shipped apps: a paid build and an ad-supported free one.
+#
+# Two projects in this fleet are this shape, and before [[product]] existed both
+# had forked the release workflow to do it — hand-maintaining the most complex
+# asset the lacquer ships. One ended up 247 versions behind.
+#
+# The properties this fixture pins, none of which a single-product project can
+# exercise:
+#
+#   - `tag_prefix` is REQUIRED once there is more than one product. Releasing
+#     both on one tag cannot work: an App Store version train closes permanently
+#     at READY_FOR_SALE, so a both-apps tag drags the shipped product back
+#     through a closed train and fails with error 90186, every time.
+#   - `test_target` is per-product because a paid and a free variant compile
+#     DIFFERENT test bundles. Running the paid target against the free scheme is
+#     not a failure, it is a green run over a suite that never covered the code
+#     that shipped.
+#   - `ui_test_target` is blank for one product and set for the other, so blank
+#     stays a first-class value rather than a missing one.
+#   - `app_target` is separate from the scheme because the two genuinely differ:
+#     the scheme "Duoapp Free" produces "Duoapp Free.app" here, but a real
+#     project in this fleet has a scheme producing an .app with another name
+#     entirely, and deriving it would silently select no coverage target.
+#   - `secrets` names GitHub secrets, never values; `secret_formats` constrains
+#     their SHAPE, because pasting the paid key into the free app produces a
+#     perfectly non-empty value that builds, signs, ships, and serves the wrong
+#     entitlements to real users.
+
+[project]
+name = "Duoapp"
+project_name = "Duoapp"
+scheme = "Duoapp Paid"
+xcodeproj = "Duoapp.xcodeproj"
+swift_version = "6"
+bundle_id = "com.example.duoapp"
+asc_app_id = "1000000003"
+github_org = "example-org"
+stack = "ios"
+tools = ["claude", "codex"]
+
+[[product]]
+name = "Duoapp Paid"
+scheme = "Duoapp Paid"
+bundle_id = "com.example.duoapp"
+asc_app_id = "1000000003"
+tag_prefix = "duoapp"
+test_target = "DuoappPaidTests"
+ui_test_target = "DuoappPaidUITests"
+app_target = "Duoapp.app"
+secrets_file = "Config/Monetization.xcconfig"
+secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY_PAID" }
+secret_formats = { REVENUECAT_API_KEY = "appl_*" }
+
+[[product]]
+name = "Duoapp Free"
+scheme = "Duoapp Free"
+bundle_id = "com.example.duoapp.free"
+asc_app_id = "1000000004"
+tag_prefix = "duoappfree"
+test_target = "DuoappFreeTests"
+app_target = "Duoapp Free.app"
+secrets_file = "Config/Monetization.xcconfig"
+secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY_FREE", ADMOB_APP_ID = "ADMOB_APP_ID_FREE" }
+secret_formats = { REVENUECAT_API_KEY = "appl_*", ADMOB_APP_ID = "ca-app-pub-*~*" }
+
+[[component]]
+path = "."
+profiles = ["ios"]

@@ -1,0 +1,13 @@
+# Supabase project configuration. Its presence is what marks `server/` as a
+# supabase component — detection keys off `supabase/config.toml` and assigns the
+# directory that CONTAINS it.
+project_id = "multistack"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage"]
+
+[db]
+port = 54322
+major_version = 15
