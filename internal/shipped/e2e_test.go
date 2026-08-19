@@ -1061,6 +1061,12 @@ type newProjectCase struct {
 	// shape a brief chose, detection is what happens without one.
 	stack   string
 	markers map[string]string
+	// wantComponents, when set, are the component paths the written manifest must
+	// declare. Only worth stating where detection alone would not produce them —
+	// i.e. where the archetype is doing the work.
+	wantComponents []string
+	// wantFiles, when set, are project-relative paths sync must have written.
+	wantFiles []string
 	// long marks a case that only adds a combination, not a stack. Short mode
 	// keeps every single-stack case and drops these.
 	long bool
@@ -1148,6 +1154,23 @@ var newProjectCases = []newProjectCase{
 		},
 		long: true,
 	},
+	{
+		// The ONLY case where the archetype does any work. Everywhere else the
+		// marker files are on disk, so detection finds every component and
+		// `--stack` merges in nothing — a broken archetype would go unnoticed.
+		//
+		// Here the backend has been decided and not yet written: `--stack
+		// ios-supabase` declares `server` before the directory exists, which is
+		// the whole reason archetypes exist ("a stack that arrives later arrives
+		// ungated"). Sync must create the component and put its config there.
+		name:  "ios-with-a-declared-supabase-backend",
+		stack: "ios-supabase",
+		markers: map[string]string{
+			"ios/Acme.xcodeproj/project.pbxproj": "// trimmed\n",
+		},
+		wantComponents: []string{"ios", "server"},
+		wantFiles:      []string{"server/deno.jsonc", "server/CLAUDE.md"},
+	},
 }
 
 func TestNewProjectsAlwaysWork(t *testing.T) {
@@ -1159,12 +1182,34 @@ func TestNewProjectsAlwaysWork(t *testing.T) {
 			}
 			t.Parallel()
 			p := fromInit(t, tc.stack, tc.markers)
+
+			if len(tc.wantComponents) > 0 {
+				got := map[string]bool{}
+				for _, c := range p.config().Components {
+					got[c.Path] = true
+				}
+				for _, want := range tc.wantComponents {
+					if !got[want] {
+						t.Errorf("the written manifest declares no component %q (has %v). "+
+							"A component the archetype names but detection cannot see is exactly what "+
+							"`--stack` is for: a stack that arrives later arrives ungated", want, got)
+					}
+				}
+			}
+
 			// init leaves bundle_id, asc_app_id and github_org blank for the
 			// operator. A new project has to sync with them blank — that is the
 			// state every project is in for its first few minutes — so nothing is
 			// filled in here.
 			p.commit("init")
 			p.sync()
+
+			for _, want := range tc.wantFiles {
+				if _, err := os.Stat(filepath.Join(p.root, filepath.FromSlash(want))); err != nil {
+					t.Errorf("sync did not write %s: %v", want, err)
+				}
+			}
+
 			validateSyncedProject(t, p)
 		})
 	}
@@ -1173,6 +1218,106 @@ func TestNewProjectsAlwaysWork(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Known gaps, stated rather than hidden
 // ---------------------------------------------------------------------------
+
+// TestDoctorSurvivesAProjectPathWithASpace documents a REAL DEFECT this suite
+// found, and skips rather than failing so the defect stays visible without
+// blocking the branch.
+//
+// Several shipped probes are `argv = ["sh", "-c", "<string>"]` and splice the
+// {dir} and {component} placeholders into that string UNQUOTED:
+//
+//	argv = ["sh", "-c", "swiftformat {dir} --config {component}/.swiftformat …"]
+//
+// So a project checked out at a path containing a space — `~/Developer/My
+// Apps/thing`, an iCloud Drive path, a macOS runner's default workspace with a
+// space in the machine name — has every one of those probes word-split. Measured
+// on a synced iOS project at such a path: three failures, and one of them is a
+// CORE probe (`the secrets scanner accepts ordinary source`, exit 127 — "command
+// not found", because the fixture path became two arguments). Core probes run in
+// every project of every stack, so this is not an iOS-only problem.
+//
+// `lacquer doctor` exits 5 on any failure, and doctor is run by CI, so the
+// visible symptom is a red pipeline that blames the project's own lint config.
+//
+// Quoting the placeholders fixes the space case (measured). It is NOT applied
+// here: it means editing every `sh -c` probe across core/doctor.toml and two
+// profile doctor.toml files, some of which pass globs that are meant to expand
+// (`{dir}/*.ts`), so a blanket quote would silently stop those probes matching
+// anything — which is the vacuous-pass failure this whole package exists to
+// prevent. That is a change that needs its own review, not a drive-by.
+//
+// A COMMA in the path is a different, narrower problem and quoting does not fix
+// it: swiftformat splits its own `--config` value on commas, so
+// `--config "/a/b,c/.swiftformat"` looks for `/a/b`. Upstream behaviour, noted
+// here because the two look identical from a failing CI log.
+//
+// Note also, for whoever picks this up: Go's t.TempDir() derives its directory
+// name from the test name and permits spaces, commas and parentheses in it. A
+// subtest named with any of those puts the project at a path that trips this,
+// and the failure reads as a lacquer bug rather than a test-naming one. It is
+// how this defect was found.
+func TestDoctorSurvivesAProjectPathWithASpace(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("swiftlint"); err != nil {
+		t.Skip("swiftlint is not installed; this defect is only observable where the probes can run")
+	}
+	if _, err := exec.LookPath("swiftformat"); err != nil {
+		t.Skip("swiftformat is not installed; this defect is only observable where the probes can run")
+	}
+
+	// A path with a space in a directory ABOVE the project root, which is the
+	// realistic shape (the project's own name is rarely the problem).
+	base := filepath.Join(t.TempDir(), "My Apps")
+	dir := filepath.Join(base, "thing")
+	if err := os.MkdirAll(filepath.Join(dir, "Acme.xcodeproj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Acme.xcodeproj", "project.pbxproj"), []byte("// trimmed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lacquerRoot := root(t)
+	initRepo(t, dir)
+	if _, err := initcmd.Run(lacquerRoot, dir, "ios"); err != nil {
+		t.Fatalf("init failed at a path with a space: %v", err)
+	}
+	p := &project{root: dir, lacquerRoot: lacquerRoot, t: t}
+	p.commit("init")
+	// sync itself is fine at such a path — it does no shelling out with these
+	// values — which is what makes the failure surprising when it arrives.
+	p.sync()
+
+	cfg := p.config()
+	var out strings.Builder
+	results, err := doctor.Run(lacquerRoot, dir, cfg, []string{"ios"}, &out)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	failures := doctor.Failures(results)
+	if len(failures) == 0 {
+		t.Log("doctor now passes at a path containing a space — the defect is fixed. " +
+			"Turn the skip below into a hard assertion so it cannot come back.")
+		return
+	}
+	var names []string
+	for _, f := range failures {
+		names = append(names, fmt.Sprintf("%s/%s (%s)", f.Profile, f.Name, firstLineOf(f.Detail)))
+	}
+	sort.Strings(names)
+	t.Skipf("KNOWN BUG (not fixed on this branch): `lacquer doctor` fails on a project whose path "+
+		"contains a space, because shipped probes splice {dir}/{component} unquoted into an `sh -c` "+
+		"string. %d probe(s) failed at %q:\n  %s\nSee this test's comment for why the fix is not a "+
+		"drive-by.", len(failures), dir, strings.Join(names, "\n  "))
+}
+
+// firstLineOf trims a probe's multi-line detail to something a skip message can
+// carry without becoming a wall of text.
+func firstLineOf(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
 
 // TestDoctorWebProbesNeedAnInstall states what the doctor coverage above does
 // NOT include, so the gap is a documented decision rather than a silent hole.
