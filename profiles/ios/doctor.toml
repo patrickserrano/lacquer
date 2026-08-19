@@ -230,8 +230,12 @@ struct DoctorProbeNames {
 """
 argv = ["swiftlint", "--strict", "--config", "{component}/.swiftlint.yml", "{dir}"]
 expect = "fail"
-# Naming DoTheThing is what holds both halves. The probe is red if the linter
-# stops catching the wrongly-capitalised name, and equally red if it starts
-# flagging the backtick-quoted sentence instead — the violation reported would
-# then be for `Verifier is at least 43 characters`, which this does not match.
-expect_output = """(?s)Probe\\.swift:[0-9]+:[0-9]+: error: Identifier Name Violation: Function name 'DoTheThing\\(\\)' should start with a lowercase character \\(identifier_name\\)"""
+# Both halves, and it takes both clauses to hold them. Naming DoTheThing covers
+# the CATCHES half: widen `excluded` until it swallows an ordinary name and
+# SwiftLint exits 0, which is red (measured, with `excluded: [".*"]`). The
+# violation COUNT covers the ALLOWS half, which nothing asserted before: delete
+# the backtick exclusion and the sentence name is flagged too, DoTheThing is
+# still reported alongside it, and a pattern that only looked for DoTheThing
+# stayed green over a config that had started rejecting idiomatic test names
+# (also measured). Two violations is not one.
+expect_output = """(?s)Probe\\.swift:[0-9]+:[0-9]+: error: Identifier Name Violation: Function name 'DoTheThing\\(\\)' should start with a lowercase character \\(identifier_name\\).*Done linting! Found 1 violation, 1 serious in 1 file\\."""
