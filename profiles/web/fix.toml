@@ -1,28 +1,53 @@
 # Autofixers for the web profile — see profiles/ios/fix.toml for the contract.
 # `biome check --write` is format + lint autofix in one pass.
 #
-# `pnpm exec`, never `npx`. This file ran `npx --no-install biome` long after
-# doctor.toml, lefthook.yml and web-ci.yml had all been fixed — the profile's own
-# rule ("the local binary, never a downloading runner", CLAUDE.web.md) written
-# down in four places while the one command that `lacquer fix` runs over every
-# file in the project still shelled out to npx. npx resolves whatever is
-# reachable, which on a machine with a Homebrew biome is the GLOBAL binary rather
-# than the version the project pins; without `--no-install` it would install the
-# unrelated npm package that owns the bare name `biome` (the linter is
-# `@biomejs/biome`). `pnpm exec` runs the component's own install and fails when
-# there is none, so the downloading behaviour cannot happen by accident — that
-# lives on a separate verb, `pnpm dlx`.
+# THE LOCAL BINARY BY ITS PATH, and nothing that falls back to PATH. This file
+# ran `npx --no-install biome` long after doctor.toml, lefthook.yml, web-ci.yml
+# and CLAUDE.web.md had all been fixed and had all written down why — the rule
+# propagated to five files faster than the fix reached the one command
+# `lacquer fix` runs over every file in a project.
 #
-# It is `pnpm exec biome` here rather than the `./node_modules/.bin/biome` that
-# lefthook and CI use, and the difference is mechanical, not a second opinion.
-# fixcmd resolves argv[0] with exec.LookPath BEFORE setting the command's
-# working directory, and LookPath reads a slash-bearing path relative to the
+# Measured on a machine with Homebrew's biome installed, in a directory with no
+# node_modules:
+#
+#   npx --no-install biome --version    -> 0, "Version: 2.5.5"   (the GLOBAL one)
+#   pnpm exec biome --version           -> 0, "Version: 2.5.5"   (the GLOBAL one)
+#   npx --no-install typedoc --version  -> 0, TypeDoc 0.28.20    (an npx CACHE
+#                                          under ~/.npm/_npx — `--no-install`
+#                                          does not stop a previous download
+#                                          from being reused)
+#   ./node_modules/.bin/biome           -> 126, names the missing path
+#
+# So `pnpm exec` is NOT a fix here. It prepends node_modules/.bin and then falls
+# through to PATH, so it fails only when the tool is nowhere at all — and the
+# scenario this rule exists for is exactly the one where it is somewhere: a
+# developer with a global biome, whose version nobody chose, rewriting every
+# source file in the project. A fixer WRITES, so an unpinned resolution here is
+# worse than the same mistake in a check.
+#
+# Wrapped in `sh -c` rather than named as argv[0] because of how fixcmd runs
+# this. It resolves argv[0] with exec.LookPath BEFORE the command's working
+# directory is applied, and LookPath reads a slash-bearing path against the
 # process's cwd — the project root. In a nested layout the install is at
-# `<component>/node_modules`, so a relative binary path would be reported as
-# "skipped: not installed" for every component that is not the root. `pnpm` is
-# found on PATH and resolves the local binary from the working directory fixcmd
-# does set, which is the component.
+# `<component>/node_modules`, so a bare relative argv[0] would report every
+# non-root component as "skipped: not installed". `sh` is found on PATH; the
+# relative path inside it resolves against the component directory fixcmd
+# actually sets. doctor.toml uses the same shape for the same reason.
+#
+# A missing binary exits non-zero with the message below, which fixcmd reports
+# and moves past — a fixer that cannot run leaves work for a human, and the CI
+# lint gate still catches it. That is the fixer contract, not the check one.
 
 [[command]]
 name = "biome check --write"
-argv = ["pnpm", "exec", "biome", "check", "--write", "."]
+argv = [
+  "sh",
+  "-c",
+  """
+if [ ! -x ./node_modules/.bin/biome ]; then
+  echo "@biomejs/biome is not installed in this component — run 'pnpm install'. Not falling back to a global biome: it would rewrite every file with a version this project never pinned." >&2
+  exit 127
+fi
+exec ./node_modules/.bin/biome check --write .
+""",
+]
