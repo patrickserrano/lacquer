@@ -440,6 +440,10 @@ func validateSyncedProject(t *testing.T, p *project) {
 		runActionlint(t, p)
 	})
 
+	t.Run("lefthook accepts the rendered hook config", func(t *testing.T) {
+		runLefthookValidate(t, p)
+	})
+
 	t.Run("doctor proves each check can fail", func(t *testing.T) {
 		runDoctor(t, p)
 	})
@@ -620,6 +624,40 @@ func runActionlint(t *testing.T, p *project) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Errorf("actionlint rejects the rendered workflows:\n%s", out)
+	}
+}
+
+// runLefthookValidate asks lefthook itself whether it can read the file the
+// project was given, and skips cleanly when the binary is not installed.
+//
+// This is a different layer from the YAML parse and the structural assertions
+// below, and it catches what those cannot: lefthook validates against a schema,
+// so a `root:` that came out as a number, a `parallel:` that ended up on a
+// command instead of its hook, or a `priority:` of the wrong type is rejected
+// here and nowhere else. Every one of those is a plausible way for a merge to
+// go wrong while still producing valid YAML that decodes cleanly into the
+// structs this file declares — which is exactly the shape of a check that
+// passes over a broken file.
+//
+// Asked of every project, not only the merged one: a single-profile file is
+// equally worth checking, and running it only where the merge happens would
+// leave the fragments themselves unverified.
+//
+// Advisory in the same sense as actionlint: it runs where the tool exists.
+func runLefthookValidate(t *testing.T, p *project) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(p.root, "lefthook.yml")); err != nil {
+		t.Skip("this project's profiles ship no lefthook.yml")
+	}
+	bin, err := exec.LookPath("lefthook")
+	if err != nil {
+		t.Skip("lefthook is not installed; skipping (the YAML parse and the hook assertions are not advisory)")
+	}
+	cmd := exec.Command(bin, "validate")
+	cmd.Dir = p.root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("`lefthook validate` rejects the synced lefthook.yml, so the hooks it describes run "+
+			"nothing:\n%s", out)
 	}
 }
 
