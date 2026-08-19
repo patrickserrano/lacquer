@@ -457,10 +457,7 @@ func TestIOSCIExtraTestTargetsAreOptIn(t *testing.T) {
 // and a test that only checked "the bad case fails" would pass for exactly the
 // wrong reason.
 func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
-	script := stepRun(t, parseIOSCI(t, withExtras()), "test", "Verify Test Selectors Matched")
-
-	// A result bundle in Apple's `get test-results tests` shape. The name with a
-	// space is the one a word-splitting comparison gets wrong.
+	// A result bundle in Apple's `get test-results tests` shape.
 	bundle := func(names ...string) string {
 		var b strings.Builder
 		b.WriteString(`{"testNodes":[{"nodeType":"Test Plan","name":"Demo","children":[`)
@@ -475,77 +472,138 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 		return b.String()
 	}
 
-	run := func(t *testing.T, results string) (string, int) {
-		t.Helper()
-		// Stub the one command that needs a Mac; everything the guard actually
-		// decides with — jq, the loop, the comparison — is the shipped code.
-		prog := "xcrun() { printf '%s' \"$RESULTS\"; }\n" + script
-		cmd := exec.Command("bash", "-c", prog)
-		cmd.Env = append(os.Environ(), "RESULTS="+results)
-		out, err := cmd.CombinedOutput()
-		code := 0
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			code = ee.ExitCode()
-		} else if err != nil {
-			t.Fatalf("could not run the extracted guard: %v\n%s", err, out)
-		}
-		return string(out), code
+	// The two renderings, run identically. The matrix form reads its selectors
+	// from the job env the strategy block hoists, so both are exercised here —
+	// without the matrix case, dropping the extras from the checked list in that
+	// form alone would go unnoticed, which is the same silent-pass shape one
+	// level up.
+	twoWithExtras := twoIOSProducts()
+	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature KitTests"}
+	for _, mode := range []struct {
+		name string
+		cfg  *config.Config
+		env  []string
+		// selectors is every name the guard must require, and the fixtures below
+		// are built from it — so a selector the shipped step stops checking makes
+		// its own case fail.
+		selectors []string
+	}{
+		{
+			name: "single product", cfg: withExtras(),
+			selectors: []string{"DemoTests", "CoreKitTests", "Feature KitTests"},
+		},
+		{
+			name: "matrix leg", cfg: twoWithExtras,
+			env: []string{
+				"TEST_TARGET=A Bible Verse Each DayTests",
+				"UI_TEST_TARGET=A Bible Verse Each DayUITests",
+				"EXTRA_TEST_TARGETS=CoreKitTests\nFeature KitTests",
+			},
+			selectors: []string{
+				"A Bible Verse Each DayTests", "A Bible Verse Each DayUITests",
+				"CoreKitTests", "Feature KitTests",
+			},
+		},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			script := stepRun(t, parseIOSCI(t, mode.cfg), "test", "Verify Test Selectors Matched")
+
+			run := func(t *testing.T, results string) (string, int) {
+				t.Helper()
+				// Stub the one command that needs a Mac; everything the guard
+				// decides with — jq, the loop, the comparison — is shipped code.
+				prog := "xcrun() { printf '%s' \"$RESULTS\"; }\n" + script
+				cmd := exec.Command("bash", "-c", prog)
+				cmd.Env = append(append(os.Environ(), mode.env...), "RESULTS="+results)
+				out, err := cmd.CombinedOutput()
+				code := 0
+				var ee *exec.ExitError
+				if errors.As(err, &ee) {
+					code = ee.ExitCode()
+				} else if err != nil {
+					t.Fatalf("could not run the extracted guard: %v\n%s", err, out)
+				}
+				return string(out), code
+			}
+
+			t.Run("every selector ran", func(t *testing.T) {
+				out, code := run(t, bundle(mode.selectors...))
+				if code != 0 {
+					t.Fatalf("the guard failed a run in which every selector DID match (exit %d). A "+
+						"guard that cannot pass gets deleted — and it would also mean the failing "+
+						"cases below prove nothing, since they would fail for this reason instead.\n%s",
+						code, out)
+				}
+			})
+
+			// Each selector removed in turn. This is what makes the guard's
+			// COVERAGE testable rather than just its verdict: a selector the step
+			// quietly stopped checking fails its own case here.
+			for i, missing := range mode.selectors {
+				t.Run("nothing ran for "+missing, func(t *testing.T) {
+					ran := append(append([]string{}, mode.selectors[:i]...), mode.selectors[i+1:]...)
+					out, code := run(t, bundle(ran...))
+					if code == 0 {
+						t.Fatalf("the guard passed a run where -only-testing:%s matched nothing. "+
+							"xcodebuild exits 0 on that, so this is a green check over a suite "+
+							"that did not execute.\n%s", missing, out)
+					}
+					if !strings.Contains(out, missing) {
+						t.Errorf("the guard failed without naming %q as the selector that matched "+
+							"nothing:\n%s", missing, out)
+					}
+				})
+			}
+
+			t.Run("a target name with a space is compared whole", func(t *testing.T) {
+				// "Feature KitTests" absent, "Feature" and "KitTests" present. A
+				// comparison that word-split the selector would find both halves
+				// and report success over a suite that never ran.
+				var ran []string
+				for _, s := range mode.selectors {
+					if s == "Feature KitTests" {
+						ran = append(ran, "Feature", "KitTests")
+						continue
+					}
+					ran = append(ran, s)
+				}
+				out, code := run(t, bundle(ran...))
+				if code == 0 {
+					t.Fatalf("the guard accepted the two HALVES of a target name as the target:\n%s", out)
+				}
+			})
+
+			t.Run("a longer bundle name does not stand in for the selector", func(t *testing.T) {
+				// The shape a rename leaves behind: CoreKitTests became
+				// CoreKitTestsSupport, the manifest still names the old one, and a
+				// substring comparison would find the old name inside the new one
+				// and report the old suite as having run.
+				var ran []string
+				for _, s := range mode.selectors {
+					if s == "CoreKitTests" {
+						s = "CoreKitTestsSupport"
+					}
+					ran = append(ran, s)
+				}
+				out, code := run(t, bundle(ran...))
+				if code == 0 {
+					t.Fatalf("the guard accepted CoreKitTestsSupport as CoreKitTests; the comparison "+
+						"has to be whole-line, or a renamed target keeps reporting as run:\n%s", out)
+				}
+			})
+
+			t.Run("an unreadable result bundle is not a pass", func(t *testing.T) {
+				// Fail closed. Tool missing, schema changed, bundle corrupt — every
+				// path that cannot reach a verdict has to be red, because "I could
+				// not tell" reported as green is the original defect in this
+				// workflow's own history.
+				out, code := run(t, "not json at all")
+				if code == 0 {
+					t.Fatalf("an unparseable result bundle passed the guard:\n%s", out)
+				}
+			})
+		})
 	}
-
-	t.Run("every selector ran", func(t *testing.T) {
-		out, code := run(t, bundle("DemoTests", "CoreKitTests", "Feature KitTests"))
-		if code != 0 {
-			t.Fatalf("the guard failed a run in which every selector DID match (exit %d). A guard "+
-				"that cannot pass gets deleted, and it would also mean this test's failing case "+
-				"proves nothing.\n%s", code, out)
-		}
-	})
-
-	t.Run("a package suite silently did not run", func(t *testing.T) {
-		// Exactly what a renamed or misspelled target produces: xcodebuild ran,
-		// exited 0, and one whole suite is simply absent from the results.
-		out, code := run(t, bundle("DemoTests", "Feature KitTests"))
-		if code == 0 {
-			t.Fatalf("the guard passed a run where -only-testing:CoreKitTests matched nothing. "+
-				"That is a green check over a suite that did not execute.\n%s", out)
-		}
-		if !strings.Contains(out, "CoreKitTests") {
-			t.Errorf("the guard failed without naming the selector that matched nothing:\n%s", out)
-		}
-	})
-
-	t.Run("a target name with a space is compared whole", func(t *testing.T) {
-		// "Feature KitTests" absent, "Feature" and "KitTests" present. A
-		// comparison that word-split the selector would find both halves and
-		// report success over a suite that never ran.
-		out, code := run(t, bundle("DemoTests", "CoreKitTests", "Feature", "KitTests"))
-		if code == 0 {
-			t.Fatalf("the guard accepted the two HALVES of a target name as the target itself:\n%s", out)
-		}
-	})
-
-	t.Run("a longer bundle name does not stand in for the selector", func(t *testing.T) {
-		// The shape a rename leaves behind: CoreKitTests became
-		// CoreKitTestsSupport, the manifest still names the old one, and a
-		// substring comparison would find it inside the new name and report the
-		// old suite as having run.
-		out, code := run(t, bundle("DemoTests", "CoreKitTestsSupport", "Feature KitTests"))
-		if code == 0 {
-			t.Fatalf("the guard accepted CoreKitTestsSupport as CoreKitTests; the comparison has to "+
-				"be whole-line, or a renamed target keeps reporting as run:\n%s", out)
-		}
-	})
-
-	t.Run("an unreadable result bundle is not a pass", func(t *testing.T) {
-		// Fail closed. Tool missing, schema changed, bundle corrupt — every path
-		// that cannot reach a verdict has to be red, because "I could not tell"
-		// reported as green is the original defect in this workflow's history.
-		out, code := run(t, "not json at all")
-		if code == 0 {
-			t.Fatalf("an unparseable result bundle passed the guard:\n%s", out)
-		}
-	})
 }
 
 // TestPrecommitRunsTheSameSelectorsAsCI. The hook hardcoded the app's own test
