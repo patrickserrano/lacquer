@@ -63,6 +63,57 @@ type unit struct {
 	content   string // rendered content the lacquer would produce
 }
 
+// regionSrc is one managed region before token substitution.
+type regionSrc struct {
+	dest, key, body, prefix string
+	syntax                  region.Syntax
+}
+
+// regionKey is the ".lacquer.lock" key for a managed region. Assets key on their
+// destination alone; a region has to name the marker as well, since one file can
+// carry several. Derived in one place so the key sync writes and the key audit
+// (and orphan detection) reads cannot drift apart.
+func regionKey(dest, marker string) string { return dest + "#" + marker }
+
+// regions re-derives every managed region for this project: the core +
+// per-profile CLAUDE.md regions, mirrored into AGENTS.md when a tool that reads
+// it is enabled, then .gitignore.
+//
+// plan is passed in because the .gitignore region's skill rules are derived from
+// it (so the lacquer's own skills stay tracked); the region SET does not depend
+// on it, which is why orphan detection can reuse this with the ordinary plan.
+func regions(lacquerRoot string, cfg *config.Config, plan []assets.Asset) ([]regionSrc, error) {
+	var srcs []regionSrc
+	coreBody, err := os.ReadFile(filepath.Join(lacquerRoot, "core", "CLAUDE.core.md"))
+	if err != nil {
+		return nil, fmt.Errorf("read core body: %w", err)
+	}
+	srcs = append(srcs, regionSrc{"CLAUDE.md", "core", string(coreBody), "", region.Markdown})
+	for _, c := range cfg.Components {
+		for _, p := range c.Profiles {
+			body, err := os.ReadFile(filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md"))
+			if err != nil {
+				return nil, fmt.Errorf("read profile %s body: %w", p, err)
+			}
+			srcs = append(srcs, regionSrc{filepath.Join(c.Path, "CLAUDE.md"), p, string(body), tokens.Prefix(c.Path), region.Markdown})
+		}
+	}
+	if cfg.Project.WantsAgentsMd() {
+		mirror := make([]regionSrc, 0, len(srcs))
+		for _, r := range srcs {
+			m := r
+			m.dest = filepath.Join(filepath.Dir(r.dest), "AGENTS.md")
+			mirror = append(mirror, m)
+		}
+		srcs = append(srcs, mirror...)
+	}
+	ignoreBody, err := gitignore.Body(cfg, plan)
+	if err != nil {
+		return nil, fmt.Errorf("render %s region: %w", gitignore.Name, err)
+	}
+	return append(srcs, regionSrc{gitignore.Name, gitignore.Key, ignoreBody, "", gitignore.Syntax}), nil
+}
+
 // managed re-derives every unit the lacquer would write for this project: the
 // core + per-profile CLAUDE.md regions (mirrored into AGENTS.md when a tool that
 // reads it is enabled), then the whole-file assets. It mirrors sync's set exactly
@@ -77,35 +128,6 @@ func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 		return nil, version.Version{}, fmt.Errorf("load manifest: %w", err)
 	}
 
-	type regionSrc struct {
-		dest, key, body, prefix string
-		syntax                  region.Syntax
-	}
-	var srcs []regionSrc
-	coreBody, err := os.ReadFile(filepath.Join(lacquerRoot, "core", "CLAUDE.core.md"))
-	if err != nil {
-		return nil, version.Version{}, fmt.Errorf("read core body: %w", err)
-	}
-	srcs = append(srcs, regionSrc{"CLAUDE.md", "core", string(coreBody), "", region.Markdown})
-	for _, c := range cfg.Components {
-		for _, p := range c.Profiles {
-			body, err := os.ReadFile(filepath.Join(lacquerRoot, "profiles", p, "CLAUDE."+p+".md"))
-			if err != nil {
-				return nil, version.Version{}, fmt.Errorf("read profile %s body: %w", p, err)
-			}
-			srcs = append(srcs, regionSrc{filepath.Join(c.Path, "CLAUDE.md"), p, string(body), tokens.Prefix(c.Path), region.Markdown})
-		}
-	}
-	if cfg.Project.WantsAgentsMd() {
-		mirror := make([]regionSrc, 0, len(srcs))
-		for _, r := range srcs {
-			m := r
-			m.dest = filepath.Join(filepath.Dir(r.dest), "AGENTS.md")
-			mirror = append(mirror, m)
-		}
-		srcs = append(srcs, mirror...)
-	}
-
 	// The plan is needed before the region list is final: the .gitignore region's
 	// skill rules are derived from it (so the lacquer's own skills stay tracked),
 	// and this set has to mirror sync's exactly or the lock written by one would
@@ -114,17 +136,16 @@ func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {
 	if err != nil {
 		return nil, version.Version{}, fmt.Errorf("plan assets: %w", err)
 	}
-	ignoreBody, err := gitignore.Body(cfg, plan)
+	srcs, err := regions(lacquerRoot, cfg, plan)
 	if err != nil {
-		return nil, version.Version{}, fmt.Errorf("render %s region: %w", gitignore.Name, err)
+		return nil, version.Version{}, err
 	}
-	srcs = append(srcs, regionSrc{gitignore.Name, gitignore.Key, ignoreBody, "", gitignore.Syntax})
 
 	var units []unit
 	for _, r := range srcs {
 		body, _ := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix))
 		units = append(units, unit{
-			lockKey:   r.dest + "#" + r.key,
+			lockKey:   regionKey(r.dest, r.key),
 			dest:      r.dest,
 			kind:      "region",
 			regionKey: r.key,
@@ -224,8 +245,19 @@ func readUnit(projectRoot string, u unit) (content string, present bool, stamped
 }
 
 // LockFor builds the lockfile contents for projectRoot from what the lacquer
-// would write now. sync calls this after a successful write so the baseline
-// reflects exactly what landed on disk.
+// would write now, plus the entries for units it no longer ships that are still
+// on disk. sync calls this after a successful write so the baseline reflects
+// exactly what landed on disk.
+//
+// Carrying the orphans forward is what makes Orphans survivable. Rebuilding the
+// lock purely from the current plan drops the key for a file the lacquer stopped
+// shipping — so the FIRST sync after the lacquer retires an asset erases the
+// only record that the project ever received it, and the leftover file goes back
+// to being invisible. Since `git pull` in the lacquer is normally followed by
+// `sync`, not by `audit`, that erasure would usually happen before anyone had a
+// chance to see the report. The entry is retained with the hash the lacquer last
+// wrote, so it also still says whether the leftover was edited afterwards, and
+// it disappears on the sync after the file is actually deleted.
 func LockFor(lacquerRoot, projectRoot string) (*lock.Lock, error) {
 	units, ver, err := managed(lacquerRoot, projectRoot)
 	if err != nil {
@@ -234,6 +266,22 @@ func LockFor(lacquerRoot, projectRoot string) (*lock.Lock, error) {
 	files := make(map[string]string, len(units))
 	for _, u := range units {
 		files[u.lockKey] = lock.Hash(u.content)
+	}
+	prev, locked, err := lock.Read(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("read lock: %w", err)
+	}
+	if locked {
+		orphans, err := Orphans(lacquerRoot, projectRoot)
+		if err != nil {
+			return nil, err
+		}
+		for _, o := range orphans {
+			if _, taken := files[o.Key]; taken {
+				continue // still managed: the current hash wins
+			}
+			files[o.Key] = prev.Files[o.Key]
+		}
 	}
 	return &lock.Lock{Version: ver, Files: files}, nil
 }
