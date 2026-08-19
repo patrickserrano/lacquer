@@ -11,12 +11,16 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/depignore"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/doctor"
+	"github.com/patrickserrano/lacquer/internal/exclusion"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/sync"
 	"github.com/patrickserrano/lacquer/internal/tokens"
@@ -217,6 +221,16 @@ func (p *project) config() *config.Config {
 	return cfg
 }
 
+// rowsOf classifies the project, failing the test if audit itself errors.
+func rowsOf(t *testing.T, p *project) []audit.Row {
+	t.Helper()
+	rows, _, err := audit.Classify(p.lacquerRoot, p.root)
+	if err != nil {
+		t.Fatalf("audit: %v", err)
+	}
+	return rows
+}
+
 // read returns a synced file's contents.
 func (p *project) read(rel string) string {
 	p.t.Helper()
@@ -295,6 +309,58 @@ func validateSyncedProject(t *testing.T, p *project) {
 			if r.Status != audit.OK {
 				t.Errorf("audit reports %q for %s straight after sync; a synced project must be clean", r.Status, r.Dest)
 			}
+		}
+	})
+
+	t.Run("audit would exit 0", func(t *testing.T) {
+		// `lacquer audit` runs in every project's CI as a drift gate, and its
+		// exit code is decided by four things, not one — see the precedence
+		// switch in cmd/lacquer. Asserting only that the rows are OK covers
+		// exactly one of them (exit 3), so a project could be clean by that
+		// measure and still fail its own CI on exit 4 or 6. All four are checked
+		// here, in the same precedence order, so "clean" means what CI means.
+		cfg := p.config()
+
+		if clob := audit.Clobbered(rowsOf(t, p)); len(clob) > 0 {
+			t.Errorf("exit 3: sync would clobber %v", clob) // belt and braces with the rows check above
+		}
+
+		// Exit 4, first spelling: the project baseline (Swift language mode,
+		// required configs) with any [baseline.relax] applied.
+		reports, err := baseline.Run(p.lacquerRoot, p.root, cfg.BaselineTargets(), cfg.Baseline.Relax, time.Now())
+		if err != nil {
+			t.Fatalf("baseline: %v", err)
+		}
+		if n := baseline.Blocking(reports); n > 0 {
+			t.Errorf("exit 4: %d blocking baseline finding(s):\n%s", n, baseline.FormatReports(reports))
+		}
+
+		// Exit 4, second spelling: an exclusion whose term ran out, or one that
+		// suppresses a path the lacquer no longer ships.
+		suppressed, err := assets.Suppressed(p.lacquerRoot, cfg)
+		if err != nil {
+			t.Fatalf("Suppressed: %v", err)
+		}
+		exclusions := exclusion.Review(cfg.Project.Exclude, suppressed, time.Now())
+		if n := exclusion.Blocking(exclusions); n > 0 {
+			t.Errorf("exit 4: %d blocking exclusion finding(s):\n%s", n, exclusion.Format(exclusions))
+		}
+
+		// Exit 4, third spelling: an expired [[component]].dependabot_ignore.
+		ignores := depignore.Review(cfg.Components, cfg.Root, time.Now())
+		if n := depignore.Blocking(ignores); n > 0 {
+			t.Errorf("exit 4: %d blocking dependabot-ignore finding(s):\n%s", n, depignore.Format(ignores))
+		}
+
+		// Exit 6: a stack the lacquer knows how to manage that the manifest never
+		// declared. Unsupported findings (the lacquer's own gap) are NOT this —
+		// see the spmpackage fixture.
+		findings, err := detect.Drift(p.lacquerRoot, p.root, cfg)
+		if err != nil {
+			t.Fatalf("Drift: %v", err)
+		}
+		if adoptable := detect.Adoptable(findings); len(adoptable) > 0 {
+			t.Errorf("exit 6: the project runs stacks the manifest does not declare: %+v", adoptable)
 		}
 	})
 
