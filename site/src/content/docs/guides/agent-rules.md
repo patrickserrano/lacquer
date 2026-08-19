@@ -181,6 +181,42 @@ it can be deleted, because dead config reads exactly like a live decision.
 A project never synced has no `.lacquer.lock`, so drift can't be attributed and
 nothing blocks — the job warns rather than reporting a pass.
 
+### Refusing a dependency update
+
+`.github/dependabot.yml` offers every update; the only thing ever withheld is one
+that can't be merged at all. Volume is managed by grouping — minor and patch
+arrive as one PR per ecosystem, majors stay individual — because grouping changes
+how many PRs carry the updates, not which updates are offered.
+
+Some updates genuinely can't be taken. A docs generator whose newest release
+peers at the previous major of its compiler doesn't produce a noisy PR; it
+produces a hard crash before any work happens, on every upstream release. Say so
+in the component that has the problem:
+
+```toml
+[[component]]
+path = "admin"
+stack = "web"
+dependabot_ignore = [
+  { dependency = "typedoc", versions = ["0.29.x"], reason = "crashes on the compiler's new major — upstream issue 1234", until = "2026-11-30" },
+]
+```
+
+That renders into the generated `.github/dependabot.yml` as a real Dependabot
+`ignore` rule, carrying the reason and the date as comments so the next reader of
+that file doesn't have to go find the manifest.
+
+Every field is required, and there's no permanent form — the one place these
+rules are stricter than `[project].exclude`, which does allow an undated entry. A
+macOS-only app really does differ from the fleet forever; no incompatibility
+does. Past `until`, `audit` fails with exit 4, exactly like an expired exclusion.
+An ignore naming a dependency the component doesn't declare is reported as stale.
+
+There's deliberately no `update_types` field, though Dependabot has one, and
+wildcards in the dependency name are rejected. Those are how an ignore quietly
+becomes a volume control. Name the versions that are broken; if what you want is
+fewer PRs, the lever is grouping, and it's already pulled.
+
 ### Retiring a project
 
 A project no longer worth investing in is retired, not abandoned. Abandoning it

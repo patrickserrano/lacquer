@@ -41,6 +41,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/depignore"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/exclusion"
 	"github.com/patrickserrano/lacquer/internal/suppress"
@@ -157,6 +158,21 @@ type Exclusion struct {
 	Stale  bool   `json:"stale"`
 }
 
+// DependabotIgnore is one reviewed [[component]].dependabot_ignore entry.
+//
+// Carried per-project in the sweep for the reason the whole report is data: the
+// valuable signal is rarely one snapshot. "Three projects now ignore the same
+// dependency for the same reason" is an upstream problem worth reporting once,
+// and "this one expires in nine days" is the thing nobody would otherwise ask.
+type DependabotIgnore struct {
+	Component  string `json:"component"`
+	Dependency string `json:"dependency"`
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	Until      string `json:"until,omitempty"`
+	Stale      bool   `json:"stale"`
+}
+
 // Report is one project's result. A project that could not be read carries Error
 // and nothing else — a broken checkout must not abort the sweep or, worse, be
 // omitted from it and read as healthy.
@@ -171,6 +187,9 @@ type Report struct {
 	Baseline   []BaselineReport `json:"baseline,omitempty"`
 	Drift      []DriftFinding   `json:"drift,omitempty"`
 	Exclusions []Exclusion      `json:"exclusions,omitempty"`
+	// DepIgnores are the project's reviewed Dependabot ignores. An expired one
+	// blocks, exactly as an expired exclusion does.
+	DepIgnores []DependabotIgnore `json:"dependabot_ignores,omitempty"`
 	// Suppress rolls up inline lint suppressions found in project source. It is
 	// a summary, not a list: the snapshot is diffed between runs, and dozens of
 	// individual entries would bury the two numbers that matter — how many are
@@ -203,6 +222,11 @@ func (r Report) Blocking() bool {
 	}
 	for _, e := range r.Exclusions {
 		if e.Status == string(exclusion.StatusExpired) {
+			return true
+		}
+	}
+	for _, d := range r.DepIgnores {
+		if d.Status == string(depignore.StatusExpired) {
 			return true
 		}
 	}
@@ -299,6 +323,16 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 	for _, f := range exclusion.Review(cfg.Project.Exclude, suppressed, now) {
 		r.Exclusions = append(r.Exclusions, Exclusion{
 			Path: f.Path, Status: string(f.Status), Reason: f.Reason, Until: f.Until, Stale: f.Stale,
+		})
+	}
+
+	// cfg.Root rather than e.Path: they are the same directory, and taking it
+	// from the loaded manifest is what keeps the staleness lookup pointed at the
+	// project the config actually came from.
+	for _, f := range depignore.Review(cfg.Components, cfg.Root, now) {
+		r.DepIgnores = append(r.DepIgnores, DependabotIgnore{
+			Component: f.Component, Dependency: f.Dependency, Status: string(f.Status),
+			Reason: f.Reason, Until: f.Until, Stale: f.Stale,
 		})
 	}
 	return r

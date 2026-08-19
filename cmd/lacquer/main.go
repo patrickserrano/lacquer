@@ -16,6 +16,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/console"
+	"github.com/patrickserrano/lacquer/internal/depignore"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/doctor"
 	"github.com/patrickserrano/lacquer/internal/exclusion"
@@ -311,6 +312,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		exclusions := exclusion.Review(cfg.Project.Exclude, suppressed, time.Now())
 		fmt.Fprint(stdout, exclusion.Format(exclusions))
 
+		// The third exemption mechanism, reviewed here for the same reason the
+		// other two are. An ignore withholds a dependency update from a file that
+		// otherwise promises every update opens a PR, and the only thing standing
+		// between "a known incompatibility" and "we stopped looking" is that the
+		// term is read by something on every run.
+		ignores := depignore.Review(cfg.Components, cfg.Root, time.Now())
+		fmt.Fprint(stdout, depignore.Format(ignores))
+
 		// Exit codes, in precedence order. Unchanged from when each returned
 		// early — only the reporting above moved.
 		switch {
@@ -326,7 +335,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// time-boxed exemption whose term ran out) wearing a different spelling,
 		// and a separate code would mean touching every project's CI to teach it
 		// one more number for no diagnostic gain — the output already says which.
-		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0:
+		// An expired dependabot ignore shares this code with an expired exclusion
+		// and a baseline violation, for the reason already argued for the second
+		// of those: it is the same finding — a time-boxed exemption whose term ran
+		// out — wearing a different spelling. A fourth number would mean teaching
+		// every project's CI one more exit code for no diagnostic gain, when the
+		// output above already says which one fired.
+		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0 || depignore.Blocking(ignores) > 0:
 			return 4
 		// Exit 6 when the project runs a stack the lacquer manages but the manifest
 		// never declared. Distinct from 3/4 because the fix is different in kind:

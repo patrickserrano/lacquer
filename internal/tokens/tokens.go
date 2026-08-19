@@ -702,18 +702,24 @@ func ReleaseTags(products []config.Product) string {
 // dependencies and a wrong one fails a job every day; both are bad, and the
 // second one is the one that also takes the other ecosystems with it.
 func dependabotUpdates(cfg *config.Config) string {
-	entry := func(ecosystem, dir string) string {
+	// ignore is "" for every component that declares none, and the format string
+	// below is otherwise byte-for-byte what it was before ignores existed. That
+	// is a requirement, not tidiness: every project in the fleet declares no
+	// ignores, so a stray newline here is a diff in every repository at once.
+	entry := func(ecosystem, dir, ignore string) string {
 		return fmt.Sprintf(`  - package-ecosystem: %s
     directory: %q
     schedule:
       interval: daily
     open-pull-requests-limit: 20
-    groups:
+%s    groups:
       # Minor and patch updates arrive as ONE pull request per ecosystem.
       #
       # Nothing is hidden: grouping changes how many PRs carry the updates, not
-      # which updates are offered — unlike an ignore rule, which silences them.
-      # That distinction is the whole reason this is the lever, not that one.
+      # which updates are offered. That is why it is the lever for VOLUME, and
+      # why the ignore block above — when a component declares one — is not: an
+      # ignore names updates that cannot be merged at all, and carries a reason
+      # and an expiry precisely so it can never do this job.
       #
       # It exists because the first daily run opened roughly forty pull requests
       # across the fleet, and this fleet builds iOS on ONE self-hosted Mac. Forty
@@ -730,13 +736,19 @@ func dependabotUpdates(cfg *config.Config) string {
         update-types:
           - minor
           - patch
-`, ecosystem, dir)
+`, ecosystem, dir, ignore)
 	}
 
 	var b strings.Builder
 	// Every repo has workflows, and pinned action SHAs are the dependency most
 	// likely to rot unnoticed: nothing fails when one goes stale.
-	b.WriteString(entry("github-actions", "/"))
+	//
+	// No ignore block, and there is no way to write one: dependabot_ignore lives
+	// on a component, and this entry belongs to no component. That is a real
+	// limit rather than an oversight — an action that breaks a repo breaks it in
+	// the workflow, where the fix is a version bump somebody makes, not a
+	// third-party peer-dependency conflict nobody in the repo can resolve.
+	b.WriteString(entry("github-actions", "/", ""))
 
 	// One entry per component, at that component's directory: Dependabot has no
 	// glob for `directory`, so a manifest outside a listed path is simply never
@@ -753,6 +765,11 @@ func dependabotUpdates(cfg *config.Config) string {
 	swift := swiftManifests(cfg.Root)
 	for _, c := range cfg.Components {
 		seen := map[string]bool{}
+		// Rendered once per component and shared by every entry that component
+		// produces. A component can yield more than one — a swift component with
+		// two bundled manifests gets an entry per directory — and the ignore
+		// belongs to the component's dependencies, not to one of its paths.
+		ignore := dependabotIgnores(c.DependabotIgnore)
 		emit := func(stack string) {
 			eco, ok := config.StackEcosystem[stack]
 			// A stack with no ecosystem is detectable but has no manifest
@@ -768,11 +785,11 @@ func dependabotUpdates(cfg *config.Config) string {
 			// directories means zero entries.
 			if eco == "swift" {
 				for _, d := range swift.DependabotDirs(c.Path) {
-					b.WriteString(entry(eco, dependabotDir(d)))
+					b.WriteString(entry(eco, dependabotDir(d), ignore))
 				}
 				return
 			}
-			b.WriteString(entry(eco, dependabotDir(c.Path)))
+			b.WriteString(entry(eco, dependabotDir(c.Path), ignore))
 		}
 		if c.Stack != "" {
 			emit(c.Stack)
@@ -782,6 +799,55 @@ func dependabotUpdates(cfg *config.Config) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// dependabotIgnores renders a component's declared ignores as Dependabot's
+// `ignore` list, or "" when it declares none.
+//
+// The key names are Dependabot's and are not negotiable: `dependency-name` and
+// `versions`, both hyphenated, inside a list under `ignore`. Getting one wrong
+// costs nothing visible — Dependabot does not reject an unknown key inside an
+// ignore entry, so the file parses, looks configured, and withholds nothing,
+// which is this repository's signature failure mode. TestDependabotIgnoreUses
+// DependabotsSchema in internal/shipped asserts the rendered keys rather than
+// trusting this comment.
+//
+// `update-types` is absent by construction, not by omission: config has no field
+// for it. It is the key that turns an ignore into volume control, and volume is
+// what `groups` below is for.
+//
+// The reason and the expiry are rendered as COMMENTS. They are not Dependabot
+// syntax and it never sees them; they are for the person reading
+// .github/dependabot.yml and asking why an update stopped arriving. Sending them
+// to go read .lacquer.toml instead is how the reasons ended up in TOML comments
+// nothing could report in the first place.
+func dependabotIgnores(ignores []config.DependabotIgnore) string {
+	if len(ignores) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("    # Updates this component cannot take, declared in .lacquer.toml.\n")
+	b.WriteString("    #\n")
+	b.WriteString("    # Each one is a known incompatibility with a name, a reason and a review\n")
+	b.WriteString("    # date — not a volume control. `lacquer audit` fails once a date passes,\n")
+	b.WriteString("    # so an ignore that outlives its reason comes back rather than persisting.\n")
+	b.WriteString("    ignore:\n")
+	for _, ig := range ignores {
+		// Single-line: a reason with an embedded newline would break out of the
+		// comment and into the YAML. TOML permits one via a multi-line string.
+		fmt.Fprintf(&b, "      # %s\n", strings.Join(strings.Fields(ig.Reason), " "))
+		fmt.Fprintf(&b, "      # Review by %s.\n", ig.Until)
+		fmt.Fprintf(&b, "      - dependency-name: %q\n", ig.Dependency)
+		b.WriteString("        versions:\n")
+		for _, v := range ig.Versions {
+			// Quoted, always. "7.x" survives unquoted but ">=2.0" does not — a
+			// leading `>` opens a YAML folded scalar — and the difference between
+			// those two is exactly the kind of thing that renders a file which
+			// parses into something other than what was written.
+			fmt.Fprintf(&b, "          - %q\n", v)
+		}
+	}
+	return b.String()
 }
 
 // dependabotDir spells a component path as a Dependabot `directory` value: "."
