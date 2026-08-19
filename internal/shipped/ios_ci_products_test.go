@@ -606,6 +606,57 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 	}
 }
 
+// TestIOSCITestJobShellParses puts every rendered `run:` block in the test job
+// through `bash -n`.
+//
+// The selector work adds SHELL to a template — an array built in a loop, a
+// heredoc whose body is generated — and a shell syntax error there does not
+// surface until a self-hosted runner reaches the step, minutes into a job, in
+// whichever repository synced first. `bash -n` costs nothing and answers it
+// here. It runs against all three shapes because the generated shell differs in
+// each: absent, literal, and hoisted-from-env.
+func TestIOSCITestJobShellParses(t *testing.T) {
+	twoWithExtras := twoIOSProducts()
+	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature KitTests"}
+	for _, tc := range []struct {
+		name string
+		cfg  *config.Config
+	}{
+		{"no extras", soloConfig()},
+		{"single product with extras", withExtras()},
+		{"matrix with extras", twoWithExtras},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			steps := parseIOSCI(t, tc.cfg).Jobs["test"].Steps
+			var checked int
+			for _, st := range steps {
+				if st.Run == "" {
+					continue
+				}
+				checked++
+				f, err := os.CreateTemp(t.TempDir(), "step-*.sh")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.WriteString(st.Run); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.Close(); err != nil {
+					t.Fatal(err)
+				}
+				out, err := exec.Command("bash", "-n", f.Name()).CombinedOutput()
+				if err != nil {
+					t.Errorf("the %q step is not valid shell: %v\n%s\n--- script ---\n%s",
+						st.Name, err, out, st.Run)
+				}
+			}
+			if checked == 0 {
+				t.Fatal("no run: blocks in the test job; this test is asserting nothing")
+			}
+		})
+	}
+}
+
 // TestPrecommitRunsTheSameSelectorsAsCI. The hook hardcoded the app's own test
 // bundle, so a project adding a package suite would run it in CI and never
 // locally — the fast loop covering strictly less than the slow one. A hook and a
