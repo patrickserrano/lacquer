@@ -15,9 +15,21 @@ name: iOS Docs
 on:
   workflow_dispatch:
   schedule:
-    # Overnight. Publishing docs is never urgent; the work that queues behind it
-    # is. 03:00 UTC clears before the 07:00 / 08:00 / 09:00 dailies start.
-    - cron: '0 3 * * *'
+    # Overnight, and deliberately NOT the 03:00 that web and supabase use.
+    #
+    # All three stacks shared 03:00, which put every docs workflow in the org on
+    # one instant. Within a repo that carries more than one stack they then
+    # serialise on the `docs-publish` concurrency group below, so the iOS job —
+    # the only one needing the fleet's single Mac — waited on two gh-pages
+    # pushes before it could even ask whether it had anything to do. An hour of
+    # its own removes that queue and costs nothing; 04:00 still clears well
+    # before the 07:00 / 08:00 / 09:00 dailies.
+    #
+    # This does NOT spread the ~12 iOS repositories apart from EACH OTHER: the
+    # cron is a literal in a shipped template, so every repository renders the
+    # same minute. Doing that needs a per-project token; see the report on this
+    # change for what internal/tokens would have to grow.
+    - cron: '0 4 * * *'
 
 permissions:
   contents: write # scripts/publish-docs.sh pushes the gh-pages branch
@@ -31,17 +43,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A cheap gate on a hosted runner, so the expensive job never starts when the
-  # published docs already match the source.
+  # ONE job. The staleness check is the first STEP, and everything expensive is
+  # gated on its output.
   #
-  # A job-level `if` rather than per-step conditions: a skipped job never
-  # occupies a runner at all. That is the whole point for iOS, where the build
-  # takes ~38 minutes on the fleet's ONE self-hosted Mac and everything else —
-  # CI, releases — queues behind it.
+  # This comment used to describe a cheap `check` job on a hosted runner that the
+  # publish job depended on, justified by a skipped job costing no runner time at
+  # all. That design existed for one day and was reverted in e958179 with
+  # measurements, but the comment stayed — so for every reader since, the file
+  # said one thing and did another.
+  #
+  # The measurement that settles it: GitHub bills a MINIMUM OF ONE MINUTE PER
+  # JOB, and across 51 sampled hosted jobs in this fleet every single one hit
+  # that floor. The cost is job COUNT, not duration. So the second job bought
+  # ~20 seconds of a Mac that is idle at 04:00 and paid a full billed minute per
+  # repository per day for it — ~420 minutes a month across the fleet, to decide
+  # to do nothing. On the skip path this job costs the Mac a checkout and a
+  # `git log`; that is the cheaper thing to spend.
+  #
+  # internal/shipped's TestDocsWorkflowsAreScheduledNotPushed holds the line: it
+  # fails if a second job or any `needs:` reappears here.
   publish:
     name: Build and publish DocC
     runs-on: [self-hosted, macOS, ARM64, dedicated]
-    timeout-minutes: 25
+    # 50, not 25. The 25 predates any measurement of this build; the ~38 minutes
+    # recorded in fd2bd1a is the only figure anyone measured, and a timeout below
+    # the one measured build time cuts off the run that had work to do.
+    #
+    # This is a backstop, not a live failure: the staleness gate above means most
+    # nights exit in under a minute without building, and measured run history
+    # across four repositories shows nightly successes with no timed-out runs. The
+    # exposure is the stale night — the one run that actually rebuilds — where
+    # being cut off publishes nothing and wastes the whole slot. A timeout belongs
+    # above the worst observed run, not near the median.
+    #
+    # ci.yml's `Docs` job carries the same 25 against the same script and has the
+    # same exposure. It survives because it is gated on `changes.outputs.code`
+    # and reuses a warm DerivedData-Docs, whereas this job passes
+    # DOCC_HOSTING_BASE_PATH — a different build setting, so a different set of
+    # products — and rebuilds far more. Raising that one is a separate change to
+    # a file every PR depends on.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7.0.1
         with:

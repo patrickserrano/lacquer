@@ -24,13 +24,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A cheap gate on a hosted runner, so the expensive job never starts when the
-  # published docs already match the source.
+  # ONE job. The staleness check is the first STEP; the setup and build steps
+  # below are gated on its output.
   #
-  # A job-level `if` rather than per-step conditions: a skipped job never
-  # occupies a runner at all. That is the whole point for iOS, where the build
-  # takes ~38 minutes on the fleet's ONE self-hosted Mac and everything else —
-  # CI, releases — queues behind it.
+  # This comment used to argue for a separate `check` job, justified by a skipped
+  # job costing no runner time at all — and reasoned about iOS's self-hosted Mac,
+  # which this workflow does not use. It described a design that was reverted in
+  # e958179 the day after it landed, and the argument is weakest here of all
+  # three stacks: `publish` is ALSO ubuntu, so splitting meant two billed minutes
+  # a day where one does the job.
+  #
+  # GitHub bills a minimum of one minute per job; across 51 sampled hosted jobs
+  # in this fleet every one hit that floor. Gating the steps rather than the job
+  # does not change the bill — it just stops a skip from installing a toolchain
+  # it will not use.
   publish:
     name: Build and publish TypeDoc
     runs-on: ubuntu-latest
