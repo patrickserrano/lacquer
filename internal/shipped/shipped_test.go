@@ -17,11 +17,13 @@ package shipped
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/tokens"
 	"gopkg.in/yaml.v3"
@@ -95,19 +97,67 @@ var bans = []banned{
 		},
 	},
 	{
-		name: "npx invocation of a project dependency",
+		name: "resolver-dispatched invocation of a project dependency",
 		// `npx <tool>` prefers a local install but SILENTLY DOWNLOADS one when
 		// there is none. A project that never added the dependency therefore
 		// gets a green step, run by whatever version npm served that minute,
 		// against a config nobody chose.
-		re: regexp.MustCompile(`npx\s+(biome|typedoc|vitest|tsc)\b`),
-		why: "npx silently downloads a missing tool instead of failing, so a project without the " +
-			"dependency gets a green check run by an unpinned version. sleevetap had biome.json synced, " +
-			"@biomejs/biome in no package.json, and a PASSING Biome step — only `lacquer doctor` noticed " +
-			"the check could not be running at all. Call ./node_modules/.bin/<tool> so a missing " +
-			"dependency fails loudly, which is also what every doctor probe already does.",
-		allow: func(_, line string) bool { return isProse(line) },
+		//
+		// The previous spelling of this ban was `npx\s+(biome|…)` and it NEVER
+		// FIRED on the real instance that sat in this tree for weeks:
+		//
+		//	argv = ["npx", "--no-install", "biome", "check", "--write", "."]
+		//
+		// Two independent reasons, and each alone was enough. There is no
+		// whitespace after `npx` in an argv array — the next character is a
+		// quote and a comma — and even with whitespace, `--no-install` sits
+		// between the runner and the tool. The ban understood shell syntax
+		// only, while argv arrays are how fix.toml and doctor.toml spell a
+		// command, which is exactly where an unpinned resolver does the most
+		// damage: a FIXER rewrites every source file in the component with
+		// whatever rules that version happens to carry.
+		//
+		// `--no-install` does not save it. npx falls through to PATH, so on a
+		// machine with a Homebrew biome it resolves the GLOBAL binary; see the
+		// header of profiles/web/doctor.toml, where the same mistake was found
+		// inside doctor itself.
+		//
+		// `pnpm exec` is held to the same standard, and that is a measured
+		// correction rather than caution: in a directory with no node_modules,
+		// `pnpm exec biome --version` exits 0 against the global Homebrew
+		// binary, where ./node_modules/.bin/biome exits 127. pnpm prepends
+		// node_modules/.bin and then falls through to PATH like anything else.
+		// `pnpm dlx` downloads outright.
+		//
+		// lefthook is deliberately NOT in the tool list. It is a single
+		// self-contained binary, `pnpm exec lefthook install` falling through to
+		// a brew-installed one is fine and intended, and banning it would be a
+		// false positive on shipped content that is correct.
+		re: regexp.MustCompile(`(?:\bnpx\b|\bpnpm\b[\s,"']*(?:exec|dlx)\b)[^\n]*?\b(?:biome|typedoc|vitest|tsc)\b`),
+		why: "npx and `pnpm exec` both fall through to PATH, and npx additionally downloads a missing " +
+			"tool, so a project without the dependency gets a green check run by an unpinned version. " +
+			"sleevetap had biome.json synced, @biomejs/biome in no package.json, and a PASSING Biome " +
+			"step — only `lacquer doctor` noticed the check could not be running at all. Call " +
+			"./node_modules/.bin/<tool> (or {component}/node_modules/.bin/<tool> in a doctor probe) so " +
+			"a missing dependency fails loudly.",
+		// NOT isProse: it exempts any line starting with "-", which covers a
+		// markdown bullet but also `- run: npx biome ci .`, a real step in the
+		// exact syntax these workflows use.
+		allow: func(_, line string) bool { return isCodeComment(line) },
 	},
+}
+
+// isCodeComment reports whether a line is a comment or an inline code span
+// rather than an invocation. Stricter than isProse, which exempts every line
+// starting with "-" and therefore exempts a YAML step as well as a bullet.
+func isCodeComment(line string) bool {
+	t := strings.TrimSpace(line)
+	if strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") {
+		return true
+	}
+	// A prose mention wraps the command in backticks; a YAML step or a TOML
+	// argv never does.
+	return strings.Contains(t, "`") && !strings.HasPrefix(t, "- run:") && !strings.HasPrefix(t, "- uses:")
 }
 
 // isProse reports whether a line is commentary rather than an invocation —
@@ -164,6 +214,248 @@ func TestShippedContentAvoidsBannedPatterns(t *testing.T) {
 		t.Fatalf("only %d shipped files scanned; the walk is not reaching the content", checked)
 	}
 	t.Logf("scanned %d shipped files", checked)
+}
+
+// banFor returns a ban by name, so a test can measure one rule rather than
+// hoping the walk happens to cover it.
+func banFor(t *testing.T, name string) banned {
+	t.Helper()
+	for _, b := range bans {
+		if b.name == name {
+			return b
+		}
+	}
+	t.Fatalf("no ban named %q", name)
+	return banned{}
+}
+
+// The ban above is tested against the line it MISSED, not against a line
+// somebody invented while writing it.
+//
+// A pattern that only ever runs over content already known to be clean is
+// indistinguishable from a pattern that matches nothing — the same vacuous green
+// this whole package exists to catch. The first case here is the exact text that
+// sat in profiles/web/fix.toml for weeks while the ban reported clean.
+func TestResolverBanUnderstandsArgvArraysAndShell(t *testing.T) {
+	b := banFor(t, "resolver-dispatched invocation of a project dependency")
+
+	banned := []struct{ name, line string }{
+		{"the historical fix.toml line", `argv = ["npx", "--no-install", "biome", "check", "--write", "."]`},
+		{"argv with no flag between", `argv = ["npx", "typedoc"]`},
+		{"argv pnpm exec", `argv = ["pnpm", "exec", "biome", "check", "--write", "."]`},
+		{"argv pnpm dlx", `argv = ["pnpm", "dlx", "typedoc"]`},
+		{"shell npx", `        run: npx biome ci .`},
+		{"shell npx with a flag between", `        run: npx --yes vitest run`},
+		{"shell pnpm exec", `        run: pnpm exec tsc --noEmit`},
+		{"a yaml step, which isProse would have exempted", `      - run: npx biome ci .`},
+	}
+	for _, c := range banned {
+		t.Run("banned/"+c.name, func(t *testing.T) {
+			if !b.re.MatchString(c.line) {
+				t.Errorf("the ban does not match:\n  %s", c.line)
+				return
+			}
+			if b.allow != nil && b.allow("profiles/web/fix.toml", c.line) {
+				t.Errorf("the ban matched but the exemption let it through:\n  %s", c.line)
+			}
+		})
+	}
+
+	allowed := []struct{ name, line string }{
+		{"the local binary in argv", `argv = ["./node_modules/.bin/biome", "check", "--write", "."]`},
+		{"a doctor probe's component-scoped binary",
+			`argv = ["{component}/node_modules/.bin/biome", "ci", "--config-path", "{component}", "{dir}"]`},
+		{"the local binary in shell", `        run: ./node_modules/.bin/biome ci --error-on-warnings .`},
+		// The one legitimate fall-through in the tree: lefthook is a single
+		// self-contained binary and a brew-installed one is fine.
+		{"pnpm exec lefthook install", `argv = ["pnpm", "exec", "lefthook", "install"]`},
+		{"pnpm exec lefthook in prose", "`lefthook.yml` is synced — install once with `pnpm exec lefthook install`."},
+		{"a comment explaining the ban", `      # The LOCAL binary, not ` + "`npx biome`" + `. npx silently downloads a version.`},
+	}
+	for _, c := range allowed {
+		t.Run("allowed/"+c.name, func(t *testing.T) {
+			if !b.re.MatchString(c.line) {
+				return
+			}
+			if b.allow == nil || !b.allow("profiles/web/fix.toml", c.line) {
+				t.Errorf("the ban fires on content that is correct:\n  %s", c.line)
+			}
+		})
+	}
+}
+
+// collectArgv returns every `argv` array anywhere in a decoded TOML document.
+//
+// DECODED, not pattern-matched off the text. The first version of this test read
+// `argv = [ ... ]` off one line, which silently stopped covering the moment
+// commands grew to the wrapped form the tree now uses —
+//
+//	argv = ["sh", "-c", """ … """]
+//
+// spread over several lines. It kept passing while reaching five fewer commands
+// than it had, which is the same shape of quiet under-coverage as the ban it was
+// written to back up.
+// Walked with reflect rather than a type switch: BurntSushi decodes an array of
+// tables as []map[string]any, not []any, so a `case []any` silently reaches none
+// of them — read 0 of 15 on the first attempt, caught by the coverage assertion
+// in the caller rather than by anyone noticing.
+func collectArgv(v any, out *[][]string) {
+	rv := reflect.ValueOf(v)
+	for rv.Kind() == reflect.Interface || rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return
+		}
+		rv = rv.Elem()
+	}
+	switch rv.Kind() {
+	case reflect.Map:
+		for _, key := range rv.MapKeys() {
+			child := rv.MapIndex(key).Interface()
+			if key.Kind() == reflect.String && key.String() == "argv" {
+				if words, ok := stringList(child); ok {
+					*out = append(*out, words)
+					continue
+				}
+			}
+			collectArgv(child, out)
+		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < rv.Len(); i++ {
+			collectArgv(rv.Index(i).Interface(), out)
+		}
+	}
+}
+
+// flatten collapses a shell body to one line, so a command written across
+// several lines reads as the single command it is.
+//
+// `npx \` + newline + `  biome ci .` is one invocation, and every line-based
+// reader in this file sees two lines with nothing wrong on either.
+var contRe = regexp.MustCompile(`\\\s*\n`)
+
+func flatten(s string) string {
+	return strings.Join(strings.Fields(contRe.ReplaceAllString(s, " ")), " ")
+}
+
+// stringList returns v as []string when every element is a string.
+func stringList(v any) ([]string, bool) {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return nil, false
+	}
+	out := make([]string, 0, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		s, ok := rv.Index(i).Interface().(string)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, s)
+	}
+	return out, true
+}
+
+// argv[0] is `sh` in half the shipped commands now, so the element scan is the
+// part of the check that can still see what actually runs — and the line-based
+// ban genuinely cannot do this one. A shell body may split a command with a
+// backslash, and a reader working a line at a time sees `npx \` and `biome ci .`
+// as two unremarkable lines.
+//
+// Pinned separately because no shipped file currently does it: without this the
+// element scan would be an untested branch, indistinguishable from one that
+// matches nothing.
+func TestResolverBanSeesThroughAWrapperBody(t *testing.T) {
+	ban := banFor(t, "resolver-dispatched invocation of a project dependency")
+	body := "if [ -f package.json ]; then\n  npx \\\n    biome ci .\nfi\n"
+
+	lineByLine := false
+	for _, line := range strings.Split(body, "\n") {
+		if ban.re.MatchString(line) && !isCodeComment(line) {
+			lineByLine = true
+		}
+	}
+	if lineByLine {
+		t.Fatal("the line reader caught this; the fixture no longer covers what it claims")
+	}
+	if !ban.re.MatchString(flatten(body)) {
+		t.Errorf("a continued `npx \\` + `biome` in a wrapper body is invisible:\n%s", body)
+	}
+	// And the flattening must not make an innocent body match: the words have to
+	// really be one command.
+	innocent := "pnpm install --frozen-lockfile\n./node_modules/.bin/biome ci .\n"
+	if ban.re.MatchString(flatten(innocent)) {
+		t.Errorf("flattening joined two separate commands into a false positive:\n%s", innocent)
+	}
+}
+
+// Every argv array the lacquer ships is a command something RUNS — a fixer that
+// rewrites source, or a doctor probe that decides whether a check works. Reading
+// them as data rather than as text is what the line-based ban above could not
+// do, and it is where an unpinned resolver costs the most.
+//
+// The resolver is looked for in EVERY element, not just argv[0], because argv[0]
+// is now routinely `sh`: a wrapper's script body is where an `npx biome` would
+// hide, and it is still the command that runs. Each element is matched
+// UNWRAPPED (see flatten), which is the capability the line-based ban cannot
+// have — a shell body may split one command across lines with a backslash, and
+// a line-based reader sees `npx \` and `biome ci .` as two unremarkable lines.
+func TestShippedArgvCommandsNameTheirBinaryExplicitly(t *testing.T) {
+	r := root(t)
+	ban := banFor(t, "resolver-dispatched invocation of a project dependency")
+	var checked int
+	// The parser must reach every command the file declares. A count taken off
+	// the raw text is deliberately naive — it is here to disagree with the
+	// decoder, not to agree with it.
+	declRe := regexp.MustCompile(`(?m)^\s*argv\s*=`)
+
+	for _, name := range []string{"fix.toml", "doctor.toml"} {
+		paths, err := filepath.Glob(filepath.Join(r, "profiles", "*", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range paths {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rel, _ := filepath.Rel(r, p)
+			var doc map[string]any
+			if _, err := toml.Decode(string(data), &doc); err != nil {
+				t.Fatalf("%s: %v", rel, err)
+			}
+			var argvs [][]string
+			collectArgv(doc, &argvs)
+			if want := len(declRe.FindAllString(string(data), -1)); len(argvs) != want {
+				t.Errorf("%s: read %d argv commands but the file declares %d; this check is covering less than it appears to",
+					rel, len(argvs), want)
+			}
+			for _, argv := range argvs {
+				if len(argv) == 0 {
+					continue
+				}
+				checked++
+				why := "npx downloads a missing tool and `pnpm exec` falls through to PATH, so the " +
+					"command runs at an unpinned version — or not at all while reporting success. " +
+					"Name the binary: ./node_modules/.bin/<tool>, or {component}/node_modules/.bin/<tool>."
+				switch argv[0] {
+				case "npx", "pnpm", "npm", "yarn", "bunx":
+					t.Errorf("%s: argv[0] is the resolver %q\n  argv: %q\n  why: %s", rel, argv[0], argv, why)
+				}
+				for _, word := range argv {
+					// A wrapper's script body is shell, so the same ban applies
+					// to it — flattened, so a line continuation cannot split the
+					// runner from the tool the way it can for a line reader.
+					if ban.re.MatchString(flatten(word)) {
+						t.Errorf("%s: argv dispatches through a package-manager resolver\n  element: %s\n  why: %s",
+							rel, strings.TrimSpace(word), why)
+					}
+				}
+			}
+		}
+	}
+	if checked < 15 {
+		t.Fatalf("only %d argv commands found; this test is not reaching the shipped commands", checked)
+	}
+	t.Logf("checked %d shipped argv commands", checked)
 }
 
 // isText reports whether a path is worth scanning. Binary assets and lockfiles

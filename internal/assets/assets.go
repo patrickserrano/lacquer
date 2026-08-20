@@ -149,6 +149,42 @@ func Suppressed(lacquerRoot string, cfg *config.Config) ([]string, error) {
 	return sup, err
 }
 
+// Shipped returns every destination the lacquer would write into this project if
+// the manifest opted out of nothing — the plan with [project].exclude and
+// retirement lifted.
+//
+// This is what makes an ORPHAN detectable, and the "lifted" part is the whole
+// point. An orphan is a file the LACQUER stopped shipping: it is recorded in
+// .lacquer.lock, sync will never delete it (a deliberate contract), and nothing
+// reported it, so one retired workflow lived on in thirteen repositories and had
+// to be removed by hand, one repository at a time.
+//
+// An excluded path and a retired project's dropped workflows are NOT that. Both
+// leave the plan, but the lacquer still ships them — this project has merely
+// stopped receiving them, and the day the exclusion or the retirement is lifted
+// they come back. Diffing the lock against Plan would report every one of them
+// as an orphan and advise deleting a file the project is about to be sent again,
+// which would make retirement unusable. Diffing against Shipped cannot: a
+// destination only leaves this set when no source in the lacquer produces it any
+// more, or when the project stopped asking for the profile or tool that did.
+func Shipped(lacquerRoot string, cfg *config.Config) ([]string, error) {
+	// A copy, so the caller's config is untouched: Project is a struct field, so
+	// assigning through the copy cannot reach the original's Exclude/Retired.
+	// Components is shared, and plan only reads it.
+	open := *cfg
+	open.Project.Exclude = nil
+	open.Project.Retired = nil
+	out, _, err := plan(lacquerRoot, &open)
+	if err != nil {
+		return nil, err
+	}
+	dests := make([]string, 0, len(out))
+	for _, a := range out {
+		dests = append(dests, a.Dest)
+	}
+	return dests, nil
+}
+
 // plan builds the asset list, returning both the assets to copy and the
 // destinations [project].exclude suppressed.
 func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {

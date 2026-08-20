@@ -320,6 +320,19 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		ignores := depignore.Review(cfg.Components, cfg.Root, time.Now())
 		fmt.Fprint(stdout, depignore.Format(ignores))
 
+		// The one finding nothing could see before: a file the lacquer WROTE and
+		// has stopped shipping. It is not drift (the lacquer would not write it
+		// now), not missing, and not an exclusion, so it fell through every
+		// report while sitting in the repository still running. It is reported
+		// and deliberately does not appear in the exit codes below — an orphan is
+		// a leftover file, not a broken project, and gating on something that
+		// endangers nothing teaches people that this output is noise.
+		orphans, err := audit.Orphans(lacquerRoot, projectRoot)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("resolve orphans: %w", err))
+		}
+		fmt.Fprint(stdout, audit.FormatOrphans(orphans))
+
 		// Exit codes, in precedence order. Unchanged from when each returned
 		// early — only the reporting above moved.
 		switch {

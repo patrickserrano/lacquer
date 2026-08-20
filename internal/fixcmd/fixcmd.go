@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/patrickserrano/lacquer/internal/config"
@@ -51,6 +52,34 @@ type Result struct {
 	Name      string
 	Status    string // "ran", "skipped: <tool> not installed", or "failed: <err>"
 	Passes    int    // how many times it ran before the tree stopped changing
+}
+
+// Binary resolves a fixer's argv[0] against the directory the fixer will run in.
+//
+// A bare name ("swiftformat") is a PATH lookup and passes through untouched. A
+// name carrying a separator ("./node_modules/.bin/biome") is relative to the
+// COMPONENT, and both Go's exec.LookPath and exec.Command resolve such a name
+// against this process's working directory, not against cmd.Dir. For a
+// component in a subdirectory that is the wrong directory: `admin/node_modules/
+// .bin/biome` would be looked up as `<cwd>/node_modules/.bin/biome`, missed, and
+// reported as "not installed" — the fixer silently skipped in exactly the
+// projects that are laid out with components.
+//
+// That matters because a project-local binary is the only correct way to name a
+// Node tool here. `npx` downloads a missing one, and `pnpm exec` falls through
+// to PATH (measured: with no node_modules, `pnpm exec biome --version` exits 0
+// against a global Homebrew biome, where ./node_modules/.bin/biome exits 127) —
+// so a resolver-dispatched fixer rewrites every file in the component with
+// whatever rules that version happens to carry. internal/shipped bans both
+// spellings; this is what makes the correct spelling work.
+func Binary(dir, argv0 string) string {
+	if !strings.ContainsRune(argv0, filepath.Separator) && !strings.ContainsRune(argv0, '/') {
+		return argv0
+	}
+	if filepath.IsAbs(argv0) {
+		return argv0
+	}
+	return filepath.Join(dir, argv0)
 }
 
 // LoadCommands reads a profile's autofixers. A profile shipping no fix.toml has
@@ -117,7 +146,8 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 
 				// Resolve the binary before running so "not installed" is
 				// reported as itself rather than as an opaque exec error.
-				if _, err := exec.LookPath(cmd.Argv[0]); err != nil {
+				bin := Binary(dir, cmd.Argv[0])
+				if _, err := exec.LookPath(bin); err != nil {
 					r.Status = fmt.Sprintf("skipped: %s is not installed", cmd.Argv[0])
 					fmt.Fprintf(out, "  %-24s %s\n", cmd.Name, r.Status)
 					results = append(results, r)
@@ -141,7 +171,7 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 				// matters is whether THIS pass moved anything.
 				prev, stateErr := treeState(dir)
 				for passes < maxPasses {
-					ex := exec.Command(cmd.Argv[0], cmd.Argv[1:]...) // #nosec G204 -- argv comes from a lacquer-owned fix.toml, never user input
+					ex := exec.Command(bin, cmd.Argv[1:]...) // #nosec G204 -- argv comes from a lacquer-owned fix.toml, never user input
 					ex.Dir = dir
 					combined, runErr = ex.CombinedOutput()
 					passes++
