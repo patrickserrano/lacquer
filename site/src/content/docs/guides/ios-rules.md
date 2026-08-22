@@ -244,6 +244,18 @@ flowdeck project packages update  # bump SPM deps within constraints (no .pbxpro
 
 Prefer a UDID over a simulator name — names duplicate across OS versions and resolve ambiguously.
 
+:::danger[`--test-cases` silently skips parameterized tests — do not trust a targeted run]
+`flowdeck test --test-cases <Suite>` expands to per-function selectors and drops every `@Test(arguments:)` case.
+
+Measured 2026-08-22 on a suite of seven functions, one of them parameterized with four arguments: it printed `Resolved to 7 test(s)`, ran **6**, reported **"All tests passed!"** and exited **0**. The four argument cases never ran, and nothing said so.
+
+That is the *"never ran looks like passed"* failure sitting inside the test runner — the last place it can be caught by reading a result. Anything built on top of it inherits a silently smaller denominator: a green targeted run, a coverage figure, a report that says "N/N passed".
+
+- Use **`--test-targets <Target>`** for anything parameterized, or that might become parameterized later.
+- Keep `--test-cases` for a single non-parameterized function during a tight RED/GREEN loop, and **re-run the full target before believing a result you intend to report or commit behind**.
+- If a run's passed count is **lower than its own `Resolved to N`**, tests were skipped. That discrepancy is printed; it just isn't acted on.
+:::
+
 :::caution[This is a preference, not a wall — nothing blocks the raw tools]
 The synced `.claude/settings.json` blocks exactly three things: Xcode project files, `.entitlements`, and force flags (see [Editor hooks](#editor-hooks-claudesettingsjson)). `simctl` and `devicectl` are **not** blocked — running one simply works.
 :::

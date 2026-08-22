@@ -294,6 +294,26 @@ flowdeck project packages update  # bump SPM deps within constraints (no .pbxpro
 
 **Prefer a UDID over a simulator name** — names duplicate across OS versions and resolve ambiguously.
 
+**`--test-cases` silently skips parameterized tests — do not trust a targeted run.**
+`flowdeck test --test-cases <Suite>` expands to per-function selectors and drops
+every `@Test(arguments:)` case. Measured 2026-08-22 on a suite of seven
+functions, one of them parameterized with four arguments: it printed
+`Resolved to 7 test(s)`, ran **6**, reported **"All tests passed!"** and exited
+**0**. The four argument cases never ran, and nothing said so.
+
+That is the *"never ran looks like passed"* failure sitting inside the test
+runner, which is the last place it can be caught by reading a result. Anything
+built on top of it inherits a silently smaller denominator — a green targeted
+run, a coverage figure, a report that says "N/N passed".
+
+- Use **`--test-targets <Target>`** for anything parameterized, or that might
+  become parameterized later.
+- Keep `--test-cases` for a single non-parameterized function during a tight
+  RED/GREEN loop, and **re-run the full target before believing a result you
+  intend to report or commit behind**.
+- If a run's passed count is **lower than its own `Resolved to N`**, tests were
+  skipped. That discrepancy is printed; it just is not acted on.
+
 **This is a preference, not a wall — nothing blocks the raw tools.** The synced `.claude/settings.json` blocks exactly three things: Xcode project files, `.entitlements`, and force flags (see *Editor hooks* below). `simctl` and `devicectl` are **not** blocked; if you run one it will simply work. Reach for flowdeck because it is better here, not because something will stop you.
 
 **Raw `xcodebuild`/`xcrun` is correct in non-interactive contexts, and this profile ships it that way.** `.pre-commit-config.yaml` runs `xcodebuild test` with an explicit `-scheme`/`-destination`; `ci.yml` and `release.yml` run `xcodebuild` for build, test and archive, `xcodebuild -showBuildSettings` in the Baseline job, and `xcrun simctl` for the whole simulator lifecycle. Those pin their destination and toolchain deliberately, and their output is parsed by the steps around them. Do not "fix" a hook or a workflow to call flowdeck instead — that is a change to what CI actually verifies, not a style cleanup.
