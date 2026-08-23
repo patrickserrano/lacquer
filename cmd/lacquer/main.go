@@ -142,6 +142,26 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		root := rootcheck.Inspect(lacquerRoot, getenv("LACQUER_NO_FETCH") == "")
 		fmt.Fprintln(stdout, root.Describe())
 
+		// Fail closed on a stale binary. It renders TODAY's profiles with the
+		// logic of whatever tree it was compiled from, and every symptom looks
+		// like a bug in the current version: a 1.3.0 binary reading 1.5.4 content
+		// rewrote a project's lefthook.yml from 135 lines to 60 — dropping a whole
+		// profile's hooks — and reported success.
+		//
+		// This is the same principle as the clobber guard and the placeholder
+		// preflight: a project is better off unsynced than synced by something
+		// that cannot say what it is. LACQUER_ALLOW_STALE_BINARY keeps the
+		// deliberate case possible, because building from a feature worktree to
+		// test an unreleased change is a normal thing to do here.
+		if root.StaleBinary() && getenv("LACQUER_ALLOW_STALE_BINARY") == "" {
+			return fail(stderr, fmt.Errorf(
+				"this lacquer binary was built from %s but is reading %s content.\n"+
+					"The render would mix %s logic with %s profiles and report success either way.\n"+
+					"Rebuild:  go build -o <dest> ./cmd/lacquer   (from %s)\n"+
+					"Override: LACQUER_ALLOW_STALE_BINARY=1, if you are deliberately testing an unreleased change",
+				root.BuiltVersion, root.Version, root.BuiltVersion, root.Version, root.Root))
+		}
+
 		res, err := syncpkg.Run(lacquerRoot, projectRoot, *force)
 		if err != nil {
 			return fail(stderr, err)
