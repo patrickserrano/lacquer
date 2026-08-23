@@ -6,6 +6,7 @@ package tokens
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -778,6 +779,50 @@ func BuildEnvBlock(names []string) string {
 // shell metacharacters in [project] values and component paths), so a substituted
 // value cannot re-trigger a token or inject structure. That validation is the
 // security boundary — keep it.
+// survivingRe matches a token this system could have written: the exact
+// SCREAMING_SNAKE spelling every registry entry uses. It deliberately does NOT
+// match `${{ ... }}` (GitHub Actions expressions), `${VAR}` (shell), or JSON/jq
+// object braces, all of which appear throughout shipped workflows and are none
+// of this system's business. Requiring `{{` NOT preceded by `$`, plus an
+// uppercase-only body, separates the two without a parser.
+var survivingRe = regexp.MustCompile(`(^|[^$])(\{\{[A-Z][A-Z0-9_]*\}\})`)
+
+// Surviving returns every lacquer-shaped token still present in rendered
+// content.
+//
+// This exists because Substitute iterates the REGISTRY, not the content: a token
+// that no registry entry names is never examined, never substituted, and never
+// reported as missing. It survives into the written file and reaches the tool as
+// a literal argument.
+//
+// That is strictly worse than the empty case requireValue already guards. An
+// empty `-only-testing:` degrades to running MORE tests than CI; a literal
+// `{{IOS_PRECOMMIT_ONLY_TESTING}}` matches nothing and xcodebuild still exits 0
+// — a hook that runs zero tests looks exactly like one that ran everything and
+// passed. Every token defect in this system has that shape: a render that
+// quietly produces a check which cannot fail.
+//
+// A registry-membership check cannot close that class, because the failure is
+// precisely non-membership. Scanning the OUTPUT closes it for every token, every
+// asset, and every future render path that forgets to call Substitute at all.
+func Surviving(content string) []string {
+	ms := survivingRe.FindAllStringSubmatch(content, -1)
+	if len(ms) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		if seen[m[2]] {
+			continue
+		}
+		seen[m[2]] = true
+		out = append(out, m[2])
+	}
+	sort.Strings(out)
+	return out
+}
+
 func Substitute(content string, vals map[string]string) (string, []string) {
 	var missing []string
 	for _, e := range registry {

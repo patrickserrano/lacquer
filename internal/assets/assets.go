@@ -35,6 +35,32 @@ func MissingTokens(plan []Asset, cfg *config.Config) ([]string, error) {
 	return out, nil
 }
 
+// SurvivingTokens returns every lacquer-shaped placeholder still present in a
+// plan's RENDERED output, keyed by destination.
+//
+// MissingTokens above answers "which registered token had no value". This
+// answers the question that one structurally cannot: "what is still a raw
+// {{TOKEN}} in the bytes we are about to write". Those differ whenever a token
+// is absent from the registry, because Substitute iterates the registry rather
+// than the content — so an unregistered token is never looked up, never
+// reported, and ships verbatim into the file.
+//
+// Checked against the rendered bytes, not the source, so it also covers merged
+// destinations and any future render path that skips substitution entirely.
+func SurvivingTokens(plan []Asset, cfg *config.Config) ([]string, error) {
+	var out []string
+	for _, a := range plan {
+		body, _, err := Render(a, cfg)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tokens.Surviving(string(body)) {
+			out = append(out, fmt.Sprintf("%s (%s)", t, a.Dest))
+		}
+	}
+	return out, nil
+}
+
 // Render returns the exact bytes an asset's destination receives, plus any
 // registered placeholder that had no project value.
 //

@@ -131,11 +131,18 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 
 	// Token preflight — fail closed before any write.
 	var missing []string
+	// Separate from `missing` because the remedy is different. A missing token is
+	// registered but unvalued: the fix is to add it to [project]. A SURVIVING
+	// token is one nothing substituted at all — usually because no registry entry
+	// names it — and adding it to the manifest would not help.
+	var leftover []string
 	for _, r := range regions {
-		if _, m := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix)); len(m) > 0 {
-			for _, t := range m {
-				missing = append(missing, fmt.Sprintf("%s (%s)", t, r.rel))
-			}
+		body, m := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix))
+		for _, t := range m {
+			missing = append(missing, fmt.Sprintf("%s (%s)", t, r.rel))
+		}
+		for _, t := range tokens.Surviving(body) {
+			leftover = append(leftover, fmt.Sprintf("%s (%s)", t, r.rel))
 		}
 	}
 	assetMissing, err := assets.MissingTokens(plan, cfg)
@@ -146,6 +153,29 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	if len(missing) > 0 {
 		return Result{}, fmt.Errorf("missing [project] values for placeholders (add them to .lacquer.toml [project], then re-run):\n  %s",
 			strings.Join(missing, "\n  "))
+	}
+
+	// Surviving-placeholder preflight — the guard that closes the class.
+	//
+	// requireValue catches a registered token with no value. It cannot catch a
+	// token the registry never names, because the check IS registry membership.
+	// The second failure is strictly worse: an empty `-only-testing:` degrades to
+	// running MORE tests than CI, while a literal `{{IOS_PRECOMMIT_ONLY_TESTING}}`
+	// matches nothing and xcodebuild still exits 0 — a hook that ran zero tests is
+	// indistinguishable from one that ran all of them and passed.
+	//
+	// Scanning the rendered bytes covers every token, every asset, and any future
+	// render path that forgets to substitute at all. Fails closed, before writing,
+	// for the same reason the block above does: a project is better off unsynced
+	// than synced with a check that cannot fail.
+	assetLeftover, err := assets.SurvivingTokens(plan, cfg)
+	if err != nil {
+		return Result{}, err
+	}
+	leftover = append(leftover, assetLeftover...)
+	if len(leftover) > 0 {
+		return Result{}, fmt.Errorf("unsubstituted placeholder(s) would be written verbatim, which ships a check that cannot fail (this is a lacquer bug, not a manifest one — please report it):\n  %s",
+			strings.Join(leftover, "\n  "))
 	}
 
 	// Clobber guard: refuse to overwrite a managed unit the project has locally
