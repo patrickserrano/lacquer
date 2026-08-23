@@ -165,3 +165,54 @@ func TestSubstituteGithubOrg(t *testing.T) {
 		t.Fatalf("blank org should render empty, got out=%q missing=%v", out2, m2)
 	}
 }
+
+// A token that is not in the registry is invisible to Substitute: the loop
+// iterates the registry, not the content, so an unregistered {{TOKEN}} is never
+// examined, never substituted, and never reported as missing. It survives into
+// the rendered file, where it reaches the tool as a literal argument.
+//
+// That is strictly worse than an empty value. An empty `-only-testing:` degrades
+// to running MORE tests; a literal `{{IOS_PRECOMMIT_ONLY_TESTING}}` matches
+// nothing, and xcodebuild still exits 0 — a hook that runs zero tests is
+// indistinguishable from one that runs all of them and passes.
+//
+// requireValue cannot catch this. It tests for empty, and an unregistered token
+// is never looked up at all.
+func TestSurvivingFindsUnregisteredTokens(t *testing.T) {
+	content := `entry: xcodebuild test {{IOS_PRECOMMIT_ONLY_TESTING}} -quiet`
+
+	// Substitute alone reports nothing wrong, which is the defect.
+	if _, missing := Substitute(content, map[string]string{}); len(missing) != 0 {
+		_ = missing // registered-and-empty is a different, already-handled case
+	}
+
+	got := Surviving(content)
+	if len(got) == 0 {
+		t.Fatal("Surviving reported no leftover tokens, so a raw {{...}} would ship into a rendered file and silently disable the check it belongs to")
+	}
+	if got[0] != "{{IOS_PRECOMMIT_ONLY_TESTING}}" {
+		t.Errorf("Surviving = %v, want the raw token", got)
+	}
+}
+
+func TestSurvivingIgnoresFullySubstitutedContent(t *testing.T) {
+	if got := Surviving(`entry: xcodebuild test "-only-testing:AppTests" -quiet`); len(got) != 0 {
+		t.Errorf("Surviving flagged clean content: %v — this guard must not fail an ordinary sync", got)
+	}
+}
+
+func TestSurvivingIgnoresNonTokenBraces(t *testing.T) {
+	// GitHub Actions expressions and shell parameter expansion both use braces
+	// and appear throughout shipped workflows. Flagging those would make the
+	// guard unusable, so it matches only the SCREAMING_SNAKE token spelling.
+	for _, s := range []string{
+		"${{ secrets.GITHUB_TOKEN }}",
+		"${{ matrix.product }}",
+		"echo ${VAR}",
+		"jq '{name: .name}'",
+	} {
+		if got := Surviving(s); len(got) != 0 {
+			t.Errorf("Surviving(%q) = %v, want none", s, got)
+		}
+	}
+}

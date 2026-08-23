@@ -26,6 +26,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	lacquer "github.com/patrickserrano/lacquer"
 )
 
 // fetchTimeout bounds the upstream refresh. Staleness is a nicety and the sync
@@ -35,6 +37,11 @@ const fetchTimeout = 10 * time.Second
 
 // State is what a command knows about the checkout it is rendering from.
 type State struct {
+	// BuiltVersion is the VERSION compiled INTO this binary, as opposed to
+	// Version, which is the VERSION read from the root at run time. They differ
+	// whenever a binary outlives the tree it was built from — routine here, where
+	// feature worktrees are built and then linger.
+	BuiltVersion string
 	// Root is the checkout's path, as given.
 	Root string
 	// Version is the contents of the checkout's VERSION file, if any.
@@ -59,7 +66,9 @@ type State struct {
 // the failure this package exists to catch had a stale remote-tracking ref too,
 // so comparing against it would have reported "up to date" and been wrong.
 func Inspect(root string, fetch bool) State {
-	s := State{Root: root, Behind: -1}
+	// BuiltVersion comes from the binary, never from the root — that separation
+	// is the entire point of the check.
+	s := State{Root: root, Behind: -1, BuiltVersion: strings.TrimSpace(lacquer.BuiltVersion)}
 
 	if b, err := os.ReadFile(filepath.Join(root, "VERSION")); err == nil {
 		s.Version = strings.TrimSpace(string(b))
@@ -120,7 +129,28 @@ func (s State) Describe() string {
 	if s.Dirty {
 		b.WriteString(" (dirty)")
 	}
+	// The banner's whole job is provenance, and without this it reports the
+	// content's version as though it were the binary's. That is how a 1.3.0
+	// binary announced "lacquer: 1.5.4" while rendering a project's lefthook.yml
+	// with pre-merge logic and dropping a profile's hooks.
+	if s.StaleBinary() {
+		fmt.Fprintf(&b, "  ** STALE BINARY: built from %s, reading %s **", s.BuiltVersion, s.Version)
+	}
 	return b.String()
+}
+
+// StaleBinary reports whether this binary was compiled from a different source
+// version than the content it is reading.
+//
+// An empty BuiltVersion is an UNKNOWN, not a mismatch: a binary predating this
+// check embeds nothing, and reporting it stale on no evidence would cry wolf on
+// every old install. An empty Version means the root has no VERSION at all,
+// which other checks already cover.
+func (s State) StaleBinary() bool {
+	if s.BuiltVersion == "" || s.Version == "" {
+		return false
+	}
+	return strings.TrimSpace(s.BuiltVersion) != strings.TrimSpace(s.Version)
 }
 
 // Warning is the stale-root message, or "" when there is nothing to say.

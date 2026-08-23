@@ -184,3 +184,41 @@ func TestDescribeFlagsDirtyRoot(t *testing.T) {
 		t.Errorf("Describe() = %q, want it to flag the dirty tree", d)
 	}
 }
+
+// The banner reports the version of the CONTENT under LACQUER_ROOT. A binary
+// built from an older source tree reads today's content and renders it with that
+// day's logic, so the banner calls a stale binary current — which is exactly how
+// a 1.3.0 binary rewrote a project's lefthook.yml from 135 lines to 60 while
+// announcing "lacquer: 1.5.4". The banner must stop being able to say that.
+func TestDescribeNamesTheBinaryWhenItIsStale(t *testing.T) {
+	s := State{Version: "1.5.4", Branch: "main", Commit: "ed16e99", BuiltVersion: "1.3.0"}
+	got := s.Describe()
+
+	if !strings.Contains(got, "1.3.0") {
+		t.Errorf("Describe() = %q — it does not name the version the BINARY was built from, so a stale binary still reads as current", got)
+	}
+	if !s.StaleBinary() {
+		t.Error("StaleBinary() = false for a 1.3.0 binary against 1.5.4 content")
+	}
+}
+
+func TestDescribeIsUnchangedWhenBinaryMatches(t *testing.T) {
+	s := State{Version: "1.5.4", Branch: "main", Commit: "ed16e99", BuiltVersion: "1.5.4"}
+	got := s.Describe()
+
+	if strings.Contains(got, "built from") {
+		t.Errorf("Describe() = %q — the stale note leaked into the matching case, which would make it noise on every ordinary run", got)
+	}
+	if s.StaleBinary() {
+		t.Error("StaleBinary() = true when the versions match")
+	}
+}
+
+func TestStaleBinaryIsSilentWhenUnknown(t *testing.T) {
+	// An empty BuiltVersion means the binary predates this check. It must not be
+	// reported as stale on no evidence.
+	s := State{Version: "1.5.4", BuiltVersion: ""}
+	if s.StaleBinary() {
+		t.Error("StaleBinary() = true with no embedded version — that is an unknown, not a mismatch")
+	}
+}
