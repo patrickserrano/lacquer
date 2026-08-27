@@ -65,42 +65,54 @@ func Dispatch(roster fleet.Roster, sessions []Session, name, task string, mode M
 			entry.Name, len(live), strings.Join(live, ", "))
 	}
 
-	// dir is where the subprocess actually runs, set via exec.Cmd.Dir — not a
-	// CLI flag. `claude` has no `--cwd` option; an earlier version of this
-	// function passed `--cwd entry.Path` anyway, which made every background
+	return runDispatch("dispatch", entry.Name, entry.Path, task, mode, warning, dryRun)
+}
+
+// runDispatch builds the argv for one session, shows it, and (unless dryRun)
+// runs it. Shared by Dispatch (a named project) and DispatchRole (a named
+// role, role.go) — the two differ only in how name/dir/task/warning get
+// resolved (a roster lookup tied to worktree semantics vs a roles-file lookup
+// with none), not in how a session actually gets started.
+//
+// verb labels the display line ("dispatch" vs "dispatch role") so dry-run
+// output and logs read naturally for whichever caller this is.
+func runDispatch(verb, name, dir, task string, mode Mode, warning string, dryRun bool) (string, error) {
+	// cmdDir is where the subprocess actually runs, set via exec.Cmd.Dir — not
+	// a CLI flag. `claude` has no `--cwd` option; an earlier version of this
+	// function passed `--cwd <dir>` anyway, which made every background
 	// dispatch fail immediately ("unknown option '--cwd'") while still
 	// printing an optimistic "backgrounded · <id>" line, because that message
 	// is emitted before the daemon's own init check runs. The failure was only
 	// visible in the job's own state file (~/.claude/jobs/<id>/state.json),
 	// never in this command's own stdout/exit code.
 	var argv []string
-	var dir string
+	var cmdDir string
 	switch mode {
 	case Background:
 		argv = []string{"claude", "--bg", task}
-		dir = entry.Path
+		cmdDir = dir
 	case Tmux:
-		argv = []string{"tmux", "new-session", "-A", "-s", entry.Name, "-c", entry.Path,
+		argv = []string{"tmux", "new-session", "-A", "-s", name, "-c", dir,
 			"claude", task}
 	default:
 		return "", fmt.Errorf("unknown mode %q (want %q or %q)", mode, Background, Tmux)
 	}
 
 	display := strings.Join(argv, " ")
-	if dir != "" {
-		display = "(cd " + dir + " && " + display + ")"
+	if cmdDir != "" {
+		display = "(cd " + cmdDir + " && " + display + ")"
 	}
-	line := warning + "dispatch: " + display + "\n"
+	line := warning + verb + ": " + display + "\n"
 	if dryRun {
 		return line + "(dry run — nothing started)\n", nil
 	}
 
-	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is built from the roster and an operator-supplied task, never a shell string
-	cmd.Dir = dir
+	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is built from the roster/roles file and an operator-supplied task, never a shell string
+	cmd.Dir = cmdDir
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Stdin = os.Stdin
 	if err := cmd.Run(); err != nil {
-		return line, fmt.Errorf("dispatch failed: %w", err)
+		return line, fmt.Errorf("%s failed: %w", verb, err)
 	}
 	return line, nil
 }
