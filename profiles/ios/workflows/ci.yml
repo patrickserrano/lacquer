@@ -933,15 +933,23 @@ jobs:
           # static read walks every build configuration in the project and covers
           # exactly that gap. Neither check subsumes the other, which is the point
           # of running both.
+          # Capture stderr instead of discarding it — a prior version routed it to
+          # /dev/null, so when this failed for a reason OTHER than "no baseline
+          # violations" (a provisioning/scheme/destination error, say), the real
+          # cause was thrown away and only the generic error below ever surfaced.
+          settings_err=$(mktemp)
           settings=$(xcodebuild -showBuildSettings \
             -project "{{XCODEPROJ}}" \
             -scheme "{{SCHEME}}" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            2>/dev/null) || {
+            2>"$settings_err") || {
             echo "::error::xcodebuild -showBuildSettings failed; cannot verify the baseline."
+            cat "$settings_err" >&2
+            rm -f "$settings_err"
             exit 1
           }
+          rm -f "$settings_err"
 
           fail=0
 
