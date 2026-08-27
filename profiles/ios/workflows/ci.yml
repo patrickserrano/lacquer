@@ -956,7 +956,17 @@ jobs:
           # Guard: if the grep below matches nothing, an absent setting would read
           # as "no violations" — the silent-pass failure mode the SwiftLint step
           # guards against too. Require at least one SWIFT_VERSION line.
-          if ! printf '%s\n' "$settings" | grep -q 'SWIFT_VERSION'; then
+          #
+          # A here-string, not `printf ... | grep -q`: `-q` exits the instant it
+          # finds a match, and $settings regularly exceeds the ~64KB pipe buffer.
+          # Under `set -o pipefail`, the still-writing printf's resulting SIGPIPE
+          # outranks grep's real (successful) match, so the pipeline reports
+          # failure even though the line was right there — reproduced directly:
+          # a >64KB payload with an early match reliably exits 141 through the
+          # pipe form and 0 through the here-string. Every other grep in this
+          # step already reads through a full-consuming stage (sort -u) first,
+          # so this is the only spot that needed it.
+          if ! grep -q 'SWIFT_VERSION' <<<"$settings"; then
             echo "::error::No SWIFT_VERSION in -showBuildSettings output — the baseline check is silently doing nothing."
             exit 1
           fi
@@ -984,7 +994,10 @@ jobs:
             | sed 's/.*= //' | tr -d ' ' | sort -u | grep -qv '^YES$'; then
             wae_bad=1
           fi
-          if ! printf '%s\n' "$settings" | grep -q 'SWIFT_TREAT_WARNINGS_AS_ERRORS'; then
+          # Here-string, not `printf ... | grep -q` -- see the SWIFT_VERSION guard
+          # above for why: a bare pipe into `-q` risks a pipefail-amplified
+          # SIGPIPE false failure once $settings passes the pipe buffer size.
+          if ! grep -q 'SWIFT_TREAT_WARNINGS_AS_ERRORS' <<<"$settings"; then
             wae_bad=1
           fi
           if [ "$wae_bad" -ne 0 ]; then
