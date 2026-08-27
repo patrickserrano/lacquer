@@ -182,20 +182,6 @@ const (
 	// thing this file is not allowed to do. Opting in hardens test_target and
 	// ui_test_target too, since the step checks every selector the job passed.
 	IOSCIVerifySelectors = "{{IOS_CI_VERIFY_SELECTORS}}"
-	// IOSPrecommitOnlyTesting is the `-only-testing:` argument list for the
-	// pre-commit `Swift Tests` hook.
-	//
-	// The hook hardcoded `-only-testing:{{PROJECT_NAME}}Tests`, so a project that
-	// added a package suite would have it run in CI and not locally: the hook
-	// passes, the PR fails, and the developer's fastest feedback loop is the one
-	// covering least. That divergence is the trap, so the extras are emitted in
-	// both places.
-	//
-	// The base selector stays PROJECT_NAME + "Tests" rather than becoming the
-	// first product's test_target. That spelling is what every repository already
-	// renders, and changing it here would rewrite the hook in all of them — a
-	// separate defect for a separate change.
-	IOSPrecommitOnlyTesting = "{{IOS_PRECOMMIT_ONLY_TESTING}}"
 	// IOSCIAppTarget is the built product coverage is reported for, as it appears
 	// in prose and in the step summary.
 	IOSCIAppTarget = "{{IOS_CI_APP_TARGET}}"
@@ -275,11 +261,6 @@ var registry = []entry{
 	// `-only-testing:Tests` against a scheme nobody named.
 	{IOSCIScheme, true},
 	{IOSCIOnlyTesting, true},
-	// Required for the same reason: the hook's selector list is never legitimately
-	// empty, and an empty one would render `xcodebuild test` with no
-	// `-only-testing:` at all — which runs a DIFFERENT (larger) set than CI and
-	// would look like the hook simply got slower.
-	{IOSPrecommitOnlyTesting, true},
 	// Not required: empty is the correct and overwhelmingly common rendering —
 	// no extra selectors declared, so no array to build and nothing to verify.
 	{IOSCIExtraTestSetup, false},
@@ -356,8 +337,6 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCIOnlyTesting:     CIOnlyTesting(products),
 		IOSCIExtraTestSetup:  CIExtraTestSetup(products),
 		IOSCIVerifySelectors: CIVerifySelectors(products),
-
-		IOSPrecommitOnlyTesting: PrecommitOnlyTesting(p.ProjectName, products),
 
 		IOSCIAppTarget:      CIAppTarget(products),
 		IOSCICoverageJQ:     CICoverageJQ(products),
@@ -637,41 +616,6 @@ func CIVerifySelectors(products []config.Product) string {
 		"\n            exit 1" +
 		"\n          fi" +
 		"\n          echo \"Every -only-testing: selector matched a test bundle that ran.\""
-}
-
-// PrecommitOnlyTesting is the `-only-testing:` list the pre-commit Swift Tests
-// hook runs.
-//
-// The hook and CI must select the same suites. They did not: the hook hardcoded
-// the app's own bundle, so a project adding a package suite would have it run in
-// CI and never locally — the fast loop covering strictly less than the slow one,
-// which is the wrong way round and shows up as a PR that fails on something
-// pre-commit just approved.
-//
-// The extras are the UNION across products, deduplicated in declaration order.
-// The hook runs [project].scheme, one scheme, so there is no product to pick;
-// and a selector naming a suite that scheme does not build costs nothing here,
-// because xcodebuild ignores it. That asymmetry is only safe locally — CI, where
-// ignoring it would be a false green, has the verification step instead.
-func PrecommitOnlyTesting(projectName string, products []config.Product) string {
-	if projectName == "" {
-		return "" // fail closed: the token is required, so sync reports it missing
-	}
-	// The base is PROJECT_NAME + "Tests", which is what the hook already
-	// rendered in every repository. Changing it to the product's test_target
-	// would be a fix to a different bug and would rewrite the hook everywhere.
-	out := fmt.Sprintf("%q", "-only-testing:"+projectName+"Tests")
-	seen := map[string]bool{projectName + "Tests": true}
-	for _, p := range products {
-		for _, t := range p.ExtraTestTargets {
-			if t == "" || seen[t] {
-				continue
-			}
-			seen[t] = true
-			out += " " + fmt.Sprintf("%q", "-only-testing:"+t)
-		}
-	}
-	return out
 }
 
 // CIAppTarget is the built product coverage is reported for.

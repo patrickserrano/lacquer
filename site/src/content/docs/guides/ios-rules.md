@@ -342,18 +342,30 @@ The `no_task_sleep_in_tests` lint rule bans arbitrary `Task.sleep` delays in tes
 
 Every CI gate and where it runs before push. See [core "Local checks match
 CI"](/lacquer/guides/agent-rules/#local-checks-match-ci) — a new CI job adds a
-row here, and a hook never runs weaker than its CI twin.
+row here, and a hook never runs weaker than its CI twin, **except** a job that
+is itself a build or test run (see the note below the table).
 
 | CI job / step | Local |
 |---|---|
 | `Lint` → SwiftLint `--strict` | pre-commit `swiftlint` (**`--strict`**, staged files) |
 | `Lint` → SwiftFormat `--lint` | pre-commit `swiftformat` (writes; a changed file fails the commit) |
 | `Docs` → `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
-| `Docs` → DocC builds clean | **pre-push** `docs-build` (too slow for pre-commit) |
-| `Test` | pre-commit `swift-test` |
+| `Docs` → DocC builds clean | CI-only — see below |
+| `Test` | CI-only — see below |
 | `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |
 | `Build (Release)` | CI-only: a full Release archive is not a commit-time cost |
 | `No lacquer drift` | `lacquer audit` (exit 3) — run it locally any time |
+
+**No local `xcodebuild test`/`docbuild` hook, deliberately.** This fleet's
+self-hosted Mac runner is frequently the very same physical machine you commit
+from. On separate hardware, a local build/test hook buys you an earlier signal
+before a slower CI run; here it buys nothing but a second, identical
+`xcodebuild` invocation on the one shared box you're also trying not to tie up.
+`Test` and `Docs` → DocC-builds-clean are CI-only for that reason — not an
+oversight, and not a case of "a hook never runs weaker than its CI twin,"
+since there is no weaker local version, only none. Everything else in the
+table above is static analysis (lint/format) with no build cost, so it stays
+local as usual.
 
 The `--strict` flags are the load-bearing part. `line_length`, `file_length`,
 `type_body_length` and `function_body_length` are all **warning** severity in
