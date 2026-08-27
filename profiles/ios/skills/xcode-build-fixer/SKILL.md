@@ -38,7 +38,7 @@ Typical fixes:
 - Enable `EAGER_LINKING = YES` for Debug
 - Align cross-target settings to eliminate module variants
 
-When editing `project.pbxproj`, locate the correct `buildSettings` block by matching the target name and configuration name. Verify the change with `xcodebuild -showBuildSettings` after applying.
+When editing `project.pbxproj`, locate the correct `buildSettings` block by matching the target name and configuration name. Verify the change with `xcodebuild -showBuildSettings` after applying -- FlowDeck has no settings-only inspection equivalent (`flowdeck build` always performs a real build against a simulator/device destination), so this one call stays raw xcodebuild deliberately.
 
 ### Script Phases
 
@@ -81,14 +81,14 @@ Typical fixes:
 Before applying version pin changes:
 
 - Run `git ls-remote --tags <url>` to confirm tags exist. If the upstream has no tags, pin to a specific revision hash instead.
-- Verify the pinned version resolves successfully with `xcodebuild -resolvePackageDependencies` before proceeding.
+- Verify the pinned version resolves successfully with `flowdeck project packages resolve` before proceeding (see the `flowdeck` skill's `resources/project.md`).
 
 ## Execution Workflow
 
 1. Read the approved optimization plan or developer instruction.
 2. For each approved item, identify the exact files and locations to change.
 3. Apply the change.
-4. Verify the change compiles: run a quick `xcodebuild build` to confirm no errors were introduced.
+4. Verify the change compiles: run `flowdeck build` to confirm no errors were introduced (check for a saved config with `flowdeck config get --json` first; otherwise pass `-w`/`-s`/`-S` or `-D` explicitly -- see the `flowdeck` skill's `resources/build.md`). Never fall back to raw `xcodebuild build` for this check.
 5. After all approved changes are applied, re-benchmark using the same inputs from the original baseline:
    ```bash
    python3 scripts/benchmark_builds.py \
