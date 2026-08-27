@@ -13,6 +13,13 @@ project). For visual/HIG conventions ("does this look like a real Mac app"),
 see the third-party `mac-assed-mac-app-skill` — that skill covers appearance,
 this one covers the platform APIs underneath it.
 
+Note the name collision with FlowDeck's own "macOS development" guide
+(`resources/macos-development.md` in the `flowdeck` skill): that one is about
+*driving* a running macOS app (clicks, keystrokes, accessibility automation —
+see `flowdeck ui mac`), not the platform APIs a macOS app is built from. Same
+name, different subject — for build/run/UI-automation tasks use `flowdeck`
+directly rather than this skill.
+
 ## Agent behavior contract
 
 1. Identify which of macOS's three structural differences from iOS is in play
