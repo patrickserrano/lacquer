@@ -449,10 +449,34 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fs := flag.NewFlagSet("console", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		rosterPath := fs.String("roster", getenv("LACQUER_ROSTER"), "path to the roster file (or $LACQUER_ROSTER)")
+		rolesPath := fs.String("roles", getenv("LACQUER_ROLES"), "path to the roles file (or $LACQUER_ROLES) — dispatch-role only")
 		mode := fs.String("mode", "", "dispatch target: bg (worktree-isolated background agent) or tmux (interactive, edits the checkout)")
-		dryRun := fs.Bool("dry-run", false, "with dispatch: print the command without starting anything")
+		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role: print the command without starting anything")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
+		}
+		rest := fs.Args()
+		// dispatch-role targets a named role (a lead/PM supervising many
+		// projects, not editing one), so it needs --roles, never --roster --
+		// checked before the project-roster load below so a dispatch-role-only
+		// invocation never has to set up a project roster it will not use.
+		if len(rest) > 0 && rest[0] == "dispatch-role" {
+			if len(rest) < 2 {
+				return fail(stderr, fmt.Errorf("usage: lacquer console --roles R dispatch-role <name> [\"<task override>\"]"))
+			}
+			if *rolesPath == "" {
+				return fail(stderr, fmt.Errorf("dispatch-role needs a roles file: pass --roles <path> or set LACQUER_ROLES"))
+			}
+			roles, err := console.LoadRoleRoster(*rolesPath)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			out, err := console.DispatchRole(roles, console.Sessions(), rest[1], strings.Join(rest[2:], " "), *dryRun)
+			fmt.Fprint(stdout, out)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			return 0
 		}
 		if *rosterPath == "" {
 			return fail(stderr, fmt.Errorf("console needs a roster: pass --roster <path> or set LACQUER_ROSTER"))
@@ -461,7 +485,6 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err != nil {
 			return fail(stderr, err)
 		}
-		rest := fs.Args()
 		if len(rest) > 0 && rest[0] == "dispatch" {
 			if len(rest) < 3 {
 				return fail(stderr, fmt.Errorf("usage: lacquer console [--roster F] --mode bg|tmux dispatch <project> \"<task>\""))
@@ -573,6 +596,9 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  console --roster F           one screen: fleet truth + live sessions + open PRs")
 	fmt.Fprintln(w, "  console ... --mode bg|tmux dispatch <project> \"<task>\"")
 	fmt.Fprintln(w, "                               start work on one project (bg = isolated worktree; tmux = the checkout)")
+	fmt.Fprintln(w, "  console --roles R dispatch-role <name> [\"<task override>\"]")
+	fmt.Fprintln(w, "                               start (or re-attach) a named role — a lead/PM supervising many")
+	fmt.Fprintln(w, "                               projects, not editing one; mode and task come from the roles file")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
