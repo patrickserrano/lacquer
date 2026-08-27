@@ -158,8 +158,10 @@ func TestDispatchModesTargetDifferentPlaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(bg, "claude --bg --cwd /w/alpha") {
-		t.Errorf("bg mode must launch a background agent:\n%s", bg)
+	// claude has no --cwd flag; the working directory is set via exec.Cmd.Dir,
+	// not an argument, so the display line shows it as a `cd` prefix instead.
+	if !strings.Contains(bg, "cd /w/alpha && claude --bg task") {
+		t.Errorf("bg mode must launch a background agent in the project directory:\n%s", bg)
 	}
 	tm, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Tmux, true)
 	if err != nil {

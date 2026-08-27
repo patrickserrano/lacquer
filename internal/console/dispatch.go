@@ -65,10 +65,20 @@ func Dispatch(roster fleet.Roster, sessions []Session, name, task string, mode M
 			entry.Name, len(live), strings.Join(live, ", "))
 	}
 
+	// dir is where the subprocess actually runs, set via exec.Cmd.Dir — not a
+	// CLI flag. `claude` has no `--cwd` option; an earlier version of this
+	// function passed `--cwd entry.Path` anyway, which made every background
+	// dispatch fail immediately ("unknown option '--cwd'") while still
+	// printing an optimistic "backgrounded · <id>" line, because that message
+	// is emitted before the daemon's own init check runs. The failure was only
+	// visible in the job's own state file (~/.claude/jobs/<id>/state.json),
+	// never in this command's own stdout/exit code.
 	var argv []string
+	var dir string
 	switch mode {
 	case Background:
-		argv = []string{"claude", "--bg", "--cwd", entry.Path, task}
+		argv = []string{"claude", "--bg", task}
+		dir = entry.Path
 	case Tmux:
 		argv = []string{"tmux", "new-session", "-A", "-s", entry.Name, "-c", entry.Path,
 			"claude", task}
@@ -76,12 +86,17 @@ func Dispatch(roster fleet.Roster, sessions []Session, name, task string, mode M
 		return "", fmt.Errorf("unknown mode %q (want %q or %q)", mode, Background, Tmux)
 	}
 
-	line := warning + "dispatch: " + strings.Join(argv, " ") + "\n"
+	display := strings.Join(argv, " ")
+	if dir != "" {
+		display = "(cd " + dir + " && " + display + ")"
+	}
+	line := warning + "dispatch: " + display + "\n"
 	if dryRun {
 		return line + "(dry run — nothing started)\n", nil
 	}
 
 	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is built from the roster and an operator-supplied task, never a shell string
+	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Stdin = os.Stdin
 	if err := cmd.Run(); err != nil {
