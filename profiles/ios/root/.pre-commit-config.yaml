@@ -57,8 +57,8 @@ repos:
         files: ^{{COMPONENT_PREFIX}}
 
       # The other half of the documentation baseline, and the cheap half — the
-      # DocC build is at pre-push below. Same config and same --strict as the
-      # `Docs` job in ios-ci.yml.
+      # DocC build itself is CI-only (see the note below). Same config and
+      # same --strict as the `Docs` job in ios-ci.yml.
       - id: swiftlint-docs
         name: SwiftLint (documentation)
         entry: scripts/docs-hook.sh scripts/precommit-swift.sh swiftlint-docs
@@ -67,19 +67,14 @@ repos:
         types: [swift]
         files: ^{{COMPONENT_PREFIX}}
 
-      - id: swift-test
-        name: Swift Tests
-        # -derivedDataPath DerivedData keeps SPM resolution per-checkout,
-        # avoiding the default-DerivedData "Couldn't check out revision"
-        # corruption when other checkouts/CI race the shared SwiftPM cache.
-        # Stderr is intentionally NOT suppressed and there is no fake-device
-        # fallback: if the pinned simulator is missing, fail loudly with the
-        # real error. `cd {{COMPONENT_PREFIX}}.` is `cd ios/.` for a nested
-        # layout and `cd .` for a root layout.
-        entry: bash -c 'cd {{COMPONENT_PREFIX}}. && xcodebuild test -scheme "{{SCHEME}}" -destination "platform=iOS Simulator,name=iPhone 17 Pro" -derivedDataPath DerivedData {{IOS_PRECOMMIT_ONLY_TESTING}} -quiet'
-        language: system
-        pass_filenames: false
-        files: ^{{COMPONENT_PREFIX}}
+      # Deliberately no local `xcodebuild test`/`docbuild` hook. This fleet's
+      # self-hosted Mac runner is frequently the same physical machine as the
+      # one you're committing from — a local test or doc build doesn't save
+      # CI wall-clock the way it would on separate hardware, it just runs the
+      # exact same xcodebuild invocation twice on the one shared box. `Test`
+      # and `Docs` → DocC-builds-clean are CI-only by design; see CLAUDE.ios.md
+      # "Local Checks vs CI". Everything above this line is static analysis
+      # (lint/format), never a build, and stays local.
 
       - id: no-secrets
         name: Check for hardcoded secrets
@@ -94,18 +89,6 @@ repos:
         entry: scripts/check-model-defaults.sh {{COMPONENT_PREFIX}}.
         language: system
         pass_filenames: false
-        files: ^{{COMPONENT_PREFIX}}.*\.swift$
-
-      # A full docbuild is far too slow for pre-commit, but it is the only thing
-      # that catches a broken ``SymbolLink`` — SwiftLint checks that a doc comment
-      # EXISTS, not that it resolves. At pre-push it costs one build on the way
-      # out instead of a round trip through CI.
-      - id: docs-build
-        name: Documentation builds clean
-        entry: scripts/docs-hook.sh scripts/build-docs.sh docs-site
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
         files: ^{{COMPONENT_PREFIX}}.*\.swift$
 
       # Conventional Commits — enforced by a LOCAL script (the lacquer keeps every
