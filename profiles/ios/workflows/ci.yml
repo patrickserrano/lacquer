@@ -192,7 +192,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true')
     timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7.0.1{{IOS_WATCH_SIMULATOR_SETUP}}
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |
@@ -359,7 +359,7 @@ jobs:
     # backstop with headroom for a cold, cache-cold build.
     timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7.0.1{{IOS_WATCH_SIMULATOR_SETUP}}
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |

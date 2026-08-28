@@ -71,6 +71,31 @@ type Project struct {
 	// Retired marks a project that is no longer worth investing in but is not
 	// being deleted. Nil for every ordinary project. See Retirement.
 	Retired *Retirement `toml:"retired"`
+	// ExtraBundleIDs are additional bundle identifiers release.yml must fetch
+	// signing files and a provisioning profile for, beyond the app's own
+	// BundleID — a widget extension, a watch companion app, a watch
+	// complication. Each is its own Apple target with its own App ID; the
+	// main app's distribution profile does not cover them.
+	//
+	// It exists because the profile's release workflow, before this field,
+	// signed only the one app bundle id — correct for a single-target app,
+	// silently incomplete for one with embedded extensions. A project in
+	// this fleet with a widget and a watch app (three extra targets) had to
+	// keep an entirely hand-written release workflow rather than adopt the
+	// shared one, specifically to fetch a profile per target this field now
+	// lets it declare instead.
+	//
+	// Only meaningful for a single-product project ([[product]] declares
+	// none); a multi-product project puts this on each Product instead,
+	// since a paid and free variant's embedded targets have different
+	// bundle ids. See Product.ExtraBundleIDs.
+	ExtraBundleIDs []string `toml:"extra_bundle_ids"`
+	// WatchTarget marks a project with a watchOS companion app target, so
+	// ci.yml installs the watchOS Simulator runtime before building/testing.
+	// A widget or app-extension target does NOT need this — it runs on the
+	// same iOS simulator as the host app; only an actual watch app needs its
+	// own simulator platform, which is not preinstalled on a fresh runner.
+	WatchTarget bool `toml:"watch_target"`
 }
 
 // Retirement is the [project].retired entry: a project the fleet keeps but stops
@@ -444,6 +469,19 @@ func validateProject(p Project) error {
 		}
 		seenEnv[e] = true
 	}
+	seenExtraBundle := map[string]bool{}
+	for i, id := range p.ExtraBundleIDs {
+		if id == "" {
+			return fmt.Errorf("[project].extra_bundle_ids[%d] is empty", i)
+		}
+		if !projBundleVal.MatchString(id) {
+			return fmt.Errorf("invalid [project].extra_bundle_ids[%d] value %q", i, id)
+		}
+		if id == p.BundleID || seenExtraBundle[id] {
+			return fmt.Errorf("[project].extra_bundle_ids[%d] %q is already fetched (either as bundle_id or an earlier entry)", i, id)
+		}
+		seenExtraBundle[id] = true
+	}
 	for _, e := range p.Exclude {
 		if err := validateComponentPath(strings.TrimSuffix(e.Path, "/")); err != nil {
 			return fmt.Errorf("invalid [project].exclude entry: %w", err)
@@ -602,6 +640,14 @@ type Product struct {
 	// it would silently select no target, and `jq` selecting nothing yields an
 	// empty coverage number rather than an error. Defaults to `<name>.app`.
 	AppTarget string `toml:"app_target"`
+	// ExtraBundleIDs are additional bundle identifiers this product's release
+	// leg must fetch signing files and a provisioning profile for — a widget
+	// extension, a watch companion app — beyond BundleID itself. Per-product
+	// because a paid and free variant's embedded targets carry different
+	// bundle ids (the free widget is not the paid widget). See
+	// Project.ExtraBundleIDs for the single-product equivalent and the
+	// reasoning behind this field.
+	ExtraBundleIDs []string `toml:"extra_bundle_ids"`
 }
 
 // TestTargetName is the `-only-testing:` selector for this product's unit tests.
@@ -994,10 +1040,11 @@ func (c *Config) Products() []Product {
 		return c.Product
 	}
 	return []Product{{
-		Name:     c.Project.ProjectName,
-		Scheme:   c.Project.Scheme,
-		BundleID: c.Project.BundleID,
-		AscAppID: c.Project.AscAppID,
+		Name:           c.Project.ProjectName,
+		Scheme:         c.Project.Scheme,
+		BundleID:       c.Project.BundleID,
+		AscAppID:       c.Project.AscAppID,
+		ExtraBundleIDs: c.Project.ExtraBundleIDs,
 	}}
 }
 
@@ -1264,6 +1311,26 @@ func Load(path string) (*Config, error) {
 				return nil, fmt.Errorf("[[product]] %q: extra_test_targets[%d] %q is already selected by this product; a repeated selector runs nothing extra", p.Name, j, t)
 			}
 			seenTarget[t] = true
+		}
+		// Additional embedded-target bundle ids (widget, watch app) release.yml
+		// fetches signing files for alongside BundleID. Held to the bundle-id
+		// charset like BundleID itself; blank and repeats are rejected for the
+		// same reason as extra_test_targets — a blank entry fetches signing
+		// files for "", which errors at release time rather than at the
+		// manifest, and a repeat fetches (and pays App Store Connect API rate
+		// limit for) the same profile twice.
+		seenExtraBundle := map[string]bool{}
+		for j, id := range p.ExtraBundleIDs {
+			if id == "" {
+				return nil, fmt.Errorf("[[product]] %q: extra_bundle_ids[%d] is empty", p.Name, j)
+			}
+			if !projBundleVal.MatchString(id) {
+				return nil, fmt.Errorf("[[product]] %q: invalid extra_bundle_ids[%d] %q", p.Name, j, id)
+			}
+			if id == p.BundleID || seenExtraBundle[id] {
+				return nil, fmt.Errorf("[[product]] %q: extra_bundle_ids[%d] %q is already fetched (either as bundle_id or an earlier entry)", p.Name, j, id)
+			}
+			seenExtraBundle[id] = true
 		}
 		// The slug scopes this product's test-results artifact and its CI
 		// simulator. Two products sharing one would have the second leg's artifact

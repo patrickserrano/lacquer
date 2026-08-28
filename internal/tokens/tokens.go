@@ -182,6 +182,17 @@ const (
 	// thing this file is not allowed to do. Opting in hardens test_target and
 	// ui_test_target too, since the step checks every selector the job passed.
 	IOSCIVerifySelectors = "{{IOS_CI_VERIFY_SELECTORS}}"
+	// IOSWatchSimulatorSetup is the "Install watchOS Simulator Runtime" step,
+	// or nothing.
+	//
+	// A widget or app-extension target runs on the SAME iOS simulator as the
+	// host app and needs nothing extra; only an actual watchOS companion app
+	// target needs its own simulator platform, which is not preinstalled on
+	// a fresh runner. Renders only for [project].watch_target = true, for the
+	// same reason IOSCIVerifySelectors is conditional: downloading a
+	// platform costs real CI time, and every project that does not declare a
+	// watch app must render the workflow it already had.
+	IOSWatchSimulatorSetup = "{{IOS_WATCH_SIMULATOR_SETUP}}"
 	// IOSCIAppTarget is the built product coverage is reported for, as it appears
 	// in prose and in the step summary.
 	IOSCIAppTarget = "{{IOS_CI_APP_TARGET}}"
@@ -265,6 +276,7 @@ var registry = []entry{
 	// no extra selectors declared, so no array to build and nothing to verify.
 	{IOSCIExtraTestSetup, false},
 	{IOSCIVerifySelectors, false},
+	{IOSWatchSimulatorSetup, false},
 	{IOSCIAppTarget, true},
 	{IOSCICoverageJQ, true},
 	{IOSCIArtifactSuffix, false},
@@ -330,13 +342,14 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSProductSecrets: ProductSecrets(products),
 		IOSReleaseTags:    ReleaseTags(products),
 
-		IOSCIProductSuffix:   CIProductSuffix(products),
-		IOSCIBuildStrategy:   CIBuildStrategy(products),
-		IOSCITestStrategy:    CITestStrategy(products),
-		IOSCIScheme:          CIScheme(products),
-		IOSCIOnlyTesting:     CIOnlyTesting(products),
-		IOSCIExtraTestSetup:  CIExtraTestSetup(products),
-		IOSCIVerifySelectors: CIVerifySelectors(products),
+		IOSCIProductSuffix:     CIProductSuffix(products),
+		IOSCIBuildStrategy:     CIBuildStrategy(products),
+		IOSCITestStrategy:      CITestStrategy(products),
+		IOSCIScheme:            CIScheme(products),
+		IOSCIOnlyTesting:       CIOnlyTesting(products),
+		IOSCIExtraTestSetup:    CIExtraTestSetup(products),
+		IOSCIVerifySelectors:   CIVerifySelectors(products),
+		IOSWatchSimulatorSetup: WatchSimulatorSetup(p.WatchTarget),
 
 		IOSCIAppTarget:      CIAppTarget(products),
 		IOSCICoverageJQ:     CICoverageJQ(products),
@@ -529,6 +542,30 @@ func CIOnlyTesting(products []config.Product) string {
 // Only the matrix form needs it: with one product the selectors are literals in
 // the command line already. Empty otherwise, including for a matrix where no
 // product declares extras.
+// WatchSimulatorSetup renders the "Install watchOS Simulator Runtime" step,
+// or "" when the project has no watch companion app.
+//
+// `xcodebuild -downloadPlatform watchOS` is idempotent (a no-op if already
+// installed) and cheap to attempt, but not free — this is why it is
+// conditional rather than run unconditionally for every project: a project
+// with no watch target must render the workflow it already had.
+func WatchSimulatorSetup(watchTarget bool) string {
+	if !watchTarget {
+		return ""
+	}
+	// One leading newline, not two: this token is appended to the END of the
+	// preceding step's last line (the checkout step), and the template's own
+	// existing blank line before the NEXT step stays in the template text
+	// unchanged either way. Two leading newlines would insert an extra blank
+	// line only when this renders non-empty, which is not the point — the
+	// point is that a project with no watch target renders byte-identically
+	// to before this token existed.
+	return "\n      - name: Install watchOS Simulator Runtime" +
+		"\n        run: |" +
+		"\n          xcodebuild -downloadPlatform watchOS 2>&1 | tail -5 || true" +
+		"\n          echo \"watchOS runtime step complete\""
+}
+
 func CIExtraTestSetup(products []config.Product) string {
 	if !multi(products) || !anyExtra(products) {
 		return ""
@@ -686,8 +723,27 @@ func ProductCatalog(products []config.Product) string {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		fmt.Fprintf(&b, `{"name":%q,"scheme":%q,"bundle_id":%q,"asc_app_id":%q,"tag_prefix":%q}`,
-			p.Name, p.Scheme, p.BundleID, p.AscAppID, p.TagPrefix)
+		fmt.Fprintf(&b, `{"name":%q,"scheme":%q,"bundle_id":%q,"asc_app_id":%q,"tag_prefix":%q,"extra_bundle_ids":%s}`,
+			p.Name, p.Scheme, p.BundleID, p.AscAppID, p.TagPrefix, jsonStringArray(p.ExtraBundleIDs))
+	}
+	b.WriteString("]")
+	return b.String()
+}
+
+// jsonStringArray renders a string slice as a single-line JSON array, "[]" for
+// nil/empty. Hand-built for the same reason ProductCatalog is: every value
+// reaching here is already charset-validated at config.Load.
+func jsonStringArray(vals []string) string {
+	if len(vals) == 0 {
+		return "[]"
+	}
+	var b strings.Builder
+	b.WriteString("[")
+	for i, v := range vals {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, "%q", v)
 	}
 	b.WriteString("]")
 	return b.String()
