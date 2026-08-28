@@ -205,6 +205,12 @@ type jobState struct {
 	State        string `json:"state"`
 	Detail       string `json:"detail"`
 	WorktreePath string `json:"worktreePath"`
+	// SessionID is the full claude session UUID (DaemonID is just its first 8
+	// hex characters). Used to cross-check liveness against `cmux sessions
+	// list --session <id> --json` (cmux.go) when cmux is installed -- a
+	// stronger signal than this state file alone, since it reports the
+	// actual OS pid and whether it still exists.
+	SessionID string `json:"sessionId"`
 }
 
 // checkBackground reads the daemon's own job-state file directly, rather
@@ -223,7 +229,19 @@ func (r Record) checkBackground() (Status, string, error) {
 	if err != nil {
 		return Alive, "", err
 	}
-	return checkJobState(filepath.Join(dir, r.DaemonID, "state.json"))
+	statePath := filepath.Join(dir, r.DaemonID, "state.json")
+	status, detail, checkErr := checkJobState(statePath)
+	// Enrichment only, never a status override: cmux may be absent, or the
+	// state file may have no sessionId (an older job, or a launch that died
+	// before writing one), and either case must fall back to the job-state
+	// verdict alone rather than fail the whole check. See cmux.go for why
+	// this is worth having at all -- a real pid, verified to still exist.
+	if st, err := readJobState(statePath); err == nil && st.SessionID != "" {
+		if info, found, err := CmuxInfo(st.SessionID); err == nil && found {
+			detail = fmt.Sprintf("%s [cmux: pid %d, %s, exists=%t]", detail, info.PID, info.AgentLifecycle, info.StoredPIDExists)
+		}
+	}
+	return status, detail, checkErr
 }
 
 // claudeJobsDir resolves ~/.claude/jobs, the directory `claude --bg` writes
