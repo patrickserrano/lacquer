@@ -449,17 +449,48 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fs := flag.NewFlagSet("console", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		rosterPath := fs.String("roster", getenv("LACQUER_ROSTER"), "path to the roster file (or $LACQUER_ROSTER)")
-		rolesPath := fs.String("roles", getenv("LACQUER_ROLES"), "path to the roles file (or $LACQUER_ROLES) — dispatch-role only")
+		rolesPath := fs.String("roles", getenv("LACQUER_ROLES"), "path to the roles file (or $LACQUER_ROLES) — dispatch-role/watch only")
+		sessionsPath := fs.String("sessions", getenv("LACQUER_SESSIONS"), "path to the sessions file (or $LACQUER_SESSIONS) — enables tracking for `watch`")
 		mode := fs.String("mode", "", "dispatch target: bg (worktree-isolated background agent) or tmux (interactive, edits the checkout)")
-		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role: print the command without starting anything")
+		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role/watch --relaunch: print the command without starting anything")
+		relaunch := fs.Bool("relaunch", false, "with watch: re-dispatch every session found dead")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
 		rest := fs.Args()
+		// watch and dispatch-role both need neither --mode nor a project
+		// roster's own gate below, so both are checked first: a watch-only or
+		// dispatch-role-only invocation should never have to set up config it
+		// will not use.
+		if len(rest) > 0 && rest[0] == "watch" {
+			if *sessionsPath == "" {
+				return fail(stderr, fmt.Errorf("watch needs a sessions file: pass --sessions <path> or set LACQUER_SESSIONS"))
+			}
+			var roster fleet.Roster
+			if *rosterPath != "" {
+				var err error
+				roster, err = fleet.LoadRoster(*rosterPath)
+				if err != nil {
+					return fail(stderr, err)
+				}
+			}
+			var roles console.RoleRoster
+			if *rolesPath != "" {
+				var err error
+				roles, err = console.LoadRoleRoster(*rolesPath)
+				if err != nil {
+					return fail(stderr, err)
+				}
+			}
+			results, err := console.Watch(*sessionsPath, roster, roles, console.Sessions(), *relaunch, *dryRun)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			console.WatchText(stdout, results)
+			return 0
+		}
 		// dispatch-role targets a named role (a lead/PM supervising many
-		// projects, not editing one), so it needs --roles, never --roster --
-		// checked before the project-roster load below so a dispatch-role-only
-		// invocation never has to set up a project roster it will not use.
+		// projects, not editing one), so it needs --roles, never --roster.
 		if len(rest) > 0 && rest[0] == "dispatch-role" {
 			if len(rest) < 2 {
 				return fail(stderr, fmt.Errorf("usage: lacquer console --roles R dispatch-role <name> [\"<task override>\"]"))
@@ -471,10 +502,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			if err != nil {
 				return fail(stderr, err)
 			}
-			out, err := console.DispatchRole(roles, console.Sessions(), rest[1], strings.Join(rest[2:], " "), *dryRun)
+			taskOverride := strings.Join(rest[2:], " ")
+			out, err := console.DispatchRole(roles, console.Sessions(), rest[1], taskOverride, *dryRun)
 			fmt.Fprint(stdout, out)
 			if err != nil {
 				return fail(stderr, err)
+			}
+			if *sessionsPath != "" && !*dryRun {
+				recordRoleDispatch(stderr, *sessionsPath, roles, rest[1], taskOverride, out)
 			}
 			return 0
 		}
@@ -495,10 +530,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				// silently change where the work lands.
 				return fail(stderr, fmt.Errorf("dispatch needs --mode bg or --mode tmux"))
 			}
-			out, err := console.Dispatch(roster, console.Sessions(), rest[1], strings.Join(rest[2:], " "), console.Mode(*mode), *dryRun)
+			task := strings.Join(rest[2:], " ")
+			out, err := console.Dispatch(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun)
 			fmt.Fprint(stdout, out)
 			if err != nil {
 				return fail(stderr, err)
+			}
+			if *sessionsPath != "" && !*dryRun {
+				recordProjectDispatch(stderr, *sessionsPath, roster, rest[1], task, console.Mode(*mode), out)
 			}
 			return 0
 		}
@@ -599,6 +638,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  console --roles R dispatch-role <name> [\"<task override>\"]")
 	fmt.Fprintln(w, "                               start (or re-attach) a named role — a lead/PM supervising many")
 	fmt.Fprintln(w, "                               projects, not editing one; mode and task come from the roles file")
+	fmt.Fprintln(w, "  console --sessions S [--roster F] [--roles R] watch [--relaunch]")
+	fmt.Fprintln(w, "                               check every recorded dispatch's liveness; --relaunch re-dispatches")
+	fmt.Fprintln(w, "                               each one found dead. --sessions on dispatch/dispatch-role enables")
+	fmt.Fprintln(w, "                               recording; nothing is tracked unless you pass it")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
@@ -672,6 +715,74 @@ func (p *profileList) Set(v string) error { *p = append(*p, v); return nil }
 func fail(w io.Writer, err error) int {
 	fmt.Fprintln(w, "error:", err)
 	return 1
+}
+
+// absDir resolves dir to an absolute path, falling back to the original
+// string if that fails for any reason. A relaunch may run from a different
+// working directory than the original dispatch (a later invocation, a cron
+// sweep) -- a relative Dir recorded against today's CWD would silently point
+// somewhere else, or nowhere, by then.
+func absDir(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return dir
+	}
+	return abs
+}
+
+// recordProjectDispatch appends a Record for a successful project dispatch,
+// so a later `watch` pass can find it again. A failure to record is a
+// warning, not a hard error: the dispatch itself already succeeded, and the
+// operator's actual request should not fail just because tracking couldn't
+// be written.
+func recordProjectDispatch(stderr io.Writer, sessionsPath string, roster fleet.Roster, name, task string, mode console.Mode, dispatchOut string) {
+	for i := range roster.Project {
+		if roster.Project[i].Name != name {
+			continue
+		}
+		rec := console.Record{
+			Kind:      console.ProjectKind,
+			Name:      roster.Project[i].Name,
+			Mode:      mode,
+			Dir:       absDir(roster.Project[i].Path),
+			Task:      task,
+			DaemonID:  console.DaemonID(dispatchOut),
+			StartedAt: time.Now().UTC(),
+		}
+		if err := console.AppendRecord(sessionsPath, rec); err != nil {
+			fmt.Fprintf(stderr, "warning: could not record session: %v\n", err)
+		}
+		return
+	}
+}
+
+// recordRoleDispatch mirrors recordProjectDispatch for a role dispatch.
+// taskOverride, when blank, means the role's own declared task was used --
+// the record needs the ACTUAL task that ran, not an empty override, so the
+// role's declared Task is substituted here rather than left blank.
+func recordRoleDispatch(stderr io.Writer, sessionsPath string, roles console.RoleRoster, name, taskOverride, dispatchOut string) {
+	for i := range roles.Role {
+		if roles.Role[i].Name != name {
+			continue
+		}
+		task := strings.TrimSpace(taskOverride)
+		if task == "" {
+			task = roles.Role[i].Task
+		}
+		rec := console.Record{
+			Kind:      console.RoleKind,
+			Name:      roles.Role[i].Name,
+			Mode:      roles.Role[i].Mode,
+			Dir:       absDir(roles.Role[i].Dir),
+			Task:      task,
+			DaemonID:  console.DaemonID(dispatchOut),
+			StartedAt: time.Now().UTC(),
+		}
+		if err := console.AppendRecord(sessionsPath, rec); err != nil {
+			fmt.Fprintf(stderr, "warning: could not record session: %v\n", err)
+		}
+		return
+	}
 }
 
 // runFixers loads the manifest and runs every declared profile's autofixers.
