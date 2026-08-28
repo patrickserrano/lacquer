@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/patrickserrano/lacquer/internal/adoptcmd"
@@ -454,6 +457,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		mode := fs.String("mode", "", "dispatch target: bg (worktree-isolated background agent) or tmux (interactive, edits the checkout)")
 		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role/watch --relaunch: print the command without starting anything")
 		relaunch := fs.Bool("relaunch", false, "with watch: re-dispatch every session found dead")
+		live := fs.Bool("live", false, "with watch: keep refreshing in place every --interval until Ctrl-C, instead of checking once")
+		interval := fs.Duration("interval", 2*time.Second, "with watch --live: refresh interval")
+		force := fs.Bool("force", false, "with kill: kill even a session Check reports Alive")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -482,12 +488,64 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 					return fail(stderr, err)
 				}
 			}
+			if *live {
+				// A live loop re-checks the same records over and over, so it
+				// must never also relaunch: Watch has no way to update a
+				// record's DaemonID in place, so a relaunched session would
+				// still read as Failed on the very next tick (its old
+				// DaemonID's state file, now dead) and get relaunched again
+				// every --interval, forever. --relaunch stays a one-shot,
+				// deliberate action; --live stays a read-only dashboard.
+				if *relaunch {
+					fmt.Fprintln(stderr, "note: --relaunch is ignored with --live (a live loop would relaunch the same failed record every tick)")
+				}
+				return watchLive(stdout, *sessionsPath, roster, roles, *interval)
+			}
 			results, err := console.Watch(*sessionsPath, roster, roles, console.Sessions(), *relaunch, *dryRun)
 			if err != nil {
 				return fail(stderr, err)
 			}
 			console.WatchText(stdout, results)
 			return 0
+		}
+		if len(rest) > 0 && rest[0] == "kill" {
+			if len(rest) < 2 {
+				return fail(stderr, fmt.Errorf("usage: lacquer console --sessions S kill <name-or-daemon-id> [--force]"))
+			}
+			if *sessionsPath == "" {
+				return fail(stderr, fmt.Errorf("kill needs a sessions file: pass --sessions <path> or set LACQUER_SESSIONS"))
+			}
+			records, err := console.ReadRecords(*sessionsPath)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			target := rest[1]
+			var matches []console.Record
+			for _, r := range records {
+				if r.Name == target || r.DaemonID == target {
+					matches = append(matches, r)
+				}
+			}
+			switch len(matches) {
+			case 0:
+				return fail(stderr, fmt.Errorf("no recorded session matches %q", target))
+			case 1:
+				note, err := console.Kill(*sessionsPath, matches[0], *force)
+				if note != "" {
+					fmt.Fprintln(stderr, note)
+				}
+				if err != nil {
+					return fail(stderr, err)
+				}
+				fmt.Fprintf(stdout, "killed %s (%s, %s)\n", matches[0].Name, matches[0].Kind, matches[0].Mode)
+				return 0
+			default:
+				fmt.Fprintf(stderr, "%q matches %d recorded sessions — name a daemon id instead:\n", target, len(matches))
+				for _, m := range matches {
+					fmt.Fprintf(stderr, "  %s  daemonId=%s  started=%s\n", m.Name, m.DaemonID, m.StartedAt.Format(time.RFC3339))
+				}
+				return 1
+			}
 		}
 		// dispatch-role targets a named role (a lead/PM supervising many
 		// projects, not editing one), so it needs --roles, never --roster.
@@ -638,10 +696,19 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  console --roles R dispatch-role <name> [\"<task override>\"]")
 	fmt.Fprintln(w, "                               start (or re-attach) a named role — a lead/PM supervising many")
 	fmt.Fprintln(w, "                               projects, not editing one; mode and task come from the roles file")
-	fmt.Fprintln(w, "  console --sessions S [--roster F] [--roles R] watch [--relaunch]")
+	fmt.Fprintln(w, "  console --sessions S [--roster F] [--roles R] watch [--relaunch] [--live] [--interval D]")
 	fmt.Fprintln(w, "                               check every recorded dispatch's liveness; --relaunch re-dispatches")
-	fmt.Fprintln(w, "                               each one found dead. --sessions on dispatch/dispatch-role enables")
-	fmt.Fprintln(w, "                               recording; nothing is tracked unless you pass it")
+	fmt.Fprintln(w, "                               each one found dead (Blocked and Missing are reported, not")
+	fmt.Fprintln(w, "                               auto-relaunched). --live keeps redrawing every --interval (default")
+	fmt.Fprintln(w, "                               2s) instead of checking once, until Ctrl-C; ignores --relaunch.")
+	fmt.Fprintln(w, "                               --sessions on dispatch/dispatch-role enables recording; nothing")
+	fmt.Fprintln(w, "                               is tracked unless you pass it")
+	fmt.Fprintln(w, "  console --sessions S kill <name-or-daemon-id> [--force]")
+	fmt.Fprintln(w, "                               stop one recorded session and drop it from the sessions file.")
+	fmt.Fprintln(w, "                               Refuses an Alive session unless --force. For bg mode this removes")
+	fmt.Fprintln(w, "                               the job's own ~/.claude/jobs/<id> directory (a blocked bg daemon")
+	fmt.Fprintln(w, "                               holds no live process to signal, so this is what actually stops")
+	fmt.Fprintln(w, "                               it being respawned) — for tmux mode it kills the tmux session")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
@@ -715,6 +782,39 @@ func (p *profileList) Set(v string) error { *p = append(*p, v); return nil }
 func fail(w io.Writer, err error) int {
 	fmt.Fprintln(w, "error:", err)
 	return 1
+}
+
+// watchLive redraws `watch`'s one-shot output every interval until the
+// terminal sends interrupt/terminate, instead of a single check-and-exit.
+// Modeled on tmuxwatch's live tmux-session dashboard (evaluated this session
+// for ideas worth borrowing) — that tool's core liveness logic is weaker than
+// Check's own (no state-file read, no auto-relaunch), but its always-current
+// view is something a one-shot `watch` lacks: an operator otherwise has to
+// keep re-running the same command to see a Blocked session clear.
+//
+// Deliberately re-reads the sessions file every tick (not just the roster/
+// roles, which do not change mid-loop) so a dispatch made in another terminal
+// while this is running shows up without restarting the loop.
+func watchLive(w io.Writer, sessionsPath string, roster fleet.Roster, roles console.RoleRoster, interval time.Duration) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	const clearScreen = "\033[H\033[2J"
+	for {
+		results, err := console.Watch(sessionsPath, roster, roles, console.Sessions(), false, false)
+		fmt.Fprint(w, clearScreen)
+		fmt.Fprintf(w, "lacquer console watch --live  (refreshing every %s, Ctrl-C to stop)\n\n", interval)
+		if err != nil {
+			fmt.Fprintln(w, "error:", err)
+		} else {
+			console.WatchText(w, results)
+		}
+		select {
+		case <-ctx.Done():
+			return 0
+		case <-time.After(interval):
+		}
+	}
 }
 
 // absDir resolves dir to an absolute path, falling back to the original

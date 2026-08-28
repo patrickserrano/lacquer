@@ -102,10 +102,10 @@ func TestCheckJobStateReportsFailed(t *testing.T) {
 	}
 }
 
-// "working" and "blocked" are both directly-observed live states — neither
-// means dead, and an unrecognized future state defaults the same way.
-func TestCheckJobStateTreatsWorkingAndBlockedAsAlive(t *testing.T) {
-	for _, state := range []string{"working", "blocked", "some-future-state"} {
+// "working" and any unrecognized future state are both treated as alive: the
+// only confirmed-dead state is "failed".
+func TestCheckJobStateTreatsWorkingAsAlive(t *testing.T) {
+	for _, state := range []string{"working", "some-future-state"} {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "state.json")
 		if err := os.WriteFile(path, []byte(`{"state":"`+state+`","detail":"d"}`), 0o644); err != nil {
@@ -118,6 +118,28 @@ func TestCheckJobStateTreatsWorkingAndBlockedAsAlive(t *testing.T) {
 		if status != Alive {
 			t.Errorf("state %q: status = %q, want %q — an unconfirmed-dead state must default to alive", state, status, Alive)
 		}
+	}
+}
+
+// "blocked" is its own status, not folded into Alive: a batch of bg
+// dispatches sat stalled on a permission prompt for 25+ minutes this session
+// while every liveness check said "alive" because blocked was indistinguishable
+// from working. Surfacing it distinctly is the whole fix.
+func TestCheckJobStateTreatsBlockedDistinctly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	if err := os.WriteFile(path, []byte(`{"state":"blocked","detail":"waiting on permission"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status, detail, err := checkJobState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != Blocked {
+		t.Errorf("status = %q, want %q", status, Blocked)
+	}
+	if detail != "waiting on permission" {
+		t.Errorf("detail = %q, want the job's own detail field", detail)
 	}
 }
 

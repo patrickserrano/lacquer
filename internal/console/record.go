@@ -72,6 +72,12 @@ func AppendRecord(path string, r Record) error {
 		return fmt.Errorf("open sessions file: %w", err)
 	}
 	defer f.Close()
+	return writeRecordLine(f, r)
+}
+
+// writeRecordLine encodes one record as a JSONL line. Shared by AppendRecord
+// and RemoveRecord (kill.go), which rewrites the whole file minus one record.
+func writeRecordLine(f *os.File, r Record) error {
 	data, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("encode session record: %w", err)
@@ -142,6 +148,17 @@ const (
 	// relaunch a Missing record automatically for that reason -- it is
 	// reported for an operator to look at instead.
 	Missing Status = "missing"
+	// Blocked means a bg-mode job's own state file reports "blocked" -- it is
+	// running (the process exists) but stalled waiting on something it could
+	// not resolve itself: a genuine ambiguous-requirement question, or (before
+	// bg dispatch started passing --dangerously-skip-permissions) a tool-call
+	// permission prompt with nobody to approve it. Distinct from Alive on
+	// purpose: folding it into Alive is how a whole batch of dispatches sat
+	// doing nothing for 25+ minutes while every liveness check said fine.
+	// Watch does not relaunch a Blocked record -- relaunching restarts the
+	// same question, it does not answer it -- so this is reported for an
+	// operator to look at, the same as Missing.
+	Blocked Status = "blocked"
 )
 
 // Check reports whether r's session is still running, and a short detail
@@ -177,9 +194,17 @@ func (r Record) checkTmux() (Status, string, error) {
 }
 
 // jobState is the subset of ~/.claude/jobs/<id>/state.json this reads.
+//
+// WorktreePath is only present when the bg daemon actually created an
+// isolated git worktree (not every dispatch does -- one observed dispatch
+// this session ran directly in the project's main checkout instead). It is
+// the ONLY authoritative source of that path: lacquer's own Record has no
+// way to predict it, because the worktree's directory name is decided by
+// Claude Code's own bg dispatch machinery, not by lacquer.
 type jobState struct {
-	State  string `json:"state"`
-	Detail string `json:"detail"`
+	State        string `json:"state"`
+	Detail       string `json:"detail"`
+	WorktreePath string `json:"worktreePath"`
 }
 
 // checkBackground reads the daemon's own job-state file directly, rather
@@ -211,25 +236,40 @@ func claudeJobsDir() (string, error) {
 	return filepath.Join(home, ".claude", "jobs"), nil
 }
 
+// readJobState reads and parses one daemon's own state file, returning the
+// raw os.ReadFile error unwrapped so a caller can still os.IsNotExist it.
+// Shared by checkJobState (liveness) and Kill (kill.go, which additionally
+// needs WorktreePath -- the one field liveness checking never looks at).
+func readJobState(path string) (jobState, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return jobState{}, err
+	}
+	var st jobState
+	if err := json.Unmarshal(data, &st); err != nil {
+		return jobState{}, fmt.Errorf("parse job state %s: %w", path, err)
+	}
+	return st, nil
+}
+
 // checkJobState reads one daemon's own state file directly -- separated from
 // checkBackground so a test can point it at a fixture file instead of the
 // real ~/.claude/jobs.
 func checkJobState(path string) (Status, string, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return Missing, "no job state file at " + path, nil
-	}
+	st, err := readJobState(path)
 	if err != nil {
-		return Alive, "", fmt.Errorf("read job state %s: %w", path, err)
-	}
-	var st jobState
-	if err := json.Unmarshal(data, &st); err != nil {
-		return Alive, "", fmt.Errorf("parse job state %s: %w", path, err)
+		if os.IsNotExist(err) {
+			return Missing, "no job state file at " + path, nil
+		}
+		return Alive, "", err
 	}
 	if st.State == "failed" {
 		return Failed, st.Detail, nil
 	}
-	// "working", "blocked", or any state not yet observed: assume alive.
-	// See the Alive doc comment for why that is the safe default.
+	if st.State == "blocked" {
+		return Blocked, st.Detail, nil
+	}
+	// "working", or any state not yet observed: assume alive. See the Alive
+	// doc comment for why that is the safe default.
 	return Alive, st.Detail, nil
 }
