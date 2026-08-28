@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // Kill stops one recorded session and removes it from the sessions file.
@@ -30,16 +31,37 @@ func Kill(sessionsPath string, r Record, force bool) (string, error) {
 		}
 	case Background:
 		if r.DaemonID != "" {
+			var notes []string
 			dir, err := claudeJobsDir()
 			if err == nil {
 				jobDir := filepath.Join(dir, r.DaemonID)
+				// worktreePath comes from the job's OWN state file, read
+				// before removing that file -- it is the only authoritative
+				// source of this path (Claude Code's bg dispatch machinery
+				// names the worktree, not lacquer), and not every dispatch
+				// even has one: one observed dispatch this session ran
+				// directly in the project's main checkout.
+				//
+				// This is the fix for a real incident: an earlier version of
+				// Kill removed only the job directory, leaving the git
+				// worktree behind, still git-worktree-locked. Every
+				// subsequent redispatch to the same project hit that stale
+				// lock and got stuck asking how to proceed -- 7 of 7
+				// redispatched sessions, all blocked on the exact thing this
+				// function was supposed to have cleaned up.
+				if st, jsErr := readJobState(filepath.Join(jobDir, "state.json")); jsErr == nil && st.WorktreePath != "" {
+					if wtErr := removeWorktree(r.Dir, st.WorktreePath); wtErr != nil {
+						notes = append(notes, fmt.Sprintf("could not remove worktree %s: %v", st.WorktreePath, wtErr))
+					}
+				}
 				// Best-effort: a bg daemon holds no process while blocked, so
 				// there is nothing to signal. Removing its own state directory
 				// is what actually stops it from being respawned later.
 				if rmErr := os.RemoveAll(jobDir); rmErr != nil {
-					note = fmt.Sprintf("could not remove job directory %s: %v", jobDir, rmErr)
+					notes = append(notes, fmt.Sprintf("could not remove job directory %s: %v", jobDir, rmErr))
 				}
 			}
+			note = strings.Join(notes, "; ")
 		}
 	}
 
@@ -47,6 +69,23 @@ func Kill(sessionsPath string, r Record, force bool) (string, error) {
 		return note, fmt.Errorf("kill %s: remove from sessions file: %w", r.Name, err)
 	}
 	return note, nil
+}
+
+// removeWorktree unlocks and force-removes the git worktree at path, whose
+// parent repository is mainDir (r.Dir -- the project's own checkout, where
+// `git worktree` commands must run from since the worktree itself may be
+// mid-removal). A dispatch's worktree is created via `git worktree lock`
+// (Claude Code's own bg machinery, not lacquer's), so plain `git worktree
+// remove` refuses it with "is locked" -- unlock first, then remove --force
+// since the killed session left no clean working tree to verify.
+func removeWorktree(mainDir, path string) error {
+	// Best-effort: an already-unlocked worktree errors here, which is fine --
+	// the remove below is what actually matters.
+	_ = exec.Command("git", "-C", mainDir, "worktree", "unlock", path).Run()
+	if err := exec.Command("git", "-C", mainDir, "worktree", "remove", "--force", path).Run(); err != nil {
+		return fmt.Errorf("git worktree remove --force %s: %w", path, err)
+	}
+	return nil
 }
 
 // RemoveRecord drops the first record in the sessions file that exactly
