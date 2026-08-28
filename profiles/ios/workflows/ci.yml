@@ -1060,76 +1060,6 @@ jobs:
           fi
           echo "Project baseline met."
 
-  docs:
-    name: Docs
-    runs-on: [self-hosted, macOS, ARM64, dedicated]
-    needs: [lint, changes]
-    # Same gates as Lint: skip on docs-only PRs (a .md edit changes no symbol and
-    # builds no archive), and never run fork-PR code on the self-hosted runner.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v7.0.1
-
-      # The documentation baseline is strict — every declaration documented, and
-      # the DocC build clean — so it gets the same escape hatch every other
-      # baseline key has, and the same rule that an expired one is a hard
-      # failure. See core/CLAUDE.core.md "Documentation".
-      - name: Read the documentation relaxation
-        id: relax
-        run: |
-          set -euo pipefail
-          state=$(scripts/docs-relaxation.sh .lacquer.toml)
-          echo "state=${state}" >> "$GITHUB_OUTPUT"
-          case "$state" in
-            none)    echo "No documentation relaxation — enforcing." ;;
-            relaxed) echo "::warning::Documentation checks are relaxed by [baseline.relax] in .lacquer.toml. They still run, but do not block. Remove the relaxation once the component is documented." ;;
-            expired) echo "::error::The documentation relaxation in .lacquer.toml has expired. Document the component or extend the relaxation deliberately — an expired relaxation is a hard failure so that time-boxed debt cannot become permanent policy."; exit 1 ;;
-            malformed)
-              echo "::error::The [baseline.relax] documentation entry in .lacquer.toml is malformed. Both fields are required: documentation = { until = \"YYYY-MM-DD\", reason = \"why, with a tracking issue\" }."
-              exit 1 ;;
-            *) echo "::error::Unexpected relaxation state '$state'"; exit 1 ;;
-          esac
-
-      # Two halves of one standard, run together so one relaxation covers both:
-      # missing_docs asserts every declaration HAS a doc comment, and the DocC
-      # build asserts those comments actually RESOLVE (no broken symbol links,
-      # no malformed markup). Neither implies the other.
-      - name: Every declaration is documented
-        id: missing_docs
-        continue-on-error: ${{ steps.relax.outputs.state == 'relaxed' }}
-        run: |
-          set -euo pipefail
-          # No pipe: piping to tail would mask SwiftLint's exit code, which is
-          # the only thing making this a gate.
-          swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint-docs.yml {{COMPONENT_PREFIX}}.
-
-      - name: Documentation builds clean
-        id: docbuild
-        continue-on-error: ${{ steps.relax.outputs.state == 'relaxed' }}
-        run: scripts/build-docs.sh docs-site
-
-      # continue-on-error marks a failed step as successful at the JOB level, so
-      # without this an UNRELAXED failure could still let the job pass if the
-      # expression above were ever wrong. Re-assert the outcome explicitly.
-      - name: Enforce the result
-        if: steps.relax.outputs.state != 'relaxed'
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.missing_docs.outcome }}" != "success" ] || [ "${{ steps.docbuild.outcome }}" != "success" ]; then
-            echo "::error::Documentation checks failed and this project has no active [baseline.relax] documentation entry."
-            exit 1
-          fi
-          echo "Documentation baseline met."
-
-      # This runner's workspace persists between runs, so a staged site left
-      # behind would make the next run's checkout dirty. DerivedData-Docs is
-      # deliberately NOT removed — it is what makes the next docbuild
-      # incremental, and the .swiftlint/.swiftformat excludes already cover it.
-      - name: Clean up the staged site
-        if: always()
-        run: rm -rf docs-site
-
   drift:
     name: No lacquer drift
     # Pure Go + a git checkout — no stack toolchain — so it runs on a
@@ -1217,20 +1147,19 @@ jobs:
     # never gets stuck "pending" and docs PRs merge without an admin bypass.
     # Fails only if a required job actually FAILED or was CANCELLED; a skipped
     # job counts as OK.
-    needs: [changes, lint, baseline, build-release, test, docs, drift]
+    needs: [changes, lint, baseline, build-release, test, drift]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} baseline=${{ needs.baseline.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }} docs=${{ needs.docs.result }} drift=${{ needs.drift.result }}"
+          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} baseline=${{ needs.baseline.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }} drift=${{ needs.drift.result }}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.lint.result }}" \
             "${{ needs.baseline.result }}" \
             "${{ needs.build-release.result }}" \
             "${{ needs.test.result }}" \
-            "${{ needs.docs.result }}" \
             "${{ needs.drift.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"

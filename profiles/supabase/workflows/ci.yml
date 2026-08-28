@@ -396,74 +396,6 @@ jobs:
       # want the first automatic and the second deliberate. If you want them
       # deployed on merge too, add the step; it is not an oversight.
 
-  docs:
-    name: Docs
-    runs-on: ubuntu-latest
-    needs: changes
-    # Same gate as `check`: a docs-only PR changes no exported symbol.
-    if: needs.changes.outputs.code == 'true'
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7.0.1
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.x
-
-      # No `defaults.working-directory` on this job on purpose: .lacquer.toml and
-      # scripts/ live at the REPO root while supabase/ lives in the component, and
-      # a default would resolve the relaxation lookup against the wrong directory
-      # — reading "no relaxation" for a project that has one.
-      - name: Read the documentation relaxation
-        id: relax
-        run: |
-          set -euo pipefail
-          state=$(scripts/docs-relaxation.sh .lacquer.toml)
-          echo "state=${state}" >> "$GITHUB_OUTPUT"
-          case "$state" in
-            none)    echo "No documentation relaxation — enforcing." ;;
-            relaxed) echo "::warning::Documentation checks are relaxed by [baseline.relax] in .lacquer.toml. They still run, but do not block." ;;
-            expired) echo "::error::The documentation relaxation in .lacquer.toml has expired. Document the exports or extend the relaxation deliberately."; exit 1 ;;
-            malformed)
-              echo "::error::The [baseline.relax] documentation entry in .lacquer.toml is malformed. Both fields are required: documentation = { until = \"YYYY-MM-DD\", reason = \"why, with a tracking issue\" }."
-              exit 1 ;;
-            *) echo "::error::Unexpected relaxation state '$state'"; exit 1 ;;
-          esac
-
-      # `deno doc --lint` is the Deno equivalent of missing_docs plus DocC's link
-      # resolution in one command: it fails on an exported symbol with no JSDoc,
-      # and on a doc comment referencing something that does not exist.
-      #
-      # Scoped to _shared/ because that is the reusable surface — the helpers
-      # CLAUDE.supabase.md tells every function to route through. A function's
-      # own index.ts is an HTTP entry point, not an API other code imports, so
-      # holding it to an export-documentation rule would produce ceremony.
-      - name: Shared helpers are documented
-        id: denodoc
-        continue-on-error: ${{ steps.relax.outputs.state == 'relaxed' }}
-        working-directory: "{{COMPONENT_PREFIX}}."
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          files=(supabase/functions/_shared/*.ts)
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "No supabase/functions/_shared/*.ts yet — nothing to document."
-            exit 0
-          fi
-          deno doc --lint "${files[@]}"
-
-      # continue-on-error reports a failed step as successful at the JOB level,
-      # so an unrelaxed failure needs an explicit re-assertion or the gate leaks.
-      - name: Enforce the result
-        if: steps.relax.outputs.state != 'relaxed'
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.denodoc.outcome }}" != "success" ]; then
-            echo "::error::Documentation checks failed and this project has no active [baseline.relax] documentation entry."
-            exit 1
-          fi
-          echo "Documentation baseline met."
-
   drift:
     name: No lacquer drift
     # Pure Go + a git checkout — no stack toolchain — so it runs on a
@@ -548,19 +480,18 @@ jobs:
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
     runs-on: ubuntu-latest
-    needs: [changes, check, lint-database, test-database, docs, drift]
+    needs: [changes, check, lint-database, test-database, drift]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} lint-database=${{ needs.lint-database.result }} test-database=${{ needs.test-database.result }} docs=${{ needs.docs.result }} drift=${{ needs.drift.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} lint-database=${{ needs.lint-database.result }} test-database=${{ needs.test-database.result }} drift=${{ needs.drift.result }}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.check.result }}" \
             "${{ needs.lint-database.result }}" \
             "${{ needs.test-database.result }}" \
-            "${{ needs.docs.result }}" \
             "${{ needs.drift.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"

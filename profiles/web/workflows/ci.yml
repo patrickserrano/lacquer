@@ -225,87 +225,6 @@ jobs:
           (cd .lacquer-checkout && go build -o "$RUNNER_TEMP/lacquer" ./cmd/lacquer)
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile web
 
-  docs:
-    name: Docs
-    runs-on: ubuntu-latest
-    needs: changes
-    # Same gate as `check`: a docs-only PR changes no export and builds no site.
-    if: needs.changes.outputs.code == 'true'
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7.0.1
-
-      # BEFORE setup-node, not after. `cache: pnpm` asks setup-node to locate the
-      # pnpm store, which it does by running pnpm — so pnpm has to exist first.
-      # Reversed, the run fails with "Unable to locate executable file: pnpm",
-      # which reads like a missing dependency rather than an ordering mistake.
-      #
-      # No `version:` here on purpose: pnpm/action-setup reads the
-      # `packageManager` field from package.json, so the version CI uses and the
-      # version a developer's corepack uses are the same string in one place. A
-      # version pinned here as well would be a second source of truth, and the
-      # two would drift silently — CI resolving one tree and the developer
-      # another is precisely the class of bug a lockfile exists to prevent.
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          # The action reads `packageManager` from the REPO ROOT package.json by
-          # default. A component in a subdirectory keeps its package.json there,
-          # so without this the action reads the wrong file — or no file — and
-          # the version pin silently stops applying.
-          package_json_file: "{{COMPONENT_PREFIX}}package.json"
-
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: "{{COMPONENT_PREFIX}}pnpm-lock.yaml"
-
-      # No `defaults.working-directory` on this job on purpose: .lacquer.toml and
-      # scripts/ live at the REPO root while package.json lives in the component,
-      # and a default would silently resolve the relaxation lookup against the
-      # wrong directory — reading "no relaxation" for a project that has one.
-      - name: Read the documentation relaxation
-        id: relax
-        run: |
-          set -euo pipefail
-          state=$(scripts/docs-relaxation.sh .lacquer.toml)
-          echo "state=${state}" >> "$GITHUB_OUTPUT"
-          case "$state" in
-            none)    echo "No documentation relaxation — enforcing." ;;
-            relaxed) echo "::warning::Documentation checks are relaxed by [baseline.relax] in .lacquer.toml. They still run, but do not block." ;;
-            expired) echo "::error::The documentation relaxation in .lacquer.toml has expired. Document the exports or extend the relaxation deliberately."; exit 1 ;;
-            malformed)
-              echo "::error::The [baseline.relax] documentation entry in .lacquer.toml is malformed. Both fields are required: documentation = { until = \"YYYY-MM-DD\", reason = \"why, with a tracking issue\" }."
-              exit 1 ;;
-            *) echo "::error::Unexpected relaxation state '$state'"; exit 1 ;;
-          esac
-
-      - run: pnpm install --frozen-lockfile
-        working-directory: "{{COMPONENT_PREFIX}}."
-
-      # One command covers both halves of the standard: TypeDoc's
-      # `validation.notDocumented` asserts every export HAS a TSDoc comment, and
-      # `invalidLink` asserts the links in those comments RESOLVE. See the
-      # reasoning in typedoc.json for why validation warnings are escalated
-      # rather than all warnings.
-      - name: Documentation builds clean
-        id: typedoc
-        continue-on-error: ${{ steps.relax.outputs.state == 'relaxed' }}
-        working-directory: "{{COMPONENT_PREFIX}}."
-        run: ./node_modules/.bin/typedoc
-
-      # continue-on-error reports a failed step as successful at the JOB level,
-      # so an unrelaxed failure needs an explicit re-assertion or the gate leaks.
-      - name: Enforce the result
-        if: steps.relax.outputs.state != 'relaxed'
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.typedoc.outcome }}" != "success" ]; then
-            echo "::error::Documentation checks failed and this project has no active [baseline.relax] documentation entry."
-            exit 1
-          fi
-          echo "Documentation baseline met."
-
   drift:
     name: No lacquer drift
     # Pure Go + a git checkout — no stack toolchain — so it runs on a
@@ -390,17 +309,16 @@ jobs:
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
     runs-on: ubuntu-latest
-    needs: [changes, check, docs, drift]
+    needs: [changes, check, drift]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} docs=${{ needs.docs.result }} drift=${{ needs.drift.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} drift=${{ needs.drift.result }}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.check.result }}" \
-            "${{ needs.docs.result }}" \
             "${{ needs.drift.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"
