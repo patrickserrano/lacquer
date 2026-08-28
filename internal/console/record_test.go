@@ -1,9 +1,11 @@
 package console
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,6 +83,80 @@ func TestCheckBackgroundMissingDaemonID(t *testing.T) {
 	}
 	if detail == "" {
 		t.Error("expected a detail explaining why")
+	}
+}
+
+// checkBackground enriches its detail with cmux's own pid-backed signal when
+// the job state file carries a sessionId and cmux reports a match -- see
+// cmux.go. This is corroboration only: it must never change the Status
+// checkJobState already decided.
+func TestCheckBackgroundEnrichesDetailFromCmux(t *testing.T) {
+	jobsDir := t.TempDir()
+	t.Setenv("HOME", jobsDir)
+	daemonDir := filepath.Join(jobsDir, ".claude", "jobs", "cmuxenr1")
+	if err := os.MkdirAll(daemonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stateJSON := `{"state":"working","detail":"doing the thing","sessionId":"full-uuid-here"}`
+	if err := os.WriteFile(filepath.Join(daemonDir, "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origRunner := CmuxRunner
+	defer func() { CmuxRunner = origRunner }()
+	CmuxRunner = func(sessionID string) ([]byte, error) {
+		if sessionID != "full-uuid-here" {
+			t.Fatalf("sessionID = %q, want full-uuid-here", sessionID)
+		}
+		return []byte(`{"sessions":[{"pid":9999,"stored_pid_exists":true,"agent_lifecycle":"running"}]}`), nil
+	}
+
+	r := Record{Mode: Background, DaemonID: "cmuxenr1"}
+	status, detail, err := r.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != Alive {
+		t.Errorf("status = %q, want %q -- cmux enrichment must not change the verdict", status, Alive)
+	}
+	if !strings.Contains(detail, "doing the thing") {
+		t.Errorf("detail = %q, lost the job's own detail", detail)
+	}
+	if !strings.Contains(detail, "9999") || !strings.Contains(detail, "running") {
+		t.Errorf("detail = %q, want it enriched with cmux's pid/lifecycle", detail)
+	}
+}
+
+// A dead cmux binary (or an old job state with no sessionId) must not break
+// Check -- enrichment is optional, the job-state verdict must still stand.
+func TestCheckBackgroundToleratesCmuxFailure(t *testing.T) {
+	jobsDir := t.TempDir()
+	t.Setenv("HOME", jobsDir)
+	daemonDir := filepath.Join(jobsDir, ".claude", "jobs", "cmuxerr1")
+	if err := os.MkdirAll(daemonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stateJSON := `{"state":"working","detail":"doing the thing","sessionId":"full-uuid-here"}`
+	if err := os.WriteFile(filepath.Join(daemonDir, "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origRunner := CmuxRunner
+	defer func() { CmuxRunner = origRunner }()
+	CmuxRunner = func(sessionID string) ([]byte, error) {
+		return nil, errors.New("cmux not installed")
+	}
+
+	r := Record{Mode: Background, DaemonID: "cmuxerr1"}
+	status, detail, err := r.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != Alive {
+		t.Errorf("status = %q, want %q", status, Alive)
+	}
+	if detail != "doing the thing" {
+		t.Errorf("detail = %q, want the plain job-state detail with no cmux enrichment attempted", detail)
 	}
 }
 
