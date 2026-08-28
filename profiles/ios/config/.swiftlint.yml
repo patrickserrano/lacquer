@@ -20,6 +20,14 @@ excluded:
   # violations, of which 5 were duplicates from `.worktrees/`.
   - "**/.worktrees"
   - "**/.claude"
+  # Xcode build output. Not ".build" (SwiftPM's own, already excluded above) --
+  # a plain "build/" is where Xcode itself puts DerivedData-equivalent output
+  # when local build locations are configured, or where a build artifact gets
+  # committed by accident. One project's committed build/ held 1231 generated
+  # .swift files and crashed SwiftLint outright (SIGILL) trying to lint them --
+  # not a slow lint, a dead one, discovered live when this profile's CI ran
+  # against that project for the first time.
+  - "**/build"
 
 opt_in_rules:
   - closure_body_length
