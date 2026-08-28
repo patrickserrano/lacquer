@@ -261,7 +261,7 @@ jobs:
           # the project. Guarded on project.yml so a project with no XcodeGen
           # spec (xcodeproj committed with no generator) is unaffected.
           if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
-            (cd {{COMPONENT_PREFIX}} && xcodegen generate)
+            (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
           fi
 
       - name: Check for a valid local SPM cache
@@ -453,7 +453,7 @@ jobs:
           # the project. Guarded on project.yml so a project with no XcodeGen
           # spec (xcodeproj committed with no generator) is unaffected.
           if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
-            (cd {{COMPONENT_PREFIX}} && xcodegen generate)
+            (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
           fi
 
       - name: Check for a valid local SPM cache
@@ -969,7 +969,7 @@ jobs:
           # the project. Guarded on project.yml so a project with no XcodeGen
           # spec (xcodeproj committed with no generator) is unaffected.
           if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
-            (cd {{COMPONENT_PREFIX}} && xcodegen generate)
+            (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
           fi
 
       # A declared xcodeproj that doesn't exist on disk yet is expected for a
