@@ -72,6 +72,12 @@ func AppendRecord(path string, r Record) error {
 		return fmt.Errorf("open sessions file: %w", err)
 	}
 	defer f.Close()
+	return writeRecordLine(f, r)
+}
+
+// writeRecordLine encodes one record as a JSONL line. Shared by AppendRecord
+// and RemoveRecord (kill.go), which rewrites the whole file minus one record.
+func writeRecordLine(f *os.File, r Record) error {
 	data, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("encode session record: %w", err)

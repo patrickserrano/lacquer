@@ -459,6 +459,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		relaunch := fs.Bool("relaunch", false, "with watch: re-dispatch every session found dead")
 		live := fs.Bool("live", false, "with watch: keep refreshing in place every --interval until Ctrl-C, instead of checking once")
 		interval := fs.Duration("interval", 2*time.Second, "with watch --live: refresh interval")
+		force := fs.Bool("force", false, "with kill: kill even a session Check reports Alive")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -506,6 +507,45 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			}
 			console.WatchText(stdout, results)
 			return 0
+		}
+		if len(rest) > 0 && rest[0] == "kill" {
+			if len(rest) < 2 {
+				return fail(stderr, fmt.Errorf("usage: lacquer console --sessions S kill <name-or-daemon-id> [--force]"))
+			}
+			if *sessionsPath == "" {
+				return fail(stderr, fmt.Errorf("kill needs a sessions file: pass --sessions <path> or set LACQUER_SESSIONS"))
+			}
+			records, err := console.ReadRecords(*sessionsPath)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			target := rest[1]
+			var matches []console.Record
+			for _, r := range records {
+				if r.Name == target || r.DaemonID == target {
+					matches = append(matches, r)
+				}
+			}
+			switch len(matches) {
+			case 0:
+				return fail(stderr, fmt.Errorf("no recorded session matches %q", target))
+			case 1:
+				note, err := console.Kill(*sessionsPath, matches[0], *force)
+				if note != "" {
+					fmt.Fprintln(stderr, note)
+				}
+				if err != nil {
+					return fail(stderr, err)
+				}
+				fmt.Fprintf(stdout, "killed %s (%s, %s)\n", matches[0].Name, matches[0].Kind, matches[0].Mode)
+				return 0
+			default:
+				fmt.Fprintf(stderr, "%q matches %d recorded sessions — name a daemon id instead:\n", target, len(matches))
+				for _, m := range matches {
+					fmt.Fprintf(stderr, "  %s  daemonId=%s  started=%s\n", m.Name, m.DaemonID, m.StartedAt.Format(time.RFC3339))
+				}
+				return 1
+			}
 		}
 		// dispatch-role targets a named role (a lead/PM supervising many
 		// projects, not editing one), so it needs --roles, never --roster.
@@ -663,6 +703,12 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               2s) instead of checking once, until Ctrl-C; ignores --relaunch.")
 	fmt.Fprintln(w, "                               --sessions on dispatch/dispatch-role enables recording; nothing")
 	fmt.Fprintln(w, "                               is tracked unless you pass it")
+	fmt.Fprintln(w, "  console --sessions S kill <name-or-daemon-id> [--force]")
+	fmt.Fprintln(w, "                               stop one recorded session and drop it from the sessions file.")
+	fmt.Fprintln(w, "                               Refuses an Alive session unless --force. For bg mode this removes")
+	fmt.Fprintln(w, "                               the job's own ~/.claude/jobs/<id> directory (a blocked bg daemon")
+	fmt.Fprintln(w, "                               holds no live process to signal, so this is what actually stops")
+	fmt.Fprintln(w, "                               it being respawned) — for tmux mode it kills the tmux session")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
