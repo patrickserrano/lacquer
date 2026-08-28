@@ -909,3 +909,35 @@ func TestIOSCISimulatorNameIsUniquePerRun(t *testing.T) {
 		t.Errorf("teardown at step %d runs BEFORE Collect Simulator Diagnostics at %d", teardown, idx)
 	}
 }
+
+// A widget or app-extension target runs on the same iOS simulator as the host
+// app; only an actual watchOS companion app needs its own simulator platform,
+// which is not preinstalled on a fresh runner. This must stay opt-in: a
+// project with no watch target must not pay for a platform download it never
+// asked for, and must render the same workflow it already had.
+func TestWatchSimulatorSetupIsOptIn(t *testing.T) {
+	rendered := renderIOSCI(t, soloConfig())
+	if strings.Contains(rendered, "Install watchOS Simulator Runtime") {
+		t.Error("a project with no watch_target must not get the watchOS simulator step")
+	}
+}
+
+func TestWatchSimulatorSetupRendersForWatchTarget(t *testing.T) {
+	cfg := soloConfig()
+	cfg.Project.WatchTarget = true
+	doc := parseIOSCI(t, cfg)
+	found := map[string]bool{}
+	for job, jobName := range map[string]string{"test": "Test", "build-release": "Build (Release)"} {
+		for _, st := range doc.Jobs[job].Steps {
+			if strings.Contains(st.Name, "Install watchOS Simulator Runtime") {
+				found[jobName] = true
+			}
+		}
+	}
+	if !found["Test"] {
+		t.Error("watch_target = true must add the watchOS simulator step to Test")
+	}
+	if !found["Build (Release)"] {
+		t.Error("watch_target = true must add the watchOS simulator step to Build (Release)")
+	}
+}

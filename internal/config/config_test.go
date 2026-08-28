@@ -763,6 +763,12 @@ func TestLoadRejectsUnsafeProductCITargets(t *testing.T) {
 const extraTargetsBase = "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.p\"\nasc_app_id=\"1\"\n\n" +
 	"[[product]]\nname=\"Lite\"\nscheme=\"Lite\"\nbundle_id=\"com.x.lite\"\nasc_app_id=\"222\"\ntag_prefix=\"lite-v\"\n"
 
+// singleProductBase is a valid manifest with no [[product]] blocks at all —
+// the case Products() synthesizes a product from [project] fields for.
+func singleProductBase() string {
+	return "[project]\nname=\"x\"\nproject_name=\"P\"\nscheme=\"P\"\nbundle_id=\"com.x.solo\"\nasc_app_id=\"1\"\n"
+}
+
 // extra_test_targets is what makes a local package's suite run at all. The
 // selector list is a WHITELIST, so a package test target the app's own selector
 // does not name is executed by nothing — and xcodebuild reports that as success.
@@ -865,6 +871,108 @@ func TestLoadRejectsUnrunnableExtraTestTargets(t *testing.T) {
 	// target name.
 	if _, err := loadString(t, extraTargetsBase+"extra_test_targets = [\"CoreKitTests\", \"Feature KitTests\"]\n"); err != nil {
 		t.Errorf("a valid list must load: %v", err)
+	}
+}
+
+// extra_bundle_ids is what lets release.yml sign a widget or watch companion
+// app alongside the main app — each is its own Apple target with its own App
+// ID, invisible to the main bundle_id's provisioning profile.
+func TestExtraBundleIDsLoad(t *testing.T) {
+	cfg, err := loadString(t, extraTargetsBase+
+		"extra_bundle_ids = [\"com.x.lite.widget\", \"com.x.lite.watchkitapp\"]\n")
+	if err != nil {
+		t.Fatalf("a valid extra_bundle_ids list must load: %v", err)
+	}
+	p := cfg.Product[0]
+	want := []string{"com.x.lite.widget", "com.x.lite.watchkitapp"}
+	if len(p.ExtraBundleIDs) != len(want) {
+		t.Fatalf("ExtraBundleIDs = %v, want %v", p.ExtraBundleIDs, want)
+	}
+	for i, w := range want {
+		if p.ExtraBundleIDs[i] != w {
+			t.Errorf("ExtraBundleIDs[%d] = %q, want %q", i, p.ExtraBundleIDs[i], w)
+		}
+	}
+}
+
+// Every way an extra bundle id could silently fetch nothing (or the wrong
+// thing) has to be rejected at the manifest, because app-store-connect
+// fetch-signing-files will not catch a manifest mistake at run time — it
+// errors on "" the same way it would on any other malformed positional arg,
+// just later and less clearly than a manifest-time check would.
+func TestLoadRejectsBadExtraBundleIDs(t *testing.T) {
+	for _, tc := range []struct{ name, line, wantErr string }{
+		{"empty entry", "extra_bundle_ids = [\"com.x.lite.widget\", \"\"]\n", "extra_bundle_ids[1] is empty"},
+		{"injection", "extra_bundle_ids = [\"$(whoami)\"]\n", "invalid extra_bundle_ids"},
+		{"quote", "extra_bundle_ids = [\"com.x.\\\"lite\"]\n", "invalid extra_bundle_ids"},
+		{
+			"repeats itself",
+			"extra_bundle_ids = [\"com.x.lite.widget\", \"com.x.lite.widget\"]\n",
+			"already fetched",
+		},
+		{
+			// Fetching the product's own bundle_id a second time as an "extra"
+			// wastes an App Store Connect API call for a profile already fetched.
+			"repeats bundle_id",
+			"extra_bundle_ids = [\"com.x.lite\"]\n",
+			"already fetched",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadString(t, extraTargetsBase+tc.line)
+			if err == nil {
+				t.Fatalf("%s must be rejected", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error should say %q, got: %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+// [project].extra_bundle_ids is the single-product equivalent — a project
+// with no [[product]] blocks still needs to declare its widget/watch bundle
+// ids somewhere, and Products() must carry them into the synthesized product.
+func TestProjectExtraBundleIDsPropagatesToSynthesizedProduct(t *testing.T) {
+	cfg, err := loadString(t, singleProductBase()+
+		"extra_bundle_ids = [\"com.x.solo.widget\", \"com.x.solo.watchkitapp\"]\n")
+	if err != nil {
+		t.Fatalf("a valid [project].extra_bundle_ids must load: %v", err)
+	}
+	products := cfg.Products()
+	if len(products) != 1 {
+		t.Fatalf("got %d synthesized products, want 1", len(products))
+	}
+	want := []string{"com.x.solo.widget", "com.x.solo.watchkitapp"}
+	if got := products[0].ExtraBundleIDs; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("synthesized product ExtraBundleIDs = %v, want %v", got, want)
+	}
+}
+
+func TestProjectExtraBundleIDsRejectsSameValidationAsProduct(t *testing.T) {
+	_, err := loadString(t, singleProductBase()+"extra_bundle_ids = [\"\"]\n")
+	if err == nil || !strings.Contains(err.Error(), "extra_bundle_ids[0] is empty") {
+		t.Errorf("expected an empty-entry rejection, got: %v", err)
+	}
+}
+
+// watch_target turns on ci.yml's watchOS Simulator runtime install step.
+// Defaults false so every project without a watch companion app renders
+// exactly the workflow it already had.
+func TestWatchTargetLoad(t *testing.T) {
+	cfg, err := loadString(t, singleProductBase())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Project.WatchTarget {
+		t.Error("watch_target must default to false")
+	}
+	cfg, err = loadString(t, singleProductBase()+"watch_target = true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Project.WatchTarget {
+		t.Error("watch_target = true did not load")
 	}
 }
 

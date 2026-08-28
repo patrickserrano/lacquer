@@ -154,6 +154,13 @@ jobs:
       PRODUCT_SCHEME: ${{ matrix.product.scheme }}
       PRODUCT_BUNDLE_ID: ${{ matrix.product.bundle_id }}
       PRODUCT_ASC_APP_ID: ${{ matrix.product.asc_app_id }}
+      # Additional embedded-target bundle ids (widget, watch app) this product
+      # declares via [[product]].extra_bundle_ids or [project].extra_bundle_ids
+      # — see internal/config's doc comment on that field. JSON-encoded
+      # (toJSON, not the raw array) because a step `env:` value is a string;
+      # the fetch step below decodes it with jq. "[]" for every product that
+      # declares none, which is every product that predates this field.
+      PRODUCT_EXTRA_BUNDLE_IDS: ${{ toJSON(matrix.product.extra_bundle_ids) }}
       # `secrets` is not available in a step-level `if`, so the presence check is
       # hoisted to a job-level env var that the dSYM-upload step can gate on.
       # Job-level env IS in scope for `steps[*].if`; a var defined in the step's
@@ -208,6 +215,17 @@ jobs:
             --platform IOS \
             --type IOS_APP_STORE \
             --create
+          # Each embedded target (widget, watch app) is its OWN Apple target
+          # with its own App ID — the main app's distribution profile does not
+          # cover it, and use-profiles (below) will leave it unsigned if this
+          # loop is skipped. A no-op when PRODUCT_EXTRA_BUNDLE_IDS is "[]".
+          echo "$PRODUCT_EXTRA_BUNDLE_IDS" | jq -r '.[]' | while IFS= read -r EXTRA_BUNDLE_ID; do
+            [ -n "$EXTRA_BUNDLE_ID" ] || continue
+            app-store-connect fetch-signing-files "$EXTRA_BUNDLE_ID" \
+              --platform IOS \
+              --type IOS_APP_STORE \
+              --create
+          done
 
       - name: Unlock login keychain
         env:
