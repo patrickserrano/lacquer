@@ -142,6 +142,17 @@ const (
 	// relaunch a Missing record automatically for that reason -- it is
 	// reported for an operator to look at instead.
 	Missing Status = "missing"
+	// Blocked means a bg-mode job's own state file reports "blocked" -- it is
+	// running (the process exists) but stalled waiting on something it could
+	// not resolve itself: a genuine ambiguous-requirement question, or (before
+	// bg dispatch started passing --dangerously-skip-permissions) a tool-call
+	// permission prompt with nobody to approve it. Distinct from Alive on
+	// purpose: folding it into Alive is how a whole batch of dispatches sat
+	// doing nothing for 25+ minutes while every liveness check said fine.
+	// Watch does not relaunch a Blocked record -- relaunching restarts the
+	// same question, it does not answer it -- so this is reported for an
+	// operator to look at, the same as Missing.
+	Blocked Status = "blocked"
 )
 
 // Check reports whether r's session is still running, and a short detail
@@ -229,7 +240,10 @@ func checkJobState(path string) (Status, string, error) {
 	if st.State == "failed" {
 		return Failed, st.Detail, nil
 	}
-	// "working", "blocked", or any state not yet observed: assume alive.
-	// See the Alive doc comment for why that is the safe default.
+	if st.State == "blocked" {
+		return Blocked, st.Detail, nil
+	}
+	// "working", or any state not yet observed: assume alive. See the Alive
+	// doc comment for why that is the safe default.
 	return Alive, st.Detail, nil
 }

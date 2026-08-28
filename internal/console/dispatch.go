@@ -91,7 +91,15 @@ func runDispatch(verb, name, dir, task string, mode Mode, warning string, dryRun
 	var cmdDir string
 	switch mode {
 	case Background:
-		argv = []string{"claude", "--bg", task}
+		// A bg session has nobody to click "allow" on a tool-call prompt --
+		// without this it stalls on the first git push/build/edit and never
+		// makes progress, which is indistinguishable from success until you
+		// check ~/.claude/jobs/<id>/state.json (state: "blocked") instead of
+		// the peer session list (which just says "idle"). The worktree
+		// isolation documented above is the actual safety boundary this
+		// substitutes for: a bg session cannot touch the main checkout, so
+		// letting it act unattended inside its own worktree is the point.
+		argv = []string{"claude", "--bg", "--dangerously-skip-permissions", task}
 		cmdDir = dir
 	case Tmux:
 		argv = []string{"tmux", "new-session", "-A", "-s", name, "-c", dir,
