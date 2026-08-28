@@ -26,6 +26,7 @@ rules](/lacquer/guides/supabase-rules/).
 8. **NEVER bypass CI checks or use force flags without explicit user confirmation.** No `--force`, `--force-with-lease`, `--no-verify`, `--admin` (bypasses branch protection on `gh pr merge`), or similar. Don't merge a PR with failing or pending required checks — fix the issue.
 9. **Pre-existing failures are your failures.** If tests fail or builds break — even if the issue predates your changes — it's your responsibility to fix it. If you genuinely can't, stop and ask for guidance rather than working around it.
 10. **Always update related tests when modifying code.** Tests are part of the deliverable, not optional maintenance.
+11. **NEVER invent a domain name.** Don't fabricate, guess, or placeholder-ify a URL, hostname, or email domain in code, docs, tests, fixtures, config, or anything you write or say. A domain that merely sounds plausible can be a real, live site you don't control. Use `example.com`/`.org`/`.net` (reserved by IANA for exactly this) as a placeholder, or ask for the real one.
 
 ## Response style
 
@@ -245,8 +246,12 @@ anything already in the repo.
 ## Documentation
 
 Every declaration carries a doc comment, and the docs build clean. This is a
-baseline like warnings-as-errors, not a style preference — the `Docs` job in
-every stack's CI checks it and it blocks the merge.
+baseline like warnings-as-errors, not a style preference — but it's no longer
+a PR-blocking CI gate (the `Docs` job was dropped from every stack's CI; the
+fleet's one shared self-hosted Mac runner spent more time queued behind it
+than doing anything else). It's checked by each stack's nightly publish
+workflow instead, and by the local hook, so it still shows up, just not as a
+merge blocker.
 
 Two halves, because neither implies the other:
 
