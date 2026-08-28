@@ -258,7 +258,7 @@ a new CI job adds a row here, and a hook never runs weaker than its CI twin.
 | `check` → `pnpm run test:coverage` | pre-push `test` |
 | `check` → `pnpm run build` | pre-push `build` |
 | `check` → `pnpm audit` | pre-push `audit` (network, so not at commit time) |
-| `Docs` → `./node_modules/.bin/typedoc` | pre-push `docs` |
+| `./node_modules/.bin/typedoc` | pre-push `docs`; not PR-blocking CI, nightly `web-docs.yml` only |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
 
 One deliberate asymmetry: pre-commit runs Biome over **staged files** while CI
