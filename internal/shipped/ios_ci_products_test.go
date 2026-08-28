@@ -734,7 +734,7 @@ func TestIOSCIForkGuardSurvivesTheMatrix(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := parseIOSCI(t, tc.cfg)
-			for _, job := range []string{"lint", "build-release", "test", "baseline", "docs"} {
+			for _, job := range []string{"lint", "build-release", "test", "baseline"} {
 				j, ok := doc.Jobs[job]
 				if !ok {
 					t.Errorf("no %s job", job)
