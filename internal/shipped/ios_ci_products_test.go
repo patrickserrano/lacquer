@@ -941,3 +941,24 @@ func TestWatchSimulatorSetupRendersForWatchTarget(t *testing.T) {
 		t.Error("watch_target = true must add the watchOS simulator step to Build (Release)")
 	}
 }
+
+// TestXcodegenGenerateCdSurvivesRootLayout guards a real regression: the
+// "Generate Xcode project" step's `cd {{COMPONENT_PREFIX}}` broke on a
+// root-layout project (`[[component]] path = "."`), where COMPONENT_PREFIX
+// substitutes to the empty string -- not "." -- so the rendered line was a
+// bare `cd`, which bash resolves to $HOME rather than staying in the
+// checkout. Discovered live on OutOfTheMouths: `xcodegen generate` then
+// failed with "No project spec found at /Users/<runner-user>/project.yml".
+// A subdirectory component (COMPONENT_PREFIX = "ios/App/") never exercised
+// this, which is exactly how it shipped unnoticed.
+func TestXcodegenGenerateCdSurvivesRootLayout(t *testing.T) {
+	raw := renderIOSCI(t, soloConfig())
+	if strings.Contains(raw, "cd  &&") || strings.Contains(raw, "cd &&") {
+		t.Fatal("rendered ios-ci.yml contains a bare `cd` with no argument -- " +
+			"bash resolves that to $HOME instead of the checkout root")
+	}
+	if !strings.Contains(raw, "(cd . && xcodegen generate)") {
+		t.Fatal(`root-layout project must render "(cd . && xcodegen generate)"; ` +
+			"got something else for the xcodegen generate step")
+	}
+}
