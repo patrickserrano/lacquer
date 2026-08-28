@@ -1,9 +1,11 @@
 package console
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/fleet"
@@ -109,12 +111,58 @@ func runDispatch(verb, name, dir, task string, mode Mode, warning string, dryRun
 
 	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is built from the roster/roles file and an operator-supplied task, never a shell string
 	cmd.Dir = cmdDir
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
-		return line, fmt.Errorf("%s failed: %w", verb, err)
+	cmd.Stderr = os.Stderr
+
+	if mode == Tmux {
+		// `tmux new-session -A` attaches the operator INTO the session
+		// interactively -- stdout must stream live and unbuffered, or the
+		// operator sees nothing until they detach (if ever). Nothing here
+		// needs capturing: the session NAME (already known) is its own
+		// addressable handle, unlike Background mode below.
+		cmd.Stdout = os.Stdout
+		if err := cmd.Run(); err != nil {
+			return line, fmt.Errorf("%s failed: %w", verb, err)
+		}
+		return line, nil
+	}
+
+	// Background mode returns almost immediately (the daemon detaches on its
+	// own), so buffering the whole thing before printing costs nothing and
+	// avoids a subtler problem: `claude --bg`'s own "backgrounded · <id>"
+	// line is the ONLY place the daemon id appears, and lacquer#207's
+	// watchdog needs that id later to find the job's own state file
+	// (~/.claude/jobs/<id>/state.json) and check whether it is still alive.
+	// Capturing (rather than tee-ing to a live os.Stdout AND appending a
+	// separately-formatted note) means the single returned line is the one
+	// and only place this output appears -- no risk of printing it twice.
+	var captured bytes.Buffer
+	cmd.Stdout = &captured
+	runErr := cmd.Run()
+	line += captured.String()
+	if runErr != nil {
+		return line, fmt.Errorf("%s failed: %w", verb, runErr)
 	}
 	return line, nil
+}
+
+// daemonLineRe matches `claude --bg`'s own confirmation line, e.g.
+// "backgrounded · 81ba5f89". This is printed before the daemon's own init
+// check runs (see the comment above), so its presence is not proof the
+// session is actually alive -- only that a launch was attempted and an id
+// was assigned. Confirming it is genuinely running is checkBackground's job
+// (record.go), which reads the id's own state file.
+var daemonLineRe = regexp.MustCompile(`backgrounded · ([0-9a-fA-F]+)`)
+
+// DaemonID extracts a `claude --bg` daemon id from captured command output,
+// or "" if none is present (dry runs, Tmux mode, or a launch that failed
+// before printing one).
+func DaemonID(output string) string {
+	m := daemonLineRe.FindStringSubmatch(output)
+	if m == nil {
+		return ""
+	}
+	return m[1]
 }
 
 func names(r fleet.Roster) []string {
