@@ -46,9 +46,10 @@ rules](/lacquer/guides/agent-rules/#documentation). Two surfaces here, checked
 differently.
 
 **`_shared/` — the code other functions import.** Every export in
-`supabase/functions/_shared/` carries a JSDoc comment, checked by the `Docs` job
-in `supabase-ci.yml` and published to `https://<owner>.github.io/<repo>/db/`.
-Run it locally exactly as CI does:
+`supabase/functions/_shared/` carries a JSDoc comment, checked by the local
+pre-commit hook and published to `https://<owner>.github.io/<repo>/db/` by
+`supabase-docs.yml`, which runs nightly rather than on merge. Run it locally
+exactly as CI does:
 
 ```sh
 deno doc --lint supabase/functions/_shared/*.ts
@@ -91,7 +92,7 @@ row here, and a hook never runs weaker than its CI twin.
 | `check` → `deno lint` | pre-commit `lint` |
 | `check` → `deno check` | pre-push `typecheck` |
 | `check` → `deno test` | pre-push `test` |
-| `Docs` → `deno doc --lint` | pre-commit `docs` |
+| `deno doc --lint` | pre-commit `docs`; not PR-blocking CI, nightly `supabase-docs.yml` only |
 | `DB Lint (Splinter)`, `DB Test (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
 | `Deploy migrations` | CI-only, and only on merge to main — it is the step that touches production. |
 | `No lacquer drift` | `lacquer audit` (exit 3) |

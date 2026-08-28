@@ -431,8 +431,8 @@ table).
 |---|---|
 | `Lint` → SwiftLint `--strict` | pre-commit `swiftlint` (**`--strict`**, staged files) |
 | `Lint` → SwiftFormat `--lint` | pre-commit `swiftformat` (writes; a changed file fails the commit) |
-| `Docs` → `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
-| `Docs` → DocC builds clean | CI-only — see below |
+| `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
+| DocC builds clean | not PR-blocking — nightly `ios-docs.yml` only, see below |
 | `Test` | CI-only — see below |
 | `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |
 | `Build (Release)` | CI-only: a full Release archive is not a commit-time cost |
@@ -443,11 +443,13 @@ self-hosted Mac runner is frequently the very same physical machine you commit
 from. On separate hardware, a local build/test hook buys you an earlier signal
 before a slower CI run; here it buys nothing but a second, identical
 `xcodebuild` invocation on the one shared box you're also trying not to tie up.
-`Test` and `Docs` → DocC-builds-clean are CI-only for that reason — not an
-oversight, and not a case of "a hook never runs weaker than its CI twin,"
-since there is no weaker local version, only none. Everything else in the
-table above is static analysis (lint/format) with no build cost, so it stays
-local as usual.
+`Test` is CI-only for that reason — not an oversight, and not a case of "a
+hook never runs weaker than its CI twin," since there is no weaker local
+version, only none. DocC-builds-clean isn't in PR-blocking CI at all anymore —
+the same runner-contention problem, at a scale that meant dropping it from the
+PR gate entirely rather than trying to make it cheaper; it still runs in
+`ios-docs.yml`'s nightly publish. Everything else in the table above is static
+analysis (lint/format) with no build cost, so it stays local as usual.
 
 The `--strict` flags are the load-bearing part. `line_length`, `file_length`,
 `type_body_length` and `function_body_length` are all **warning** severity in
@@ -485,9 +487,11 @@ from a clean run, which is precisely how a dead hook survives for months.
 and the relaxation mechanism. This section is the Swift half.
 
 Every declaration above `private` carries a `///` doc comment, and the DocC
-archive builds with zero warnings. Both are checked by the `Docs` job in
-`ios-ci.yml` and published to `https://<owner>.github.io/<repo>/swift/` by
-`ios-docs.yml` on merge.
+archive builds with zero warnings. Both are checked by the local pre-commit
+hook (`docs-hook.sh`) and published to `https://<owner>.github.io/<repo>/swift/`
+by `ios-docs.yml`, which runs nightly rather than on merge (see that
+workflow's own comments — the DocC build is too slow to sit in front of every
+PR on the fleet's one shared self-hosted Mac).
 
 ```swift
 /// Loads the user's saved sessions, newest first.

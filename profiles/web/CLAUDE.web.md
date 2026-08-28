@@ -150,8 +150,9 @@ Fix the code. Never disable a rule inline without explicit user approval
 the relaxation mechanism. This section is the TypeScript half.
 
 Every exported symbol carries a TSDoc comment, and every link in one resolves.
-Both are checked by the `Docs` job in `web-ci.yml` and published to
-`https://<owner>.github.io/<repo>/api/` by `web-docs.yml` on merge.
+Both are checked by the local pre-commit hook and published to
+`https://<owner>.github.io/<repo>/api/` by `web-docs.yml`, which runs nightly
+rather than on merge.
 
 ```ts
 /**
@@ -257,7 +258,7 @@ a new CI job adds a row here, and a hook never runs weaker than its CI twin.
 | `check` → `pnpm run test:coverage` | pre-push `test` |
 | `check` → `pnpm run build` | pre-push `build` |
 | `check` → `pnpm audit` | pre-push `audit` (network, so not at commit time) |
-| `Docs` → `./node_modules/.bin/typedoc` | pre-push `docs` |
+| `./node_modules/.bin/typedoc` | pre-push `docs`; not PR-blocking CI, nightly `web-docs.yml` only |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
 
 One deliberate asymmetry: pre-commit runs Biome over **staged files** while CI
