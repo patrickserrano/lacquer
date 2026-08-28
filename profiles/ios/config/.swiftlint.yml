@@ -174,7 +174,15 @@ custom_rules:
 
   sendable_protocol:
     name: "Protocols should require Sendable"
-    regex: "protocol\\s+(\\w+)(Fetching|Repository|Service|Provider|Managing)\\s*(?!:.*Sendable)"
+    # (?!\w) anchors the suffix at the end of the identifier. Without it, a
+    # protocol named e.g. "AnalyticsServiceProtocol" false-positived: \w+
+    # backtracks until "Service" matches, \s* matches zero chars since the
+    # next character is "P" (from "Protocol") not whitespace, and the
+    # negative lookahead never reaches the real ": Sendable" clause because
+    # it's still checking mid-identifier text. Discovered live on dailybread,
+    # which already declared Sendable on all three of its "*ServiceProtocol"
+    # names and was flagged anyway.
+    regex: "protocol\\s+(\\w+)(Fetching|Repository|Service|Provider|Managing)(?!\\w)\\s*(?!:.*Sendable)"
     message: "Service/Repository protocols should require Sendable"
     severity: warning
 
