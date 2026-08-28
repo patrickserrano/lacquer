@@ -28,6 +28,8 @@ specifics (Swift, SwiftUI, Node, etc.) live in the matching profile body.
 
 10. **Always update related tests when modifying code.** Tests are not optional maintenance — they are part of the deliverable.
 
+11. **NEVER invent a domain name.** Do not fabricate, guess, or placeholder-ify a URL, hostname, or email domain in code, docs, tests, fixtures, config, or anything you write or say. A domain that merely sounds plausible can be a real, live site you don't control — a support email, a redirect target, a fixture that ends up live, marketing copy pointing a real user at it are all real harm, not a cosmetic slip. Use `example.com`/`example.org`/`example.net` (reserved by IANA for exactly this) as a placeholder, or ask the user for the real one. This applies everywhere, not just user-facing surfaces — a "just for now" domain in a test fixture or a script has the same failure mode the moment it's copied somewhere real.
+
 ## Response Style
 
 Match response length to what the task needs — calibrate, don't default to verbose.
@@ -280,8 +282,12 @@ files already in the repo stay until someone removes them by hand.
 ## Documentation
 
 **Every declaration carries a doc comment, and the docs build clean.** This is a
-baseline like warnings-as-errors, not a style preference — it is checked by the
-`Docs` job in every stack's CI and it blocks the merge.
+baseline like warnings-as-errors, not a style preference. It is no longer a
+PR-blocking CI gate (the `Docs` job was dropped from every stack's CI — a
+dedicated self-hosted Mac runner shared by the whole fleet spent more time
+queued behind it than doing anything else) — it is checked by each stack's
+nightly publish workflow instead, and by the local hook, so it still shows up,
+just not as a merge blocker.
 
 Two halves, because neither implies the other:
 

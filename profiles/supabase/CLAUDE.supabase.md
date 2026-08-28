@@ -61,8 +61,9 @@ the relaxation mechanism. Two surfaces here, checked differently.
 ### `_shared/` — the code other functions import
 
 Every export in `supabase/functions/_shared/` carries a JSDoc comment. Checked by
-the `Docs` job in `supabase-ci.yml` and published to
-`https://<owner>.github.io/<repo>/db/` by `supabase-docs.yml` on merge.
+the local pre-commit hook and published to
+`https://<owner>.github.io/<repo>/db/` by `supabase-docs.yml`, which runs
+nightly rather than on merge.
 
 ```ts
 /**

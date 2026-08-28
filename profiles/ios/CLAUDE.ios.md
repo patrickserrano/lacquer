@@ -485,9 +485,11 @@ from a clean run, which is precisely how a dead hook survives for months.
 and the relaxation mechanism. This section is the Swift half.
 
 Every declaration above `private` carries a `///` doc comment, and the DocC
-archive builds with zero warnings. Both are checked by the `Docs` job in
-`ios-ci.yml` and published to `https://<owner>.github.io/<repo>/swift/` by
-`ios-docs.yml` on merge.
+archive builds with zero warnings. Both are checked by the local pre-commit
+hook (`docs-hook.sh`) and published to `https://<owner>.github.io/<repo>/swift/`
+by `ios-docs.yml`, which runs nightly rather than on merge (see that
+workflow's own comments — the DocC build is too slow to sit in front of every
+PR on the fleet's one shared self-hosted Mac).
 
 ```swift
 /// Loads the user's saved sessions, newest first.

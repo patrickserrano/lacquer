@@ -150,8 +150,9 @@ Fix the code. Never disable a rule inline without explicit user approval
 the relaxation mechanism. This section is the TypeScript half.
 
 Every exported symbol carries a TSDoc comment, and every link in one resolves.
-Both are checked by the `Docs` job in `web-ci.yml` and published to
-`https://<owner>.github.io/<repo>/api/` by `web-docs.yml` on merge.
+Both are checked by the local pre-commit hook and published to
+`https://<owner>.github.io/<repo>/api/` by `web-docs.yml`, which runs nightly
+rather than on merge.
 
 ```ts
 /**
