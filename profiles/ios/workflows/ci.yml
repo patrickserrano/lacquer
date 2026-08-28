@@ -192,7 +192,17 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true')
     timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
     steps:
-      - uses: actions/checkout@v7.0.1{{IOS_WATCH_SIMULATOR_SETUP}}
+      - uses: actions/checkout@v7.0.1
+        # Without this, actions/checkout leaves Git LFS-tracked assets (app
+        # icons, launch screens, ...) as their tiny pointer-file stand-ins
+        # instead of the real binary content -- the asset catalog compiler
+        # then reports the icon set has "no applicable content", not that a
+        # file is missing, which reads like a project mistake rather than a
+        # checkout gap. Only these two jobs actually compile the app (and
+        # its asset catalogs); Lint/Baseline/Drift never build, so leaving
+        # their checkouts at the default costs nothing.
+        with:
+          lfs: true{{IOS_WATCH_SIMULATOR_SETUP}}
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |
@@ -374,7 +384,17 @@ jobs:
     # backstop with headroom for a cold, cache-cold build.
     timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
     steps:
-      - uses: actions/checkout@v7.0.1{{IOS_WATCH_SIMULATOR_SETUP}}
+      - uses: actions/checkout@v7.0.1
+        # Without this, actions/checkout leaves Git LFS-tracked assets (app
+        # icons, launch screens, ...) as their tiny pointer-file stand-ins
+        # instead of the real binary content -- the asset catalog compiler
+        # then reports the icon set has "no applicable content", not that a
+        # file is missing, which reads like a project mistake rather than a
+        # checkout gap. Only these two jobs actually compile the app (and
+        # its asset catalogs); Lint/Baseline/Drift never build, so leaving
+        # their checkouts at the default costs nothing.
+        with:
+          lfs: true{{IOS_WATCH_SIMULATOR_SETUP}}
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |
