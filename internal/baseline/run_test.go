@@ -220,6 +220,73 @@ func TestRunPreCodeIgnoresSwiftInBuildOutput(t *testing.T) {
 	}
 }
 
+// A gitignored, XcodeGen-generated .xcodeproj (project.yml present, no
+// xcodeproj committed) must not be the same hard error as a renamed or
+// mistyped path — it needs xcodegen to make it appear at all, and this
+// environment might not have it (e.g. a GitHub-hosted Linux runner running
+// the web/supabase profiles' "No lacquer drift" job). Discovered live on
+// sleevetap, which deliberately doesn't commit its generated pbxproj.
+func TestRunProjectYMLWithoutXcodegenIsUncheckedNotAnError(t *testing.T) {
+	lr, pr := projectDirs(t, "")
+	writeSwift(t, pr, filepath.Join("ios", "App", "App.swift"))
+	if err := os.WriteFile(filepath.Join(pr, "ios", "project.yml"), []byte("name: App\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir()) // no xcodegen reachable
+
+	reps, err := Run(lr, pr, iosTarget(), nil, now)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(reps) != 1 || reps[0].Unchecked == "" {
+		t.Fatalf("reports = %+v, want one Unchecked report — no xcodegen to regenerate the project", reps)
+	}
+	if len(reps[0].Findings) != 0 {
+		t.Error("an unchecked component must not fabricate findings")
+	}
+}
+
+// The other half: when xcodegen IS available, the project.yml sibling gets
+// regenerated and the baseline check proceeds normally against the result —
+// this is the fix actually working, not just failing safe.
+func TestRunProjectYMLRegeneratesAndChecksWhenXcodegenAvailable(t *testing.T) {
+	lr, pr := projectDirs(t, "")
+	writeSwift(t, pr, filepath.Join("ios", "App", "App.swift"))
+	if err := os.WriteFile(filepath.Join(pr, "ios", "project.yml"), []byte("name: App\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fake `xcodegen` that just writes the pbxproj the rest of Run expects,
+	// standing in for the real generator so this test is deterministic
+	// regardless of whether xcodegen is actually installed on the machine
+	// running it.
+	binDir := t.TempDir()
+	// Run in the directory Run() passes as cmd.Dir (the project.yml's own
+	// directory, same as where the xcodeproj is expected) -- so paths here
+	// are relative to THAT, not the project root.
+	script := "#!/bin/sh\nmkdir -p App.xcodeproj\ncat > App.xcodeproj/project.pbxproj <<'EOF'\n" + compliantPbx + "EOF\n"
+	if err := os.WriteFile(filepath.Join(binDir, "xcodegen"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Prepend, not replace: the script itself shells out to mkdir/cat, which
+	// need the real PATH to resolve.
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	reps, err := Run(lr, pr, iosTarget(), nil, now)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(reps) != 1 {
+		t.Fatalf("got %d reports, want 1", len(reps))
+	}
+	if reps[0].Unchecked != "" {
+		t.Errorf("Unchecked = %q, want the regenerated project to be checked", reps[0].Unchecked)
+	}
+	if v := Violations(reps[0].Findings); len(v) != 0 {
+		t.Errorf("violations = %+v, want none against the regenerated compliant project", v)
+	}
+}
+
 // Blocking aggregates across every report so one caller can decide the exit code.
 func TestBlockingAcrossReports(t *testing.T) {
 	lr, pr := projectDirs(t, partialPbx)

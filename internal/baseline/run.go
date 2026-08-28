@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -65,15 +66,50 @@ func Run(lacquerRoot, projectRoot string, targets []Target, relax map[string]Rel
 
 		path := filepath.Join(projectRoot, filepath.FromSlash(t.Xcodeproj))
 		if _, err := os.Stat(path); err != nil {
-			// Only a not-yet-created project is excused. An xcodeproj that exists
-			// but cannot be read (permissions, a broken symlink) is still an error:
-			// that is a real project whose baseline went unverified.
-			if os.IsNotExist(err) && !hasSwiftSources(filepath.Join(projectRoot, filepath.FromSlash(t.Component))) {
+			if !os.IsNotExist(err) {
+				// Exists but cannot be read (permissions, a broken symlink) is
+				// still an error: that is a real project whose baseline went
+				// unverified.
+				return nil, fmt.Errorf("baseline: %s names xcodeproj %q which is not readable: %w", t.Component, t.Xcodeproj, err)
+			}
+			// Only a not-yet-created project is excused outright.
+			if !hasSwiftSources(filepath.Join(projectRoot, filepath.FromSlash(t.Component))) {
 				rep.Unchecked = fmt.Sprintf("xcodeproj %q is declared but not created yet, and %s has no Swift sources", t.Xcodeproj, t.Component)
 				reports = append(reports, rep)
 				continue
 			}
-			return nil, fmt.Errorf("baseline: %s names xcodeproj %q which is not readable: %w", t.Component, t.Xcodeproj, err)
+			// A project can legitimately gitignore its XcodeGen-generated
+			// .xcodeproj instead of committing it (the pbxproj is merge-hostile
+			// and nobody reviews it) -- discovered live on sleevetap, whose own
+			// `lacquer audit` failed identically to the CI Baseline job it had
+			// already been fixed in (see ios profile's ci.yml "Generate Xcode
+			// project" step), because THIS code path has no equivalent. A sibling
+			// project.yml is the signal that this is that case, not a renamed or
+			// mistyped path: regenerate it here the same way, and only fall
+			// through to Unchecked -- not a hard error -- when this environment
+			// has no xcodegen to do that with (this runs from GitHub-hosted Linux
+			// runners too, via the web/supabase profiles' "No lacquer drift" job,
+			// which never has Xcode tooling at all). No sibling project.yml at
+			// all means this genuinely isn't an XcodeGen project, so the original
+			// hard error still applies -- a mistyped xcodeproj path must not
+			// read as a pass just because this fallback exists.
+			if _, err := os.Stat(filepath.Join(filepath.Dir(path), "project.yml")); err != nil {
+				return nil, fmt.Errorf("baseline: %s names xcodeproj %q which is not readable: %w", t.Component, t.Xcodeproj, err)
+			}
+			regenerated := regenerateXcodeproj(path) == nil
+			if regenerated {
+				if _, statErr := os.Stat(path); statErr != nil {
+					regenerated = false
+				}
+			}
+			if !regenerated {
+				rep.Unchecked = fmt.Sprintf(
+					"xcodeproj %q is XcodeGen-generated (project.yml present) and not committed, and this environment has no xcodegen to regenerate it for baseline verification",
+					t.Xcodeproj,
+				)
+				reports = append(reports, rep)
+				continue
+			}
 		}
 		d, err := ReadXcodeproj(path)
 		if err != nil {
@@ -105,6 +141,24 @@ func FormatReports(reports []Report) string {
 		out += Format(r.Profile, r.Findings)
 	}
 	return out
+}
+
+// regenerateXcodeproj runs `xcodegen generate` in the directory that should
+// contain path, when that directory has a project.yml and this environment
+// has xcodegen on PATH. Returns an error (never fatal to the caller -- see
+// Run) when either precondition isn't met, or when generation itself fails.
+func regenerateXcodeproj(path string) error {
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(filepath.Join(dir, "project.yml")); err != nil {
+		return err // no project.yml here: not an XcodeGen project, nothing to do
+	}
+	xcodegen, err := exec.LookPath("xcodegen")
+	if err != nil {
+		return err // this environment cannot generate it (e.g. a Linux runner)
+	}
+	cmd := exec.Command(xcodegen, "generate")
+	cmd.Dir = dir
+	return cmd.Run()
 }
 
 // hasSwiftSources reports whether dir contains any Swift on disk, which is what
