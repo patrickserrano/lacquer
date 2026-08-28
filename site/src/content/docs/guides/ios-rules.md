@@ -256,6 +256,14 @@ That is the *"never ran looks like passed"* failure sitting inside the test runn
 - If a run's passed count is **lower than its own `Resolved to N`**, tests were skipped. That discrepancy is printed; it just isn't acted on.
 :::
 
+:::danger[`flowdeck build`/`flowdeck test` exit 0 on failure — never trust `$?`]
+Verified directly 2026-08-28: a genuine build/test failure (a real `Could not find test host` error, printed in red, "✗ Test run failed.") still exited **0**. So does a plain usage error (a missing required flag, nothing run at all). This is FlowDeck's own bug, not something this profile can fix — the adaptation has to be on the reading side.
+
+- **Always check the printed output for `✗`/`Error`/"failed", or parse `--json` and check its `success`/`failed` fields — never branch on the process exit code alone.** A script or hook that does `flowdeck test && echo passed` will print "passed" after a real failure.
+- This compounds with the `--test-cases` silent-skip bug above: a targeted run can both under-count AND report success on outright failure, with a clean exit code either way. Two independent ways for "green" to mean nothing.
+- If you are the one writing a pre-commit hook, CI step, or any script that gates on a flowdeck command's result, gate on the parsed output, not the shell's `$?`.
+:::
+
 :::caution[This is a preference, not a wall — nothing blocks the raw tools]
 The synced `.claude/settings.json` blocks exactly three things: Xcode project files, `.entitlements`, and force flags (see [Editor hooks](#editor-hooks-claudesettingsjson)). `simctl` and `devicectl` are **not** blocked — running one simply works.
 :::
@@ -266,7 +274,7 @@ Raw `xcodebuild`/`xcrun` is correct in non-interactive contexts, and this profil
 
 - Pass a unique derived-data path per worktree (`-d {{COMPONENT_PREFIX}}DerivedData-<feature>`) so parallel worktrees don't collide on one DerivedData dir (collisions surface as SIGKILL test crashes).
 - Delete that derived-data dir before running format/lint — otherwise it lints compiled dependency sources and reports phantom `file_length`/format violations. (The `.swiftformat`/`.swiftlint.yml` excludes cover `DerivedData*`; keep your path matching that glob.)
-- Ignore SourceKit diagnostics in a fresh worktree (`No such module 'X'`, `Cannot find type`) — the worktree has no built index, so they're false positives. The authoritative signals are `flowdeck build` / `flowdeck test`.
+- Ignore SourceKit diagnostics in a fresh worktree (`No such module 'X'`, `Cannot find type`) — the worktree has no built index, so they're false positives. The authoritative signal is `flowdeck build` / `flowdeck test`'s printed output — not its exit code (see above).
 
 ## Editor hooks (.claude/settings.json)
 
