@@ -942,6 +942,83 @@ func TestWatchSimulatorSetupRendersForWatchTarget(t *testing.T) {
 	}
 }
 
+// A component declared per the archetype rule before any code exists (e.g. a
+// Phase-0 backend-first project: xcodeproj configured, no Swift on disk yet)
+// has nothing for Lint's SwiftLint/SwiftFormat steps to check. Without a gate,
+// `swiftlint` itself exits 1 with "No lintable files found" for a path with
+// zero Swift files anywhere under it, so Lint always failed outright for a
+// pre-code component -- distinct from (and in addition to) the mis-scoped-config
+// case the job already guards, where Swift exists elsewhere but none matched.
+func TestLintSkipsWhenNoSwiftSources(t *testing.T) {
+	doc := parseIOSCI(t, soloConfig())
+	lint := doc.Jobs["lint"]
+
+	var detectID string
+	for _, st := range lint.Steps {
+		if st.Name == "Detect Swift sources" {
+			detectID = st.ID
+		}
+	}
+	if detectID == "" {
+		t.Fatal(`Lint job has no "Detect Swift sources" step`)
+	}
+
+	wantIf := "steps." + detectID + ".outputs.present == 'true'"
+	for _, name := range []string{"Run SwiftLint", "Check SwiftFormat"} {
+		found := false
+		for _, st := range lint.Steps {
+			if st.Name != name {
+				continue
+			}
+			found = true
+			if st.If != wantIf {
+				t.Errorf("%q step has if=%q, want %q -- it must not run for a pre-code component", name, st.If, wantIf)
+			}
+		}
+		if !found {
+			t.Errorf("Lint job has no %q step", name)
+		}
+	}
+}
+
+// The Baseline job's `xcodebuild -showBuildSettings` call fails outright when
+// {{XCODEPROJ}} doesn't exist on disk -- expected for a component declared
+// before its xcodeproj is committed (`lacquer audit`'s own baseline check
+// already tolerates this as Unchecked when the component has no Swift sources
+// either). The job must skip its baseline assertion in that same case rather
+// than fail with an xcodebuild error that points at the wrong cause.
+func TestBaselineSkipsWhenXcodeprojMissing(t *testing.T) {
+	doc := parseIOSCI(t, soloConfig())
+	baseline := doc.Jobs["baseline"]
+
+	var detectID string
+	for _, st := range baseline.Steps {
+		if st.Name == "Detect Xcode project" {
+			detectID = st.ID
+		}
+	}
+	if detectID == "" {
+		t.Fatal(`Baseline job has no "Detect Xcode project" step`)
+	}
+
+	wantIf := "steps." + detectID + ".outputs.present == 'true'"
+	for _, name := range []string{"Read the baseline relaxations", "Assert the project baseline"} {
+		found := false
+		for _, st := range baseline.Steps {
+			if st.Name != name {
+				continue
+			}
+			found = true
+			if st.If != wantIf {
+				t.Errorf("%q step has if=%q, want %q -- it must not run when {{XCODEPROJ}} doesn't exist", name, st.If, wantIf)
+			}
+		}
+		if !found {
+			t.Errorf("Baseline job has no %q step", name)
+		}
+	}
+}
+
 // TestXcodegenGenerateCdSurvivesRootLayout guards a real regression: the
 // "Generate Xcode project" step's `cd {{COMPONENT_PREFIX}}` broke on a
 // root-layout project (`[[component]] path = "."`), where COMPONENT_PREFIX

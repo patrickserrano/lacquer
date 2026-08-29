@@ -129,24 +129,45 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      - name: Detect Swift sources
+        id: swiftsrc
+        run: |
+          # A genuinely pre-code component (declared per the archetype rule
+          # before any Swift exists, e.g. a Phase-0 backend-first project) has
+          # nothing for SwiftLint or SwiftFormat to check yet. swiftlint itself
+          # exits 1 with "No lintable files found" for a path with zero Swift
+          # files anywhere under it (distinct from the mis-scoped-config case
+          # below, which matches zero files despite Swift existing elsewhere
+          # and exits 0) — so without this gate, Lint always fails outright for
+          # a pre-code component regardless of what's actually wrong.
+          has_swift=$(find {{COMPONENT_PREFIX}}. -name '*.swift' \
+            -not -path '*/.build/*' -not -path '*/DerivedData*/*' -print -quit)
+          if [ -n "$has_swift" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Swift sources under {{COMPONENT_PREFIX}} yet — nothing for Lint to check."
+          fi
+
       - name: Run SwiftLint
+        if: steps.swiftsrc.outputs.present == 'true'
         run: |
           set -o pipefail
           out=$(swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}. 2>&1); rc=$?
           printf '%s\n' "$out"
           # Guard: a mis-scoped config that matches NO files exits 0 and silently
-          # enforces nothing. Only a problem if Swift sources actually exist but
-          # none were linted — then fail loudly. (A component with zero Swift is
-          # legitimately nothing to lint, so it must not trip this.)
-          has_swift=$(find {{COMPONENT_PREFIX}}. -name '*.swift' \
-            -not -path '*/.build/*' -not -path '*/DerivedData*/*' -print -quit)
-          if [ -n "$has_swift" ] && printf '%s' "$out" | grep -q "No lintable files"; then
+          # enforces nothing. Swift sources are known to exist at this point (the
+          # zero-Swift case above already skipped this step) — so "No lintable
+          # files" here always means the config is mis-scoped, never that there's
+          # legitimately nothing to lint.
+          if printf '%s' "$out" | grep -q "No lintable files"; then
             echo "::error::Swift sources exist but SwiftLint matched none — the .swiftlint.yml is mis-scoped (lint is silently doing nothing)."
             exit 1
           fi
           exit $rc
 
       - name: Check SwiftFormat
+        if: steps.swiftsrc.outputs.present == 'true'
         run: swiftformat --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.
 
       # Prove the checks above can actually FAIL. Everything else in this job
@@ -951,6 +972,31 @@ jobs:
             (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
           fi
 
+      # A declared xcodeproj that doesn't exist on disk yet is expected for a
+      # component declared per the archetype rule before any code exists (e.g.
+      # a Phase-0 backend-first project) — `lacquer audit`'s baseline check
+      # already treats that as Unchecked, not an error, when the component has
+      # no Swift sources either. This job's own `xcodebuild -showBuildSettings`
+      # call below has no equivalent exemption and previously failed outright
+      # for exactly that case, with an error that points at Xcode rather than
+      # at the real (expected, pre-code) cause.
+      - name: Detect Xcode project
+        id: xcodeproj
+        run: |
+          if [ -d "{{XCODEPROJ}}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=false" >> "$GITHUB_OUTPUT"
+          has_swift=$(find {{COMPONENT_PREFIX}}. -name '*.swift' \
+            -not -path '*/.build/*' -not -path '*/DerivedData*/*' -print -quit)
+          if [ -z "$has_swift" ]; then
+            echo "::notice::{{XCODEPROJ}} does not exist and {{COMPONENT_PREFIX}} has no Swift sources yet — nothing to baseline-check (pre-code component)."
+            exit 0
+          fi
+          echo "::error::{{XCODEPROJ}} does not exist, but Swift sources are present under {{COMPONENT_PREFIX}}. Commit the generated .xcodeproj, or add a project.yml so XcodeGen can regenerate it."
+          exit 1
+
       # The relaxation mechanism is only as good as the checks that honour it.
       # `lacquer audit` reads [baseline.relax]; THIS job did not — so a project
       # with a valid, unexpired warnings_as_errors relaxation passed audit and
@@ -960,6 +1006,7 @@ jobs:
       # hardcoded to the `documentation` key.
       - name: Read the baseline relaxations
         id: baserelax
+        if: steps.xcodeproj.outputs.present == 'true'
         run: |
           set -euo pipefail
           for key in swift_version warnings_as_errors strict_concurrency; do
@@ -980,6 +1027,7 @@ jobs:
           done
 
       - name: Assert the project baseline
+        if: steps.xcodeproj.outputs.present == 'true'
         env:
           RELAX_SWIFT_VERSION: ${{ steps.baserelax.outputs.relax_swift_version }}
           RELAX_WARNINGS_AS_ERRORS: ${{ steps.baserelax.outputs.relax_warnings_as_errors }}
