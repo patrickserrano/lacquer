@@ -23,12 +23,17 @@ fi
 # the path appears as an ordinary "A"/"M" entry with no marker distinguishing
 # it from a regular file. On disk that path is a directory, so `grep -oIHnE`
 # on it exits 2 ("Is a directory") — the scanner reporting it "could not run"
-# on the first commit that adds any submodule. `[ -f "$f" ]` is the correct
-# filter, not `[ -d "$f" ]` negated: it also skips a path that was staged and
-# then deleted before commit, which likewise no longer exists as a regular file.
+# on the first commit that adds any submodule. Skip it with `[ -d "$f" ]`, NOT
+# `[ ! -f "$f" ]`: a submodule directory and a staged-then-deleted regular file
+# both fail `-f`, but only one of them should be silently skipped. The other —
+# a path git still has staged but that no longer exists on disk — must still
+# reach grep and hit its "No such file" exit 2, which is what the "fails loudly
+# when it cannot run" guarantee below depends on. `-d` distinguishes them: true
+# only for the directory a checked-out submodule actually is.
 FILES=()
 while IFS= read -r -d '' f; do
-  [ -f "$f" ] && FILES+=("$f")
+  [ -d "$f" ] && continue
+  FILES+=("$f")
 done < <(git diff --cached --name-only --diff-filter=ACM -z |
   grep -zvE '(^scripts/check-secrets\.sh$|\.template$|\.example$|\.md$)' || true)
 [ ${#FILES[@]} -eq 0 ] && exit 0
