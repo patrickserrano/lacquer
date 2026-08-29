@@ -18,9 +18,17 @@ fi
 
 # Collect staged files NUL-delimited so names with spaces (asset catalogs, group
 # folders) are handled correctly. The while-read loop is portable to bash 3.2.
+#
+# `--diff-filter=ACM` includes a staged git submodule (mode 160000, a gitlink):
+# the path appears as an ordinary "A"/"M" entry with no marker distinguishing
+# it from a regular file. On disk that path is a directory, so `grep -oIHnE`
+# on it exits 2 ("Is a directory") — the scanner reporting it "could not run"
+# on the first commit that adds any submodule. `[ -f "$f" ]` is the correct
+# filter, not `[ -d "$f" ]` negated: it also skips a path that was staged and
+# then deleted before commit, which likewise no longer exists as a regular file.
 FILES=()
 while IFS= read -r -d '' f; do
-  FILES+=("$f")
+  [ -f "$f" ] && FILES+=("$f")
 done < <(git diff --cached --name-only --diff-filter=ACM -z |
   grep -zvE '(^scripts/check-secrets\.sh$|\.template$|\.example$|\.md$)' || true)
 [ ${#FILES[@]} -eq 0 ] && exit 0
