@@ -133,7 +133,7 @@ var bans = []banned{
 		// self-contained binary, `pnpm exec lefthook install` falling through to
 		// a brew-installed one is fine and intended, and banning it would be a
 		// false positive on shipped content that is correct.
-		re: regexp.MustCompile(`(?:\bnpx\b|\bpnpm\b[\s,"']*(?:exec|dlx)\b)[^\n]*?\b(?:biome|typedoc|vitest|tsc)\b`),
+		re: regexp.MustCompile(`(?:\bnpx\b|\bpnpm\b[\s,"']*(?:exec|dlx)\b)[^\n]*?\b(?:biome|typedoc|vitest|tsc|turbo)\b`),
 		why: "npx and `pnpm exec` both fall through to PATH, and npx additionally downloads a missing " +
 			"tool, so a project without the dependency gets a green check run by an unpinned version. " +
 			"sleevetap had biome.json synced, @biomejs/biome in no package.json, and a PASSING Biome " +
@@ -248,6 +248,7 @@ func TestResolverBanUnderstandsArgvArraysAndShell(t *testing.T) {
 		{"shell npx with a flag between", `        run: npx --yes vitest run`},
 		{"shell pnpm exec", `        run: pnpm exec tsc --noEmit`},
 		{"a yaml step, which isProse would have exempted", `      - run: npx biome ci .`},
+		{"shell pnpm dlx turbo", `        run: pnpm dlx turbo run build`},
 	}
 	for _, c := range banned {
 		t.Run("banned/"+c.name, func(t *testing.T) {
@@ -266,6 +267,7 @@ func TestResolverBanUnderstandsArgvArraysAndShell(t *testing.T) {
 		{"a doctor probe's component-scoped binary",
 			`argv = ["{component}/node_modules/.bin/biome", "ci", "--config-path", "{component}", "{dir}"]`},
 		{"the local binary in shell", `        run: ./node_modules/.bin/biome ci --error-on-warnings .`},
+		{"the local turbo binary in shell", `        run: ./node_modules/.bin/turbo run build`},
 		// The one legitimate fall-through in the tree: lefthook is a single
 		// self-contained binary and a brew-installed one is fine.
 		{"pnpm exec lefthook install", `argv = ["pnpm", "exec", "lefthook", "install"]`},
