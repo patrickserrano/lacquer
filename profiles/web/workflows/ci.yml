@@ -167,27 +167,47 @@ jobs:
       #
       # The lefthook pre-commit hook carries the same flag. Local and CI
       # disagreeing is the defect this repo keeps rediscovering.
-      - name: Biome
-        # The LOCAL binary, not `npx biome`. npx silently downloads and runs an
-        # arbitrary biome when the project has none installed, so a project that
-        # never added @biomejs/biome still gets a green Biome step — linted by
-        # whatever version npm served that minute, against rules nobody chose.
-        # sleevetap was in exactly that state: biome.json synced, biome absent
-        # from every package.json, Biome step green, and only `lacquer doctor`
-        # noticing that the check could not be running at all.
-        #
-        # This also removes a subtler version drift: with a local install npx
-        # prefers it, so the two agreed by luck rather than by construction.
-        run: ./node_modules/.bin/biome ci --error-on-warnings .
+      # A component with turbo.json is a pnpm workspace with more than one app
+      # inside it (e.g. a Next.js site plus apps/admin); turbo fans each task
+      # out across every package that defines it (packages missing the script
+      # are silently skipped — that's turbo's own behavior, not a CI failure).
+      # A component without turbo.json is a single app, and keeps running its
+      # own package.json scripts exactly as before.
+      #
+      # ./node_modules/.bin/turbo, never `pnpm dlx turbo`/`npx turbo` — same
+      # reason the Biome branch below uses the local binary: see the
+      # resolver-dispatch ban in internal/shipped/shipped_test.go.
+      - name: Lint
+        run: |
+          if [ -f turbo.json ]; then
+            ./node_modules/.bin/turbo run lint
+          else
+            ./node_modules/.bin/biome ci --error-on-warnings .
+          fi
 
       - name: Type check
-        run: pnpm run typecheck
+        run: |
+          if [ -f turbo.json ]; then
+            ./node_modules/.bin/turbo run typecheck
+          else
+            pnpm run typecheck
+          fi
 
       - name: Test (coverage)
-        run: pnpm run test:coverage
+        run: |
+          if [ -f turbo.json ]; then
+            ./node_modules/.bin/turbo run test
+          else
+            pnpm run test:coverage
+          fi
 
       - name: Build
-        run: pnpm run build
+        run: |
+          if [ -f turbo.json ]; then
+            ./node_modules/.bin/turbo run build
+          else
+            pnpm run build
+          fi
 
       # Block only on CRITICAL advisories by default — transitive highs are often
       # unfixable; tighten to `high` (and/or add npm `overrides`) per project.
