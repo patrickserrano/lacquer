@@ -9,6 +9,16 @@
 # which lefthook treats as the repo root with no file filtering. The secrets scan
 # is intentionally NOT scoped: the shared script reads the full staged set itself.
 
+# A component with a turbo.json is a pnpm workspace holding more than one app.
+# Each of the three commands below dispatches through turbo exactly as the
+# `check` job in web-ci.yml does, so the hook covers every package CI covers.
+# Without this the hook checks the component's own package.json alone and is
+# silently weaker than CI in a monorepo — the local/CI split this repo keeps
+# rediscovering, in the direction that looks green locally and fails on push.
+#
+# `./node_modules/.bin/turbo`, never `pnpm exec turbo`: see the resolver-dispatch
+# ban in internal/shipped/shipped_test.go.
+
 pre-commit:
   parallel: false
   commands:
@@ -29,7 +39,12 @@ pre-commit:
       stage_fixed: true
     typecheck:
       root: "{{COMPONENT_PREFIX}}"
-      run: pnpm run typecheck
+      run: |
+        if [ -f turbo.json ]; then
+          ./node_modules/.bin/turbo run typecheck
+        else
+          pnpm run typecheck
+        fi
     # Scan every staged file for hardcoded secrets — repo-wide, not component-
     # scoped: check-secrets.sh reads `git diff --cached` itself (no root, no
     # {staged_files}). Mirrors the iOS profile's `no-secrets` pre-commit hook.
@@ -41,10 +56,20 @@ pre-push:
   commands:
     test:
       root: "{{COMPONENT_PREFIX}}"
-      run: pnpm run test:coverage
+      run: |
+        if [ -f turbo.json ]; then
+          ./node_modules/.bin/turbo run test
+        else
+          pnpm run test:coverage
+        fi
     build:
       root: "{{COMPONENT_PREFIX}}"
-      run: pnpm run build
+      run: |
+        if [ -f turbo.json ]; then
+          ./node_modules/.bin/turbo run build
+        else
+          pnpm run build
+        fi
     # Mirrors the `Docs` job in web-ci.yml. Not at pre-commit: TypeDoc reads the
     # whole entry-point graph, so running it per staged file would be both slow
     # and wrong (an export documented in a file you didn't stage still counts).

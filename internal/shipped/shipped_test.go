@@ -794,3 +794,86 @@ func TestSecretsExampleIsNonEmptyAndEscaped(t *testing.T) {
 	}
 	t.Logf("checked %d placeholder key(s)", checked)
 }
+
+// TestWebTurboDispatchIsTheSameInCIAndHooks pins the web profile's monorepo
+// gates to the same task set in both places.
+//
+// web-ci.yml gained `turbo run <task>` before lefthook.yml did, and for that
+// window a pnpm workspace's hooks checked only the component's own
+// package.json while CI checked every package in it. That is a hook weaker
+// than its CI twin, which the rules call out as worse than no hook: it reports
+// green, you push, and CI fails on something the hook already had in its
+// hands. Nothing would have noticed, because no test read either file.
+//
+// Both files branch on the same condition, so the assertion is simply that
+// they dispatch turbo for the same tasks.
+func TestWebTurboDispatchIsTheSameInCIAndHooks(t *testing.T) {
+	r := root(t)
+
+	read := func(parts ...string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(append([]string{r}, parts...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+
+	// `./node_modules/.bin/turbo run <task>` — the local binary is required by
+	// the resolver-dispatch ban, so matching on it also pins that.
+	dispatch := regexp.MustCompile(`\./node_modules/\.bin/turbo run ([a-z][a-z0-9-]*)`)
+
+	tasksIn := func(body string) map[string]bool {
+		found := map[string]bool{}
+		for _, m := range dispatch.FindAllStringSubmatch(body, -1) {
+			found[m[1]] = true
+		}
+		return found
+	}
+
+	ci := tasksIn(read("profiles", "web", "workflows", "ci.yml"))
+	hooks := tasksIn(read("profiles", "web", "root", "lefthook.yml"))
+
+	if len(ci) == 0 {
+		t.Fatal("no turbo dispatch found in profiles/web/workflows/ci.yml; " +
+			"if turbo support was removed, remove this test with it")
+	}
+
+	// `lint` is deliberately not dispatched through turbo by the hook. Biome
+	// runs pre-commit over {staged_files} — a set turbo has no way to express —
+	// and that staged-vs-whole-component asymmetry is already accepted for
+	// single-app projects. It costs nothing extra in a monorepo: the component's
+	// biome.json covers the whole workspace tree, so staged files under apps/*
+	// are linted by the same command. The gap this test exists for is the one
+	// where a hook checks ONE package while CI checks all of them.
+	hookExempt := map[string]string{
+		"lint": "pre-commit Biome is staged-file scoped; see the asymmetry note in CLAUDE.web.md",
+	}
+
+	for task := range ci {
+		if hooks[task] || hookExempt[task] != "" {
+			continue
+		}
+		t.Errorf("web-ci.yml dispatches `turbo run %s` but lefthook.yml does not: "+
+			"in a monorepo the hook would skip every package but the component's own, "+
+			"and CI would be the first thing to notice", task)
+	}
+	for task := range hooks {
+		if !ci[task] {
+			t.Errorf("lefthook.yml dispatches `turbo run %s` but web-ci.yml does not: "+
+				"the hook is stricter than CI, so a project can pass CI and be unable to push", task)
+		}
+	}
+
+	// Each branch must keep its single-app fallback, or adopting turbo becomes
+	// mandatory for every project on the profile rather than opt-in.
+	for _, f := range []struct{ name, body string }{
+		{"profiles/web/workflows/ci.yml", read("profiles", "web", "workflows", "ci.yml")},
+		{"profiles/web/root/lefthook.yml", read("profiles", "web", "root", "lefthook.yml")},
+	} {
+		if !strings.Contains(f.body, "if [ -f turbo.json ]") {
+			t.Errorf("%s dispatches turbo without guarding on turbo.json; "+
+				"a single-app project has no turbo.json and would break", f.name)
+		}
+	}
+}
