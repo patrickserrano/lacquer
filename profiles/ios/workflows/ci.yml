@@ -33,6 +33,7 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       views: ${{ steps.filter.outputs.views }}
       lacquer: ${{ steps.filter.outputs.lacquer }}
+      xcodeproj: ${{ steps.filter.outputs.xcodeproj }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -41,6 +42,21 @@ jobs:
       - id: filter
         name: Check for code / view changes
         run: |
+          # `xcodeproj` gates Test/Build (Release): a component declared per the
+          # archetype rule before any code exists (e.g. a Phase-0 backend-first
+          # project) has neither {{XCODEPROJ}} committed nor a project.yml to
+          # regenerate it from, so `xcodebuild` has nothing to build or test yet.
+          # project.yml counts as "present" too — the Generate Xcode project step
+          # in each job regenerates {{XCODEPROJ}} from it before anything else
+          # runs, so this stays true for the common gitignored-xcodeproj case.
+          # Independent of event type (unlike code/views/lacquer below), since
+          # it reads the checked-out tree directly rather than a diff.
+          xcodeproj_present=false
+          if [ -d "{{XCODEPROJ}}" ] || [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
+            xcodeproj_present=true
+          fi
+          echo "xcodeproj=$xcodeproj_present" >> "$GITHUB_OUTPUT"
+
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             # push / manual dispatch: treat as a code change so the build/test
             # jobs run. `lacquer` is unconditionally true here on purpose — a push
@@ -210,7 +226,10 @@ jobs:
     # helper) can pass DEBUG builds + the Test job but fail the archive. See the
     # SwiftLint comment near the custom rules for the fast local guard.
     # SECURITY: same-repo guard — fork-PR code must not build on the self-hosted runner.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true')
+    # `needs.changes.outputs.xcodeproj`: a pre-code component (no {{XCODEPROJ}}
+    # committed and no project.yml to regenerate it) has nothing to build yet —
+    # see the `changes` job's `xcodeproj` output for the full reasoning.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true') && needs.changes.outputs.xcodeproj == 'true'
     timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -400,7 +419,10 @@ jobs:
     # compile backstop; this makes tests one too.
     #
     # SECURITY: same-repo guard — fork-PR code must not build/test on the self-hosted runner.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
+    # `needs.changes.outputs.xcodeproj`: a pre-code component (no {{XCODEPROJ}}
+    # committed and no project.yml to regenerate it) has nothing to test yet —
+    # see the `changes` job's `xcodeproj` output for the full reasoning.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
     # Per-step fail-fast timeouts below catch silent hangs; this is the generous
     # backstop with headroom for a cold, cache-cold build.
     timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
