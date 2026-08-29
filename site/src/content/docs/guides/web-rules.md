@@ -235,6 +235,7 @@ row here, and a hook never runs weaker than its CI twin.
 | `check` → `pnpm run typecheck` | pre-commit `typecheck` |
 | `check` → `pnpm run test:coverage` | pre-push `test` |
 | `check` → `pnpm run build` | pre-push `build` |
+| `check` → `turbo run <task>` (monorepo) | same branch in pre-commit `typecheck`, pre-push `test` / `build` |
 | `check` → `pnpm audit` | pre-push `audit` (network, so not at commit time) |
 | `./node_modules/.bin/typedoc` | pre-push `docs`; not PR-blocking CI, nightly `web-docs.yml` only |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
@@ -285,3 +286,71 @@ adoption across a workspace's packages is fine.
 Without a `turbo.json` at the component root, `web-ci.yml` runs the single-app
 path unchanged (the scripts in [Required package.json scripts](#required-packagejson-scripts)
 against the one package.json).
+
+The pre-commit `typecheck` and pre-push `test` and `build` hooks branch the same
+way, so a monorepo's hooks cover every package its CI covers. A hook that
+checked only the component's own package.json while CI checked the whole
+workspace would be weaker than its CI twin, which is the failure this repo keeps
+finding.
+
+### If the component root is itself an app, declare `//#` tasks
+
+**Turbo does not run tasks in the workspace root package.** When the root
+package is a real app — a Next.js site at the repo root with `apps/*` beside it
+— a turbo.json listing only ordinary tasks runs them for `apps/*` and **skips
+the site entirely**, reports success, and hands CI a green check over an
+application nothing built:
+
+```jsonc
+{
+  "tasks": {
+    "//#lint": {},        // the root package — the site
+    "//#typecheck": {},
+    "//#test": {},
+    "//#build": { "outputs": [".next/**", "!.next/cache/**"] },
+    "typecheck": {},      // every other workspace package
+    "test": {},
+    "build": { "dependsOn": ["^build"], "outputs": [".next/**", "!.next/cache/**"] }
+  }
+}
+```
+
+Verify it rather than trusting it — `turbo run build --dry=json` lists the tasks
+that will actually run, and the root package appears as `//#build`:
+
+```sh
+./node_modules/.bin/turbo run build --dry=json | jq -r '.tasks[].taskId'
+```
+
+Every task in the [table above](#monorepos--turborepo) needs checking this way.
+A workspace whose root holds no app (every app under `apps/*` or `sites/*`)
+needs no `//#` entries and is the simpler layout to start from.
+
+### Check what the task actually dispatches to
+
+Turbo runs the package script of the same name, so a task is only as strong as
+that script. Two are easy to get wrong because the single-app CI path did not
+use them:
+
+- `lint` must be the full `biome ci --error-on-warnings .`, not a narrower
+  convenience script like `biome lint src/` — the single-app path invoked Biome
+  directly, so a weak `lint` script was previously never on the gate.
+- `test` must carry coverage. The single-app path ran `test:coverage`; turbo
+  runs `test`.
+
+`turbo run <task> --dry=json` prints each task's `command`, which is the quickest
+way to see what is really being dispatched.
+
+### Declare every environment variable
+
+An environment variable a task reads but turbo does not know about is absent
+from the cache key, so a cached build is restored after the env that produced it
+changed. List them in `globalEnv` (or a task's `env`):
+
+```jsonc
+{ "globalEnv": ["NODE_ENV", "NEXT_PUBLIC_SANITY_PROJECT_ID", "SANITY_API_READ_TOKEN"] }
+```
+
+Biome enforces this: `noUndeclaredEnvVars` reads turbo.json, so adding a
+turbo.json to a project makes previously-clean source fail lint until its
+variables are declared. That diagnostic is the cache bug, reported early.
