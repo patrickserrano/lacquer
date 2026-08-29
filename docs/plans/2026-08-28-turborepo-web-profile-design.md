@@ -44,7 +44,7 @@ today's step names so a failure still reads the same in the GitHub UI:
 - name: Lint
   run: |
     if [ -f turbo.json ]; then
-      pnpm dlx turbo run lint
+      ./node_modules/.bin/turbo run lint
     else
       ./node_modules/.bin/biome ci --error-on-warnings .
     fi
@@ -52,7 +52,7 @@ today's step names so a failure still reads the same in the GitHub UI:
 - name: Type check
   run: |
     if [ -f turbo.json ]; then
-      pnpm dlx turbo run typecheck
+      ./node_modules/.bin/turbo run typecheck
     else
       pnpm run typecheck
     fi
@@ -60,7 +60,7 @@ today's step names so a failure still reads the same in the GitHub UI:
 - name: Test (coverage)
   run: |
     if [ -f turbo.json ]; then
-      pnpm dlx turbo run test
+      ./node_modules/.bin/turbo run test
     else
       pnpm run test:coverage
     fi
@@ -68,11 +68,20 @@ today's step names so a failure still reads the same in the GitHub UI:
 - name: Build
   run: |
     if [ -f turbo.json ]; then
-      pnpm dlx turbo run build
+      ./node_modules/.bin/turbo run build
     else
       pnpm run build
     fi
 ```
+
+`./node_modules/.bin/turbo`, never `pnpm dlx turbo` or `npx turbo` — this repo
+bans resolver-dispatched tool invocation (`internal/shipped/shipped_test.go`'s
+`TestShippedContentAvoidsBannedPatterns`, the "resolver-dispatched invocation
+of a project dependency" entry): `dlx`/`npx` fall through to PATH or download
+an unpinned version, so a project without `turbo` as a devDependency would get
+a green step run by whatever version happened to be resolved, exactly the
+`sleevetap`/biome incident that ban exists to prevent. Matches the `Biome`
+step's own `./node_modules/.bin/biome` convention immediately below it.
 
 All four steps still run inside `working-directory: "{{COMPONENT_PREFIX}}."`
 — already the workspace root for a `web` component, so `{{COMPONENT_PREFIX}}`
