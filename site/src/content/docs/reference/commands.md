@@ -77,7 +77,7 @@ everything that costs money or attention **on a schedule**:
 
 | Dropped | Kept |
 |---------|------|
-| Any workflow whose `on:` block has a `schedule:` trigger (`*-docs.yml`, `ios-cleanup-ci.yml`, `ios-dead-code.yml`, `ios-dependency-audit.yml`, `ios-quality-review.yml`, `supabase-health.yml`, …) | `*-ci.yml`, `web-dependency-review.yml`, `web-env-validation.yml`, `ios-claude.yml`, `ios-issue-deduplication.yml`, `ios-release.yml` |
+| Any workflow whose `on:` block has a `schedule:` trigger (`*-docs.yml`, `ios-cleanup-ci.yml`, `ios-dependency-audit.yml`, `ios-quality-review.yml`, `supabase-health.yml`, …) | `*-ci.yml`, `web-dependency-review.yml`, `web-env-validation.yml`, `ios-claude.yml`, `ios-issue-deduplication.yml`, `ios-release.yml` |
 | `.github/dependabot.yml` | every non-workflow asset |
 
 "Is scheduled" is read from each workflow's **content**, not from a list of

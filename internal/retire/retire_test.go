@@ -49,7 +49,6 @@ func shippedWorkflows(t *testing.T) map[string]string {
 var scheduledShipped = []string{
 	"profiles/ios/workflows-optional/testflight-feedback.yml",
 	"profiles/ios/workflows/cleanup-ci.yml",
-	"profiles/ios/workflows/dead-code.yml",
 	"profiles/ios/workflows/dependency-audit.yml",
 	"profiles/ios/workflows/docs.yml",
 	"profiles/ios/workflows/quality-review.yml",
