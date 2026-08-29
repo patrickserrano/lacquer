@@ -259,3 +259,29 @@ If this repo also contains an iOS component, the iOS profile syncs a `.pre-commi
 ## CI
 
 `web-ci.yml` runs lint → typecheck → test (coverage) → build → dependency audit on `ubuntu-latest`, path-gated to the component. The audit blocks on critical advisories by default; tighten to `high` (and add `overrides` in `pnpm-workspace.yaml` for unfixable transitives) per project.
+
+## Monorepos — Turborepo
+
+A component with more than one app (a Next.js site plus an admin app, a docs
+site, etc.) should be a pnpm workspace with a root `turbo.json`, not a second
+lacquer component — the lacquer supports one component per profile, so a
+second web app has no other way to get CI, hooks, or lint config.
+
+`turbo.json` is **project-authored, not synced** — task graphs and outputs
+(`.next/**` vs `dist/**`, DB migrations, …) are genuinely per-project. What
+`web-ci.yml` requires is that the task **names** match what it invokes:
+
+| turbo.json task | Runs |
+|---|---|
+| `lint` | your linter (e.g. `biome ci --error-on-warnings .`) |
+| `typecheck` | `tsc --noEmit` |
+| `test` | your test runner with coverage |
+| `build` | the framework build |
+
+A package inside the workspace that doesn't define one of these scripts is
+silently skipped by turbo when that task runs — not a CI failure, so partial
+adoption across a workspace's packages is fine.
+
+Without a `turbo.json` at the component root, `web-ci.yml` runs the single-app
+path unchanged (the scripts in [Required package.json scripts](#required-packagejson-scripts)
+against the one package.json).
