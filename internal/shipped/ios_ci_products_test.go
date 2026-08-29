@@ -1039,3 +1039,32 @@ func TestXcodegenGenerateCdSurvivesRootLayout(t *testing.T) {
 			"got something else for the xcodegen generate step")
 	}
 }
+
+// Test and Build (Release) both run `xcodebuild` directly against {{XCODEPROJ}}
+// with no equivalent to Lint/Baseline's pre-code exemption (TestLintSkipsWhenNoSwiftSources,
+// TestBaselineSkipsWhenXcodeprojMissing) -- discovered live on multimeter (a
+// Phase-0, zero-Swift component): Test's `xcodebuild test` failed outright with
+// exit code 66 rather than skipping. Unlike Lint/Baseline, gating every one of
+// Test's ~14 downstream steps individually would be a lot of churn, so this is
+// a job-level skip instead, driven by a cheap check in the `changes` job (which
+// already does a full checkout) rather than per-job step detection.
+func TestChangesJobDetectsXcodeproj(t *testing.T) {
+	raw := renderIOSCI(t, soloConfig())
+	if !strings.Contains(raw, "xcodeproj: ${{ steps.filter.outputs.xcodeproj }}") {
+		t.Fatal(`the "changes" job must expose an "xcodeproj" output`)
+	}
+	if !strings.Contains(raw, `echo "xcodeproj=$xcodeproj_present" >> "$GITHUB_OUTPUT"`) {
+		t.Fatal(`the "changes" job's filter step must compute and emit xcodeproj_present`)
+	}
+}
+
+func TestTestAndBuildReleaseSkipWithoutXcodeproj(t *testing.T) {
+	doc := parseIOSCI(t, soloConfig())
+	for _, job := range []string{"test", "build-release"} {
+		cond := doc.Jobs[job].If
+		if !strings.Contains(cond, "needs.changes.outputs.xcodeproj == 'true'") {
+			t.Errorf("%q job's if=%q does not gate on needs.changes.outputs.xcodeproj -- "+
+				"it will run xcodebuild against a {{XCODEPROJ}} that may not exist yet", job, cond)
+		}
+	}
+}
