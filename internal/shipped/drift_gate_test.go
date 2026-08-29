@@ -333,7 +333,7 @@ func TestDriftGateCoversEveryManagedPath(t *testing.T) {
 		// manifest never declared.
 		"package.json", "app/package.json", "Cargo.toml", "go.mod",
 		"Package.swift", "app/Package.swift", "server/supabase/config.toml",
-		"app/.swiftlint.yml", "app/.swiftformat", "app/.periphery.yml",
+		"app/.swiftlint.yml", "app/.swiftformat",
 		// The baseline check (exit 4) parses the pbxproj.
 		"app/Demo.xcodeproj/project.pbxproj",
 	)

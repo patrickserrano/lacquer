@@ -27,7 +27,7 @@ var markerProfile = map[string]string{
 
 // swiftConfig marks a directory as the iOS config/lint dir.
 var swiftConfig = map[string]bool{
-	".swiftlint.yml": true, ".swiftformat": true, ".periphery.yml": true,
+	".swiftlint.yml": true, ".swiftformat": true,
 }
 
 // SwiftProfile is the profile implied by a bare SwiftPM package — Swift source

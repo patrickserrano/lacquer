@@ -62,7 +62,6 @@ var droppedByRetirement = []string{
 	".github/dependabot.yml",
 	// ios
 	".github/workflows/ios-cleanup-ci.yml",
-	".github/workflows/ios-dead-code.yml",
 	".github/workflows/ios-dependency-audit.yml",
 	".github/workflows/ios-docs.yml",
 	".github/workflows/ios-quality-review.yml",
@@ -88,7 +87,6 @@ var keptWhenRetired = []string{
 	// Lint / format / build configs.
 	".swiftlint.yml",
 	".swiftformat",
-	".periphery.yml",
 	"biome.json",
 	"tsconfig.base.json",
 	"server/deno.jsonc",
