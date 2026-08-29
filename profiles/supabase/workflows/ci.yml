@@ -95,7 +95,7 @@ jobs:
           # component prefix, for the same reason the deny-list above carries no
           # prefix: an empty prefix produces the empty ERE alternative `^(|...)`
           # that some greps reject.
-          lacquer_paths='(^|/)\.gitignore$|(^|/)\.lacquer\.(toml|lock)$|(^|/)(CLAUDE|AGENTS)\.md$|(^|/)\.(claude|codex|agents|github)/|(^|/)scripts/|(^|/)(Brewfile|lefthook\.yml|\.mcp\.json|\.pre-commit-config\.yaml)$|(^|/)(\.swiftlint\.yml|\.swiftlint-docs\.yml|\.swiftformat|\.periphery\.yml|Secrets\.xcconfig\.example)$|(^|/)(\.env\.schema|tsconfig\.base\.json|typedoc\.json|biome\.json|deno\.jsonc)$|(^|/)(package\.json|Cargo\.toml|go\.mod|Package\.swift|project\.yml)$|(^|/)supabase/config\.toml$|\.xcodeproj/'
+          lacquer_paths='(^|/)\.gitignore$|(^|/)\.lacquer\.(toml|lock)$|(^|/)(CLAUDE|AGENTS)\.md$|(^|/)\.(claude|codex|agents|github)/|(^|/)scripts/|(^|/)(Brewfile|lefthook\.yml|\.mcp\.json|\.pre-commit-config\.yaml)$|(^|/)(\.swiftlint\.yml|\.swiftlint-docs\.yml|\.swiftformat|Secrets\.xcconfig\.example)$|(^|/)(\.env\.schema|tsconfig\.base\.json|typedoc\.json|biome\.json|deno\.jsonc)$|(^|/)(package\.json|Cargo\.toml|go\.mod|Package\.swift|project\.yml)$|(^|/)supabase/config\.toml$|\.xcodeproj/'
           if echo "$changed" | grep -qE "$lacquer_paths"; then
             echo "lacquer=true" >> "$GITHUB_OUTPUT"
           else
