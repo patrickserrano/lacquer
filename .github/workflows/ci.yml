@@ -211,4 +211,10 @@ jobs:
           fi
       - run: go vet ./...
       - run: go build ./...
-      - run: go test ./... -race
+      # Default per-package timeout is 10m, sized for GitHub-hosted CPUs. The
+      # Synology runner (Celeron J4125, 4 cores @ 2GHz) is far weaker per-core,
+      # and internal/shipped's e2e matrix -- ~120s locally on a Mac mini --
+      # blew past 10m under -race on that hardware (PR #248's first real run:
+      # "panic: test timed out after 10m0s"). Widen the ceiling rather than
+      # thin the test matrix or drop -race.
+      - run: go test ./... -race -timeout 30m
