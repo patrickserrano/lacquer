@@ -257,10 +257,12 @@ func TestSecretsSeedNeverOverwritesRealKeys(t *testing.T) {
 // would repeat that exactly, and only on a schedule where no PR would show it.
 func TestEveryIOSJobThatBuildsTheProjectSeedsSecrets(t *testing.T) {
 	// Workflows that drive a build of {{XCODEPROJ}}, and how they do it.
+	// dead-code.yml (Periphery) used to be a third entry here -- removed along
+	// with the workflow itself once Periphery's local cache grew to 48GB and
+	// the tool went unmaintained upstream.
 	builders := map[string]string{
-		"ci.yml":        "xcodebuild",
-		"dead-code.yml": "periphery scan, which builds the project",
-		"docs.yml":      "scripts/build-docs.sh, which seeds before it builds",
+		"ci.yml":   "xcodebuild",
+		"docs.yml": "scripts/build-docs.sh, which seeds before it builds",
 	}
 	for file, how := range builders {
 		raw, err := os.ReadFile(filepath.Join(root(t), "profiles", "ios", "workflows", file))
