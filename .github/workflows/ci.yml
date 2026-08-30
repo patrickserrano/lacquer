@@ -188,7 +188,14 @@ jobs:
           echo "Rule-file mirrors OK."
 
   test:
-    runs-on: ubuntu-latest
+    # The only job worth moving to the self-hosted Synology runner --
+    # ~8-10 min per run, the dominant cost of this workflow. The two fast
+    # checks above (VERSION, PR title) stay on ubuntu-latest: they're a few
+    # seconds each, GitHub-hosted cost is negligible, and this repo only
+    # has 2 dedicated self-hosted slots (synology-personal-1/2) -- reserving
+    # them for the expensive job avoids queueing the trivial ones behind it
+    # when multiple PRs are open at once.
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
