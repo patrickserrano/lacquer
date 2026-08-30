@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "A shipped subagent definition file was just edited: $ARGUMENTS. This file is distributed via `lacquer sync` into every project's `.claude/agents/`, so a bad edit here propagates fleet-wide on the next sync. You have not seen the editing session's reasoning -- review this fresh and adversarially, the way you would review a stranger's PR. Read the full current file content. Check: (1) frontmatter stays well-formed YAML and internally consistent (name/description/model/memory/tools fields agree with what the body actually does); (2) if a restrictive `tools:` field is present, adding or keeping `memory:` doesn't silently grant Write/Edit back to an agent that was deliberately scoped read-only (memory auto-enables Write/Edit for the memory directory -- verify that's compatible with the agent's stated design, as it was NOT for skill-tuning-reader.md); (3) the system-prompt body is still coherent -- no contradictions, no dangling references to something the edit removed; (4) no unintended scope creep or capability narrowing versus what a careful, minimal edit should have produced; (5) if this added or touched `memory: user|project|local`, the scope choice actually fits the agent's use case per Claude Code's memory docs (`user` for cross-project learnings, `project`/`local` for one-repo-specific knowledge). Report concrete findings only -- do not rubber-stamp, and do not restate what the edit obviously intended to do.",
+            "if": "Edit(core/agents/*.md)",
+            "timeout": 120,
+            "statusMessage": "Adversarially reviewing shipped agent definition edit..."
+          },
+          {
+            "type": "agent",
+            "prompt": "A shipped subagent definition file was just edited: $ARGUMENTS. This file is distributed via `lacquer sync` into every project's `.claude/agents/`, so a bad edit here propagates fleet-wide on the next sync. You have not seen the editing session's reasoning -- review this fresh and adversarially, the way you would review a stranger's PR. Read the full current file content. Check: (1) frontmatter stays well-formed YAML and internally consistent (name/description/model/memory/tools fields agree with what the body actually does); (2) if a restrictive `tools:` field is present, adding or keeping `memory:` doesn't silently grant Write/Edit back to an agent that was deliberately scoped read-only (memory auto-enables Write/Edit for the memory directory -- verify that's compatible with the agent's stated design, as it was NOT for skill-tuning-reader.md); (3) the system-prompt body is still coherent -- no contradictions, no dangling references to something the edit removed; (4) no unintended scope creep or capability narrowing versus what a careful, minimal edit should have produced; (5) if this added or touched `memory: user|project|local`, the scope choice actually fits the agent's use case per Claude Code's memory docs (`user` for cross-project learnings, `project`/`local` for one-repo-specific knowledge). Report concrete findings only -- do not rubber-stamp, and do not restate what the edit obviously intended to do.",
+            "if": "Edit(profiles/*/agents/*.md)",
+            "timeout": 120,
+            "statusMessage": "Adversarially reviewing shipped agent definition edit..."
+          }
+        ]
+      }
+    ]
+  }
+}
