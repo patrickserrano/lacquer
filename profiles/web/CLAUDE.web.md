@@ -8,6 +8,13 @@ no Apple toolchain here, so no macOS dependency to worry about). A
 project-authored E2E job may still choose a GitHub-hosted runner itself; see
 below.
 
+**This assumes the component's repository is private.** GitHub's own guidance
+is that self-hosted runners should not process `pull_request`-triggered jobs
+on a public repo — anyone can fork it and open a PR that executes arbitrary
+code against that runner's actual hardware and LAN, unlike a GitHub-hosted VM,
+which is thrown away after the job. A project that goes public must override
+`runs-on` back to a GitHub-hosted value in its own CI.
+
 ## Read the vendored framework docs first
 
 If the component's framework ships its own docs inside the dependency (e.g. under

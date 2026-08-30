@@ -11,6 +11,8 @@ profile, on top of the stack-agnostic [core rules](/lacquer/guides/agent-rules/)
 
 This profile targets a Supabase backend: Postgres schema + RLS in `supabase/migrations/`, seed data in `supabase/seed/`, and **Deno** Edge Functions in `supabase/functions/`. The runtime is Deno, not Node — there's no `package.json`/`npm` here. This runs on the fleet's self-hosted Linux runners (`self-hosted, linux` — no Apple toolchain, so no macOS dependency to worry about).
 
+**This assumes the component's repository is private.** GitHub's own guidance is that self-hosted runners should not process `pull_request`-triggered jobs on a public repo — anyone can fork it and open a PR that executes arbitrary code against that runner's actual hardware and LAN, unlike a GitHub-hosted VM, which is thrown away after the job. A project that goes public must override `runs-on` back to a GitHub-hosted value in its own CI.
+
 ## Tooling — Deno, not npm
 
 - Format / lint / type-check / test with the Deno toolchain, never npm: `deno fmt`, `deno lint`, `deno check`, `deno test --allow-all`. A synced `deno.jsonc` holds the fmt/lint config and `deno task` shortcuts.

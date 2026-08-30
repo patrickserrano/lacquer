@@ -7,6 +7,13 @@ runtime is Deno, **not** Node — there is no `package.json`/`npm` here. This ru
 on the fleet's self-hosted Linux runners (`self-hosted, linux` — no Apple
 toolchain, so no macOS dependency to worry about).
 
+**This assumes the component's repository is private.** GitHub's own guidance
+is that self-hosted runners should not process `pull_request`-triggered jobs
+on a public repo — anyone can fork it and open a PR that executes arbitrary
+code against that runner's actual hardware and LAN, unlike a GitHub-hosted VM,
+which is thrown away after the job. A project that goes public must override
+`runs-on` back to a GitHub-hosted value in its own CI.
+
 ## Tooling — Deno, not npm
 
 - Format / lint / type-check / test with the Deno toolchain, never npm:
