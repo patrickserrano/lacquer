@@ -27,6 +27,23 @@ find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
     [ -f "$target" ] || cp "$ex" "$target"
   done
 
+# And the scheme's own directory, when the component root holds the only
+# example. An Xcode project resolves baseConfigurationReference against the
+# app target's folder, so a project whose example sits at the component root
+# got a Secrets.xcconfig the build never opens — and docbuild failed with
+# "Unable to open base configuration reference file" on a path no step had
+# named. That is why ios-docs.yml, which is scheduled and never runs on a PR,
+# went red every night for a week without anyone being told. See ios-ci.yml's
+# Build (Release) job for the full account.
+nexamples=$(find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
+  -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' \
+  2>/dev/null | wc -l | tr -d ' ')
+scheme_dir="{{COMPONENT_PREFIX}}{{SCHEME}}"
+if [ "$nexamples" = "1" ] && [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ] \
+  && [ -d "$scheme_dir" ] && [ ! -f "$scheme_dir/Secrets.xcconfig" ]; then
+  cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "$scheme_dir/Secrets.xcconfig"
+fi
+
 # DOCC_MINIMUM_ACCESS_LEVEL is the setting that makes this worth running at all.
 # DocC extracts `public` and above by DEFAULT, and an app target's code is
 # `internal` by default — so without this an app builds a documentation archive
