@@ -1,6 +1,7 @@
 name: Supabase CI
 
-# Deno backend — runs on a GitHub-hosted runner (no Apple toolchain).
+# Deno backend — runs on the fleet's self-hosted Linux runners (no Apple
+# toolchain to worry about).
 
 on:
   workflow_dispatch:
@@ -28,7 +29,7 @@ jobs:
     name: Detect changed paths
     # Pure git diff — no toolchain — so it always runs and lets CI OK report even
     # on docs-only PRs where the heavy check is skipped.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     outputs:
       code: ${{ steps.filter.outputs.code }}
       lacquer: ${{ steps.filter.outputs.lacquer }}
@@ -104,7 +105,7 @@ jobs:
 
   check:
     name: Format · Lint · Test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
@@ -183,7 +184,7 @@ jobs:
     # CLAUDE.supabase.md calls RLS "the security boundary" — Splinter (supabase db
     # lint) is what actually enforces it in CI, catching missing-RLS and
     # security-definer issues the Edge-Function checks never see.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     needs: changes
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 10
@@ -206,7 +207,7 @@ jobs:
 
   test-database:
     name: DB Tests (pgTAP)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     needs: changes
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 10
@@ -277,7 +278,7 @@ jobs:
 
   deploy-database:
     name: Deploy migrations
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     # Only a merge to main, and only behind the schema jobs. `supabase db push`
     # is the one step here that touches production, so it must not be reachable
     # from a PR, and a migration must never land there without the lint and the
@@ -399,8 +400,8 @@ jobs:
   drift:
     name: No lacquer drift
     # Pure Go + a git checkout — no stack toolchain — so it runs on a
-    # GitHub-hosted runner rather than tying up the dedicated Mac.
-    runs-on: ubuntu-latest
+    # self-hosted Linux runner rather than tying up the dedicated Mac.
+    runs-on: [self-hosted, linux]
     needs: changes
     # Gated on paths, NOT on `code`: a drifted hook or workflow is exactly the
     # kind of change that arrives in an otherwise docs-only PR, so `lacquer`
@@ -479,7 +480,7 @@ jobs:
     # points at "CI OK", not at the check job), so it never gets stuck "pending"
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     needs: [changes, check, lint-database, test-database, drift]
     if: always()
     timeout-minutes: 2

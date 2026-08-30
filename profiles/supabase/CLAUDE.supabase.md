@@ -4,7 +4,8 @@ Synced into the `CLAUDE.md` of any component declaring the `supabase` profile �
 Supabase backend: Postgres schema + RLS in `supabase/migrations/`, seed data in
 `supabase/seed/`, and **Deno** Edge Functions in `supabase/functions/`. The
 runtime is Deno, **not** Node — there is no `package.json`/`npm` here. This runs
-on GitHub-hosted runners (no Apple toolchain).
+on the fleet's self-hosted Linux runners (`self-hosted, linux` — no Apple
+toolchain, so no macOS dependency to worry about).
 
 ## Tooling — Deno, not npm
 
@@ -237,7 +238,7 @@ pre-commit.
 
 - `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-
   tested. The synced `supabase-ci.yml` runs `deno fmt --check`, `deno lint`,
-  `deno check`, and `deno test` on `ubuntu-latest`.
+  `deno check`, and `deno test` on the fleet's self-hosted Linux runners.
 - CI also **checks the schema, not just the functions**: `supabase db lint
   --level warning` (Splinter — flags missing-RLS / security-definer issues) and
   `supabase test db` (pgTAP against `supabase/tests/*.sql`). Write pgTAP tests

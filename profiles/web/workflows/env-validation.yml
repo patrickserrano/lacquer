@@ -4,8 +4,9 @@ name: Env Schema Validation
 # var can't silently drift out of the documented schema. The check is a small
 # self-contained awk validator (no external tool) — every `required` key in the
 # schema must be documented in .env.example, and a required(<prefix>) rule also
-# checks the example value starts with that prefix. Runs on GitHub-hosted runners
-# (no Apple toolchain); no-ops when no .env.schema exists yet.
+# checks the example value starts with that prefix. Runs on the fleet's
+# self-hosted Linux runners (no Apple toolchain); no-ops when no .env.schema
+# exists yet.
 
 on:
   pull_request:
@@ -20,7 +21,7 @@ permissions:
 jobs:
   validate:
     name: Validate .env.example against schema
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     defaults:
       run:
         working-directory: "{{COMPONENT_PREFIX}}."

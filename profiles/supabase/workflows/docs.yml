@@ -41,7 +41,7 @@ jobs:
   # it will not use.
   publish:
     name: Build and publish the API reference
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1

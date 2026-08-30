@@ -11,7 +11,10 @@ the stack-agnostic [core rules](/lacquer/guides/agent-rules/).
 
 The lacquer web stack is **TypeScript + Biome + Vitest + lefthook**, deployed to
 Vercel/Cloudflare; the framework (Next.js / Vite / a Node API) is per-project.
-Web jobs run on GitHub-hosted runners — there's no Apple toolchain here.
+Web jobs run on the fleet's self-hosted Linux runners (`self-hosted, linux` —
+no Apple toolchain here, so no macOS dependency to worry about). A
+project-authored E2E job may still choose a GitHub-hosted runner itself; see
+below.
 
 ## Read the vendored framework docs first
 
@@ -269,7 +272,7 @@ If this repo also contains an iOS component, the iOS profile syncs a `.pre-commi
 
 ## CI
 
-`web-ci.yml` runs lint → typecheck → test (coverage) → build → dependency audit on `ubuntu-latest`, path-gated to the component. The audit blocks on critical advisories by default; tighten to `high` (and add `overrides` in `pnpm-workspace.yaml` for unfixable transitives) per project.
+`web-ci.yml` runs lint → typecheck → test (coverage) → build → dependency audit on the fleet's self-hosted Linux runners, path-gated to the component. The audit blocks on critical advisories by default; tighten to `high` (and add `overrides` in `pnpm-workspace.yaml` for unfixable transitives) per project.
 
 ## Monorepos — Turborepo
 
