@@ -99,7 +99,22 @@ func runDispatch(verb, name, dir, task string, mode Mode, warning string, dryRun
 		// isolation documented above is the actual safety boundary this
 		// substitutes for: a bg session cannot touch the main checkout, so
 		// letting it act unattended inside its own worktree is the point.
-		argv = []string{"claude", "--bg", "--dangerously-skip-permissions", task}
+		//
+		// --dangerously-skip-permissions bypasses the permission-PROMPT layer
+		// only -- it is a different mechanism from the sandbox, an execution-
+		// level restriction that runs alongside it. Without also disabling the
+		// sandbox, a bg session still has every Bash command sandboxed with no
+		// one to grant the extra access it needs: git add/commit/push,
+		// checkout -b, worktree remove/unlock, and lacquer sync itself (which
+		// needs to read LACQUER_ROOT outside the worktree) all get silently
+		// denied. A dispatched session told it has "full unattended
+		// permissions" then hits a wall on its very first mutating command,
+		// with only a narrow read-only set (git status/log/diff, cat/ls, echo,
+		// which) actually working -- and the failure is invisible until an
+		// operator reads that job's own transcript, since the dispatch itself
+		// reports "backgrounded" either way.
+		argv = []string{"claude", "--bg", "--dangerously-skip-permissions",
+			"--settings", `{"sandbox":{"enabled":false}}`, task}
 		cmdDir = dir
 	case Tmux:
 		argv = []string{"tmux", "new-session", "-A", "-s", name, "-c", dir,

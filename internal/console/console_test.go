@@ -160,8 +160,16 @@ func TestDispatchModesTargetDifferentPlaces(t *testing.T) {
 	}
 	// claude has no --cwd flag; the working directory is set via exec.Cmd.Dir,
 	// not an argument, so the display line shows it as a `cd` prefix instead.
-	if !strings.Contains(bg, "cd /w/alpha && claude --bg --dangerously-skip-permissions task") {
-		t.Errorf("bg mode must launch a background agent in the project directory:\n%s", bg)
+	//
+	// --dangerously-skip-permissions bypasses the permission-PROMPT layer only
+	// -- it has nothing to do with the sandbox, a separate execution-level
+	// restriction. Without also disabling the sandbox, a bg session still runs
+	// every Bash command sandboxed with no one to grant the extra access it
+	// needs, and git add/commit/push/checkout -b/worktree remove all get
+	// silently denied -- indistinguishable from success until the operator
+	// reads the job's own transcript.
+	if !strings.Contains(bg, `cd /w/alpha && claude --bg --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task`) {
+		t.Errorf("bg mode must launch a background agent in the project directory with the sandbox disabled, not just permission prompts skipped:\n%s", bg)
 	}
 	tm, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Tmux, true)
 	if err != nil {
