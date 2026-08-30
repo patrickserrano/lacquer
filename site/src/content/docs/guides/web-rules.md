@@ -54,6 +54,16 @@ Never relax a base flag (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPro
 `biome.json` is synced (format + lint). Run `./node_modules/.bin/biome check --write .`
 locally; CI runs `./node_modules/.bin/biome ci --error-on-warnings .`.
 
+The synced skill trees — `.agents/skills`, `.claude/skills`, `.codex/skills` —
+are ignored. They are vendored content: a project did not write them, and it
+cannot fix one either, because a managed file edited in place is drift. Without
+the ignore a lint diagnostic in any shipped skill asset turns every consuming
+project's `check` job red, and the project's only escape is excluding
+`biome.json` wholesale and hand-carrying a fork of it forever. That happened:
+1.11.0 shipped an ad-creative HTML template carrying `useIterableCallbackReturn`
+errors and CSS warnings, and the projects that synced it had no other move.
+Shipped assets are linted in the lacquer, not in seventeen downstream repos.
+
 **pnpm, not npm.** Every Node component in this fleet uses pnpm. Two things have
 to be true in each `package.json`, and CI depends on both:
 
