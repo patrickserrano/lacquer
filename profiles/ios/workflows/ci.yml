@@ -268,8 +268,6 @@ jobs:
               [ -f "$target" ] || cp "$ex" "$target"
             done
 
-      - name: Seed Secrets.xcconfig in the app target's own directory
-        run: |
           # An example and the file the PROJECT READS are not always in the same
           # directory, and seeding beside the example cannot notice when they are not.
           # `lacquer` writes Secrets.xcconfig.example at the COMPONENT ROOT — that is
@@ -495,8 +493,6 @@ jobs:
               [ -f "$target" ] || cp "$ex" "$target"
             done
 
-      - name: Seed Secrets.xcconfig in the app target's own directory
-        run: |
           # And the scheme's own directory, when the component root holds the only
           # example: an Xcode project resolves baseConfigurationReference against the
           # app target's folder, not the component root, so seeding beside the example
@@ -1027,8 +1023,6 @@ jobs:
               [ -f "$target" ] || cp "$ex" "$target"
             done
 
-      - name: Seed Secrets.xcconfig in the app target's own directory
-        run: |
           # And the scheme's own directory, when the component root holds the only
           # example: an Xcode project resolves baseConfigurationReference against the
           # app target's folder, not the component root, so seeding beside the example
