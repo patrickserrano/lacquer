@@ -188,6 +188,16 @@ jobs:
           echo "Rule-file mirrors OK."
 
   test:
+    # Stays on ubuntu-latest, NOT the self-hosted Synology runner. lacquer
+    # itself is a PUBLIC repo: GitHub's own guidance is that self-hosted
+    # runners should not process pull_request-triggered jobs on public repos,
+    # because anyone can fork the repo and open a PR to run arbitrary code
+    # against that runner's actual hardware and LAN (unlike a GitHub-hosted
+    # VM, which is thrown away after the job). A first attempt at this moved
+    # `test` to [self-hosted, linux, x64] before that check was made -- caught
+    # by a security review before the PR merged, reverted here. The Synology
+    # runner stays reserved for private-repo CI (the shipped web/supabase
+    # profile templates, which the consuming private projects use).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
