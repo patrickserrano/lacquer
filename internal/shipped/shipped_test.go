@@ -15,6 +15,7 @@
 package shipped
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -874,6 +875,49 @@ func TestWebTurboDispatchIsTheSameInCIAndHooks(t *testing.T) {
 		if !strings.Contains(f.body, "if [ -f turbo.json ]") {
 			t.Errorf("%s dispatches turbo without guarding on turbo.json; "+
 				"a single-app project has no turbo.json and would break", f.name)
+		}
+	}
+}
+
+// TestShippedBiomeIgnoresSyncedSkillTrees keeps vendored skill content out of
+// every consuming project's lint gate.
+//
+// Skills sync into .agents/, .claude/ and .codex/. A project neither writes
+// that content nor may edit it — a managed file changed in place is drift — so
+// a lint diagnostic in a shipped skill asset turns the project's `check` job
+// red with no fix available to it short of excluding biome.json entirely and
+// maintaining a fork. 1.11.0 did exactly that: an ad-creative HTML template
+// with useIterableCallbackReturn errors reddened every project that synced it.
+//
+// Shipped assets get linted here, in the lacquer, not in seventeen repos that
+// cannot do anything about them.
+func TestShippedBiomeIgnoresSyncedSkillTrees(t *testing.T) {
+	r := root(t)
+	data, err := os.ReadFile(filepath.Join(r, "profiles", "web", "config", "biome.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg struct {
+		Files struct {
+			Includes []string `json:"includes"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("profiles/web/config/biome.json is not valid JSON: %v", err)
+	}
+
+	present := map[string]bool{}
+	for _, inc := range cfg.Files.Includes {
+		present[inc] = true
+	}
+
+	for _, tool := range []string{".agents", ".claude", ".codex"} {
+		want := "!**/" + tool + "/skills"
+		if !present[want] {
+			t.Errorf("profiles/web/config/biome.json does not ignore %q: a lint "+
+				"diagnostic in any skill asset synced to %s/skills would fail the "+
+				"check job in every project, and none of them could fix it", want, tool)
 		}
 	}
 }

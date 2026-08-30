@@ -14,7 +14,10 @@
       "!**/node_modules",
       "!**/coverage",
       "!**/dist",
-      "!**/playwright-report"
+      "!**/playwright-report",
+      "!**/.agents/skills",
+      "!**/.claude/skills",
+      "!**/.codex/skills"
     ]
   },
   "assist": {

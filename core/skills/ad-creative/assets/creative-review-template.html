@@ -279,8 +279,9 @@ function renderConcepts() {
       <div class="name">${esc(c.name)}</div>
       <div class="tag">${esc(c.tagline || "")}</div>
     </button>`).join("");
-  document.querySelectorAll(".concept").forEach(b =>
-    b.onclick = () => { state.concept = +b.dataset.i; state.frame = 0; state.handle = 0; state.headline = 0; renderAll(); });
+  document.querySelectorAll(".concept").forEach(b => {
+    b.onclick = () => { state.concept = +b.dataset.i; state.frame = 0; state.handle = 0; state.headline = 0; renderAll(); };
+  });
 }
 
 function handles() {
@@ -304,8 +305,12 @@ function renderToggles() {
   }
   const el = document.getElementById("toggles");
   el.innerHTML = html;
-  el.querySelectorAll("[data-plat]").forEach(b => b.onclick = () => { state.platform = b.dataset.plat; renderToggles(); renderPost(); });
-  el.querySelectorAll("[data-handle]").forEach(b => b.onclick = () => { state.handle = +b.dataset.handle; renderToggles(); renderPost(); });
+  el.querySelectorAll("[data-plat]").forEach(b => {
+    b.onclick = () => { state.platform = b.dataset.plat; renderToggles(); renderPost(); };
+  });
+  el.querySelectorAll("[data-handle]").forEach(b => {
+    b.onclick = () => { state.handle = +b.dataset.handle; renderToggles(); renderPost(); };
+  });
   document.getElementById("preview-label").textContent = (hs.length > 1 ? "Whitelisted ad · " : "") + "In-feed preview";
 }
 
@@ -363,8 +368,9 @@ function renderBoard() {
       <div class="box">${frameVisual(f, "mini")}</div>
       <div class="cap"><span class="n">${String(i + 1).padStart(2, "0")}</span>${esc(f.label)}</div>
     </button>`).join("");
-  document.querySelectorAll(".thumb").forEach(b =>
-    b.onclick = () => { state.frame = +b.dataset.i; renderPost(); renderBoard(); });
+  document.querySelectorAll(".thumb").forEach(b => {
+    b.onclick = () => { state.frame = +b.dataset.i; renderPost(); renderBoard(); };
+  });
 }
 
 function renderCopy() {
@@ -388,8 +394,9 @@ function renderCopy() {
   if (c.grounding) html += `<div class="block"><div class="eyebrow">Live data · real assets</div><div class="grounding">${esc(c.grounding)}</div></div>`;
   const el = document.getElementById("copy");
   el.innerHTML = html;
-  el.querySelectorAll(".headline-opt").forEach(b =>
-    b.onclick = () => { state.headline = +b.dataset.i; state.frame = 0; renderPost(); renderBoard(); renderCopy(); });
+  el.querySelectorAll(".headline-opt").forEach(b => {
+    b.onclick = () => { state.headline = +b.dataset.i; state.frame = 0; renderPost(); renderBoard(); renderCopy(); };
+  });
 }
 
 function renderAll() { renderConcepts(); renderToggles(); renderPost(); renderBoard(); renderCopy(); }
