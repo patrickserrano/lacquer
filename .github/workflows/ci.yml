@@ -188,14 +188,17 @@ jobs:
           echo "Rule-file mirrors OK."
 
   test:
-    # The only job worth moving to the self-hosted Synology runner --
-    # ~8-10 min per run, the dominant cost of this workflow. The two fast
-    # checks above (VERSION, PR title) stay on ubuntu-latest: they're a few
-    # seconds each, GitHub-hosted cost is negligible, and this repo only
-    # has 2 dedicated self-hosted slots (synology-personal-1/2) -- reserving
-    # them for the expensive job avoids queueing the trivial ones behind it
-    # when multiple PRs are open at once.
-    runs-on: [self-hosted, linux, x64]
+    # Stays on ubuntu-latest, NOT the self-hosted Synology runner. lacquer
+    # itself is a PUBLIC repo: GitHub's own guidance is that self-hosted
+    # runners should not process pull_request-triggered jobs on public repos,
+    # because anyone can fork the repo and open a PR to run arbitrary code
+    # against that runner's actual hardware and LAN (unlike a GitHub-hosted
+    # VM, which is thrown away after the job). A first attempt at this moved
+    # `test` to [self-hosted, linux, x64] before that check was made -- caught
+    # by a security review before the PR merged, reverted here. The Synology
+    # runner stays reserved for private-repo CI (the shipped web/supabase
+    # profile templates, which the consuming private projects use).
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -211,10 +214,4 @@ jobs:
           fi
       - run: go vet ./...
       - run: go build ./...
-      # Default per-package timeout is 10m, sized for GitHub-hosted CPUs. The
-      # Synology runner (Celeron J4125, 4 cores @ 2GHz) is far weaker per-core,
-      # and internal/shipped's e2e matrix -- ~120s locally on a Mac mini --
-      # blew past 10m under -race on that hardware (PR #248's first real run:
-      # "panic: test timed out after 10m0s"). Widen the ceiling rather than
-      # thin the test matrix or drop -race.
-      - run: go test ./... -race -timeout 30m
+      - run: go test ./... -race
