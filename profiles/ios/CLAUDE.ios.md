@@ -275,11 +275,20 @@ Xcode-touching work (build/test/lint/archive/sign/release) uses
 `runs-on: [self-hosted, macOS, ARM64, dedicated]` — never a GitHub-hosted
 macOS runner (`macos-latest`) or a stray self-hosted label like `mac-mini`. A
 pure script/REST-call job with no Xcode dependency (merge gates, a
-TestFlight-feedback fetch, a deploy) uses `ubuntu-latest` instead — don't tie
-up the Mac for work that doesn't need it.
+TestFlight-feedback fetch, a deploy) uses `runs-on: [self-hosted, linux]`
+instead — the fleet's self-hosted Linux runners, not `ubuntu-latest` — so it
+neither ties up the Mac nor burns GitHub-hosted Actions minutes for work that
+doesn't need either.
 
 See the `macos-ci-recipes` skill for the reasoning and copy-in recipes when
 the new job is a macOS-only or hybrid iOS+macOS workflow.
+
+**This assumes the component's repository is private.** GitHub's own guidance
+is that self-hosted runners should not process `pull_request`-triggered jobs
+on a public repo — anyone can fork it and open a PR that executes arbitrary
+code against that runner's actual hardware and LAN, unlike a GitHub-hosted VM,
+which is thrown away after the job. A project that goes public must override
+`runs-on` back to a GitHub-hosted value for these non-Xcode jobs.
 
 ## Build & Test Tooling (flowdeck)
 
