@@ -184,7 +184,19 @@ jobs:
     # CLAUDE.supabase.md calls RLS "the security boundary" — Splinter (supabase db
     # lint) is what actually enforces it in CI, catching missing-RLS and
     # security-definer issues the Edge-Function checks never see.
-    runs-on: [self-hosted, linux]
+    #
+    # arm64, not the bare [self-hosted, linux] every other job in this file
+    # uses -- deliberately EXCLUDES the fleet's Synology runner (labeled x64),
+    # which is too weak to boot the full local Supabase stack (Postgres plus
+    # ~8 auxiliary services) inside supabase start's own timeout: measured on
+    # PixelFoxStudio/rail, "Starting database..." ran ~145s before
+    # `supabase start` gave up with ECONNREFUSED, a cold-start cost, not a
+    # networking bug (confirmed: the container was still mid-migration, not
+    # crashed or unreachable, when it was killed). Routes to the Raspberry Pi
+    # instead once it's registered with the arm64 label -- until then this
+    # job has no eligible runner and queues rather than fails; that's the
+    # deliberate trade while the Pi comes online, not an oversight.
+    runs-on: [self-hosted, linux, arm64]
     needs: changes
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 10
@@ -219,7 +231,9 @@ jobs:
 
   test-database:
     name: DB Tests (pgTAP)
-    runs-on: [self-hosted, linux]
+    # arm64 for the same reason as lint-database above -- excludes the
+    # Synology runner, routes to the Pi once it exists.
+    runs-on: [self-hosted, linux, arm64]
     # Serialized after lint-database, not parallel on `changes` alone: both
     # jobs' `supabase start` create identically-named containers (derived from
     # the project, not randomized), and self-hosted runners share ONE Docker
