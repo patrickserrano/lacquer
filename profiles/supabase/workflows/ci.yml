@@ -205,11 +205,38 @@ jobs:
       - name: Lint database schema
         run: supabase db lint --level warning
 
+      # `supabase start`'s containers are created on the RUNNER'S Docker host,
+      # not scoped to this job's own lifecycle -- on a GitHub-hosted runner
+      # that host is a fresh, disposable VM, so nothing needed cleaning up. On
+      # a self-hosted runner, every job shares the SAME long-lived Docker
+      # daemon, so a stack left running collides with the next run of this
+      # same job ("container name already in use"). always() so a failed
+      # lint still tears the stack down -- otherwise the FIRST failure here
+      # permanently wedges every run after it.
+      - name: Stop local stack
+        if: always()
+        run: supabase stop --no-backup
+
   test-database:
     name: DB Tests (pgTAP)
     runs-on: [self-hosted, linux]
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Serialized after lint-database, not parallel on `changes` alone: both
+    # jobs' `supabase start` create identically-named containers (derived from
+    # the project, not randomized), and self-hosted runners share ONE Docker
+    # host -- unlike GitHub-hosted runners' one-VM-per-job isolation, running
+    # them at the same time is a real name collision, not a hypothetical one
+    # (observed live: "Conflict. The container name ... is already in use").
+    needs: [changes, lint-database]
+    # `!cancelled()`, not the bare code check alone: a job's custom `if:`
+    # replaces the implicit `success()` GitHub adds by default, but ONLY when
+    # the expression itself calls one of success()/failure()/cancelled()/
+    # always() -- otherwise `success()` is implicitly ANDed back in, which
+    # would skip this job whenever lint-database FAILS. That's not the
+    # relationship intended here: lint-database is a `needs` purely to
+    # SERIALIZE the two jobs' `supabase start` (see its comment above), not a
+    # real "must pass first" gate -- a lint failure should not silently skip
+    # the pgTAP suite too.
+    if: needs.changes.outputs.code == 'true' && !cancelled()
     timeout-minutes: 10
     defaults:
       run:
@@ -275,6 +302,12 @@ jobs:
           supabase test db
         env:
           RELAX_STATE: ${{ steps.relax.outputs.state }}
+
+      # See lint-database's identical step for why this exists on a
+      # self-hosted runner and didn't on GitHub-hosted.
+      - name: Stop local stack
+        if: always()
+        run: supabase stop --no-backup
 
   deploy-database:
     name: Deploy migrations
