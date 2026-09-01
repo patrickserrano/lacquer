@@ -259,10 +259,10 @@ func TestEveryIOSJobThatBuildsTheProjectSeedsSecrets(t *testing.T) {
 	// Workflows that drive a build of {{XCODEPROJ}}, and how they do it.
 	// dead-code.yml (Periphery) used to be a third entry here -- removed along
 	// with the workflow itself once Periphery's local cache grew to 48GB and
-	// the tool went unmaintained upstream.
+	// the tool went unmaintained upstream. docs.yml (which delegated to
+	// scripts/build-docs.sh) was removed along with docs publishing entirely.
 	builders := map[string]string{
-		"ci.yml":   "xcodebuild",
-		"docs.yml": "scripts/build-docs.sh, which seeds before it builds",
+		"ci.yml": "xcodebuild",
 	}
 	for file, how := range builders {
 		raw, err := os.ReadFile(filepath.Join(root(t), "profiles", "ios", "workflows", file))
@@ -270,15 +270,6 @@ func TestEveryIOSJobThatBuildsTheProjectSeedsSecrets(t *testing.T) {
 			t.Fatal(err)
 		}
 		body := string(raw)
-		// docs.yml delegates to build-docs.sh, which carries the seeding itself;
-		// a second copy in the workflow would be a fourth place to drift.
-		if file == "docs.yml" {
-			if !strings.Contains(body, "scripts/build-docs.sh") {
-				t.Errorf("%s no longer runs build-docs.sh, so it no longer inherits that script's "+
-					"seeding — it now needs a step of its own (%s)", file, how)
-			}
-			continue
-		}
 		if !strings.Contains(body, "Secrets.xcconfig.example") {
 			t.Errorf("profiles/ios/workflows/%s builds the Xcode project (%s) but never seeds "+
 				"Secrets.xcconfig. A clean checkout has none — it is gitignored — so the build fails "+

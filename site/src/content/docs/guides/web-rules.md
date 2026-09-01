@@ -160,9 +160,8 @@ rules](/lacquer/guides/agent-rules/#documentation) for the standard and the
 relaxation mechanism. This is the TypeScript half.
 
 Every exported symbol carries a TSDoc comment, and every link in one resolves.
-Both are checked by the local pre-commit hook and published to
-`https://<owner>.github.io/<repo>/api/` by `web-docs.yml`, which runs nightly
-rather than on merge.
+Both are checked by the local pre-commit hook — there is no CI-side publishing
+step; this is a local, pre-commit-enforced requirement only.
 
 ```ts
 /**
@@ -257,7 +256,7 @@ row here, and a hook never runs weaker than its CI twin.
 | `check` → `pnpm run build` | pre-push `build` |
 | `check` → `turbo run <task>` (monorepo) | same branch in pre-commit `typecheck`, pre-push `test` / `build` |
 | `check` → `pnpm audit` | pre-push `audit` (network, so not at commit time) |
-| `./node_modules/.bin/typedoc` | pre-push `docs`; not PR-blocking CI, nightly `web-docs.yml` only |
+| `./node_modules/.bin/typedoc` | pre-push `docs`; local only, no CI counterpart |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
 
 One deliberate asymmetry: pre-commit runs Biome over **staged files** while CI

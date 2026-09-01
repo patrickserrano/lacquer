@@ -50,11 +50,8 @@ var scheduledShipped = []string{
 	"profiles/ios/workflows-optional/testflight-feedback.yml",
 	"profiles/ios/workflows/cleanup-ci.yml",
 	"profiles/ios/workflows/dependency-audit.yml",
-	"profiles/ios/workflows/docs.yml",
 	"profiles/ios/workflows/quality-review.yml",
-	"profiles/supabase/workflows/docs.yml",
 	"profiles/supabase/workflows/health.yml",
-	"profiles/web/workflows/docs.yml",
 }
 
 // The detector is checked against the real shipped content, not against fixtures

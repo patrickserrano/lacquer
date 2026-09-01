@@ -3,7 +3,6 @@ package shipped
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/config"
@@ -121,43 +120,5 @@ func TestScheduledMacJobsDoNotShareASlot(t *testing.T) {
 			continue
 		}
 		seen[s.cron] = s.file
-	}
-}
-
-// TestDocsCommentsDoNotDescribeTheRevertedTwoJobDesign keeps prose and
-// implementation from disagreeing again.
-//
-// All three docs.yml files carried a comment arguing for a cheap `check` job on a
-// hosted runner, justified by "a skipped job never occupies a runner at all" and
-// reasoning about iOS's Mac — including in web and supabase, which have no Mac.
-// The design it described lasted one day: e958179 reverted it after measuring
-// that GitHub bills a minimum of one minute per JOB, so the gate cost a billed
-// minute per repository per day to save ~20 seconds of an idle runner.
-//
-// The comment outlived the code by many commits. Nothing catches that, because
-// nothing reads comments — so this does, for this one claim, which is now
-// contradicted by the file it sits in and by
-// TestDocsWorkflowsAreScheduledNotPushed.
-func TestDocsCommentsDoNotDescribeTheRevertedTwoJobDesign(t *testing.T) {
-	// The load-bearing sentence of the reverted argument.
-	const claim = "a skipped job never occupies a runner"
-	var checked int
-	for _, profile := range []string{"ios", "web", "supabase"} {
-		p := filepath.Join(root(t), "profiles", profile, "workflows", "docs.yml")
-		raw, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		checked++
-		for i, line := range strings.Split(string(raw), "\n") {
-			if strings.Contains(strings.ToLower(line), claim) {
-				t.Errorf("profiles/%s/workflows/docs.yml:%d still argues for the two-job design "+
-					"that e958179 reverted: %q\nThese files have ONE job by measurement — a second "+
-					"one costs a billed minute per repository per day.", profile, i+1, strings.TrimSpace(line))
-			}
-		}
-	}
-	if checked != 3 {
-		t.Fatalf("read %d docs.yml files, want 3", checked)
 	}
 }

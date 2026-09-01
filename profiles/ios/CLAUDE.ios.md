@@ -189,7 +189,7 @@ done
 | `ASC_KEY_CONTENT` | release | the `.p8` private key contents |
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
 | `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step restores the keychain's prior settings and re-locks it, so neither the unlocked window nor the timeout change outlives the run) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | claude, quality-review, dependency-audit, issue-deduplication | `claude setup-token` |
+| `CLAUDE_CODE_OAUTH_TOKEN` | claude, quality-review, dependency-audit | `claude setup-token` |
 | `SENTRY_AUTH_TOKEN` | release (dSYM upload) | Sentry → Settings → Auth Tokens, scoped to `project:releases` |
 | `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug (e.g. `pixel-fox-studio`) |
 | `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug (e.g. `rail`) — differs per repo, so this one is never org-level |
@@ -243,21 +243,21 @@ release and looks configured while uploading nothing.
 
 ### Claude-powered workflows
 
-Four synced workflows call `anthropics/claude-code-action` and therefore need
+Three synced workflows call `anthropics/claude-code-action` and therefore need
 `CLAUDE_CODE_OAUTH_TOKEN`: `ios-claude.yml` (responds to an `@claude` mention),
-`ios-quality-review.yml` (weekly), `ios-dependency-audit.yml` (twice monthly),
-and `ios-issue-deduplication.yml` (on every opened issue).
+`ios-quality-review.yml` (weekly), and `ios-dependency-audit.yml` (twice
+monthly).
 
 The action **hard-fails** when the token is empty — `Environment variable
 validation failed` — before doing any work. Each workflow now checks for the
 token first and behaves according to who is waiting on it:
 
-- **Unattended** (quality-review, dependency-audit, issue-deduplication): skip
-  the Claude step with a `::warning::` and a job-summary remedy. The job stays
-  green, because a permanently red scheduled run is noise that trains you to
-  stop reading the Actions tab — which is exactly how this went unnoticed.
-  Dependency-audit still collects and publishes its report, so the run is not
-  worthless without the token.
+- **Unattended** (quality-review, dependency-audit): skip the Claude step with
+  a `::warning::` and a job-summary remedy. The job stays green, because a
+  permanently red scheduled run is noise that trains you to stop reading the
+  Actions tab — which is exactly how this went unnoticed. Dependency-audit
+  still collects and publishes its report, so the run is not worthless without
+  the token.
 - **Interactive** (claude.yml): fail, *and post a comment on the thread* saying
   why. Someone typed `@claude` and is waiting; a silent skip is the worst
   outcome, and a red X on a workflow they will not open is barely better.
@@ -441,7 +441,6 @@ table).
 | `Lint` → SwiftLint `--strict` | pre-commit `swiftlint` (**`--strict`**, staged files) |
 | `Lint` → SwiftFormat `--lint` | pre-commit `swiftformat` (writes; a changed file fails the commit) |
 | `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
-| DocC builds clean | not PR-blocking — nightly `ios-docs.yml` only, see below |
 | `Test` | CI-only — see below |
 | `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |
 | `Build (Release)` | CI-only: a full Release archive is not a commit-time cost |
@@ -454,11 +453,8 @@ before a slower CI run; here it buys nothing but a second, identical
 `xcodebuild` invocation on the one shared box you're also trying not to tie up.
 `Test` is CI-only for that reason — not an oversight, and not a case of "a
 hook never runs weaker than its CI twin," since there is no weaker local
-version, only none. DocC-builds-clean isn't in PR-blocking CI at all anymore —
-the same runner-contention problem, at a scale that meant dropping it from the
-PR gate entirely rather than trying to make it cheaper; it still runs in
-`ios-docs.yml`'s nightly publish. Everything else in the table above is static
-analysis (lint/format) with no build cost, so it stays local as usual.
+version, only none. Everything else in the table above is static analysis
+(lint/format) with no build cost, so it stays local as usual.
 
 The `--strict` flags are the load-bearing part. `line_length`, `file_length`,
 `type_body_length` and `function_body_length` are all **warning** severity in
@@ -497,10 +493,8 @@ and the relaxation mechanism. This section is the Swift half.
 
 Every declaration above `private` carries a `///` doc comment, and the DocC
 archive builds with zero warnings. Both are checked by the local pre-commit
-hook (`docs-hook.sh`) and published to `https://<owner>.github.io/<repo>/swift/`
-by `ios-docs.yml`, which runs nightly rather than on merge (see that
-workflow's own comments — the DocC build is too slow to sit in front of every
-PR on the fleet's one shared self-hosted Mac).
+hook (`docs-hook.sh`) — there is no CI-side publishing step; this is a local,
+pre-commit-enforced requirement only.
 
 ```swift
 /// Loads the user's saved sessions, newest first.
