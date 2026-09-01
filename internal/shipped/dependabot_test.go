@@ -396,69 +396,6 @@ func TestDependabotOpensPRsForEverythingDaily(t *testing.T) {
 	}
 }
 
-// Docs publishing is scheduled, not merge-triggered. The DocC build takes ~38
-// minutes on the fleet's one self-hosted Mac, so a per-merge publish put a
-// 38-minute job at the head of the queue that CI and releases then sat behind.
-func TestDocsWorkflowsAreScheduledNotPushed(t *testing.T) {
-	for _, profile := range []string{"ios", "web", "supabase"} {
-		raw, err := os.ReadFile(filepath.Join(root(t), "profiles", profile, "workflows", "docs.yml"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		// `on` is a YAML 1.1 boolean, so it parses as the key `true`.
-		var doc struct {
-			On struct {
-				Push     any `yaml:"push"`
-				Schedule []struct {
-					Cron string `yaml:"cron"`
-				} `yaml:"schedule"`
-			} `yaml:"on"`
-			Jobs map[string]struct {
-				Needs any    `yaml:"needs"`
-				If    string `yaml:"if"`
-			} `yaml:"jobs"`
-		}
-		body := lacquerToken.ReplaceAllString(strings.ReplaceAll(string(raw), "{{WEB_BUILD_ENV}}\n", ""), "x")
-		if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
-			t.Fatalf("%s docs.yml: %v", profile, err)
-		}
-
-		if doc.On.Push != nil {
-			t.Errorf("%s docs.yml still publishes on push", profile)
-		}
-		if len(doc.On.Schedule) == 0 {
-			t.Errorf("%s docs.yml has no schedule", profile)
-			continue
-		}
-		// Not 07:00/08:00/09:00 — those are cleanup-ci, supabase health and
-		// testflight-feedback, and this exists to stop competing for the runner.
-		for _, sc := range doc.On.Schedule {
-			for _, taken := range []string{"0 7 ", "0 8 ", "0 9 "} {
-				if strings.HasPrefix(sc.Cron, taken) {
-					t.Errorf("%s docs.yml cron %q collides with an existing daily", profile, sc.Cron)
-				}
-			}
-		}
-
-		// ONE job, with the work gated on a staleness step inside it.
-		//
-		// This was briefly two jobs — a cheap ubuntu gate plus the publish job —
-		// so a skip would not occupy the Mac. That trade was wrong on cost:
-		// GitHub bills a MINIMUM OF ONE MINUTE PER JOB, so the gate cost a full
-		// billed minute per repository per day (~420/month across the fleet) to
-		// save about twenty seconds of a runner that is not otherwise busy at
-		// 03:00. One job pays one minute whether it skips or publishes.
-		if len(doc.Jobs) != 1 {
-			t.Errorf("%s docs.yml has %d jobs; each one costs a billed minute even when it skips", profile, len(doc.Jobs))
-		}
-		for name, j := range doc.Jobs {
-			if j.Needs != nil {
-				t.Errorf("%s docs.yml job %q depends on another job — that is a second billed minute", profile, name)
-			}
-		}
-	}
-}
-
 // Grouping is the lever for PR volume; `ignore` is not. Grouping changes how
 // many PRs carry the updates, not which updates are offered.
 //

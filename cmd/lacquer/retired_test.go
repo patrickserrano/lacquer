@@ -36,8 +36,6 @@ func TestSyncRetiredDropsScheduledWorkOnly(t *testing.T) {
 
 	for _, rel := range []string{
 		".github/dependabot.yml",
-		".github/workflows/web-docs.yml",
-		".github/workflows/supabase-docs.yml",
 		".github/workflows/supabase-health.yml",
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
@@ -78,7 +76,7 @@ func TestAuditIsCleanOnRetiredProject(t *testing.T) {
 	if !ok {
 		t.Fatalf("no audit report in the output:\n%s", all)
 	}
-	for _, rel := range []string{".github/dependabot.yml", ".github/workflows/web-docs.yml"} {
+	for _, rel := range []string{".github/dependabot.yml", ".github/workflows/supabase-health.yml"} {
 		if strings.Contains(report, rel) {
 			t.Errorf("audit mentions %s; a dropped asset must not read as a finding\n%s", rel, all)
 		}
@@ -101,8 +99,8 @@ func TestAuditIsCleanWhenRetiredAfterTheFilesLanded(t *testing.T) {
 	if code := run([]string{"sync"}, env, &out, &errb); code != 0 {
 		t.Fatalf("sync exited %d\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".github", "workflows", "web-docs.yml")); err != nil {
-		t.Fatalf("expected the live sync to write web-docs.yml: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, ".github", "workflows", "supabase-health.yml")); err != nil {
+		t.Fatalf("expected the live sync to write supabase-health.yml: %v", err)
 	}
 	writeManifest(t, dir, retiredStanza)
 

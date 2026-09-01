@@ -49,9 +49,8 @@ differently.
 
 **`_shared/` — the code other functions import.** Every export in
 `supabase/functions/_shared/` carries a JSDoc comment, checked by the local
-pre-commit hook and published to `https://<owner>.github.io/<repo>/db/` by
-`supabase-docs.yml`, which runs nightly rather than on merge. Run it locally
-exactly as CI does:
+pre-commit hook — there is no CI-side publishing step; this is a local,
+pre-commit-enforced requirement only. Run it locally:
 
 ```sh
 deno doc --lint supabase/functions/_shared/*.ts
@@ -94,7 +93,7 @@ row here, and a hook never runs weaker than its CI twin.
 | `check` → `deno lint` | pre-commit `lint` |
 | `check` → `deno check` | pre-push `typecheck` |
 | `check` → `deno test` | pre-push `test` |
-| `deno doc --lint` | pre-commit `docs`; not PR-blocking CI, nightly `supabase-docs.yml` only |
+| `deno doc --lint` | pre-commit `docs`; local only, no CI counterpart |
 | `DB Lint (Splinter)`, `DB Test (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
 | `Deploy migrations` | CI-only, and only on merge to main — it is the step that touches production. |
 | `No lacquer drift` | `lacquer audit` (exit 3) |

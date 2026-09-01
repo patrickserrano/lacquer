@@ -63,13 +63,9 @@ var droppedByRetirement = []string{
 	// ios
 	".github/workflows/ios-cleanup-ci.yml",
 	".github/workflows/ios-dependency-audit.yml",
-	".github/workflows/ios-docs.yml",
 	".github/workflows/ios-quality-review.yml",
 	// supabase
-	".github/workflows/supabase-docs.yml",
 	".github/workflows/supabase-health.yml",
-	// web
-	".github/workflows/web-docs.yml",
 }
 
 // keptWhenRetired is the "stay consistent" half: the repo must not rot.
@@ -82,7 +78,6 @@ var keptWhenRetired = []string{
 	".github/workflows/web-env-validation.yml",
 	// Event-driven, not timed.
 	".github/workflows/ios-claude.yml",
-	".github/workflows/ios-issue-deduplication.yml",
 	".github/workflows/ios-release.yml",
 	// Lint / format / build configs.
 	".swiftlint.yml",
@@ -195,13 +190,13 @@ func TestRetirementDoesNotForgeExclusionSuppressions(t *testing.T) {
 func TestExclusionOfAScheduledWorkflowStaysLiveWhenRetired(t *testing.T) {
 	cfg := retiredProject(true)
 	cfg.Project.Exclude = []config.Exclusion{
-		{Path: ".github/workflows/ios-docs.yml", Reason: "hand-tuned publish step"},
+		{Path: ".github/workflows/ios-quality-review.yml", Reason: "hand-tuned publish step"},
 	}
 	sup, err := Suppressed(realLacquer(t), cfg)
 	if err != nil {
 		t.Fatalf("Suppressed: %v", err)
 	}
-	if len(sup) != 1 || filepath.ToSlash(sup[0]) != ".github/workflows/ios-docs.yml" {
+	if len(sup) != 1 || filepath.ToSlash(sup[0]) != ".github/workflows/ios-quality-review.yml" {
 		t.Errorf("suppressed = %v, want the excluded scheduled workflow — an exclusion "+
 			"shadowed by retirement must not read as stale", sup)
 	}
