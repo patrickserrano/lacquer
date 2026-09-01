@@ -9,9 +9,7 @@ lacquer syncs into the `CLAUDE.md` of any component declaring the `supabase`
 profile, on top of the stack-agnostic [core rules](/lacquer/guides/agent-rules/).
 :::
 
-This profile targets a Supabase backend: Postgres schema + RLS in `supabase/migrations/`, seed data in `supabase/seed/`, and **Deno** Edge Functions in `supabase/functions/`. The runtime is Deno, not Node — there's no `package.json`/`npm` here. This runs on the fleet's self-hosted Linux runners (`self-hosted, linux` — no Apple toolchain, so no macOS dependency to worry about).
-
-**This assumes the component's repository is private.** GitHub's own guidance is that self-hosted runners should not process `pull_request`-triggered jobs on a public repo — anyone can fork it and open a PR that executes arbitrary code against that runner's actual hardware and LAN, unlike a GitHub-hosted VM, which is thrown away after the job. A project that goes public must override `runs-on` back to a GitHub-hosted value in its own CI.
+This profile targets a Supabase backend: Postgres schema + RLS in `supabase/migrations/`, seed data in `supabase/seed/`, and **Deno** Edge Functions in `supabase/functions/`. The runtime is Deno, not Node — there's no `package.json`/`npm` here. This runs on GitHub-hosted runners (no Apple toolchain).
 
 ## Tooling — Deno, not npm
 
@@ -193,7 +191,7 @@ If this repo also contains an iOS component, the iOS profile syncs a `.pre-commi
 
 ## Testing & CI
 
-- `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-tested. The synced `supabase-ci.yml` runs `deno fmt --check`, `deno lint`, `deno check`, and `deno test` on the fleet's self-hosted Linux runners.
+- `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-tested. The synced `supabase-ci.yml` runs `deno fmt --check`, `deno lint`, `deno check`, and `deno test` on `ubuntu-latest`.
 - CI also checks the schema, not just the functions: `supabase db lint --level warning` (Splinter — flags missing-RLS / security-definer issues) and `supabase test db` (pgTAP against `supabase/tests/*.sql`). Write pgTAP tests that assert RLS actually denies cross-user access — the lint catches a *missing* policy, a test catches a *wrong* one.
 - An empty `supabase/tests/` **fails** the `DB Tests (pgTAP)` job. `supabase test db` exits 0 over a matchless glob, so without that check the job boots a full Postgres stack and reports green having asserted nothing. A project with no tests yet takes the standard time-boxed escape hatch, and the expiry is enforced: `pgtap = { until = "YYYY-MM-DD", reason = "..." }` under `[baseline.relax]`.
 - Remember that `TRUNCATE` is **not** filtered by RLS. A table with RLS on and no policies still permits `TRUNCATE` from any role holding the default grant, so lock the grant down as well as the policy — and assert it, since no policy can express it.
