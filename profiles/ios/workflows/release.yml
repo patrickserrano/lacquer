@@ -57,11 +57,11 @@ jobs:
   # github/needs/vars/inputs there — so a leg cannot skip itself. The set has to
   # be computed first and fed in via fromJSON.
   #
-  # Runs on a self-hosted Linux runner because it is jq over a JSON literal: no
-  # Xcode, and it must not occupy the dedicated Mac.
+  # Runs on ubuntu because it is jq over a JSON literal: no Xcode, and it must
+  # not occupy the dedicated Mac.
   select-products:
     name: Select products
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
@@ -552,7 +552,7 @@ jobs:
 
   notify-on-failure:
     name: Notify on Failure
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     needs: [select-products, build-and-deploy]
     # `always()` rather than `failure()`, because a failed selection SKIPS
     # build-and-deploy rather than failing it, and a job whose need was skipped

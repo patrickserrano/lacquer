@@ -1,7 +1,9 @@
 name: Supabase CI
 
-# Deno backend — runs on the fleet's self-hosted Linux runners (no Apple
-# toolchain to worry about).
+# Deno backend — runs on GitHub-hosted runners (no Apple toolchain to worry
+# about). Previously routed to the fleet's self-hosted Synology/Pi, but both
+# proved too weak for this profile's workloads (see the lint-database job
+# below) and the fleet-wide self-hosted Linux experiment was abandoned.
 
 on:
   workflow_dispatch:
@@ -29,7 +31,7 @@ jobs:
     name: Detect changed paths
     # Pure git diff — no toolchain — so it always runs and lets CI OK report even
     # on docs-only PRs where the heavy check is skipped.
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
       lacquer: ${{ steps.filter.outputs.lacquer }}
@@ -105,7 +107,7 @@ jobs:
 
   check:
     name: Format · Lint · Test
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
@@ -200,12 +202,11 @@ jobs:
     # `Start local stack`, having never reached the lint step. Slower hardware
     # does not fix this; the stack is simply too large for either box.
     #
-    # So these two jobs go back to GitHub-hosted runners. That costs minutes,
-    # which is what the rest of this profile moved to self-hosted to avoid --
-    # but they are gated on `changes` and only run when supabase/** is
-    # touched, so the cost is bounded and rare. Every other job in this file
-    # stays self-hosted. A red CI that cannot run is worth less than a small
-    # bill.
+    # So these two jobs go back to GitHub-hosted runners -- as has every job
+    # in this file. The Synology/Pi self-hosted Linux experiment was
+    # abandoned fleet-wide: too weak for the heavier profiles' actual
+    # workloads to be worth the operational cost of running it. A red CI
+    # that cannot run is worth less than a small bill.
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -335,7 +336,7 @@ jobs:
 
   deploy-database:
     name: Deploy migrations
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     # Only a merge to main, and only behind the schema jobs. `supabase db push`
     # is the one step here that touches production, so it must not be reachable
     # from a PR, and a migration must never land there without the lint and the
@@ -457,8 +458,8 @@ jobs:
   drift:
     name: No lacquer drift
     # Pure Go + a git checkout — no stack toolchain — so it runs on a
-    # self-hosted Linux runner rather than tying up the dedicated Mac.
-    runs-on: [self-hosted, linux]
+    # GitHub-hosted runner rather than tying up the dedicated Mac.
+    runs-on: ubuntu-latest
     needs: changes
     # Gated on paths, NOT on `code`: a drifted hook or workflow is exactly the
     # kind of change that arrives in an otherwise docs-only PR, so `lacquer`
@@ -537,7 +538,7 @@ jobs:
     # points at "CI OK", not at the check job), so it never gets stuck "pending"
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     needs: [changes, check, lint-database, test-database, drift]
     if: always()
     timeout-minutes: 2

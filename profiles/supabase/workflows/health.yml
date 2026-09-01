@@ -16,7 +16,7 @@ permissions:
 jobs:
   ping:
     name: Ping REST gateway
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     steps:
       - name: Ping Supabase REST gateway
         env:
