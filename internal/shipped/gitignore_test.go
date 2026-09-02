@@ -203,13 +203,15 @@ func TestGitignoreRegionIgnoresCredentials(t *testing.T) {
 	}
 
 	// The committed templates. Ignoring these breaks the profile outright: CI
-	// copies Secrets.xcconfig.example verbatim to build, and the web profile's
-	// env-validation workflow reads .env.example and .env.schema.
+	// copies Secrets.xcconfig.example verbatim to build, the web profile's
+	// env-validation workflow reads .env.example and .env.schema, and
+	// .env.op's op:// references are what dev/migrate scripts resolve.
 	for _, path := range []string{
 		"Secrets.xcconfig.example",
 		"ios/Secrets.xcconfig.example",
 		".env.example",
 		".env.schema",
+		".env.op",
 	} {
 		if ignored(t, project, path) {
 			t.Errorf("%s IS ignored — it is a committed template the profile and CI depend on", path)
