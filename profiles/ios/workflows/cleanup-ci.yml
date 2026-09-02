@@ -33,7 +33,7 @@ jobs:
       # Default to 'standard' for scheduled runs, use input for manual runs
       CLEANUP_LEVEL: ${{ inputs.cleanup_level || 'standard' }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Check for Running CI Jobs
         id: check-jobs
