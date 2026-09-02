@@ -138,7 +138,7 @@ jobs:
       # version pinned here as well would be a second source of truth, and the
       # two would drift silently — CI resolving one tree and the developer
       # another is precisely the class of bug a lockfile exists to prevent.
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: pnpm/action-setup@v6
         with:
           # The action reads `packageManager` from the REPO ROOT package.json by
           # default. A component in a subdirectory keeps its package.json there,
