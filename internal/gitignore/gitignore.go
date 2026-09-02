@@ -83,7 +83,11 @@ Secrets.xcconfig
 .env
 .env.*
 !.env.example
-!.env.schema`
+!.env.schema
+# .env.op holds 1Password op:// references, never values — op run resolves
+# them at run time. It has to be committed or the dev and migrate scripts have
+# nothing to resolve, and the .env.* rule above would otherwise swallow it.
+!.env.op`
 
 // Body renders the managed region body for cfg.
 //
