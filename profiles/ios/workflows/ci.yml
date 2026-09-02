@@ -852,7 +852,16 @@ jobs:
                 echo "All tests passed (0 failed). Exit code 65 was spurious."
                 echo "test_result=passed" >> "$GITHUB_OUTPUT"
                 exit 0
-              elif [ -n "$RESULT" ] && [ -n "$FAILED_COUNT" ]; then
+              # "Failed" is the only value that means a real, attributed test
+              # failure. `.result` can also legitimately read "unknown" (Apple's
+              # own schema lists it alongside Passed/Failed/Skipped/Expected
+              # Failure) — that is xcresulttool saying it could not reach a
+              # verdict, not "0 tests failed". Folding it into this branch
+              # produced the exact misleading message that hid a real
+              # zero-tests-executed failure: "0 failed (result: unknown)" reads
+              # like a pass with stray formatting, not the ambiguous non-verdict
+              # it actually is. Route it to FAIL CLOSED below instead.
+              elif [ "$RESULT" = "Failed" ] && [ -n "$FAILED_COUNT" ]; then
                 echo "Test failures detected via xcresulttool: $FAILED_COUNT failed (result: $RESULT)"
                 {
                   echo "test_result=failed"
@@ -864,10 +873,24 @@ jobs:
 
             # FAIL CLOSED. A parse that could not reach a verdict is not a pass.
             # Only `.result == "Passed"` with zero failures exits 0 above; every
-            # other path — tool missing, schema changed, bundle unreadable —
-            # lands here and fails the job. Treating "I could not tell" as "it
-            # passed" is the exact assumption that shipped the false green.
-            echo "::error::Could not reliably determine test results from xcresult (xcresulttool exit=$SUMMARY_EXIT). Treating as a failure rather than silently passing."
+            # other path — tool missing, schema changed, bundle unreadable,
+            # `.result == "unknown"` — lands here and fails the job. Treating "I
+            # could not tell" as "it passed" is the exact assumption that shipped
+            # the false green.
+            TOTAL_COUNT=$(echo "$SUMMARY_JSON" | jq -r '.totalTestCount // empty' 2>/dev/null)
+            echo "::error::Could not reliably determine test results from xcresult (xcresulttool exit=$SUMMARY_EXIT, result=${RESULT:-<none>}, totalTestCount=${TOTAL_COUNT:-<none>})."
+            # A run that produced this ambiguity is almost never silent — xcodebuild
+            # said SOMETHING on the way here, and xcpretty's --test formatter has
+            # been seen to swallow it whole rather than pass it through. Surface the
+            # raw tee'd log's tail directly so the actual cause is visible in the
+            # step output instead of leaving only "unknown" behind. tail rather than
+            # cat: some builds fill this with megabytes of compiler output that
+            # would only bury the one that matters.
+            if [ -f xcodebuild.log ]; then
+              echo "::group::xcodebuild.log (last 200 lines)"
+              tail -200 xcodebuild.log
+              echo "::endgroup::"
+            fi
             echo "test_result=unknown" >> "$GITHUB_OUTPUT"
             exit 1
 
@@ -961,7 +984,14 @@ jobs:
         continue-on-error: true
         with:
           name: ios-test-results{{IOS_CI_ARTIFACT_SUFFIX}}
-          path: TestResults.xcresult
+          # xcodebuild.log alongside the xcresult bundle: xcpretty's --test
+          # formatter has been seen to swallow xcodebuild's own output silently
+          # against newer Xcode versions, and the step output above only ever
+          # showed the last 200 lines. The full tee'd log is what actually
+          # settles a "result: unknown" run whose cause wasn't in that tail.
+          path: |
+            TestResults.xcresult
+            xcodebuild.log
           if-no-files-found: ignore
           retention-days: 1
 
