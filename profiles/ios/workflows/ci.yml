@@ -35,7 +35,7 @@ jobs:
       lacquer: ${{ steps.filter.outputs.lacquer }}
       xcodeproj: ${{ steps.filter.outputs.xcodeproj }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -143,7 +143,7 @@ jobs:
     # "Require approval for all fork PRs" for defense-in-depth).
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Detect Swift sources
         id: swiftsrc
@@ -198,11 +198,11 @@ jobs:
       #
       # working-directory is pinned to the repo root: this job may default to a
       # component subdirectory, and .lacquer.toml lives at the root.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@v7
         with:
           go-version-file: .lacquer-checkout/go.mod
           cache-dependency-path: .lacquer-checkout/go.sum
@@ -232,7 +232,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true') && needs.changes.outputs.xcodeproj == 'true'
     timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         # Without this, actions/checkout leaves Git LFS-tracked assets (app
         # icons, launch screens, ...) as their tiny pointer-file stand-ins
         # instead of the real binary content -- the asset catalog compiler
@@ -359,7 +359,7 @@ jobs:
       - name: Cache SPM packages (cold-start fallback)
         id: spm-cache
         if: steps.local-spm.outputs.valid != 'true'
-        uses: actions/cache@v6.1.0
+        uses: actions/cache@v6
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
           key: ${{ runner.os }}-spm-${{ hashFiles('{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -457,7 +457,7 @@ jobs:
     # backstop with headroom for a cold, cache-cold build.
     timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         # Without this, actions/checkout leaves Git LFS-tracked assets (app
         # icons, launch screens, ...) as their tiny pointer-file stand-ins
         # instead of the real binary content -- the asset catalog compiler
@@ -568,7 +568,7 @@ jobs:
       - name: Cache SPM packages (cold-start fallback)
         id: spm-cache
         if: steps.local-spm.outputs.valid != 'true'
-        uses: actions/cache@v6.1.0
+        uses: actions/cache@v6
         with:
           path: "{{COMPONENT_PREFIX}}DerivedData/SourcePackages"
           key: ${{ runner.os }}-spm-${{ hashFiles('{{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -956,7 +956,7 @@ jobs:
           fi
 
       - name: Upload Test Results
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7
         if: always()
         continue-on-error: true
         with:
@@ -999,7 +999,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Create Secrets.xcconfig (build-time placeholder)
         run: |
@@ -1226,15 +1226,15 @@ jobs:
     if: needs.changes.outputs.lacquer == 'true'
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       # lacquer is a public repo, so this needs no token.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
 
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@v7
         with:
           go-version-file: .lacquer-checkout/go.mod
           # Without this, the module cache restore probes the PROJECT root for

@@ -36,7 +36,7 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       lacquer: ${{ steps.filter.outputs.lacquer }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -115,7 +115,7 @@ jobs:
       run:
         working-directory: "{{COMPONENT_PREFIX}}."
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: denoland/setup-deno@v2
         with:
@@ -162,11 +162,11 @@ jobs:
       #
       # working-directory is pinned to the repo root: this job may default to a
       # component subdirectory, and .lacquer.toml lives at the root.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@v7
         with:
           go-version-file: .lacquer-checkout/go.mod
           cache-dependency-path: .lacquer-checkout/go.sum
@@ -215,7 +215,7 @@ jobs:
       run:
         working-directory: "{{COMPONENT_PREFIX}}."
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: supabase/setup-cli@v3
         with:
@@ -267,7 +267,7 @@ jobs:
       run:
         working-directory: "{{COMPONENT_PREFIX}}."
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: supabase/setup-cli@v3
         with:
@@ -360,7 +360,7 @@ jobs:
       run:
         working-directory: "{{COMPONENT_PREFIX}}."
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: supabase/setup-cli@v3
         with:
@@ -473,15 +473,15 @@ jobs:
     if: needs.changes.outputs.lacquer == 'true'
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       # lacquer is a public repo, so this needs no token.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
 
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@v7
         with:
           go-version-file: .lacquer-checkout/go.mod
           # Without this, the module cache restore probes the PROJECT root for

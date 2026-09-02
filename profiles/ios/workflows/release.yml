@@ -169,7 +169,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -443,7 +443,7 @@ jobs:
             --whats-new "$(cat "$NOTES_FILE")"
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7
         with:
           name: '${{ matrix.product.name }}-${{ github.ref_name }}.ipa'
           # Glob, for the same reason the publish step discovers its file: the
@@ -457,7 +457,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload dSYM artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7
         with:
           name: '${{ matrix.product.name }}-${{ github.ref_name }}.dSYM'
           path: "{{COMPONENT_PREFIX}}build/${{ matrix.product.name }}.xcarchive/dSYMs/*.dSYM"
