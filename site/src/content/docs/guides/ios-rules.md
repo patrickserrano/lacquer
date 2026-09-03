@@ -263,6 +263,13 @@ Verified directly 2026-08-28: a genuine build/test failure (a real `Could not fi
 - If you are the one writing a pre-commit hook, CI step, or any script that gates on a flowdeck command's result, gate on the parsed output, not the shell's `$?`.
 :::
 
+:::danger[`flowdeck simulator runtime install` reports success without installing anything — same bug, different subcommand]
+Verified 2026-09-03: `flowdeck simulator runtime install <platform> <version>` printed "✓ Platform installed successfully", returned `"success": true`, and exited **0** in under 2 seconds for a runtime requiring a ~9.8GB download — but nothing was installed. Confirmed absent from `flowdeck simulator runtime list --json`, no new CoreSimulator volume created, no disk space consumed. Same failure shape as the build/test exit-0 bug above — this is FlowDeck's own bug, not something this profile can fix.
+
+- **Always verify with `flowdeck simulator runtime list --json` after any `runtime install` — don't trust the command's own exit code or `success` field.** A script that does `flowdeck simulator runtime install ... && echo done` will print "done" after installing nothing.
+- This matters most after deleting a runtime that looked stale (`deletable: true`, no SDK resolved to it) — a silently no-op'd reinstall can leave you believing simulators that depend on it are fixed when they're still completely unbootable.
+:::
+
 :::caution[This is a preference, not a wall — nothing blocks the raw tools]
 The synced `.claude/settings.json` blocks exactly three things: Xcode project files, `.entitlements`, and force flags (see [Editor hooks](#editor-hooks-claudesettingsjson)). `simctl` and `devicectl` are **not** blocked — running one simply works.
 :::
