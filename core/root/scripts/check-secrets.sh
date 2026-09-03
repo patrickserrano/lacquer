@@ -51,7 +51,29 @@ done < <(git diff --cached --name-only --diff-filter=ACM -z |
 # provider patterns below are [A-Za-z0-9_-] throughout, and the PEM header has
 # no angle bracket. So `password="<redacted>"` is dropped while a live key
 # inside markup is still reported.
-PLACEHOLDER='your_|your-|xxxx|placeholder|redacted|example|<'
+#
+# `env(VAR_NAME)` is Supabase CLI's own documented indirection syntax — every
+# `supabase init`-generated config.toml writes `openai_api_key = "env(OPENAI_API_KEY)"`
+# to say "read this from the environment," never a value. It matches none of
+# the terms above (no placeholder word, no `<`), so it was reported as if it
+# were an inlined secret. The exclusion is anchored to the END of the matched
+# value (`$`, checked against the value alone per the strip above) and
+# requires the opening quote immediately precede `env(`: the value must be
+# EXACTLY `env(IDENT)`, not merely contain it somewhere. That anchoring is what
+# stops this from becoming a way to launder a real secret — `sk-ant-…env(X)`
+# still ends in `env(X)` but the character right before it is not a quote, so
+# it does not match.
+#
+# The parens below are written as bracket expressions (`[(]` / `[)]`), not
+# backslash-escaped literals: this string crosses into awk as a `-v`
+# assignment, and awk's string-literal escape processing consumes a bare
+# `\(`/`\)` before the regex engine ever sees it — silently turning them into
+# an unescaped capture group instead of two literal characters, which is a
+# no-op change in ERE that makes the whole pattern fail to match a literal
+# `(`. Wrapping each paren in its own single-character bracket class sidesteps
+# backslash processing entirely, since parens carry no special meaning inside
+# `[...]`.
+PLACEHOLDER='your_|your-|xxxx|placeholder|redacted|example|<|["'"'"']env[(][a-z0-9_]+[)]$'
 
 # grep exits 0 when it matched, 1 when it did not, and >=2 when it could not
 # run at all. Only the first two are answers. The third — an unreadable file, a
