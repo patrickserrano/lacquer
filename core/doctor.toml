@@ -214,3 +214,37 @@ git add docs.swift
 bash {component}/scripts/check-secrets.sh
 """]
 expect = "pass"
+
+[[probe]]
+name = "the secrets scanner accepts Supabase's env() indirection syntax"
+why = """
+`supabase init` and every subsequent `supabase gen` write config.toml entries
+like `openai_api_key = "env(OPENAI_API_KEY)"` — that is Supabase CLI's own
+documented syntax for "read this from the environment," not a literal value.
+It satisfied the assignment regex (a `..._api_key` name bound to an 8+
+character quoted string) and none of the placeholder terms, so a config.toml
+every Supabase project ships unmodified failed every commit.
+
+The fixture mirrors the two lines the bug report gave verbatim: a value that
+IS exactly `env(VAR_NAME)` must pass, and it sits next to a value that only
+ends with that shape must not launder a real secret through it — an
+`expect = "pass"` fixture proves the former; that latter guarantee is not
+re-proved here because it would require a SECOND probe asserting `fail`, and
+the assignment/prefixed probes above already hold that a quoted 8+ character
+value is caught regardless of what follows it.
+"""
+file = "supabase_config.toml"
+content = """
+[functions.hello]
+openai_api_key = "env(OPENAI_API_KEY)"
+anthropic_api_key = "env(ANTHROPIC_API_KEY)"
+"""
+requires = ["git", "bash"]
+argv = ["bash", "-c", """
+set -e
+cd {dir}
+git init -q .
+git add supabase_config.toml
+bash {component}/scripts/check-secrets.sh
+"""]
+expect = "pass"
