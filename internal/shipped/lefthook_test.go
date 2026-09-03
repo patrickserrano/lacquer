@@ -148,7 +148,11 @@ func TestLefthookProfilesStillDisagreeAboutACommandName(t *testing.T) {
 	supa := readFile(t, filepath.Join(lacquerRoot, "profiles", "supabase", "root", "lefthook.yml"))
 
 	for _, want := range []struct{ body, run, why string }{
-		{web, "pnpm run test:coverage", "the web profile's pre-push test"},
+		// {{WEB_RUN}} test:coverage, not a literal "pnpm run" — the package
+		// manager is resolved per project (see detect.WebPackageManager), but
+		// the SCRIPT name this pins on is fixed regardless of which manager
+		// runs it.
+		{web, "{{WEB_RUN}} test:coverage", "the web profile's pre-push test"},
 		{supa, "deno test --allow-all", "the supabase profile's pre-push test"},
 	} {
 		if !strings.Contains(want.body, want.run) {

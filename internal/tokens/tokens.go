@@ -76,6 +76,48 @@ const (
 	// is parsed, for both the empty and populated cases. What ships is what gets
 	// checked.
 	WebBuildEnv = "{{WEB_BUILD_ENV}}"
+	// WebPackageManager is "pnpm" or "npm" — see detect.WebPackageManager for
+	// how it's read. Spliced straight into `cache:` in setup-node, which takes
+	// exactly those two literal values.
+	WebPackageManager = "{{WEB_PACKAGE_MANAGER}}"
+	// WebPMSetup is the `pnpm/action-setup` step, or "" for an npm component —
+	// only a pnpm project pays for a step it does not need.
+	//
+	// It has to run BEFORE actions/setup-node, not after: `cache: pnpm` asks
+	// setup-node to locate the pnpm store, which it does by running pnpm — so
+	// pnpm has to exist first. Reversed, the run fails with "Unable to locate
+	// executable file: pnpm", which reads like a missing dependency rather than
+	// an ordering mistake. That trap is exactly what pixelfoxstudio.com's
+	// hand-carried web-ci.yml had already documented before this profile could
+	// render it at all.
+	//
+	// Like WebBuildEnv it stands alone at column 0 and owns its own
+	// indentation, and renders to nothing for the common case that predates
+	// pnpm detection: an npm project, or one with no package.json yet.
+	WebPMSetup = "{{WEB_PM_SETUP}}"
+	// WebLockfile is the lockfile setup-node's `cache-dependency-path` and the
+	// "no lockfile" ban both care about: "pnpm-lock.yaml" or
+	// "package-lock.json".
+	WebLockfile = "{{WEB_LOCKFILE}}"
+	// WebInstall is the frozen, non-mutating install command: `pnpm install
+	// --frozen-lockfile` or `npm ci`. Both refuse to run when the lockfile
+	// disagrees with package.json instead of quietly fixing it up, which is
+	// the property that makes either one safe to run unattended in CI.
+	WebInstall = "{{WEB_INSTALL}}"
+	// WebRun is the two-word script runner prefix — "pnpm run" or "npm run" —
+	// spliced in front of a bare script name ("typecheck", "build", …).
+	WebRun = "{{WEB_RUN}}"
+	// WebAudit is the dependency-audit invocation: "pnpm audit
+	// --audit-level=critical" or "npm audit --audit-level=critical".
+	WebAudit = "{{WEB_AUDIT}}"
+	// WebExec names the "run this dev-tool binary, falling through to a global
+	// install if the project doesn't have one locally" verb — "pnpm exec" or
+	// "npx" — used ONLY in lefthook.yml's install-lefthook-itself prose, where
+	// that fallback is correct and intended (lefthook is a single
+	// self-contained binary; see the resolver-dispatch ban in
+	// internal/shipped/shipped_test.go for why every OTHER tool in this profile
+	// is never invoked this way).
+	WebExec = "{{WEB_EXEC}}"
 	// IOSProductCatalog is every product as a single-line JSON array, embedded in
 	// the release workflow's selection step. That step filters it by tag prefix
 	// and emits the matrix, because GitHub does not expose the `matrix` context
@@ -259,6 +301,17 @@ var registry = []entry{
 	// config's own folder, which is the exact abort this token exists to prevent.
 	{ComponentToRoot, true},
 	{WebBuildEnv, false}, // empty is valid and common: most projects need no build secrets
+	// Never legitimately empty — WebPackageManager always resolves to "pnpm" or
+	// "npm" — so requiring a value here fails closed on a derivation bug rather
+	// than shipping `cache: ""`, which setup-node rejects anyway but only after
+	// the job has already started.
+	{WebPackageManager, true},
+	{WebPMSetup, false}, // empty is valid and common: an npm component needs no pnpm setup step
+	{WebLockfile, true},
+	{WebInstall, true},
+	{WebRun, true},
+	{WebAudit, true},
+	{WebExec, true},
 	{IOSProductCatalog, false},
 	{IOSProductChoices, false},
 	{IOSProductSecrets, false},
@@ -326,6 +379,7 @@ func ToRoot(prefix string) string {
 func Values(cfg *config.Config, prefix string) map[string]string {
 	p := cfg.Project
 	products := cfg.Products()
+	pm := detect.WebPackageManager(cfg.Root, prefix)
 	return map[string]string{
 		ProjectName:       p.ProjectName,
 		Scheme:            p.Scheme,
@@ -337,6 +391,13 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		ComponentPrefix:   prefix,
 		ComponentToRoot:   ToRoot(prefix),
 		WebBuildEnv:       BuildEnvBlock(p.BuildEnv),
+		WebPackageManager: pm,
+		WebPMSetup:        WebPMSetupBlock(pm, prefix),
+		WebLockfile:       WebLockfileName(pm),
+		WebInstall:        WebInstallCmd(pm),
+		WebRun:            WebRunPrefix(pm),
+		WebAudit:          WebAuditCmd(pm),
+		WebExec:           WebExecPrefix(pm),
 		IOSProductCatalog: ProductCatalog(products),
 		IOSProductChoices: ProductChoices(products),
 		IOSProductSecrets: ProductSecrets(products),
@@ -769,6 +830,73 @@ func BuildEnvBlock(names []string) string {
 		fmt.Fprintf(&b, "\n      %s: ${{ secrets.%s }}", n, n)
 	}
 	return b.String()
+}
+
+// WebPMSetupBlock renders the `pnpm/action-setup` step for a pnpm component,
+// or "" for an npm one. See the WebPMSetup token doc for why this step exists
+// and why it must precede actions/setup-node.
+//
+// prefix is spliced in directly (not left as a second {{COMPONENT_PREFIX}}
+// token for a later pass) because Substitute walks the registry once, in
+// order: a token whose OWN rendered value still contained another token's
+// literal text would only be caught if that second token were registered
+// later in the same slice, which is exactly the kind of ordering dependency
+// nobody should have to maintain by hand.
+func WebPMSetupBlock(pm, prefix string) string {
+	if pm != detect.PackageManagerPnpm {
+		return ""
+	}
+	return "      - uses: pnpm/action-setup@v6\n" +
+		"        with:\n" +
+		"          # The action reads `packageManager` from the REPO ROOT package.json by\n" +
+		"          # default. A component in a subdirectory keeps its package.json there, so\n" +
+		"          # without this the action reads the wrong file — or no file — and the\n" +
+		"          # version pin silently stops applying.\n" +
+		"          package_json_file: \"" + prefix + "package.json\"\n"
+}
+
+// WebLockfileName is the lockfile the chosen package manager commits.
+func WebLockfileName(pm string) string {
+	if pm == detect.PackageManagerPnpm {
+		return "pnpm-lock.yaml"
+	}
+	return "package-lock.json"
+}
+
+// WebInstallCmd is the frozen, non-mutating install invocation for pm.
+func WebInstallCmd(pm string) string {
+	if pm == detect.PackageManagerPnpm {
+		return "pnpm install --frozen-lockfile"
+	}
+	return "npm ci"
+}
+
+// WebRunPrefix is the two-word script-runner prefix for pm, meant to sit in
+// front of a bare script name.
+func WebRunPrefix(pm string) string {
+	if pm == detect.PackageManagerPnpm {
+		return "pnpm run"
+	}
+	return "npm run"
+}
+
+// WebAuditCmd is the dependency-audit invocation for pm.
+func WebAuditCmd(pm string) string {
+	if pm == detect.PackageManagerPnpm {
+		return "pnpm audit --audit-level=critical"
+	}
+	return "npm audit --audit-level=critical"
+}
+
+// WebExecPrefix names the "run this dev-tool binary, falling through to a
+// global install if there is no local one" verb for pm. Used only for
+// lefthook — see the WebExec token doc for why every other tool in this
+// profile deliberately avoids this fallback.
+func WebExecPrefix(pm string) string {
+	if pm == detect.PackageManagerPnpm {
+		return "pnpm exec"
+	}
+	return "npx"
 }
 
 // Substitute replaces each registered token present in content with its value

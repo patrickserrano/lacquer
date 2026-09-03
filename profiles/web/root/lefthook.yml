@@ -1,4 +1,4 @@
-# Git hooks (lefthook). Install once with `pnpm exec lefthook install`.
+# Git hooks (lefthook). Install once with `{{WEB_EXEC}} lefthook install`.
 # Assumes the project package.json defines: typecheck, test, test:coverage, build.
 #
 # `root: "{{COMPONENT_PREFIX}}"` scopes each command to its component. For a
@@ -43,7 +43,7 @@ pre-commit:
         if [ -f turbo.json ]; then
           ./node_modules/.bin/turbo run typecheck
         else
-          pnpm run typecheck
+          {{WEB_RUN}} typecheck
         fi
     # Scan every staged file for hardcoded secrets — repo-wide, not component-
     # scoped: check-secrets.sh reads `git diff --cached` itself (no root, no
@@ -60,7 +60,7 @@ pre-push:
         if [ -f turbo.json ]; then
           ./node_modules/.bin/turbo run test
         else
-          pnpm run test:coverage
+          {{WEB_RUN}} test:coverage
         fi
     build:
       root: "{{COMPONENT_PREFIX}}"
@@ -68,7 +68,7 @@ pre-push:
         if [ -f turbo.json ]; then
           ./node_modules/.bin/turbo run build
         else
-          pnpm run build
+          {{WEB_RUN}} build
         fi
     # Mirrors the `Docs` job in web-ci.yml. Not at pre-commit: TypeDoc reads the
     # whole entry-point graph, so running it per staged file would be both slow
@@ -91,7 +91,7 @@ pre-push:
     # Here rather than pre-commit because it hits the network.
     audit:
       root: "{{COMPONENT_PREFIX}}"
-      run: pnpm audit --audit-level=critical
+      run: {{WEB_AUDIT}}
 
 commit-msg:
   commands:

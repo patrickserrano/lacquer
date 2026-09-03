@@ -11,17 +11,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// renderWebCI substitutes profiles/web/workflows/ci.yml the way sync does.
+// renderWebCI substitutes profiles/web/workflows/ci.yml the way sync does,
+// for a pnpm component — this file's cases are entirely about turbo.json
+// branching, which is orthogonal to package manager choice, so the fixture
+// pins pnpm (this fleet's overwhelmingly common case) rather than letting an
+// unset Root fall through to the npm default and change what these cases
+// assert. See TestWebPackageManagerRendering (shipped_test.go) for the test
+// that actually covers BOTH package managers.
 func renderWebCI(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(root(t), "profiles", "web", "workflows", "ci.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	compRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(compRoot, "package.json"),
+		[]byte(`{"name":"demo","packageManager":"pnpm@10.20.0"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &config.Config{Project: config.Project{
 		ProjectName: "Demo", Scheme: "Demo", BundleID: "com.x.demo",
 		AscAppID: "1", Xcodeproj: "Demo.xcodeproj", SwiftVersion: "6", GithubOrg: "acme",
-	}}
+	}, Root: compRoot}
 	out, missing := tokens.Substitute(string(raw), tokens.Values(cfg, ""))
 	if len(missing) > 0 {
 		t.Fatalf("unsubstituted tokens: %v", missing)

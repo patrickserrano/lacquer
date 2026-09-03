@@ -65,8 +65,18 @@ project's `check` job red, and the project's only escape is excluding
 errors and CSS warnings, and the projects that synced it had no other move.
 Shipped assets are linted in the lacquer, not in seventeen downstream repos.
 
-**pnpm, not npm.** Every Node component in this fleet uses pnpm. Two things
-have to be true in each `package.json`, and CI depends on both:
+**pnpm, npm-safe by default.** The synced CI and git hooks read this component's
+OWN `package.json` and pick their package manager from it: a `packageManager`
+field starting with `"pnpm@"` gets the pnpm path below; anything else — no such
+field, or no `package.json` yet — gets plain npm (`cache: npm`, `npm ci`,
+`npm run <script>`, `npm audit`), same as before this profile knew pnpm existed.
+Nothing needs declaring anywhere else — not `.lacquer.toml`, not a workflow
+input — because `package.json` is the one place both CI and a developer's own
+corepack already have to agree.
+
+Every real Node component in this fleet currently uses pnpm, which is why the
+rest of this section is written for it. Two things have to be true in each
+`package.json`, and CI depends on both:
 
 - a `packageManager` field, e.g. `"packageManager": "pnpm@11.17.0"`. This is the
   ONLY place the version is written. `pnpm/action-setup` reads it, and corepack

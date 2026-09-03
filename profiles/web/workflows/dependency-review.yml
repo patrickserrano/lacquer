@@ -9,7 +9,7 @@ on:
   pull_request:
     paths:
       - '{{COMPONENT_PREFIX}}package.json'
-      - '{{COMPONENT_PREFIX}}pnpm-lock.yaml'
+      - '{{COMPONENT_PREFIX}}{{WEB_LOCKFILE}}'
 
 permissions:
   contents: read

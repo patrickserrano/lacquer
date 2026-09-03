@@ -127,32 +127,35 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # BEFORE setup-node, not after. `cache: pnpm` asks setup-node to locate the
-      # pnpm store, which it does by running pnpm — so pnpm has to exist first.
-      # Reversed, the run fails with "Unable to locate executable file: pnpm",
-      # which reads like a missing dependency rather than an ordering mistake.
+      # Package manager is read from THIS component's own package.json: a
+      # `packageManager` field starting with "pnpm@" selects pnpm, and anything
+      # else (an npm/yarn value, no field, or no package.json at all) selects
+      # npm — the safe default a project gets before it ever opts into pnpm.
+      # See detect.WebPackageManager for the rule and why it reads the
+      # COMPONENT's file rather than the repo root's.
       #
-      # No `version:` here on purpose: pnpm/action-setup reads the
-      # `packageManager` field from package.json, so the version CI uses and the
-      # version a developer's corepack uses are the same string in one place. A
-      # version pinned here as well would be a second source of truth, and the
-      # two would drift silently — CI resolving one tree and the developer
-      # another is precisely the class of bug a lockfile exists to prevent.
-      - uses: pnpm/action-setup@v6
-        with:
-          # The action reads `packageManager` from the REPO ROOT package.json by
-          # default. A component in a subdirectory keeps its package.json there,
-          # so without this the action reads the wrong file — or no file — and
-          # the version pin silently stops applying.
-          package_json_file: "{{COMPONENT_PREFIX}}package.json"
-
+      # The step below (pnpm/action-setup) exists only on the pnpm path, and
+      # BEFORE setup-node, not after: `cache: pnpm` asks setup-node to locate
+      # the pnpm store, which it does by running pnpm — so pnpm has to exist
+      # first. Reversed, the run fails with "Unable to locate executable file:
+      # pnpm", which reads like a missing dependency rather than an ordering
+      # mistake — the exact trap pixelfoxstudio.com's hand-carried web-ci.yml
+      # had already documented before this profile could render it at all.
+      #
+      # No `version:` pinned on it: pnpm/action-setup reads the `packageManager`
+      # field from package.json itself, so the version CI uses and the version a
+      # developer's corepack uses are the same string in one place. A version
+      # pinned here as well would be a second source of truth, and the two would
+      # drift silently — CI resolving one tree and the developer another is
+      # precisely the class of bug a lockfile exists to prevent.
+{{WEB_PM_SETUP}}
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: "{{COMPONENT_PREFIX}}pnpm-lock.yaml"
+          cache: {{WEB_PACKAGE_MANAGER}}
+          cache-dependency-path: "{{COMPONENT_PREFIX}}{{WEB_LOCKFILE}}"
 
-      - run: pnpm install --frozen-lockfile
+      - run: {{WEB_INSTALL}}
 
       # Biome: format + lint in check mode (no writes).
       #
@@ -190,7 +193,7 @@ jobs:
           if [ -f turbo.json ]; then
             ./node_modules/.bin/turbo run typecheck
           else
-            pnpm run typecheck
+            {{WEB_RUN}} typecheck
           fi
 
       - name: Test (coverage)
@@ -198,7 +201,7 @@ jobs:
           if [ -f turbo.json ]; then
             ./node_modules/.bin/turbo run test
           else
-            pnpm run test:coverage
+            {{WEB_RUN}} test:coverage
           fi
 
       - name: Build
@@ -206,13 +209,13 @@ jobs:
           if [ -f turbo.json ]; then
             ./node_modules/.bin/turbo run build
           else
-            pnpm run build
+            {{WEB_RUN}} build
           fi
 
       # Block only on CRITICAL advisories by default — transitive highs are often
-      # unfixable; tighten to `high` (and/or add npm `overrides`) per project.
+      # unfixable; tighten to `high` per project.
       - name: Dependency audit
-        run: pnpm audit --audit-level=critical
+        run: {{WEB_AUDIT}}
 
       # Prove the checks above can actually FAIL. Everything else in this job
       # asks "does this project pass?"; doctor asks "would these checks notice
