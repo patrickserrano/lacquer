@@ -1,6 +1,8 @@
 package tokens
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -214,5 +216,130 @@ func TestSurvivingIgnoresNonTokenBraces(t *testing.T) {
 		if got := Surviving(s); len(got) != 0 {
 			t.Errorf("Surviving(%q) = %v, want none", s, got)
 		}
+	}
+}
+
+// The pnpm/npm helper functions each answer for one manager, and both must be
+// exercised — a helper that only ever renders its default branch in the test
+// suite is indistinguishable from one that ignores its argument.
+
+func TestWebLockfileName(t *testing.T) {
+	if got := WebLockfileName("pnpm"); got != "pnpm-lock.yaml" {
+		t.Errorf("pnpm: got %q", got)
+	}
+	if got := WebLockfileName("npm"); got != "package-lock.json" {
+		t.Errorf("npm: got %q", got)
+	}
+}
+
+func TestWebInstallCmd(t *testing.T) {
+	if got := WebInstallCmd("pnpm"); got != "pnpm install --frozen-lockfile" {
+		t.Errorf("pnpm: got %q", got)
+	}
+	if got := WebInstallCmd("npm"); got != "npm ci" {
+		t.Errorf("npm: got %q", got)
+	}
+}
+
+func TestWebRunPrefix(t *testing.T) {
+	if got := WebRunPrefix("pnpm"); got != "pnpm run" {
+		t.Errorf("pnpm: got %q", got)
+	}
+	if got := WebRunPrefix("npm"); got != "npm run" {
+		t.Errorf("npm: got %q", got)
+	}
+}
+
+func TestWebAuditCmd(t *testing.T) {
+	if got := WebAuditCmd("pnpm"); got != "pnpm audit --audit-level=critical" {
+		t.Errorf("pnpm: got %q", got)
+	}
+	if got := WebAuditCmd("npm"); got != "npm audit --audit-level=critical" {
+		t.Errorf("npm: got %q", got)
+	}
+}
+
+func TestWebExecPrefix(t *testing.T) {
+	if got := WebExecPrefix("pnpm"); got != "pnpm exec" {
+		t.Errorf("pnpm: got %q", got)
+	}
+	if got := WebExecPrefix("npm"); got != "npx" {
+		t.Errorf("npm: got %q", got)
+	}
+}
+
+// WebPMSetupBlock renders nothing for npm — the whole point is that an npm
+// component pays for no pnpm-specific step at all.
+func TestWebPMSetupBlockEmptyForNpm(t *testing.T) {
+	if got := WebPMSetupBlock("npm", ""); got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}
+
+// The pnpm block must splice the PREFIX VALUE directly rather than leave a
+// second {{COMPONENT_PREFIX}} token behind for a later pass: Substitute walks
+// its registry once, in order, so a literal token left inside another token's
+// rendered value would only be caught if COMPONENT_PREFIX happened to be
+// registered later in the same slice — an ordering dependency this must not
+// rely on.
+func TestWebPMSetupBlockSplicesPrefixDirectly(t *testing.T) {
+	got := WebPMSetupBlock("pnpm", "admin/")
+	if !strings.Contains(got, `package_json_file: "admin/package.json"`) {
+		t.Errorf("got %q, want it to name admin/package.json", got)
+	}
+	if strings.Contains(got, "{{") {
+		t.Errorf("got %q, leaves a raw token behind", got)
+	}
+	got = WebPMSetupBlock("pnpm", "")
+	if !strings.Contains(got, `package_json_file: "package.json"`) {
+		t.Errorf("root layout: got %q, want the bare package.json", got)
+	}
+}
+
+// Values integration: a real on-disk pnpm component renders the pnpm family of
+// tokens, and a real npm one (or one with no package.json at all) renders the
+// npm family — end to end through Values, not just the standalone helpers.
+func TestValuesWebPackageManagerFromDisk(t *testing.T) {
+	root := t.TempDir()
+	proj := config.Project{ProjectName: "Acme", Scheme: "Acme", BundleID: "com.x.acme", AscAppID: "9"}
+
+	mustWrite := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWrite("package.json", `{"name":"acme","packageManager":"pnpm@10.20.0"}`)
+	mustWrite("admin/package.json", `{"name":"acme-admin"}`)
+
+	cfg := &config.Config{Project: proj, Root: root}
+
+	pnpmVals := Values(cfg, "")
+	if pnpmVals[WebPackageManager] != "pnpm" {
+		t.Errorf("root: WebPackageManager = %q, want pnpm", pnpmVals[WebPackageManager])
+	}
+	if pnpmVals[WebInstall] != "pnpm install --frozen-lockfile" {
+		t.Errorf("root: WebInstall = %q", pnpmVals[WebInstall])
+	}
+	if pnpmVals[WebPMSetup] == "" {
+		t.Error("root: WebPMSetup is empty for a pnpm component")
+	}
+
+	npmVals := Values(cfg, "admin/")
+	if npmVals[WebPackageManager] != "npm" {
+		t.Errorf("admin/: WebPackageManager = %q, want npm", npmVals[WebPackageManager])
+	}
+	if npmVals[WebInstall] != "npm ci" {
+		t.Errorf("admin/: WebInstall = %q", npmVals[WebInstall])
+	}
+	if npmVals[WebLockfile] != "package-lock.json" {
+		t.Errorf("admin/: WebLockfile = %q", npmVals[WebLockfile])
+	}
+	if npmVals[WebPMSetup] != "" {
+		t.Errorf("admin/: WebPMSetup = %q, want empty for an npm component", npmVals[WebPMSetup])
 	}
 }

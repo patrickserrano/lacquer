@@ -75,14 +75,22 @@ var bans = []banned{
 	},
 	{
 		name: "npm in web content",
-		// Every Node component in this fleet uses pnpm. npm creeping back is not
-		// cosmetic: `npm ci` needs a package-lock.json that no longer exists, and
-		// `cache: npm` silently caches nothing when the lockfile is absent — a
-		// slow green run rather than a failure, so nothing surfaces it.
+		// The web profile supports BOTH npm and pnpm — see
+		// detect.WebPackageManager — but which one a rendered file gets is
+		// decided in Go, from the CONSUMING project's own package.json, never
+		// hardcoded in the shipped template. A literal `npm ci` (or `pnpm
+		// install`) sitting directly in profiles/web content would apply to
+		// every project regardless of what it actually declared: an npm literal
+		// here is the same bug this profile already shipped once (#161 fixed a
+		// hardcoded npm assuming pnpm; hardcoding pnpm here would be the mirror
+		// mistake). The tokens ({{WEB_INSTALL}}, {{WEB_RUN}}, {{WEB_AUDIT}},
+		// {{WEB_PACKAGE_MANAGER}}, {{WEB_LOCKFILE}}) are how the choice reaches
+		// the file instead.
 		re: regexp.MustCompile(`\bnpm\s+(ci|install|run|audit)\b|cache:\s*npm\b|package-lock\.json`),
-		why: "the web profile installs with `pnpm install --frozen-lockfile` against a committed " +
-			"pnpm-lock.yaml, and pins the version through package.json's `packageManager` field. " +
-			"An npm command here would look for a lockfile the project no longer has.",
+		why: "the web profile picks its package manager PER PROJECT (see detect.WebPackageManager) " +
+			"and renders it through {{WEB_INSTALL}}/{{WEB_RUN}}/{{WEB_AUDIT}}/{{WEB_PACKAGE_MANAGER}}/" +
+			"{{WEB_LOCKFILE}} — a literal npm invocation in the shipped template would run unconditionally " +
+			"for every project, pnpm ones included, rather than only for the ones that declared npm.",
 		allow: func(_, line string) bool {
 			// Deliberately NOT isProse: it exempts any line starting with "-",
 			// which covers markdown bullets but also exempts `- run: npm ci` —
@@ -617,6 +625,168 @@ func TestRenderedWorkflowsAreValidYAML(t *testing.T) {
 // lacquerToken matches an unrendered {{TOKEN}} while ignoring GitHub Actions'
 // ${{ ... }} expressions, which are not ours to substitute.
 var lacquerToken = regexp.MustCompile(`(^|[^$])(\{\{[A-Z_]+\}\})`)
+
+// TestWebPackageManagerRendering is the fix for #200: the web profile used to
+// assume npm, then flipped to assuming pnpm (#161) with no lever for anything
+// else — either way, one hardcoded manager for every consumer. This proves
+// BOTH families render correctly from the same template, decided per project
+// from that project's own package.json (detect.WebPackageManager), and that
+// neither family leaves the other's traces behind.
+//
+// Real files on disk, not values built by hand: cfg.Root has to be a real
+// directory for WebPackageManager to read package.json at all, and a fixture
+// with none is exactly the "npm project, or one that predates this profile
+// having an opinion" case the fix exists to leave alone.
+func TestWebPackageManagerRendering(t *testing.T) {
+	r := root(t)
+	proj := config.Project{ProjectName: "Demo", Scheme: "Demo", BundleID: "com.x.demo",
+		AscAppID: "1", Xcodeproj: "Demo.xcodeproj", SwiftVersion: "6", GithubOrg: "acme"}
+
+	// npmInvocation and pnpmInvocation use \b so "npm" never spuriously matches
+	// inside "pnpm" (a literal `strings.Contains(rendered, "npm run")` would —
+	// "pnpm run" contains "npm run" as a substring starting at its second
+	// byte, which is exactly the kind of false positive that makes a guard
+	// like this untrustworthy).
+	npmInvocation := regexp.MustCompile(`\bnpm\s+(ci|run|audit)\b|cache:\s*npm\b|package-lock\.json`)
+	pnpmInvocation := regexp.MustCompile(`\bpnpm\s+(install|run|audit)\b|cache:\s*pnpm\b|pnpm-lock\.yaml|pnpm/action-setup`)
+
+	cases := []struct {
+		name         string
+		packageJSON  string         // "" writes no package.json at all
+		ciWant       []string       // must all appear, verbatim, in the rendered ci.yml
+		lefthookWant []string       // must all appear, verbatim, in the rendered lefthook.yml
+		dontWant     *regexp.Regexp // must NOT match the CODE (comments stripped) of either file
+	}{
+		{
+			name:        "pnpm component",
+			packageJSON: `{"name":"demo","packageManager":"pnpm@10.20.0"}`,
+			ciWant: []string{
+				"cache: pnpm",
+				`cache-dependency-path: "pnpm-lock.yaml"`,
+				"- run: pnpm install --frozen-lockfile",
+				"uses: pnpm/action-setup@v6",
+				"pnpm run typecheck",
+				"pnpm run test:coverage",
+				"pnpm run build",
+				"run: pnpm audit --audit-level=critical",
+			},
+			lefthookWant: []string{
+				"pnpm exec lefthook install",
+				"pnpm run typecheck",
+				"pnpm run test:coverage",
+				"pnpm run build",
+				"run: pnpm audit --audit-level=critical",
+			},
+			// Checked against comment-stripped output — both branches' shared
+			// prose legitimately names the OTHER manager (this very comment
+			// section explains why npm is the default, and vice versa), so only
+			// actual invocations may fail this check.
+			dontWant: npmInvocation,
+		},
+		{
+			name:        "npm component (no packageManager field)",
+			packageJSON: `{"name":"demo"}`,
+			ciWant: []string{
+				"cache: npm",
+				`cache-dependency-path: "package-lock.json"`,
+				"- run: npm ci",
+				"npm run typecheck",
+				"npm run test:coverage",
+				"npm run build",
+				"run: npm audit --audit-level=critical",
+			},
+			lefthookWant: []string{
+				"npx lefthook install",
+				"npm run typecheck",
+				"npm run test:coverage",
+				"npm run build",
+				"run: npm audit --audit-level=critical",
+			},
+			dontWant: pnpmInvocation,
+		},
+		{
+			name:         "no package.json at all (a project that predates this profile)",
+			packageJSON:  "",
+			ciWant:       []string{"cache: npm", "- run: npm ci"},
+			lefthookWant: []string{"npx lefthook install"},
+			dontWant:     pnpmInvocation,
+		},
+	}
+
+	render := func(t *testing.T, cfg *config.Config, rel string) string {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(r, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, missing := tokens.Substitute(string(raw), tokens.Values(cfg, ""))
+		if len(missing) > 0 {
+			t.Fatalf("%s: unsubstituted tokens: %v", rel, missing)
+		}
+		if m := lacquerToken.FindString(out); m != "" {
+			t.Errorf("%s: rendered output still contains the lacquer token %s", rel, m)
+		}
+		var doc any
+		if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("%s: rendered output is not valid YAML: %v", rel, err)
+		}
+		return out
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			compRoot := t.TempDir()
+			if tc.packageJSON != "" {
+				if err := os.WriteFile(filepath.Join(compRoot, "package.json"), []byte(tc.packageJSON), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg := &config.Config{Project: proj, Root: compRoot}
+
+			ciRel := filepath.Join("profiles", "web", "workflows", "ci.yml")
+			lefthookRel := filepath.Join("profiles", "web", "root", "lefthook.yml")
+			ciOut := render(t, cfg, ciRel)
+			lefthookOut := render(t, cfg, lefthookRel)
+
+			for _, want := range tc.ciWant {
+				if !strings.Contains(ciOut, want) {
+					t.Errorf("%s: rendered output missing %q", ciRel, want)
+				}
+			}
+			for _, want := range tc.lefthookWant {
+				if !strings.Contains(lefthookOut, want) {
+					t.Errorf("%s: rendered output missing %q", lefthookRel, want)
+				}
+			}
+			// Comment-stripped: the shared prose in both files legitimately
+			// names both managers (explaining the choice, the default, the
+			// ordering trap), so only actual invocations may fail this check.
+			for rel, out := range map[string]string{ciRel: ciOut, lefthookRel: lefthookOut} {
+				code := stripYAMLComments(out)
+				if m := tc.dontWant.FindString(code); m != "" {
+					t.Errorf("%s: rendered CODE matches %q, which belongs to the OTHER package manager", rel, m)
+				}
+			}
+		})
+	}
+}
+
+// stripYAMLComments drops every line whose trimmed form starts with `#`. It
+// exists so a rendered-output assertion can tell an actual invocation from
+// commentary that mentions the other package manager by name — every comment
+// in these two files that explains the pnpm/npm choice necessarily names both,
+// and neither shipped file ever puts a real command behind a leading `#`.
+func stripYAMLComments(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "#") {
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
 
 // TestOperatorPackagesNameNoProject enforces the boundary that makes `lacquer
 // fleet` safe to ship in a PUBLIC repository while every project it sweeps is
