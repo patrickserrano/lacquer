@@ -96,9 +96,21 @@ func Gather(lacquerRoot string, roster fleet.Roster, now time.Time) Result {
 		res.Unavailable = append(res.Unavailable, fmt.Sprintf("gh pr list (%v)", prErr))
 	}
 
+	archivedRepos := archivedRoster(roster)
+
 	for _, rep := range reports {
 		row := Row{Name: rep.Name, Repo: rep.Repo, Path: rep.Path, Blocking: rep.Blocking(), Retired: rep.IsRetired()}
 		row.Notes = fleet.Notes(rep)
+		if rep.Repo != "" && archivedRepos[rep.Repo] {
+			// This is the one place lacquer#227 actually bites: a session
+			// dispatched at an archived repo does not crash or exit, it just
+			// runs with nothing it can push or open a PR against, and the
+			// daemon staying alive is indistinguishable from useful progress
+			// anywhere else in this view. Surfaced on every sweep, not only at
+			// dispatch time, so an entry going archived after it was already
+			// dispatched to still gets noticed.
+			row.Notes = append([]string{fmt.Sprintf("%s is archived on GitHub -- dispatch will refuse", rep.Repo)}, row.Notes...)
+		}
 		for _, s := range sessions {
 			if under(s.CWD, rep.Path) {
 				row.Sessions = append(row.Sessions, s)
@@ -194,6 +206,42 @@ func listPRs(roster fleet.Roster) (map[string][]PR, error) {
 	}
 	wg.Wait()
 	return out, nil
+}
+
+// archivedRoster checks every roster entry that names a repo for archived
+// status, concurrently and bounded -- the same shape as listPRs, for the same
+// reason: one gh call per project, run serially, is the slowest part of a
+// sweep otherwise.
+//
+// An entry whose check is inconclusive (no gh, no network, no access) is
+// simply absent from the result. "Could not tell" must never render as
+// "confirmed archived", and it must never silently render as "confirmed not
+// archived" either -- both are worse than a project this sweep is quiet
+// about.
+func archivedRoster(roster fleet.Roster) map[string]bool {
+	out := map[string]bool{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 6)
+
+	for _, e := range roster.Project {
+		if e.Repo == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(repo string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if yes, ok := archived(repo); ok && yes {
+				mu.Lock()
+				out[repo] = true
+				mu.Unlock()
+			}
+		}(e.Repo)
+	}
+	wg.Wait()
+	return out
 }
 
 func prsFor(repo string) ([]PR, error) {

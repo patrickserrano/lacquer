@@ -2,6 +2,7 @@ package console
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,6 +52,18 @@ func Dispatch(roster fleet.Roster, sessions []Session, name, task string, mode M
 	}
 	if task = strings.TrimSpace(task); task == "" {
 		return "", fmt.Errorf("dispatch needs a task")
+	}
+
+	// Refuse, do not warn. An archived repo is read-only at the API level --
+	// no push, no PR -- so a session dispatched against one does not fail
+	// loudly, it just sits there doing nothing a human would ever see, while
+	// `console watch` keeps reporting it "alive" because the daemon process
+	// itself is fine. That silence is the bug (lacquer#227): a wrong project
+	// name gets refused above; a right project name pointed at a dead repo
+	// must be refused just as loudly, not discovered later by an operator
+	// wondering why nothing happened.
+	if yes, ok := archived(entry.Repo); ok && yes {
+		return "", fmt.Errorf("refusing to dispatch %s: %s is archived on GitHub -- archived repos are read-only (no push, no pull request), so a dispatched session would run with nothing it can actually do; unarchive it on GitHub first if this was not intentional", entry.Name, entry.Repo)
 	}
 
 	// Warn, do not refuse. A second agent in the same project is sometimes
@@ -186,6 +199,42 @@ func DaemonID(output string) string {
 		return ""
 	}
 	return m[1]
+}
+
+// ArchivedRunner executes `gh repo view <repo> --json isArchived` and returns
+// its combined output. Injectable for tests -- the real implementation shells
+// to the `gh` binary, which is not installed or authenticated in every
+// environment this package runs in, and every real call is a network round
+// trip this package would otherwise pay on every dispatch.
+var ArchivedRunner = func(repo string) ([]byte, error) {
+	return exec.Command("gh", "repo", "view", repo, "--json", "isArchived").Output()
+}
+
+// archived reports whether repo is archived on GitHub.
+//
+// ok is false whenever the answer could not be determined -- no repo
+// configured for this roster entry, gh missing, not authenticated, network
+// down, or unparsable output -- and callers MUST NOT read a false ok as
+// "confirmed not archived". Dispatch only ever refuses on a CONFIRMED
+// archived repo (ok && yes); an inconclusive check degrades to "proceed", the
+// same graceful-degradation this fleet already applies to `gh pr list` in
+// console.go, rather than blocking every dispatch the moment gh itself is
+// merely unavailable.
+func archived(repo string) (yes bool, ok bool) {
+	if repo == "" {
+		return false, false
+	}
+	out, err := ArchivedRunner(repo)
+	if err != nil {
+		return false, false
+	}
+	var v struct {
+		IsArchived bool `json:"isArchived"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return false, false
+	}
+	return v.IsArchived, true
 }
 
 func names(r fleet.Roster) []string {
