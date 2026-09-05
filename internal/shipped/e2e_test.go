@@ -449,13 +449,13 @@ func validateSyncedProject(t *testing.T, p *project) {
 	})
 
 	t.Run("a second sync changes nothing", func(t *testing.T) {
-		if testing.Short() {
-			// The expensive one, and measurably so: sync's dirty-guard shells out
-			// to `git status` once per asset, and only on the SECOND run — the
-			// first finds no file on disk and skips the call entirely. That is
-			// ~650 git processes for the three-profile shape.
-			t.Skip("short mode: skipping the second sync (~650 git invocations)")
-		}
+		// This used to skip in short mode, and be the single most expensive
+		// subtest in the package: the dirty-guard shelled out to `git status`
+		// once per asset, and only on the SECOND run — the first finds no file
+		// on disk and short-circuits before ever calling git. That was ~650 git
+		// processes for the three-profile shape. gitguard.DirtyPaths now answers
+		// for the whole worktree in one subprocess, so the second sync costs one
+		// `git status` and the skip has nothing left to justify it.
 		p.commit("sync")
 		before := snapshot(t, p.root)
 		p.sync()
@@ -768,9 +768,7 @@ func prefixed(sep string, items []string) string {
 // can make.
 //
 // Each fixture is synced ONCE and then everything is asserted against that one
-// tree. That is not only cheaper — sync's dirty-guard shells out to `git status`
-// once per asset on any run after the first, which is ~650 processes for the
-// three-profile shape — it is also what keeps a failure attributable: when
+// tree. That is cheaper, but the reason it stays that way is attribution: when
 // `multistack` goes red, every assertion under it was made about the same bytes.
 var fixtures = []struct {
 	name string

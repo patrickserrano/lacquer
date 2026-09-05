@@ -68,20 +68,112 @@ func Tracked(dir string, pathspecs ...string) ([]string, error) {
 	return files, nil
 }
 
-// Dirty reports whether relPath inside projectRoot has uncommitted modifications
-// or is an untracked existing file. A committed-and-unmodified file, or a file
-// that does not exist, is clean (false). Errors from git are returned.
-func Dirty(projectRoot, relPath string) (bool, error) {
-	if _, err := os.Lstat(filepath.Join(projectRoot, relPath)); os.IsNotExist(err) {
-		return false, nil
+// DirtyPaths reports every path in projectRoot that has uncommitted
+// modifications or is untracked, as a set of forward-slash paths relative to
+// projectRoot itself — NOT to the repository root, which is what git reports and
+// what the prefix handling below corrects for. A committed-and-unmodified file
+// is absent from the set, and
+// so is a path that no longer exists on disk — a tracked file DELETED from the
+// worktree is not "work that would be clobbered", because there is nothing there
+// to clobber. Errors from git are returned, so a directory that is not a
+// repository fails closed rather than reporting a comfortable empty set.
+//
+// This answers the whole-worktree question in ONE subprocess. It replaced a
+// per-path `git status --porcelain -- <path>`, which sync's asset preflight ran
+// once per asset: a three-profile project plans ~1500 assets, so a second sync —
+// the run where every asset is already on disk, and so nothing short-circuits —
+// spawned ~1500 git processes to answer 1500 copies of the same question.
+//
+// The flags are load-bearing, and each one is a silent-wrongness guard:
+//
+//   - -z emits NUL-separated paths, which turns OFF the C-style quoting plain
+//     --porcelain applies to any path with a space, a quote or a non-ASCII byte.
+//     Quoted output would not compare equal to an asset's Dest, and the guard
+//     would stop protecting exactly the files whose names are hardest to notice.
+//   - --untracked-files=all lists untracked files individually. The default
+//     collapses a wholly-untracked directory to a single "dir/" entry, so an
+//     untracked asset nested in a new directory would never match by exact path
+//     and would be silently unguarded — the failure mode being a sync that
+//     overwrites new work while reporting success.
+//   - `-- .` scopes the query to projectRoot's own subtree, so a component
+//     inside a large monorepo does not pay to have its siblings scanned. This
+//     one is about cost, not correctness: the prefix check below is what
+//     actually keeps another component's work-in-progress out of the answer,
+//     and it would still do so if this pathspec were dropped.
+func DirtyPaths(projectRoot string) (map[string]bool, error) {
+	// Porcelain paths are relative to the REPOSITORY root, not to the working
+	// directory — including when git is run from a subdirectory. projectRoot is
+	// not always the repository root (InWorkTree happily accepts a component
+	// directory inside a monorepo), so the prefix has to be stripped or every
+	// lookup would miss and the guard would silently protect nothing. The old
+	// per-path form never had to care: it passed a pathspec and only tested
+	// whether the output was empty, so the two path roots never had to agree.
+	prefix, err := repoPrefix(projectRoot)
+	if err != nil {
+		return nil, err
 	}
-	cmd := exec.Command("git", "status", "--porcelain", "--", relPath)
+
+	cmd := exec.Command("git", "status", "--porcelain", "-z", "--untracked-files=all", "--", ".")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	// Any porcelain output for the path means it differs from HEAD/index or is
-	// untracked. No output means clean.
-	return strings.TrimSpace(string(out)) != "", nil
+
+	dirty := make(map[string]bool)
+	// Entries are "XY <path>\0", except a rename/copy, which is
+	// "XY <newpath>\0<origpath>\0" — the origin path is a bare field with no
+	// status prefix. Consuming it explicitly is what keeps the parser from
+	// reading it as the next entry and mis-slicing every path after it.
+	fields := strings.Split(string(out), "\x00")
+	for i := 0; i < len(fields); i++ {
+		entry := fields[i]
+		if len(entry) < 4 {
+			// Trailing empty field after the final NUL, or a truncated line.
+			continue
+		}
+		x, y := entry[0], entry[1]
+		path := entry[3:]
+		if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
+			// Skip the origin path field. It is the pre-rename name, which by
+			// definition no longer exists in the worktree, so the existence
+			// check below would drop it anyway; consuming it here is about
+			// framing, not filtering.
+			i++
+		}
+		path = filepath.ToSlash(path)
+		// Re-root onto projectRoot. The `-- .` pathspec should make every
+		// reported path fall under the prefix; anything that does not is outside
+		// the caller's tree and cannot correspond to one of its assets.
+		if prefix != "" {
+			if !strings.HasPrefix(path, prefix) {
+				continue
+			}
+			path = path[len(prefix):]
+		}
+		if path == "" {
+			continue
+		}
+		// Preserve the pre-batch rule exactly: a path git considers changed but
+		// that is not on disk (a deletion) is NOT dirty. Reporting it would make
+		// sync refuse where it used to proceed.
+		if _, err := os.Lstat(filepath.Join(projectRoot, filepath.FromSlash(path))); err != nil {
+			continue
+		}
+		dirty[path] = true
+	}
+	return dirty, nil
+}
+
+// repoPrefix returns dir's path relative to the root of its repository, as a
+// forward-slash path with a trailing slash, or "" when dir IS the repository
+// root. A non-repository is an error, so DirtyPaths fails closed.
+func repoPrefix(dir string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--show-prefix")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
