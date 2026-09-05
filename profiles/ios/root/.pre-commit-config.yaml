@@ -56,9 +56,12 @@ repos:
         types: [swift]
         files: ^{{COMPONENT_PREFIX}}
 
-      # The other half of the documentation baseline, and the cheap half — the
-      # DocC build itself is CI-only (see the note below). Same config and
-      # same --strict as the `Docs` job in ios-ci.yml.
+      # The documentation baseline, and now the whole of it. It used to be the
+      # cheap half of a pair, with a CI `Docs` job building the DocC archive;
+      # that job and the script behind it are both gone, so nothing anywhere
+      # else checks this. There is no CI twin to defer to and no second chance
+      # after the push — a `|| true` here would retire the baseline, not soften
+      # it.
       - id: swiftlint-docs
         name: SwiftLint (documentation)
         entry: scripts/docs-hook.sh scripts/precommit-swift.sh swiftlint-docs
@@ -67,13 +70,15 @@ repos:
         types: [swift]
         files: ^{{COMPONENT_PREFIX}}
 
-      # Deliberately no local `xcodebuild test`/`docbuild` hook. This fleet's
-      # self-hosted Mac runner is frequently the same physical machine as the
-      # one you're committing from — a local test or doc build doesn't save
-      # CI wall-clock the way it would on separate hardware, it just runs the
-      # exact same xcodebuild invocation twice on the one shared box. `Test`
-      # and `Docs` → DocC-builds-clean are CI-only by design; see CLAUDE.ios.md
-      # "Local Checks vs CI". Everything above this line is static analysis
+      # Deliberately no local `xcodebuild test` hook. This fleet's self-hosted
+      # Mac runner is frequently the same physical machine as the one you're
+      # committing from — a local test run doesn't save CI wall-clock the way it
+      # would on separate hardware, it just runs the exact same xcodebuild
+      # invocation twice on the one shared box. `Test` is CI-only by design; see
+      # CLAUDE.ios.md "Local Checks vs CI". There is no `docbuild` hook either,
+      # and no CI job behind it any more: nothing builds the DocC archive at
+      # all, which CLAUDE.core.md's documentation table says out loud rather
+      # than leaving implied. Everything above this line is static analysis
       # (lint/format), never a build, and stays local.
 
       - id: no-secrets

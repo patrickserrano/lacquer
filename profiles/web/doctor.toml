@@ -178,16 +178,26 @@ expect_output = '(?s)undocumented \(Variable\), defined in .*probe\.ts, does not
 [[probe]]
 name = "a relaxed docs build still produces a site"
 why = """
-The relaxed branch of web-docs.yml used to be `typedoc || echo "publishing
-anyway"`. It could never work: treatValidationWarningsAsErrors makes TypeDoc
-ABORT before writing docs-site, so swallowing the exit code left nothing to
-publish and publish-docs.sh refused with "'docs-site' is not a directory —
-nothing was built". Every run on a relaxed project failed that way from the day
-it shipped, and the comment above it asserted the opposite.
+The control for the probe above. Same shipped typedoc.json, same undocumented
+export, one key lowered — and the outcome flips from abort to a written site.
+Without the pair, the strict probe's non-zero exit could equally have come from
+an unreadable tsconfig, an unresolvable entry point, or an unknown key in
+typedoc.json; this is what pins the failure on treatValidationWarningsAsErrors
+and nothing else.
 
-This probe is the assertion that was missing: an UNDOCUMENTED export — the exact
-input a relaxation exists to tolerate — must still yield a directory. Re-escalate
-validation on the relaxed path and this goes red. Observed: exit 0, 4 entries.
+It was written against a defect rather than as a control. The relaxed branch of
+the docs publisher was `typedoc || echo "publishing anyway"`, and it could never
+work: treatValidationWarningsAsErrors makes TypeDoc ABORT before writing its
+output directory, so swallowing the exit code left nothing to publish and the
+publish step refused with "'docs-site' is not a directory — nothing was built".
+Every run on a relaxed project failed that way from the day it shipped, and the
+comment above it asserted the opposite.
+
+That publisher is gone, and nothing ships this invocation any more — lefthook's
+`docs` hook skips TypeDoc outright when [baseline.relax] documentation is
+active rather than re-running it with validation lowered. The config it
+mis-drove still ships, which is what this probe now holds still. Observed:
+exit 0, 4 entries.
 """
 file = "probe.ts"
 content = """

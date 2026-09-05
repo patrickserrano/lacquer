@@ -268,9 +268,17 @@ pre-push hook:
 
 | Stack | Checked with |
 |-------|--------------|
-| iOS / Swift | SwiftLint `missing_docs` + `xcodebuild docbuild` |
+| iOS / Swift | SwiftLint `missing_docs`. Half 1 only — see below |
 | Web / TypeScript | TypeDoc `validation.notDocumented` + `invalidLink` |
 | Supabase / Deno | `deno doc --lint` |
+
+**iOS currently checks half 1 and not half 2.** `xcodebuild docbuild` ran from
+the `Docs` job, never from a hook — a doc build on the shared Mac runner is the
+one check in this table that costs minutes rather than seconds — so when the job
+went, `scripts/build-docs.sh` was left with no caller and has now been unshipped
+with it. Nothing resolves Swift symbol links today. Better said out loud than
+implied away by the table: a stack listed as checked when it isn't is how a
+baseline quietly stops being one.
 
 Write the comment for the reader who doesn't already know: what the thing is
 for, and what a caller must know — preconditions, ownership, units, what happens
@@ -284,9 +292,12 @@ There is no hosted API documentation, for any stack. `gh-pages` used to be the
 composed site — each stack's nightly docs workflow wrote its own subdirectory
 and `scripts/publish-docs.sh` regenerated the root index from whatever was
 present. Those workflows were removed, so no branch is written and no site is
-served. `scripts/publish-docs.sh` still syncs into every project; nothing calls
-it. Only the publishing went — the doc comments and the clean docs build are
-still required, and still checked by the hook.
+served. `scripts/publish-docs.sh` has now been unshipped too, having outlived
+every caller. Sync never deletes, so a project that already has a copy keeps it;
+`lacquer audit` lists it as no longer shipped by the lacquer, which is the
+prompt to remove it. Only the publishing went — the doc comments are still
+required on every stack, and the docs build still runs from the hook on web and
+Supabase.
 
 **If you ever bring publishing back, do not turn GitHub Pages on for a private
 project.** A Pages site is served publicly even when its repository is private —
