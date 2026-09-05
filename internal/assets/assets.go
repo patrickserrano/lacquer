@@ -495,6 +495,17 @@ func Preflight(projectRoot string, plan []Asset) ([]string, error) {
 		return nil, fmt.Errorf("refusing asset sync: %s is not a git repository (git is required to guard against overwriting uncommitted work)", projectRoot)
 	}
 
+	// One `git status` for the whole worktree, then a map lookup per asset. This
+	// used to be a `git status --porcelain -- <path>` per asset, which for a
+	// three-profile plan meant ~1500 git processes for a single sync — and the
+	// answer to every one of them was already contained in this single query.
+	// The set covers the entire repository; only planned assets are looked up in
+	// it, so unrelated dirt elsewhere in the project still does not block a sync.
+	dirtyPaths, err := gitguard.DirtyPaths(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("git guard: %w", err)
+	}
+
 	targets := make([]string, len(plan))
 	var dirty []string
 	for i, a := range plan {
@@ -507,11 +518,9 @@ func Preflight(projectRoot string, plan []Asset) ([]string, error) {
 		}
 		targets[i] = target
 
-		isDirty, err := gitguard.Dirty(projectRoot, a.Dest)
-		if err != nil {
-			return nil, fmt.Errorf("git guard %s: %w", a.Dest, err)
-		}
-		if isDirty {
+		// Dest is compared as a forward-slash path because that is what git
+		// emits; normalising here keeps the lookup honest on Windows too.
+		if dirtyPaths[filepath.ToSlash(a.Dest)] {
 			dirty = append(dirty, a.Dest)
 		}
 	}
