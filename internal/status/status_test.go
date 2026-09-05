@@ -66,9 +66,9 @@ func TestRowsReportBehindAndUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Rows: %v", err)
 	}
-	// core, ios, and the .gitignore region.
-	if len(rows) != 3 {
-		t.Fatalf("got %d rows, want 3", len(rows))
+	// core, ios, the .gitignore region and the .gitattributes region.
+	if len(rows) != 4 {
+		t.Fatalf("got %d rows, want 4", len(rows))
 	}
 	if rows[0].Key != "core" || rows[0].Stamped != v(5) || rows[0].Behind {
 		t.Errorf("core row = %+v, want stamped=5 behind=false", rows[0])
@@ -82,26 +82,49 @@ func TestRowsReportBehindAndUpToDate(t *testing.T) {
 	if rows[2].Key != "gitignore" || rows[2].Path != ".gitignore" || rows[2].Found || !rows[2].Behind {
 		t.Errorf("gitignore row = %+v, want path=.gitignore found=false behind=true", rows[2])
 	}
+	// Same for .gitattributes, and `missing` is the actionable state: a project
+	// without this region is one whose GitHub language bar still counts the
+	// lacquer's shipped Python skill tooling as its own source.
+	if rows[3].Key != "gitattributes" || rows[3].Path != ".gitattributes" || rows[3].Found || !rows[3].Behind {
+		t.Errorf("gitattributes row = %+v, want path=.gitattributes found=false behind=true", rows[3])
+	}
 }
 
-// A .gitignore region is stamped with `#` comments, and the status reader has to
-// use that syntax to see it. Reading it as markdown finds nothing, which reports
-// a synced project as never-synced — the exact false alarm that teaches people
-// to ignore `lacquer status`.
-func TestRowsReadTheHashStampedGitignoreRegion(t *testing.T) {
+// The .gitignore and .gitattributes regions are stamped with `#` comments, and
+// the status reader has to use that syntax to see them. Reading either as
+// markdown finds nothing, which reports a synced project as never-synced — the
+// exact false alarm that teaches people to ignore `lacquer status`.
+//
+// Both are asserted, not just one, because the syntax is chosen per row: a new
+// hash-comment region wired up with region.Markdown by mistake fails silently
+// and looks exactly like a project that has not synced yet.
+func TestRowsReadTheHashStampedRegions(t *testing.T) {
 	lacquer := t.TempDir()
 	project := t.TempDir()
 	writeFile(t, filepath.Join(lacquer, "VERSION"), "5\n")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"acme\"\n")
 	writeFile(t, filepath.Join(project, ".gitignore"),
 		"DerivedData/\n\n# lacquer:gitignore:start v5\n*.p8\n# lacquer:gitignore:end\n")
+	// Preexisting LFS filters above the markers, as dailybread's file has: the
+	// reader must find the region without caring what surrounds it.
+	writeFile(t, filepath.Join(project, ".gitattributes"),
+		"*.png filter=lfs diff=lfs merge=lfs -text\n\n# lacquer:gitattributes:start v5\n.claude/skills/** linguist-vendored=true\n# lacquer:gitattributes:end\n")
 
 	rows, err := Rows(lacquer, project)
 	if err != nil {
 		t.Fatalf("Rows: %v", err)
 	}
-	last := rows[len(rows)-1]
-	if last.Key != "gitignore" || !last.Found || last.Stamped != v(5) || last.Behind {
-		t.Errorf("gitignore row = %+v, want found=true stamped=5 behind=false", last)
+	byKey := map[string]Row{}
+	for _, r := range rows {
+		byKey[r.Key] = r
+	}
+	for _, key := range []string{"gitignore", "gitattributes"} {
+		got, ok := byKey[key]
+		if !ok {
+			t.Fatalf("no %s row at all — the region is not reported by `lacquer status`", key)
+		}
+		if !got.Found || got.Stamped != v(5) || got.Behind {
+			t.Errorf("%s row = %+v, want found=true stamped=5 behind=false", key, got)
+		}
 	}
 }

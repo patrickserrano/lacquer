@@ -18,6 +18,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitattributes"
 	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/lock"
 	"github.com/patrickserrano/lacquer/internal/region"
@@ -111,7 +112,12 @@ func regions(lacquerRoot string, cfg *config.Config, plan []assets.Asset) ([]reg
 	if err != nil {
 		return nil, fmt.Errorf("render %s region: %w", gitignore.Name, err)
 	}
-	return append(srcs, regionSrc{gitignore.Name, gitignore.Key, ignoreBody, "", gitignore.Syntax}), nil
+	srcs = append(srcs, regionSrc{gitignore.Name, gitignore.Key, ignoreBody, "", gitignore.Syntax})
+	// .gitattributes, mirroring sync's set exactly. Both files are `#`-comment
+	// regions rather than markdown, and both are derived rather than read off
+	// disk; a region sync writes but audit does not re-derive is a region that
+	// audit reports as an orphan forever.
+	return append(srcs, regionSrc{gitattributes.Name, gitattributes.Key, gitattributes.Body(cfg), "", gitattributes.Syntax}), nil
 }
 
 // managed re-derives every unit the lacquer would write for this project: the
