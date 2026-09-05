@@ -11,6 +11,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
+	"github.com/patrickserrano/lacquer/internal/gitattributes"
 	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/lock"
 	"github.com/patrickserrano/lacquer/internal/region"
@@ -128,6 +129,14 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 		return Result{}, fmt.Errorf("render %s region: %w", gitignore.Name, err)
 	}
 	regions = append(regions, regionWrite{gitignore.Name, gitignore.Key, ignoreBody, "", gitignore.Syntax})
+
+	// The .gitattributes region: the linguist overrides that stop the agent-skill
+	// trees the lacquer just planned above from being counted as this project's
+	// own source. Derived from the manifest for the same reason the .gitignore
+	// region is — the directories depend on [project].tools — and merged as a
+	// region rather than shipped as a file because three fleet repositories keep
+	// LFS filters and their own linguist rules in theirs.
+	regions = append(regions, regionWrite{gitattributes.Name, gitattributes.Key, gitattributes.Body(cfg), "", gitattributes.Syntax})
 
 	// Token preflight — fail closed before any write.
 	var missing []string

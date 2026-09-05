@@ -124,6 +124,42 @@ var ToolSkillsDir = map[string]string{
 	"antigravity": ".agents/skills",
 }
 
+// SkillDirs is every directory a skill can land in for this project, sorted.
+//
+// It is the union of the project's declared tools and the two directories the
+// `skills` CLI writes REGARDLESS of what the manifest declares: the canonical
+// .agents/skills tree and the Claude Code symlink beside it. A claude-only
+// project still ends up with .agents/skills/<name> on disk, so deriving these
+// from [project].tools alone would leave the canonical copy untracked-but-
+// unignored — which is exactly the state one project in the fleet is in.
+//
+// Sorted, and returned from one place rather than recomputed per caller, because
+// two managed regions now depend on this set for different reasons — .gitignore
+// names third-party trees inside these directories, .gitattributes marks all of
+// them linguist-vendored — and a set that disagreed between the two would mean a
+// skill directory that is ignored by one and counted by the other with nothing
+// to notice.
+func SkillDirs(cfg *config.Config) []string {
+	dirs := map[string]bool{
+		ToolSkillsDir["antigravity"]: true, // canonical tree
+		ToolSkillsDir["claude"]:      true, // symlink `skills add` always writes
+	}
+	for _, tool := range cfg.Project.EffectiveTools() {
+		if dir, ok := ToolSkillsDir[tool]; ok {
+			dirs[dir] = true
+		}
+	}
+	out := make([]string, 0, len(dirs))
+	for d := range dirs {
+		out = append(out, d)
+	}
+	// Go randomizes map iteration, and every consumer renders into a file that
+	// is written, hashed into the lock, and audited against both. Unsorted here
+	// is permanent drift there.
+	sort.Strings(out)
+	return out
+}
+
 // Asset is one file to copy: an absolute source path and a project-relative
 // destination path.
 type Asset struct {

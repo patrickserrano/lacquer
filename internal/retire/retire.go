@@ -182,7 +182,8 @@ func Notice(cfg *config.Config) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "RETIRED since %s — %s\n", r.Since, strings.TrimSpace(r.Reason))
 	fmt.Fprintf(&b, "  Scheduled work is no longer synced: workflows with a `schedule:` trigger, and %s.\n", Dependabot)
-	b.WriteString("  Everything else still syncs — PR CI, lint and format configs, agent rules, .gitignore —\n")
+	b.WriteString("  Everything else still syncs — PR CI, lint and format configs, agent rules,\n")
+	b.WriteString("  .gitignore, .gitattributes —\n")
 	b.WriteString("  so the repo stays consistent with the fleet. Retirement has no expiry; remove\n")
 	b.WriteString("  [project].retired to bring the schedules back.\n")
 	return b.String()

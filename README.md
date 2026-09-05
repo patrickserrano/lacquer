@@ -315,6 +315,7 @@ keep its own content in the same file.
 | `CLAUDE.md`, `AGENTS.md` (root) | `core` | `<!-- ... -->` |
 | `<component>/CLAUDE.md`, `<component>/AGENTS.md` | the profile name | `<!-- ... -->` |
 | `.gitignore` (root) | `gitignore` | `# ...` |
+| `.gitattributes` (root) | `gitattributes` | `# ...` |
 
 The `.gitignore` region carries the ignore rules that must not be a per-project
 decision: App Store Connect keys (`*.p8`), signing material, `Secrets.xcconfig`,
@@ -326,6 +327,21 @@ is deliberately tracked: it is a lockfile.
 
 Everything else in a project's `.gitignore` — `DerivedData/`, build outputs,
 per-project junk — stays project-owned and survives every sync.
+
+The `.gitattributes` region marks the agent-skill directories
+(`.claude/skills`, `.codex/skills`, `.agents/skills`, whichever
+`[project].tools` enables) as `linguist-vendored`. The lacquer ships ~207KB of
+Python skill tooling into each of them, so a Swift repo taking the ios profile
+picks up half a megabyte of code it did not write — and GitHub counted every
+byte of it toward the language bar. One fleet repo read as more Python than
+Swift. `linguist-vendored` suppresses the stats and collapses those paths in a
+diff without untracking them, so `lacquer audit` can still see drift in a synced
+skill.
+
+This too is a region rather than a file, and for a sharper reason than
+`.gitignore`: three fleet repos already keep real content in `.gitattributes` —
+Git LFS filters, line-ending normalization, their own linguist overrides.
+Shipping a whole file would have broken LFS.
 
 ## Docs
 

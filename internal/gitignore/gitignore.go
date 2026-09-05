@@ -209,7 +209,7 @@ func skills(cfg *config.Config, managed map[string]bool) (string, error) {
 		return b.String(), nil
 	}
 
-	for _, dir := range skillDirs(cfg) {
+	for _, dir := range assets.SkillDirs(cfg) {
 		for _, name := range names {
 			// Leading slash: skills install project-scoped at the repo root, and
 			// an unanchored `.claude/skills/x` would also ignore a nested
@@ -222,33 +222,6 @@ func skills(cfg *config.Config, managed map[string]bool) (string, error) {
 		}
 	}
 	return b.String(), nil
-}
-
-// skillDirs is every directory a third-party skill can land in for this
-// project, sorted.
-//
-// It is the union of the project's declared tools and the two directories the
-// `skills` CLI writes REGARDLESS of what the manifest declares: the canonical
-// .agents/skills tree and the Claude Code symlink beside it. A claude-only
-// project still ends up with .agents/skills/<name> on disk, so deriving these
-// from [project].tools alone would leave the canonical copy untracked-but-
-// unignored — which is exactly the state one project in the fleet is in.
-func skillDirs(cfg *config.Config) []string {
-	dirs := map[string]bool{
-		assets.ToolSkillsDir["antigravity"]: true, // canonical tree
-		assets.ToolSkillsDir["claude"]:      true, // symlink `skills add` always writes
-	}
-	for _, tool := range cfg.Project.EffectiveTools() {
-		if dir, ok := assets.ToolSkillsDir[tool]; ok {
-			dirs[dir] = true
-		}
-	}
-	out := make([]string, 0, len(dirs))
-	for d := range dirs {
-		out = append(out, d)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // ManagedSkillNames returns the skill names the lacquer itself ships, read off

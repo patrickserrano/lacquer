@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitattributes"
 	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/region"
 	"github.com/patrickserrano/lacquer/internal/safepath"
@@ -46,6 +47,11 @@ func Rows(lacquerRoot, projectRoot string) ([]Row, error) {
 	// never received it reads as `missing` here — which is the state every
 	// project in the fleet is in until it syncs, and the point of showing it.
 	rows = append(rows, rowFor(projectRoot, gitignore.Name, gitignore.Key, latest, gitignore.Syntax))
+	// Likewise .gitattributes. Listed rather than left off because `missing` here
+	// is the actionable state: a project that has not synced this region is one
+	// whose GitHub language bar is still counting ~620KB of lacquer-shipped
+	// Python as its own source.
+	rows = append(rows, rowFor(projectRoot, gitattributes.Name, gitattributes.Key, latest, gitattributes.Syntax))
 	return rows, nil
 }
 

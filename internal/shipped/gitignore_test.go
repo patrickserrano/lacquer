@@ -82,6 +82,19 @@ func git(t *testing.T, dir string, args ...string) string {
 // when empty), syncs the real lacquer into it, and returns its path.
 func syncedProject(t *testing.T, preexisting string) string {
 	t.Helper()
+	files := map[string]string{}
+	if preexisting != "" {
+		files[gitignore.Name] = preexisting
+	}
+	return syncedProjectWith(t, files)
+}
+
+// syncedProjectWith is syncedProject generalized over which project-owned files
+// exist BEFORE the sync. Two managed regions now merge into files a project may
+// already own for its own reasons — .gitignore and .gitattributes — and the
+// preservation assertions for both need the same repo setup.
+func syncedProjectWith(t *testing.T, files map[string]string) string {
+	t.Helper()
 	r := root(t)
 	project := t.TempDir()
 
@@ -100,12 +113,19 @@ func syncedProject(t *testing.T, preexisting string) string {
 	if err := os.WriteFile(filepath.Join(project, ".git", "info", "exclude"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The same argument for attributes: core.attributesFile and
+	// .git/info/attributes both feed `git check-attr`, and either could make the
+	// vendoring assertions pass without the lacquer having shipped anything.
+	git(t, project, "config", "core.attributesFile", os.DevNull)
+	if err := os.WriteFile(filepath.Join(project, ".git", "info", "attributes"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := os.WriteFile(filepath.Join(project, ".lacquer.toml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if preexisting != "" {
-		if err := os.WriteFile(filepath.Join(project, gitignore.Name), []byte(preexisting), 0o644); err != nil {
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -250,10 +250,11 @@ retired = { since = "2026-08-18", reason = "not a viable app" }
 
 Retired means **stop the spend, stay consistent.** The lacquer keeps syncing
 everything that holds the repo to the fleet's shape — PR-triggered CI, lint and
-format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, hooks, skills — so the
-project still audits clean and can be picked back up. What it stops shipping is
-everything that costs money or attention **on a schedule**: every workflow whose
-`on:` block carries a `schedule:` trigger, and `.github/dependabot.yml`.
+format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, `.gitattributes`, hooks,
+skills — so the project still audits clean and can be picked back up. What it
+stops shipping is everything that costs money or attention **on a schedule**:
+every workflow whose `on:` block carries a `schedule:` trigger, and
+`.github/dependabot.yml`.
 
 That set is derived from each workflow's **content**, never from a list of
 filenames — a filename list is correct right up until someone adds the next

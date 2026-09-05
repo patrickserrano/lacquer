@@ -9,6 +9,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitattributes"
 	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/lock"
 	"github.com/patrickserrano/lacquer/internal/region"
@@ -164,12 +165,17 @@ func stillPresent(projectRoot string, o Orphan) bool {
 	if !o.IsRegion() {
 		return true
 	}
-	// .gitignore is the one managed region that is not markdown. Getting this
-	// wrong would silently under-report rather than fail, so it is asserted in a
-	// test rather than left to read correctly.
+	// .gitignore and .gitattributes are the managed regions that are not
+	// markdown. Getting this wrong would silently under-report rather than fail
+	// — ExtractBody would look for `<!-- lacquer:...:start -->` in a `#`-comment
+	// file, not find it, and the orphan would be dropped as already-removed — so
+	// it is asserted in a test rather than left to read correctly.
 	syntax := region.Markdown
-	if o.Dest == gitignore.Name {
+	switch o.Dest {
+	case gitignore.Name:
 		syntax = gitignore.Syntax
+	case gitattributes.Name:
+		syntax = gitattributes.Syntax
 	}
 	_, found := syntax.ExtractBody(string(data), o.Region)
 	return found
