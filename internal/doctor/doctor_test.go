@@ -307,6 +307,140 @@ func TestProbesWithoutExpectOutputAreUnchanged(t *testing.T) {
 	}
 }
 
+// The regression this exists for, reproduced end to end.
+//
+// The supabase probes export NO_COLOR=1 inside their own argv, and deno 2.9.6
+// honours it correctly — but FORCE_COLOR OVERRIDES NO_COLOR, and a probe
+// inherited the parent environment wholesale. On a machine with FORCE_COLOR
+// exported (any modern shell setup that wants colour out of piped tools), deno
+// coloured its diff anyway and the escapes landed BETWEEN the `+` and the text:
+//
+//	1 | \x1b[0m\x1b[1m\x1b[32m+\x1b[0m\x1b[0m\x1b[30m\x1b[42mexport const wide = …
+//
+// so `expect_output = '…\+export const wide = …'` could never match and the
+// probe reported the check broken when the check was fine. A false FAILURE from
+// a package whose entire purpose is telling true findings from false ones.
+//
+// The fixture hard-codes the escapes rather than relying on a tool to emit them:
+// the assertion under test is that escapes do not defeat expect_output, and that
+// must hold for a tool that colours regardless of any environment variable.
+func TestAnsiEscapesInOutputDoNotDefeatExpectOutput(t *testing.T) {
+	t.Setenv("FORCE_COLOR", "1")
+	root := t.TempDir()
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"colourised\"\nwhy = \"x\"\nrequires = [\"sh\"]\n"+
+			"argv = [\"sh\", \"-c\", \"printf '1 | \\\\033[0m\\\\033[1m\\\\033[32m+\\\\033[0m\\\\033[30m\\\\033[42m"+
+			"export const wide = 1;\\\\033[0m\\\\n'; exit 1\"]\n"+
+			"expect = \"fail\"\nexpect_output = '\\+export const wide = 1;'\n")
+
+	var out bytes.Buffer
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || !res[0].OK {
+		t.Fatalf("ANSI escapes inside the output must not defeat expect_output: %+v\n%s", res, out.String())
+	}
+}
+
+// Half the fix, asserted directly: the child environment is normalised rather
+// than inherited. Appending NO_COLOR=1 alone would not have been enough —
+// FORCE_COLOR beats it — so the colour-forcing names have to be REMOVED, and a
+// probe that prints its own environment is the only way to prove they were.
+func TestProbeEnvironmentNeutralisesColourForcing(t *testing.T) {
+	t.Setenv("FORCE_COLOR", "1")
+	t.Setenv("CLICOLOR_FORCE", "1")
+	root := t.TempDir()
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"env\"\nwhy = \"x\"\nrequires = [\"sh\"]\n"+
+			"argv = [\"sh\", \"-c\", \"printf 'FORCE_COLOR=[%s] CLICOLOR_FORCE=[%s] NO_COLOR=[%s]\\\\n' "+
+			"\\\"${FORCE_COLOR-}\\\" \\\"${CLICOLOR_FORCE-}\\\" \\\"${NO_COLOR-}\\\"; exit 1\"]\n"+
+			"expect = \"fail\"\n"+
+			"expect_output = 'FORCE_COLOR=\\[\\] CLICOLOR_FORCE=\\[\\] NO_COLOR=\\[1\\]'\n")
+
+	var out bytes.Buffer
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || !res[0].OK {
+		t.Fatalf("the probe environment must drop FORCE_COLOR/CLICOLOR_FORCE and set NO_COLOR=1: %+v\n%s",
+			res, out.String())
+	}
+}
+
+// The stripping must not become a second way for a probe to match something the
+// tool never said. It keys on the ESC byte, so text that merely LOOKS like an
+// escape sequence survives untouched, and ordinary escape-free output — which is
+// every currently shipped probe — passes through byte for byte.
+func TestAnsiStrippingLeavesEscapeFreeOutputAlone(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+		"[[probe]]\nname = \"plain\"\nwhy = \"x\"\nrequires = [\"sh\"]\n"+
+			"argv = [\"sh\", \"-c\", \"echo 'probe.ts:1:1 [0m is literal text here'; exit 1\"]\n"+
+			"expect = \"fail\"\nexpect_output = 'probe\\.ts:1:1 \\[0m is literal text here'\n")
+
+	res, err := Run(root, t.TempDir(), cfgOne(), nil, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || !res[0].OK {
+		t.Fatalf("escape-free output must reach expect_output unchanged: %+v", res)
+	}
+}
+
+// A failing probe is read by a person, so the excerpt and the "tool said" line
+// must show what the tool MEANT rather than escape soup. This is not cosmetic:
+// the operator's next move is comparing the excerpt against the pattern by eye,
+// and invisible bytes sitting between the two are exactly what they cannot see.
+func TestFailureDiagnosticsShowStrippedOutput(t *testing.T) {
+	const esc = "\x1b"
+
+	t.Run("expect_output miss excerpt", func(t *testing.T) {
+		root := t.TempDir()
+		write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+			"[[probe]]\nname = \"noisy miss\"\nwhy = \"x\"\nrequires = [\"sh\"]\n"+
+				"argv = [\"sh\", \"-c\", \"printf '\\\\033[31merror: cannot read config file\\\\033[0m\\\\n'; exit 1\"]\n"+
+				"expect = \"fail\"\nexpect_output = 'no-explicit-any'\n")
+		var out bytes.Buffer
+		res, err := Run(root, t.TempDir(), cfgOne(), nil, &out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res) != 1 || res[0].OK {
+			t.Fatalf("precondition: this probe must be red: %+v", res)
+		}
+		if strings.Contains(out.String(), esc) {
+			t.Errorf("the excerpt must not print raw escape bytes, got %q", out.String())
+		}
+		if !strings.Contains(out.String(), "error: cannot read config file") {
+			t.Errorf("the excerpt must show the readable diagnostic, got:\n%s", out.String())
+		}
+	})
+
+	t.Run("tool said line", func(t *testing.T) {
+		root := t.TempDir()
+		write(t, filepath.Join(root, "profiles", "p", "doctor.toml"),
+			"[[probe]]\nname = \"noisy pass\"\nwhy = \"x\"\nrequires = [\"sh\"]\n"+
+				"argv = [\"sh\", \"-c\", \"printf '\\\\033[32mchecked 1 file\\\\033[0m\\\\n'; exit 0\"]\n"+
+				"expect = \"fail\"\n")
+		var out bytes.Buffer
+		res, err := Run(root, t.TempDir(), cfgOne(), nil, &out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res) != 1 || res[0].OK {
+			t.Fatalf("precondition: a check passing on bad input must be red: %+v", res)
+		}
+		if strings.Contains(res[0].Detail, esc) {
+			t.Errorf("the \"tool said\" line must not carry escape bytes, got %q", res[0].Detail)
+		}
+		if !strings.Contains(res[0].Detail, "tool said: checked 1 file") {
+			t.Errorf("the \"tool said\" line should read cleanly, got %q", res[0].Detail)
+		}
+	})
+}
+
 // Outputs that real breakage produces, none of which any shipped probe may
 // accept. A regex broad enough to match one of these has rebuilt the hole
 // `expect_output` closes: it would report green while the tool was failing for a
