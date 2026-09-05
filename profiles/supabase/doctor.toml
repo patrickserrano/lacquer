@@ -25,6 +25,23 @@
 # NO_COLOR is exported because deno colours its output even when stdout is not a
 # terminal, and the escape sequences land in the middle of the text an assertion
 # has to match.
+#
+# That export is no longer the only thing standing between these probes and a
+# false failure, and on its own it was not enough. NO_COLOR is DEFEATED by
+# FORCE_COLOR: measured on deno 2.9.6, `NO_COLOR=1` prints clean, and
+# `NO_COLOR=1 FORCE_COLOR=1` prints `\e[0m\e[1m\e[32m+\e[0m` between the `+` and
+# the text the expect_output regex below is trying to match. The harness used to
+# hand the probe its own environment unchanged, so a developer with FORCE_COLOR
+# set watched these probes fail for a reason nothing in this file mentioned.
+#
+# internal/doctor now removes FORCE_COLOR and CLICOLOR_FORCE from every probe's
+# environment and strips ANSI before matching, so the guard holds no matter what
+# the operator exports. The export stays anyway: it documents the requirement at
+# the point of use, and it is what makes this argv reproducible by hand.
+#
+# CI never caught this — it does not install deno, so `requires = ["deno"]`
+# skips all three probes there and main stayed green while they were broken
+# locally.
 
 [[probe]]
 name = "deno fmt --check rejects unformatted code, under the shipped deno.jsonc"
