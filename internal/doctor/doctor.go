@@ -24,6 +24,7 @@
 package doctor
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -296,7 +297,14 @@ func runProbe(p Probe, compPath, profile, compDir string) Result {
 
 	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv comes from a lacquer-owned doctor.toml
 	cmd.Dir = dir
-	output, runErr := cmd.CombinedOutput()
+	cmd.Env = probeEnv(os.Environ())
+	raw, runErr := cmd.CombinedOutput()
+	// Everything downstream — the expect_output match AND the two human-facing
+	// diagnostics — reads the stripped form. Stripping for the match but not the
+	// excerpt would be the worst of both: the operator would be handed escape
+	// soup to compare against a pattern by eye, with the invisible bytes that
+	// explain the mismatch being precisely the ones they cannot see.
+	output := stripANSI(raw)
 	failed := runErr != nil
 
 	switch p.Expect {
@@ -343,6 +351,89 @@ func runProbe(p Probe, compPath, profile, compDir string) Result {
 	}
 	r.Detail += excerpt(output)
 	return r
+}
+
+// colourForcing names the variables that make a tool colourise output it would
+// otherwise leave plain. They are REMOVED from the probe environment rather than
+// merely countered, because FORCE_COLOR wins against NO_COLOR and appending
+// NO_COLOR=1 would therefore have changed nothing.
+//
+// Measured with deno 2.9.6 against the supabase fmt probe's own fixture:
+//
+//	NO_COLOR=1                deno fmt --check   → clean text
+//	NO_COLOR=1 FORCE_COLOR=1  deno fmt --check   → \x1b[0m\x1b[1m\x1b[32m+\x1b[0m…
+//	env -u FORCE_COLOR NO_COLOR=1 …              → clean text again
+//
+// So deno honours NO_COLOR correctly; FORCE_COLOR overriding it is the whole
+// effect. That matters for where the fix belongs: NO_COLOR is not broken and no
+// amount of exporting it harder would have helped.
+var colourForcing = []string{"FORCE_COLOR", "CLICOLOR_FORCE"}
+
+// probeEnv builds the environment a probe runs under.
+//
+// Probes used to inherit os.Environ() untouched, which made a probe's verdict
+// depend on the operator's shell profile. A person with FORCE_COLOR exported —
+// an ordinary thing to want, it is how you get colour out of piped tools — saw
+// the supabase `deno fmt --check` probe report the check broken, because the
+// escapes landed BETWEEN the `+` and the text the expect_output pattern had to
+// match. Nothing about the check was wrong. That is a false FAILURE, and this
+// package's whole claim is that its verdicts distinguish real findings from
+// noise; a verdict that turns on an inherited variable does not.
+//
+// It went unnoticed because CI installs no deno, so the three supabase probes
+// SKIP there and main stays green. The bug only ever bit on a machine that has
+// deno — that is, a developer's own.
+//
+// Doing this here rather than per-probe is the point: those probes already
+// `export NO_COLOR=1` inside their argv and it was not enough. Patching the
+// three would leave the identical trap armed for every probe added later and
+// every other tool that colourises — ripgrep, cargo, jest, biome.
+// Those in-argv exports are left in place: they are harmless now that this
+// exists, and they document the requirement at the point of use.
+func probeEnv(parent []string) []string {
+	env := make([]string, 0, len(parent)+1)
+	for _, kv := range parent {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		drop := name == "NO_COLOR" // re-added below, so a parent NO_COLOR=0 cannot win
+		for _, f := range colourForcing {
+			if name == f {
+				drop = true
+			}
+		}
+		if !drop {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "NO_COLOR=1")
+}
+
+// ansiEscape matches a CSI sequence: ESC '[', parameter bytes, intermediate
+// bytes, then one final byte.
+//
+// Deliberately wider than the `\x1b\[[0-9;]*m` that colour alone would need. SGR
+// is only the sequence a colouriser reaches for FIRST; the same tools also emit
+// cursor motion and line erasure (\x1b[2K, \x1b[1A) when they rewrite a progress
+// line, and deno's own diff parameters include the `;` and `5` of 256-colour
+// selectors like \x1b[38;5;245m. A pattern covering only SGR would leave those
+// other sequences embedded in the text an expect_output pattern must match, which
+// is the exact defect being fixed — just triggered by a different tool.
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+// stripANSI removes escape sequences so an expect_output pattern is matched
+// against what the tool MEANT to say.
+//
+// Belt to probeEnv's braces: environment normalisation handles every tool that
+// respects the convention, and this handles the ones that colourise regardless.
+// It keys on the ESC byte, so output that merely contains the text "[0m" is
+// untouched and no shipped probe's assertion changes meaning.
+func stripANSI(b []byte) []byte {
+	if !bytes.Contains(b, []byte{0x1b}) {
+		return b // the overwhelmingly common case; do not copy for nothing
+	}
+	return ansiEscape.ReplaceAll(b, nil)
 }
 
 // compileExpectOutput turns a probe's pattern into a matcher, or nil when the
