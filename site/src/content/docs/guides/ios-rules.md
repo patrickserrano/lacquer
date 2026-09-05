@@ -481,8 +481,32 @@ positive-allowlist validator and where to apply it.
 
 Audit non-text contrast, not just text. Ship two distinct boundary tokens and use them for their intended roles:
 
-- `controlBorder` — ~white @ 30% opacity, ≥ 3:1 against its background — for the boundary of an interactive control (button outline, text-field border, selected chip).
+- `controlBorder` — ≥ 3:1 against its own background, which lands near white @ 40% on a dark ground — for the boundary of an interactive control (button outline, text-field border, selected chip).
 - a decorative hairline — ~white @ 8% — for dividers and separators that carry no meaning.
+
+The ratio is the requirement; the percentage is only a starting point. White at a fixed
+opacity does not have a fixed contrast — it composites against whatever sits behind it,
+so one token passes on one ground and fails on another. Across the dark backgrounds this
+fleet actually uses, the opacity that first reaches 3:1 ranges from 33% to 37.5%, and 40%
+is the lowest round value clearing every one of them:
+
+| ground | @ 30% | @ 36% | @ 40% |
+|---|---|---|---|
+| pure black `#000000` | 2.45 | 3.14 | 3.66 |
+| Apple dark `#1C1C1E` | 2.71 | 3.34 | 3.80 |
+| `#2C2C2E` | 2.62 | 3.16 | 3.54 |
+| `#3A3A3C` | 2.47 | 2.92 | 3.25 |
+
+This rule used to read "~white @ 30% opacity, ≥ 3:1", and those two halves cannot both
+hold: 30% fails on every ground above. A project that followed the percentage got a
+border failing the ratio the same sentence demanded.
+
+Note the failure is worst on the lighter dark grounds, not the darkest: at 36% pure black
+passes and `#3A3A3C` does not. Picking a percentage by eye on one screen is how this goes
+wrong.
+
+So measure each token against the surface it actually sits on, and assert it in a test. A
+ratio written only in a doc comment cannot fail.
 
 Other rules:
 - Use a saturated `controlAccent` for controls that sit against a white system thumb (e.g. `Toggle`). A near-white accent fails ~3:1 against the white thumb and reads as "off" to low-vision users.
