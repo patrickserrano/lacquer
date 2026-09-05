@@ -195,9 +195,13 @@ jobs:
     # against that runner's actual hardware and LAN (unlike a GitHub-hosted
     # VM, which is thrown away after the job). A first attempt at this moved
     # `test` to [self-hosted, linux, x64] before that check was made -- caught
-    # by a security review before the PR merged, reverted here. The Synology
-    # runner stays reserved for private-repo CI (the shipped web/supabase
-    # profile templates, which the consuming private projects use).
+    # by a security review before the PR merged, reverted here.
+    #
+    # That reasoning still stands on its own, but it is no longer the only
+    # thing keeping this job here: the self-hosted Linux runners have since
+    # been retired fleet-wide (they could not carry the heavier profiles'
+    # workloads), so the shipped web/supabase templates are all ubuntu-latest
+    # too and there is no Synology runner left to move back to.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

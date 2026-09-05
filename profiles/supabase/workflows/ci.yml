@@ -187,26 +187,26 @@ jobs:
     # lint) is what actually enforces it in CI, catching missing-RLS and
     # security-definer issues the Edge-Function checks never see.
     #
-    # arm64, not the bare [self-hosted, linux] every other job in this file
-    # uses -- deliberately EXCLUDES the fleet's Synology runner (labeled x64),
-    # which is too weak to boot the full local Supabase stack (Postgres plus
-    # ~8 auxiliary services) inside supabase start's own timeout: measured on
-    # PixelFoxStudio/rail, "Starting database..." ran ~145s before
-    # `supabase start` gave up with ECONNREFUSED, a cold-start cost, not a
-    # networking bug (confirmed: the container was still mid-migration, not
-    # crashed or unreachable, when it was killed).
+    # GitHub-hosted, like every job in this file. Called out here because this
+    # is the job that ended the fleet's self-hosted Linux experiment, and the
+    # measurement below is what should stop anyone from retrying it:
     #
-    # The Raspberry Pi was tried next and is also not viable. On rail it did
-    # get further -- containers were still coming up rather than refusing --
-    # but it was killed by the job's own 10-minute timeout while still inside
-    # `Start local stack`, having never reached the lint step. Slower hardware
-    # does not fix this; the stack is simply too large for either box.
+    #   * Synology (x64) -- too weak to boot the full local Supabase stack
+    #     (Postgres plus ~8 auxiliary services) inside `supabase start`'s own
+    #     timeout. Measured on PixelFoxStudio/rail: "Starting database..." ran
+    #     ~145s before it gave up with ECONNREFUSED. A cold-start cost, not a
+    #     networking bug -- confirmed by the container still being
+    #     mid-migration, not crashed or unreachable, when it was killed.
+    #   * Raspberry Pi (arm64) -- tried next, also not viable. On rail it got
+    #     further (containers coming up rather than refusing) but was killed by
+    #     the job's own 10-minute timeout while still inside `Start local
+    #     stack`, having never reached the lint step.
     #
-    # So these two jobs go back to GitHub-hosted runners -- as has every job
-    # in this file. The Synology/Pi self-hosted Linux experiment was
-    # abandoned fleet-wide: too weak for the heavier profiles' actual
-    # workloads to be worth the operational cost of running it. A red CI
-    # that cannot run is worth less than a small bill.
+    # Two boxes, same wall: the stack is simply too large for either, and
+    # slower-but-arm64 did not help. So the experiment was abandoned
+    # fleet-wide -- too weak for the heavier profiles' actual workloads to be
+    # worth the operational cost of running it. A red CI that cannot run is
+    # worth less than a small bill.
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -245,12 +245,14 @@ jobs:
     # GitHub-hosted for the same reason as lint-database above: neither
     # self-hosted Linux box can boot the Supabase stack.
     runs-on: ubuntu-latest
-    # Serialized after lint-database, not parallel on `changes` alone: both
-    # jobs' `supabase start` create identically-named containers (derived from
-    # the project, not randomized), and self-hosted runners share ONE Docker
-    # host -- unlike GitHub-hosted runners' one-VM-per-job isolation, running
-    # them at the same time is a real name collision, not a hypothetical one
-    # (observed live: "Conflict. The container name ... is already in use").
+    # Serialized after lint-database rather than running parallel on `changes`
+    # alone. NOTE this is now vestigial: both jobs' `supabase start` create
+    # identically-named containers (derived from the project, not randomized),
+    # which was a real collision when they shared one self-hosted Docker host
+    # ("Conflict. The container name ... is already in use", observed live) --
+    # but on GitHub-hosted runners each job gets its own VM, so the names
+    # cannot collide. Kept for now because dropping it changes scheduling for
+    # every supabase project; it is safe to remove in its own change.
     needs: [changes, lint-database]
     # `!cancelled()`, not the bare code check alone: a job's custom `if:`
     # replaces the implicit `success()` GitHub adds by default, but ONLY when
