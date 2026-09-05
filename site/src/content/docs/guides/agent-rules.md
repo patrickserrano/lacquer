@@ -223,12 +223,13 @@ retired = { since = "2026-08-18", reason = "not a viable app" }
 
 Retired means **stop the spend, stay consistent.** The lacquer keeps syncing
 everything that holds the repo to the fleet's shape — PR-triggered CI, lint and
-format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, hooks, skills — so the
-project still audits clean. What it stops shipping is everything that costs money
-or attention **on a schedule**: every workflow whose `on:` block carries a
-`schedule:` trigger, and `.github/dependabot.yml`. That set is derived from each
-workflow's content, never from a list of filenames. A workflow declaring
-`workflow_dispatch:` beside `schedule:` still goes — the cron is the point.
+format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, `.gitattributes`, hooks,
+skills — so the project still audits clean. What it stops shipping is everything
+that costs money or attention **on a schedule**: every workflow whose `on:` block
+carries a `schedule:` trigger, and `.github/dependabot.yml`. That set is derived
+from each workflow's content, never from a list of filenames. A workflow
+declaring `workflow_dispatch:` beside `schedule:` still goes — the cron is the
+point.
 
 Both fields are required and a malformed entry is a hard error: `retired = true`
 records that someone retired the project and not why. Unlike `[baseline.relax]`
