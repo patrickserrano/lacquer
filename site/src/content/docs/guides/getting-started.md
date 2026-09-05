@@ -11,8 +11,9 @@ go build ./cmd/lacquer
 
 ## LACQUER_ROOT
 
-Every command that reads shipped content (`sync`, `status`, `audit`, `version`)
-resolves the lacquer checkout from the `LACQUER_ROOT` env var (default `.`):
+Every command that reads shipped content — that is, every command except
+`skills`, which only reads the project's own `.lacquer.toml` — resolves the
+lacquer checkout from the `LACQUER_ROOT` env var (default `.`):
 
 ```sh
 LACQUER_ROOT=~/Developer/lacquer lacquer sync
