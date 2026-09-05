@@ -3,7 +3,10 @@ title: Skills catalog
 description: Every skill shipped by core and each profile, and when it fires.
 ---
 
-Skills are Claude Code `SKILL.md` files synced into a project's `.claude/skills/`.
+Skills are `SKILL.md` files synced into `.claude/skills/`, and also into
+`.codex/skills/` and `.agents/skills/` when `[project].tools` names `codex` or
+`antigravity`. `SKILL.md` is a standard those tools share — only the directory
+differs — so the same package is copied verbatim into each.
 `core` skills apply everywhere; profile skills only reach projects with that
 profile enabled. Source lives at `core/skills/<name>/SKILL.md` or
 `profiles/<profile>/skills/<name>/SKILL.md` in the lacquer repo.

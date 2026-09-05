@@ -501,10 +501,10 @@ from a clean run, which is precisely how a dead hook survives for months.
 **DocC is a requirement, not a nicety** — see core "Documentation" for the rule
 and the relaxation mechanism. This section is the Swift half.
 
-Every declaration above `private` carries a `///` doc comment, and the DocC
-archive builds with zero warnings. Both are checked by the local pre-commit
-hook (`docs-hook.sh`) — there is no CI-side publishing step; this is a local,
-pre-commit-enforced requirement only.
+Every declaration above `private` carries a `///` doc comment. That half is
+checked by the local pre-commit hook (`docs-hook.sh` → `swiftlint-docs`), and it
+is the only half still checked anywhere: the DocC archive build was a CI job,
+the job and the script behind it are both gone, and nothing replaced them.
 
 ```swift
 /// Loads the user's saved sessions, newest first.
@@ -520,14 +520,15 @@ nonisolated func loadSessions(limit: Int?) async throws -> [Session]
 
 Use `- Parameter` / `- Returns` / `- Throws` for anything a caller must know, and
 double-backtick symbol links (``` ``SessionError/unauthorized`` ```) rather than
-plain-text type names — a link is checked by the build, prose is not. That is the
-whole reason the build gate exists.
+plain-text type names — a link is a reference a DocC build can verify, prose is
+not. Nothing verifies it today, which makes it a convention rather than a gate;
+write them anyway, or the first docbuild anyone runs opens with a backlog of
+broken links.
 
-### Run the checks locally
+### Run the check locally
 
 ```sh
 swiftlint --strict --config .swiftlint-docs.yml .   # every declaration documented
-scripts/build-docs.sh docs-site                     # docs build clean
 ```
 
 `.swiftlint-docs.yml` is a **separate** config from `.swiftlint.yml` on purpose:
@@ -535,9 +536,11 @@ the documentation baseline is the one rule set a project may relax, and mixing i
 into the main config would either hand every style rule an escape hatch or leave
 this one without the escape hatch the standard promises.
 
-### Three settings that decide whether this checks anything
+### Three settings, if the DocC build is ever reinstated
 
-`scripts/build-docs.sh` carries them; do not "simplify" them out.
+`scripts/build-docs.sh` encoded all three and no longer ships. They are kept
+here because each was found the expensive way, and a rebuilt docbuild that gets
+one of them wrong reports green while checking nothing.
 
 - **`DOCC_MINIMUM_ACCESS_LEVEL=internal`.** DocC extracts `public` and above by
   default, and an app target's code is `internal` by default — so without this
@@ -550,10 +553,14 @@ this one without the escape hatch the standard promises.
   broken symbol link still exits 0; the same input with `OTHER_DOCC_FLAGS` exits
   65. Picking the obvious-looking name turns the gate off without turning the job
   red.
-- **`DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES`** plus `DOCC_HOSTING_BASE_PATH`,
-  which is baked into every asset URL. It must match where the site is served
-  from (`<repo>/swift`) or the published site loads and renders unstyled, every
-  CSS and JS request 404ing.
+- **`DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES`.** Without it the build produces an
+  archive with no `index.html` — an artifact only Xcode can open. The old script
+  failed on a missing `index.html` for that reason: a build that succeeds having
+  staged nothing a browser can render is the same silent pass the other two
+  settings guard against. Its companion `DOCC_HOSTING_BASE_PATH` is baked into
+  every asset URL and matters only when something serves the archive under a
+  sub-path; nothing serves it now, and a locally built archive should not carry
+  a prefix at all.
 
 ### Articles and catalogs
 

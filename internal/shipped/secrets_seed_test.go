@@ -33,7 +33,8 @@ type seedShell struct {
 }
 
 // ciSeedSteps returns the body of every "Create Secrets.xcconfig" run: block in
-// the iOS profile's workflows, plus the seeding prologue of build-docs.sh.
+// the iOS profile's workflows. scripts/build-docs.sh carried a fourth copy of
+// the same prologue until the DocC job and the script itself were removed.
 //
 // Sourced from the shipped files themselves so a fourth copy, or a fifth, is
 // covered the moment it is added — the duplication is deliberate (see the
@@ -61,21 +62,10 @@ func ciSeedSteps(t *testing.T, prefix, scheme string) []seedShell {
 			out = append(out, seedShell{file: filepath.Base(f), body: sub.Replace(body)})
 		}
 	}
-
-	raw, err := os.ReadFile(filepath.Join(root(t), "profiles", "ios", "root", "scripts", "build-docs.sh"))
-	if err != nil {
-		t.Fatal(err)
+	if len(out) == 0 {
+		t.Fatal("no \"Create Secrets.xcconfig\" run: block found in profiles/ios/workflows; " +
+			"this test would pass having run nothing")
 	}
-	// The seeding section only: the lines above it read $1 and would abort on
-	// the usage guard, and the lines below need a Mac.
-	script := string(raw)
-	start := strings.Index(script, "# A gitignored Secrets.xcconfig")
-	end := strings.Index(script, "# DOCC_MINIMUM_ACCESS_LEVEL is the setting")
-	if start < 0 || end < 0 || end < start {
-		t.Fatal("build-docs.sh no longer has the comments this test slices its seeding section on; " +
-			"re-anchor them rather than dropping the coverage")
-	}
-	out = append(out, seedShell{file: "build-docs.sh", body: sub.Replace(script[start:end])})
 	return out
 }
 
@@ -259,8 +249,9 @@ func TestEveryIOSJobThatBuildsTheProjectSeedsSecrets(t *testing.T) {
 	// Workflows that drive a build of {{XCODEPROJ}}, and how they do it.
 	// dead-code.yml (Periphery) used to be a third entry here -- removed along
 	// with the workflow itself once Periphery's local cache grew to 48GB and
-	// the tool went unmaintained upstream. docs.yml (which delegated to
-	// scripts/build-docs.sh) was removed along with docs publishing entirely.
+	// the tool went unmaintained upstream. docs.yml was removed along with docs
+	// publishing entirely, and scripts/build-docs.sh, which it delegated to,
+	// followed once nothing was left to call it.
 	builders := map[string]string{
 		"ci.yml": "xcodebuild",
 	}

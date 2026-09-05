@@ -92,7 +92,7 @@ row here, and a hook never runs weaker than its CI twin.
 | `check` → `deno check` | pre-push `typecheck` |
 | `check` → `deno test` | pre-push `test` |
 | `deno doc --lint` | pre-commit `docs`; local only, no CI counterpart |
-| `DB Lint (Splinter)`, `DB Test (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
+| `DB Lint (Splinter)`, `DB Tests (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
 | `Deploy migrations` | CI-only, and only on merge to main — it is the step that touches production. |
 | `No lacquer drift` | `lacquer audit` (exit 3) |
 

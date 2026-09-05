@@ -403,18 +403,20 @@ DocC is a requirement — see [core documentation
 rules](/lacquer/guides/agent-rules/#documentation) for the standard and the
 relaxation mechanism. This is the Swift half.
 
-Every declaration above `private` carries a `///` doc comment, and the DocC
-archive builds with zero warnings. Both are checked by the local pre-commit
-hook — there is no CI-side publishing step; this is a local,
-pre-commit-enforced requirement only.
+Every declaration above `private` carries a `///` doc comment. That half is
+checked by the local pre-commit hook, and it's the only half still checked
+anywhere: the DocC archive build was a CI job, the job and the script behind it
+are both gone, and nothing replaced them.
 
 Use `- Parameter` / `- Returns` / `- Throws` for anything a caller must know, and
-double-backtick symbol links rather than plain-text type names — a link is
-checked by the build, prose isn't. Run the checks locally:
+double-backtick symbol links rather than plain-text type names — a link is a
+reference a DocC build can verify, prose isn't. Nothing verifies it today, which
+makes it a convention rather than a gate; write them anyway, or the first
+docbuild anyone runs opens with a backlog of broken links. Run the check
+locally:
 
 ```sh
 swiftlint --strict --config .swiftlint-docs.yml .   # every declaration documented
-scripts/build-docs.sh docs-site                     # docs build clean
 ```
 
 `.swiftlint-docs.yml` is a separate config from `.swiftlint.yml` on purpose: the
@@ -422,7 +424,10 @@ documentation baseline is the one rule set a project may relax, and mixing it in
 would either hand every style rule an escape hatch or leave this one without the
 one the standard promises.
 
-Three settings in `scripts/build-docs.sh` decide whether this checks anything:
+Three settings decide whether a DocC build checks anything. `scripts/build-docs.sh`
+encoded all three and no longer ships; they're kept on record because each was
+found the expensive way, and a rebuilt docbuild that gets one of them wrong
+reports green while checking nothing:
 
 - `DOCC_MINIMUM_ACCESS_LEVEL=internal` — DocC extracts `public` and above by
   default, and an app target's code is `internal` by default. Without it an app
@@ -432,8 +437,10 @@ Three settings in `scripts/build-docs.sh` decide whether this checks anything:
   setting name, and it's silently ignored. The same broken symbol link exits 0
   with `DOCC_FLAGS` and 65 with `OTHER_DOCC_FLAGS`; picking the obvious-looking
   name turns the gate off without turning the job red.
-- `DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES` plus `DOCC_HOSTING_BASE_PATH`, which is
-  baked into every asset URL and must match where the site is served from.
+- `DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES` — without it the build produces an
+  archive with no `index.html`, an artifact only Xcode can open. Its companion
+  `DOCC_HOSTING_BASE_PATH` is baked into every asset URL and matters only when
+  something serves the archive under a sub-path; nothing serves it now.
 
 A `.docc` catalog adds landing pages, articles, and tutorials beyond the symbol
 reference; a `<Target>.md` root page is the highest-value addition, because it's
