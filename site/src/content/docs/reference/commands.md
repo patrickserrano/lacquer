@@ -5,16 +5,24 @@ description: Every lacquer CLI subcommand.
 
 | Command | Does |
 |---------|------|
-| `lacquer init` | Detect components, write a `.lacquer.toml` stub (and a `docs/brief.md` stub). |
+| `lacquer init [--stack S]` | Detect components, write a `.lacquer.toml` stub (and a `docs/brief.md` stub). `--list-stacks` prints the archetypes `--stack` accepts. |
 | `lacquer onboard --org O [--no-repo]` | `init`, then create a private GitHub repo under `O` when the repo has no `origin`. |
-| `lacquer sync [--force]` | Render core + per-profile content into the project (managed regions + whole-file assets). |
+| `lacquer adopt` | Record stacks that appeared since `init` into `.lacquer.toml` — the fix for `audit`'s exit 6. |
+| `lacquer sync [--force] [--fix]` | Render core + per-profile content into the project (managed regions + whole-file assets). `--fix` runs the profiles' autofixers afterwards. |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). See [Third-party skills](/lacquer/guides/getting-started/#third-party-skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. See [Plugins](/lacquer/guides/getting-started/#plugins-machine-level-bootstrap). |
+| `lacquer doctor [--profile P]` | Prove each check can actually fail; exit 5 if one cannot. `--profile` limits it to one stack's checks, for a runner that has only that toolchain. |
+| `lacquer fix` | Run the profiles' autofixers (formatters, `lint --fix`) over the project. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
-| `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change (usable as a CI gate). |
+| `lacquer audit` | Classify project drift and check the project baseline. Exit 3 if a sync would clobber a local change, 4 on a baseline violation or an expired `[project].exclude`, 6 if a stack on disk is undeclared (usable as a CI gate). |
+| `lacquer fleet --roster F [--json]` | Audit every project in a roster; exit 4 if any would fail its own audit. `--json` emits a snapshot. |
+| `lacquer fleet diff A.json B.json` | What changed between two snapshots; exit 4 on a regression. |
+| `lacquer console --roster F` | One screen: fleet truth + live sessions + open PRs. |
+| `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, re-attach, check, or stop work on a project or a named role. See `lacquer help` for the flag combinations each takes. |
 | `lacquer version` | Print the lacquer version. |
 
-`lacquer --help` prints usage.
+`lacquer help` (or `--help`/`-h`) prints usage, including the full `console`
+flag surface this table abbreviates.
 
 ## Manifest shape
 
@@ -71,13 +79,13 @@ retired = { since = "2026-08-18", reason = "not a viable app" }
 
 Retired means **stop the spend, stay consistent.** `sync` keeps shipping
 everything that holds the repo to the fleet's shape — PR-triggered CI, lint and
-format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, hooks, skills — so the
-project still audits clean and can be picked back up. It stops shipping
-everything that costs money or attention **on a schedule**:
+format configs, `CLAUDE.md` / `AGENTS.md`, `.gitignore`, `.gitattributes`, hooks,
+skills — so the project still audits clean and can be picked back up. It stops
+shipping everything that costs money or attention **on a schedule**:
 
 | Dropped | Kept |
 |---------|------|
-| Any workflow whose `on:` block has a `schedule:` trigger (`*-docs.yml`, `ios-cleanup-ci.yml`, `ios-dependency-audit.yml`, `ios-quality-review.yml`, `supabase-health.yml`, …) | `*-ci.yml`, `web-dependency-review.yml`, `web-env-validation.yml`, `ios-claude.yml`, `ios-issue-deduplication.yml`, `ios-release.yml` |
+| Any workflow whose `on:` block has a `schedule:` trigger (`ios-cleanup-ci.yml`, `ios-dependency-audit.yml`, `ios-quality-review.yml`, `supabase-health.yml`, and `ios-testflight-feedback.yml` where opted in) | `*-ci.yml`, `web-dependency-review.yml`, `web-env-validation.yml`, `ios-claude.yml`, `ios-release.yml` |
 | `.github/dependabot.yml` | every non-workflow asset |
 
 "Is scheduled" is read from each workflow's **content**, not from a list of

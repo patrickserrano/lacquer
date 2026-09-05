@@ -283,12 +283,14 @@ files already in the repo stay until someone removes them by hand.
 ## Documentation
 
 **Every declaration carries a doc comment, and the docs build clean.** This is a
-baseline like warnings-as-errors, not a style preference. It is no longer a
-PR-blocking CI gate (the `Docs` job was dropped from every stack's CI — a
-dedicated self-hosted Mac runner shared by the whole fleet spent more time
-queued behind it than doing anything else) — it is checked by each stack's
-nightly publish workflow instead, and by the local hook, so it still shows up,
-just not as a merge blocker.
+baseline like warnings-as-errors, not a style preference. It is not a CI gate at
+all any more, in two steps: the `Docs` job was dropped from every stack's
+PR-blocking CI (a dedicated self-hosted Mac runner shared by the whole fleet
+spent more time queued behind it than doing anything else), and the nightly
+publish workflows that inherited the check were then removed too, because they
+spent Actions minutes on a site nobody was reading. **The local hook is the only
+thing that checks this now**, which is exactly why weakening it is the one way
+the baseline stops existing.
 
 Two halves, because neither implies the other:
 
@@ -298,16 +300,14 @@ Two halves, because neither implies the other:
    was renamed three refactors ago is worse than no comment — it is confidently
    wrong.
 
-Each stack enforces this with its native toolchain, and each publishes a site to
-its own subdirectory of the project's GitHub Pages, so a repo with several
-components ends up with one site per stack rather than one stack silently
-overwriting another:
+Each stack enforces this with its native toolchain, from that stack's own
+pre-commit or pre-push hook:
 
-| Stack | Checked with | Published at |
-|-------|--------------|--------------|
-| iOS / Swift | SwiftLint `missing_docs` + `xcodebuild docbuild` | `/swift/` |
-| Web / TypeScript | TypeDoc `validation.notDocumented` + `invalidLink` | `/api/` |
-| Supabase / Deno | `deno doc --lint` | `/db/` |
+| Stack | Checked with |
+|-------|--------------|
+| iOS / Swift | SwiftLint `missing_docs` + `xcodebuild docbuild` |
+| Web / TypeScript | TypeDoc `validation.notDocumented` + `invalidLink` |
+| Supabase / Deno | `deno doc --lint` |
 
 **Write the comment for the reader who does not already know.** Say what the
 thing is for and what a caller must know — preconditions, ownership, units,
@@ -316,29 +316,23 @@ what happens on failure. Do not restate the signature: `/// Sets the name.` on
 is a restatement, that is a signal the name is doing its job and the *type* or
 *module* is where the explanation belongs.
 
-### Where the sites are hosted
+### Nothing publishes a docs site any more
 
-**The `gh-pages` branch is the site, and needs no secrets.** Each stack's docs
-workflow writes its own subdirectory of a `gh-pages` branch, and the root index
-is regenerated from whatever subdirectories are present — so `gh-pages` is the
-composed site, and adding a stack later needs no coordination. Read it by
-checking the branch out, or browsing it on GitHub.
+**There is no hosted API documentation, for any stack.** `gh-pages` used to be
+the composed site — each stack's nightly docs workflow wrote its own
+subdirectory and `scripts/publish-docs.sh` regenerated the root index from
+whatever was present. Those workflows were removed, so no branch is written and
+no site is served. `scripts/publish-docs.sh` still syncs into every project;
+nothing calls it. Only the publishing went — the doc comments and the clean docs
+build are still required, and still checked by the hook.
 
-Publishing it is a separate, deliberate step, and for a private project the
-answer is don't — see below.
-
-**There is no second publishing target, and that is deliberate.** The docs are
-internal, so `gh-pages` in a private repository is exactly where they should
-stop. A Cloudflare Workers deployer used to ship here; it was removed, because
-its whole purpose was to copy the same tree onto a public edge network.
-
-**Do not turn GitHub Pages on for a private project.** A Pages site is served
-publicly even when its repository is private — that is the plan's behaviour, not
-a misconfiguration — so enabling it publishes the API documentation, and with it
-the internal type and module names, to anyone with the URL. Private Pages needs
-an Enterprise plan. Leaving Pages off costs nothing: the composed site is still
-built and committed to `gh-pages`, browsable in the repository by anyone who can
-already read the code.
+**If you ever bring publishing back, do not turn GitHub Pages on for a private
+project.** A Pages site is served publicly even when its repository is private —
+that is the plan's behaviour, not a misconfiguration — so enabling it publishes
+the API documentation, and with it the internal type and module names, to anyone
+with the URL. Private Pages needs an Enterprise plan. A Cloudflare Workers
+deployer used to ship here and was removed for the same reason: its whole
+purpose was to copy an internal tree onto a public edge network.
 
 **A project that cannot comply yet relaxes it — time-boxed, never open-ended.**
 Same mechanism as every other baseline key, in the project's own `.lacquer.toml`:

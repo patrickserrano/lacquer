@@ -20,12 +20,12 @@ on a fresh machine.
 | `superpowers` | TDD, brainstorming, writing-plans, code-reviewer, git-worktree workflows. | [obra/superpowers](https://github.com/obra/superpowers) |
 | `codex` | `/review`, `/adversarial-review`, `/rescue` — a live Codex subprocess for a genuine second opinion, distinct from Claude's own self-review. | [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc/tree/main/plugins/codex) |
 | `context7` | Up-to-date library/framework docs, fetched on demand. | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/context7) |
-| `figma` | Figma design-to-code / code-to-design bridge. | [figma/mcp-server-guide](https://github.com/figma/mcp-server-guide) |
+| `figma` | Figma design-to-code / code-to-design bridge. | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) |
 | `security-guidance` | Injection/secrets/workflow-security guidance surfaced on relevant edits. | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance) |
 | `telemetrydeck-analytics` | Session/usage analytics — ask questions in plain English, get real queries. | [agenkin/telemetrydeck-analytics](https://github.com/agenkin/telemetrydeck-analytics) |
 
 Each plugin belongs to a marketplace (the index `claude plugin marketplace add`
-points at); `context7` and `security-guidance` both live inside
+points at); `context7`, `figma`, and `security-guidance` all live inside
 `anthropics/claude-plugins-official`, one marketplace with many plugins —
-`superpowers`, `codex`, `figma`, and `telemetrydeck-analytics` each have their
-own dedicated marketplace/repo.
+`superpowers`, `codex`, and `telemetrydeck-analytics` each have their own
+dedicated marketplace/repo.
