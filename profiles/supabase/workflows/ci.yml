@@ -212,32 +212,49 @@ jobs:
       # audit therefore never exits non-zero; `ci-ok` — the required check —
       # reads the output and fails on it.
 
-      # Resolve the newest lacquer RELEASE first, because BOTH the checkout below
-      # and the binary the audit downloads have to be that one tag.
-      # `releases/latest` redirects to `.../releases/tag/vX.Y.Z`, so the last
-      # segment of the resolved URL IS the tag — no token, no JSON parser, and
-      # none of api.github.com's 60-requests-per-hour unauthenticated budget,
-      # which every runner behind one NAT address shares.
-      - name: Resolve the lacquer release
+      # Resolve the lacquer version from THIS PROJECT'S LOCK, not from the newest
+      # release. `.lacquer.lock` records the version the project actually synced
+      # with, and that is the only version whose output can meaningfully be
+      # compared against these files.
+      #
+      # Resolving `releases/latest` instead — which this used to do — made every
+      # lacquer release retroactively "drift" all sixteen repos at once, so a
+      # one-line comment fix upstream turned into a fleet-wide re-sync just to
+      # get CI green again. That inverted what the check is for: drift is
+      # supposed to mean "someone hand-edited a file the lacquer owns", not "the
+      # lacquer moved on and this project has not been re-synced yet". Being
+      # BEHIND is not drift; it is a normal, deliberate state that `lacquer
+      # audit` reports as its own category and that a sync resolves when someone
+      # chooses to run one.
+      #
+      # It is also free: no network call, no redirect to parse, and none of
+      # api.github.com's 60-requests-per-hour unauthenticated budget, which every
+      # runner behind one NAT address shares.
+      - name: Resolve the lacquer version this project synced with
         id: lacquerrel
         if: steps.filter.outputs.lacquer == 'true'
         run: |
           set -uo pipefail
-          url=$(curl -fsSL --retry 3 -I -o /dev/null -w '%{url_effective}' \
-            https://github.com/patrickserrano/lacquer/releases/latest) || exit 0
-          tag=${url##*/}
-          # Publish the tag only when it LOOKS like one. An error page, or a
-          # redirect to the releases index on a repo with no releases yet, would
-          # otherwise be handed to `ref:` verbatim and then to the download URL.
-          case "$tag" in
-            v[0-9]*.[0-9]*.[0-9]*) echo "tag=$tag" >> "$GITHUB_OUTPUT" ;;
-            *) echo "::warning::Could not resolve the latest lacquer release (got '$tag')." ;;
+          # No lock means the project has never been synced, so there is no
+          # baseline to attribute drift against. The audit step below says so and
+          # reports a FAILURE rather than a silent pass.
+          [ -f .lacquer.lock ] || exit 0
+          # Plain grep rather than jq: jq is not guaranteed on the self-hosted
+          # Mac, and this is one well-known scalar field.
+          version=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' .lacquer.lock \
+            | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+          # Publish the tag only when the version LOOKS like one. A truncated or
+          # reshaped lock would otherwise be handed to `ref:` verbatim and then
+          # into a download URL.
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) echo "tag=v$version" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::warning::Could not read a lacquer version from .lacquer.lock (got '$version')." ;;
           esac
         # continue-on-error on the two SETUP steps, not on the audit. Now that
-        # this shares a job with the path filter, a GitHub-side hiccup resolving
-        # the release or fetching the lacquer must not take the whole workflow
-        # down with it. The audit step below detects the gap and reports a drift
-        # FAILURE — never a silent pass.
+        # this shares a job with the path filter, a hiccup resolving the version
+        # or fetching the lacquer must not take the whole workflow down with it.
+        # The audit step below detects the gap and reports a drift FAILURE —
+        # never a silent pass.
         continue-on-error: true
 
       - name: Fetch the lacquer
@@ -443,18 +460,30 @@ jobs:
       # why the checksum is not optional. The difference here is `set -e` — the
       # audit must never fail its job, this one MUST, because a doctor probe
       # that silently did not run is the exact failure it exists to catch.
-      - name: Resolve the lacquer release
+      # Same rule as the drift audit: the version comes from THIS PROJECT'S
+      # `.lacquer.lock`, not from the newest release. The probes assert things
+      # about the config this project actually has, so running a NEWER lacquer's
+      # probes against an older synced config tests a pairing that exists
+      # nowhere — and that is not hypothetical: merging a new probe upstream
+      # once turned every project's CI red at once, because each was still
+      # carrying the config the previous version had shipped.
+      - name: Resolve the lacquer version this project synced with
         id: doctorrel
         run: |
           set -euo pipefail
-          url=$(curl -fsSL --retry 3 -I -o /dev/null -w '%{url_effective}' \
-            https://github.com/patrickserrano/lacquer/releases/latest)
-          tag=${url##*/}
-          case "$tag" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::Could not resolve the latest lacquer release (got '$tag')."; exit 1 ;;
+          if [ ! -f .lacquer.lock ]; then
+            echo "::error::.lacquer.lock is missing, so there is no synced version to prove the checks against. Run \`lacquer sync\` to establish the baseline."
+            exit 1
+          fi
+          # Plain grep rather than jq: jq is not guaranteed on the self-hosted
+          # Mac, and this is one well-known scalar field.
+          version=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' .lacquer.lock \
+            | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Could not read a lacquer version from .lacquer.lock (got '$version')."; exit 1 ;;
           esac
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
           repository: patrickserrano/lacquer
