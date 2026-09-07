@@ -54,7 +54,7 @@ func preflightFixture(t *testing.T) (project string, plan []Asset) {
 // refusal test on its own, so the permissive case needs asserting too.
 func TestPreflightProceedsWhenAssetsAreClean(t *testing.T) {
 	project, plan := preflightFixture(t)
-	targets, err := Preflight(project, plan)
+	targets, err := Preflight(project, plan, &config.Config{})
 	if err != nil {
 		t.Fatalf("Preflight on a clean project: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestPreflightRefusesADirtyAsset(t *testing.T) {
 	project, plan := preflightFixture(t)
 	write(t, filepath.Join(project, ".claude", "commands", "build.md"), "LOCAL UNSAVED EDIT\n")
 
-	_, err := Preflight(project, plan)
+	_, err := Preflight(project, plan, &config.Config{})
 	if err == nil {
 		t.Fatal("expected Preflight to refuse a dirty asset, got nil")
 	}
@@ -99,7 +99,7 @@ func TestPreflightRefusesAnAssetInANewUntrackedDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Preflight(project, plan); err == nil {
+	if _, err := Preflight(project, plan, &config.Config{}); err == nil {
 		t.Fatal("Preflight accepted an untracked asset nested in a new directory; the guard is not protecting it")
 	}
 }
@@ -113,7 +113,7 @@ func TestPreflightProceedsWhenAnAssetWasDeleted(t *testing.T) {
 	if err := os.Remove(filepath.Join(project, ".claude", "commands", "build.md")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Preflight(project, plan); err != nil {
+	if _, err := Preflight(project, plan, &config.Config{}); err != nil {
 		t.Fatalf("Preflight refused a sync because an asset was deleted from the worktree: %v", err)
 	}
 }
@@ -139,7 +139,7 @@ func TestPreflightGuardsAProjectNestedInARepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Preflight(project, plan); err == nil {
+	if _, err := Preflight(project, plan, &config.Config{}); err == nil {
 		t.Fatal("Preflight accepted a dirty asset in a project nested inside a repo; the guard is not protecting it")
 	}
 
@@ -147,7 +147,7 @@ func TestPreflightGuardsAProjectNestedInARepo(t *testing.T) {
 	// test above is not passing because nested projects are refused wholesale.
 	gitRun(t, repo, "add", "-A")
 	gitRun(t, repo, "commit", "-qm", "adopt")
-	if _, err := Preflight(project, plan); err != nil {
+	if _, err := Preflight(project, plan, &config.Config{}); err != nil {
 		t.Fatalf("Preflight refused a clean nested project: %v", err)
 	}
 }
@@ -161,7 +161,7 @@ func TestPreflightIgnoresDirtElsewhereInTheRepo(t *testing.T) {
 	write(t, filepath.Join(project, "src", "main.go"), "package main // uncommitted work\n")
 	write(t, filepath.Join(project, "NOTES.md"), "scratch\n")
 
-	if _, err := Preflight(project, plan); err != nil {
+	if _, err := Preflight(project, plan, &config.Config{}); err != nil {
 		t.Fatalf("Preflight refused because of dirt outside the plan: %v", err)
 	}
 }
