@@ -26,13 +26,19 @@ concurrency:
 jobs:
   changes:
     name: Detect changed paths
-    # Pure git diff — no Xcode — so it runs on a GitHub-hosted runner and
-    # doesn't tie up the dedicated Mac (see CLAUDE.md "CI Runners").
+    # A diff, plus (only when the `lacquer` filter fires) the drift audit folded
+    # in at the end. No Xcode either way, so it runs on a GitHub-hosted runner
+    # and doesn't tie up the dedicated Mac (see CLAUDE.md "CI Runners").
     runs-on: ubuntu-latest
+    # Bounded because this job now builds and runs `lacquer audit` when the
+    # `lacquer` filter fires; it used to be a diff and nothing else.
+    timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
       views: ${{ steps.filter.outputs.views }}
       lacquer: ${{ steps.filter.outputs.lacquer }}
+      # Empty when the drift audit below did not run; `pass` or `fail` when it did.
+      drift: ${{ steps.drift.outputs.result }}
       xcodeproj: ${{ steps.filter.outputs.xcodeproj }}
     steps:
       - uses: actions/checkout@v7
@@ -102,12 +108,15 @@ jobs:
           else
             echo "views=false" >> "$GITHUB_OUTPUT"
           fi
-          # `lacquer` gates the drift job, which clones the lacquer, sets up Go,
-          # builds the binary and runs `lacquer audit` — a whole billed minute
+          # `lacquer` gates the drift audit at the end of this job, which clones
+          # the lacquer, sets up Go, builds the binary and runs `lacquer audit`.
+          # That used to be a job of its own and so cost a whole billed minute
           # (Actions bills a one-minute MINIMUM per job) on a PR that cannot
-          # possibly have drifted. Unlike `code` above this is an ALLOWLIST: a
-          # source-only PR is not docs-only, so the deny-list shape would keep
-          # waking this job on nearly every PR, which is the cost being removed.
+          # possibly have drifted; it is now three steps here, and this filter is
+          # what keeps them from running at all. Unlike `code` above this is an
+          # ALLOWLIST: a source-only PR is not docs-only, so the deny-list shape
+          # would keep waking the audit on nearly every PR, which is the cost
+          # being removed.
           # It is deliberately WIDER than the set audit actually reads — a false
           # positive costs one minute, a false negative silently stops detecting
           # drift — and covers all three classes of audit input:
@@ -131,6 +140,109 @@ jobs:
           else
             echo "lacquer=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # ---- lacquer drift ----
+      #
+      # This used to be a separate `No lacquer drift` job. It is one checkout, a
+      # Go build and one `lacquer audit` — a measured ~24s median across the
+      # fleet — and Actions bills a MINIMUM OF ONE MINUTE PER JOB, so as its own
+      # job it spent a whole billed minute on 24 seconds of work every time it
+      # fired. Cost here is job COUNT, not job duration, so the only way to make
+      # it cheaper is to stop it being a job. Folded in, it costs nothing at all
+      # when `lacquer` is false, and shares this job's already-billed minute when
+      # it is true — this job's own median is 13s, so the pair still lands inside
+      # one minute on the large majority of runs.
+      #
+      # The trade-off, stated plainly: drift is no longer a separately-named
+      # status check. That is safe only while no repo requires it BY NAME in
+      # branch protection — checked across the whole fleet before this landed:
+      # every protected repo requires "CI OK" (one legacy repo requires iOS job
+      # names), none requires "No lacquer drift", and there are no rulesets at
+      # repo or org level. If a repo ever does require it by name, this has to go
+      # back to being its own job.
+      #
+      # The verdict leaves via an OUTPUT rather than by failing this job. Failing
+      # `changes` would skip every job that `needs` it, so a drift finding would
+      # suppress the lint/test results on the very PR you need them for. The
+      # audit therefore never exits non-zero; `ci-ok` — the required check —
+      # reads the output and fails on it.
+      - name: Fetch the lacquer
+        # lacquer is a public repo, so this needs no token.
+        if: steps.filter.outputs.lacquer == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: patrickserrano/lacquer
+          path: .lacquer-checkout
+        # continue-on-error on the two SETUP steps, not on the audit. Now that
+        # this shares a job with the path filter, a GitHub-side hiccup fetching
+        # the lacquer or restoring the Go cache must not take the whole workflow
+        # down with it. The audit step below detects the missing toolchain and
+        # reports a drift FAILURE — never a silent pass.
+        continue-on-error: true
+
+      - name: Set up Go for the audit
+        if: steps.filter.outputs.lacquer == 'true'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .lacquer-checkout/go.mod
+          # Without this, the module cache restore probes the PROJECT root for
+          # go.mod and warns on every run.
+          cache-dependency-path: .lacquer-checkout/go.sum
+        continue-on-error: true
+
+      - name: Audit for drift
+        id: drift
+        if: steps.filter.outputs.lacquer == 'true'
+        run: |
+          # `-e` is deliberately absent: this step must never exit non-zero (see
+          # the block comment above). `result` starts at `fail` and the EXIT trap
+          # publishes whatever it holds, so every path that leaves this script
+          # early is reported as a failure rather than as a silent pass.
+          set -uo pipefail
+          result=fail
+          publish() { echo "result=$result" >> "$GITHUB_OUTPUT"; }
+          trap publish EXIT
+
+          if [ ! -f .lacquer.toml ]; then
+            echo "::notice::No .lacquer.toml — this project is not lacquer-managed."
+            result=pass
+            exit 0
+          fi
+          if [ ! -f .lacquer-checkout/go.mod ] || ! command -v go >/dev/null 2>&1; then
+            echo "::error::The drift audit could not be set up — the lacquer checkout or the Go toolchain is missing, so drift was NOT checked on this PR."
+            exit 0
+          fi
+          if [ ! -f .lacquer.lock ]; then
+            # Without a lock baseline, audit cannot tell "the project edited this"
+            # from "the lacquer moved on", so every unit reads as untracked and
+            # nothing can block. Say so instead of reporting a green pass.
+            echo "::warning::No .lacquer.lock — this project has never been synced, so drift cannot be attributed. Run \`lacquer sync\` to establish the baseline."
+          fi
+          # Build from INSIDE the checkout. `go build ./.lacquer-checkout/cmd/lacquer`
+          # from the project root fails with "go.mod file not found in current
+          # directory or any parent directory" — a Go package path is resolved
+          # against the current MODULE, and a Swift/TS project root is not one.
+          if ! (cd .lacquer-checkout && go build -o "$RUNNER_TEMP/lacquer" ./cmd/lacquer); then
+            echo "::error::Building lacquer failed, so drift was NOT checked on this PR."
+            exit 0
+          fi
+
+          LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" audit
+          code=$?
+
+          case "$code" in
+            0) echo "No drift."; result=pass ;;
+            3) echo "::error::A lacquer-managed file was edited in this project. These files are rendered from the lacquer, so a local edit silently diverges from what every other project gets — which is how a pre-commit hook ends up weaker than CI. Fix it in the lacquer repo and re-sync, or, if this project genuinely owns the file, add it to [project].exclude in .lacquer.toml so the lacquer stops managing it." ;;
+            4) echo "::error::The project baseline is not met. See the audit output above." ;;
+            # Detection ran once, at `lacquer init`, and never again — so a
+            # project that grew a stack afterwards was unmanaged for it forever,
+            # with nothing reporting the gap: no hooks, no CI, no error. `audit`
+            # re-detects on every run now, and this is what makes that visible on
+            # the PR that introduces the stack rather than a year later.
+            6) echo "::error::This project runs a stack .lacquer.toml does not declare, so nothing gates it — no hooks, no CI, no CLAUDE region. Run \`lacquer adopt\` to record it and re-sync, or add the path to [project].exclude if the project deliberately keeps it unmanaged." ;;
+            *) echo "::error::lacquer audit failed (exit $code)." ;;
+          esac
+          exit 0
 
   lint:
     name: Lint
@@ -1238,82 +1350,6 @@ jobs:
           fi
           echo "Project baseline met."
 
-  drift:
-    name: No lacquer drift
-    # Pure Go + a git checkout — no stack toolchain — so it runs on a
-    # GitHub-hosted runner rather than tying up the dedicated Mac.
-    runs-on: ubuntu-latest
-    needs: changes
-    # Gated on paths, NOT on `code`: a drifted hook or workflow is exactly the
-    # kind of change that arrives in an otherwise docs-only PR, so `lacquer`
-    # deliberately includes files `code` calls docs (CLAUDE.md, AGENTS.md) and
-    # excludes the Swift sources `code` is about. It used to run unconditionally,
-    # which was a billed minute per PR (Actions charges a one-minute minimum per
-    # job, so cost here is job COUNT) to re-audit a tree the PR never touched.
-    # A skipped job counts as OK for the CI OK aggregator, which runs on
-    # always() and only fails on failure/cancelled — so skipping this never
-    # leaves the required check pending.
-    if: needs.changes.outputs.lacquer == 'true'
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-
-      # lacquer is a public repo, so this needs no token.
-      - uses: actions/checkout@v7
-        with:
-          repository: patrickserrano/lacquer
-          path: .lacquer-checkout
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: .lacquer-checkout/go.mod
-          # Without this, the module cache restore probes the PROJECT root for
-          # go.mod and warns on every run.
-          cache-dependency-path: .lacquer-checkout/go.sum
-
-      - name: Audit for drift
-        run: |
-          set -euo pipefail
-          if [ ! -f .lacquer.toml ]; then
-            echo "::notice::No .lacquer.toml — this project is not lacquer-managed."
-            exit 0
-          fi
-          if [ ! -f .lacquer.lock ]; then
-            # Without a lock baseline, audit cannot tell "the project edited this"
-            # from "the lacquer moved on", so every unit reads as untracked and
-            # nothing can block. Say so instead of reporting a green pass.
-            echo "::warning::No .lacquer.lock — this project has never been synced, so drift cannot be attributed. Run \`lacquer sync\` to establish the baseline."
-          fi
-          # Build from INSIDE the checkout. `go build ./.lacquer-checkout/cmd/lacquer`
-          # from the project root fails with "go.mod file not found in current
-          # directory or any parent directory" — a Go package path is resolved
-          # against the current MODULE, and a Swift/TS project root is not one.
-          # This job therefore failed in every repo, on every PR, for a reason that
-          # had nothing to do with drift.
-          (cd .lacquer-checkout && go build -o /tmp/lacquer ./cmd/lacquer)
-
-          set +e
-          LACQUER_ROOT="$PWD/.lacquer-checkout" /tmp/lacquer audit
-          code=$?
-          set -e
-
-          case "$code" in
-            0) echo "No drift." ;;
-            3) echo "::error::A lacquer-managed file was edited in this project. These files are rendered from the lacquer, so a local edit silently diverges from what every other project gets — which is how a pre-commit hook ends up weaker than CI. Fix it in the lacquer repo and re-sync, or, if this project genuinely owns the file, add it to [project].exclude in .lacquer.toml so the lacquer stops managing it."
-               exit 1 ;;
-            4) echo "::error::The project baseline is not met. See the audit output above."
-               exit 1 ;;
-            # Detection ran once, at `lacquer init`, and never again — so a
-            # project that grew a stack afterwards was unmanaged for it forever,
-            # with nothing reporting the gap: no hooks, no CI, no error. `audit`
-            # re-detects on every run now, and this is what makes that visible on
-            # the PR that introduces the stack rather than a year later.
-            6) echo "::error::This project runs a stack .lacquer.toml does not declare, so nothing gates it — no hooks, no CI, no CLAUDE region. Run \`lacquer adopt\` to record it and re-sync, or add the path to [project].exclude if the project deliberately keeps it unmanaged."
-               exit 1 ;;
-            *) echo "::error::lacquer audit failed (exit $code)."
-               exit 1 ;;
-          esac
-
   ci-ok:
     name: CI OK
     # Just aggregates the needs[] results — no Xcode — so it runs on a
@@ -1325,23 +1361,39 @@ jobs:
     # never gets stuck "pending" and docs PRs merge without an admin bypass.
     # Fails only if a required job actually FAILED or was CANCELLED; a skipped
     # job counts as OK.
-    needs: [changes, lint, baseline, build-release, test, drift]
+    needs: [changes, lint, baseline, build-release, test]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} baseline=${{ needs.baseline.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }} drift=${{ needs.drift.result }}"
+          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} baseline=${{ needs.baseline.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.lint.result }}" \
             "${{ needs.baseline.result }}" \
             "${{ needs.build-release.result }}" \
-            "${{ needs.test.result }}" \
-            "${{ needs.drift.result }}"; do
+            "${{ needs.test.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"
               exit 1
             fi
           done
+          # `drift` is deliberately NOT in the loop above: it is no longer a job.
+          # It runs as a step inside `changes` (Actions bills a one-minute
+          # MINIMUM per job, so a 24-second job cost a whole billed minute) and
+          # reports through an OUTPUT, because failing `changes` outright would
+          # skip every job that needs it and suppress the real results on the
+          # very PR you need them for. So the verdict is enforced HERE, in the
+          # required check, where it blocks the merge and nothing else.
+          #
+          # Empty means the audit did not need to run — the PR touched no
+          # lacquer-managed path — which is a pass. Anything that is not exactly
+          # "pass", including a value this job does not recognise, fails.
+          drift="${{ needs.changes.outputs.drift }}"
+          echo "drift=${drift:-<not run>}"
+          if [ -n "$drift" ] && [ "$drift" != "pass" ]; then
+            echo "::error::lacquer drift was detected — see the \"Detect changed paths\" job log for what to fix."
+            exit 1
+          fi
           echo "All required jobs passed or were skipped."

@@ -46,7 +46,7 @@ are generic productivity, not fleet engineering). See `docs/references.md`.
 | `security-review` | Adversarial security review of a branch diff, PR, or working tree before merge. | [security-review](https://github.com/patrickserrano/lacquer/blob/main/core/skills/security-review/SKILL.md) |
 | `skill-authoring-standard` | Writing or reviewing a `SKILL.md` — the bar it must clear: tight trigger-oriented frontmatter, single responsibility, no padding. | [skill-authoring-standard](https://github.com/patrickserrano/lacquer/blob/main/core/skills/skill-authoring-standard/SKILL.md) |
 | `skill-tuning-loop` | Empirically testing whether a skill needs an edit — mines session transcripts for friction (or audits against skill-authoring-standard when evidence is thin), proposes a bounded fix, validates against held-out cases before it ships. | [skill-tuning-loop](https://github.com/patrickserrano/lacquer/blob/main/core/skills/skill-tuning-loop/SKILL.md) |
-| `working-with-lacquer` | Working in a lacquer-managed project and the management itself comes up — `No lacquer drift` fails, `lacquer audit` exits 3/4/6, a synced config reverts on the next sync, or a baseline can't be met yet. | [working-with-lacquer](https://github.com/patrickserrano/lacquer/blob/main/core/skills/working-with-lacquer/SKILL.md) |
+| `working-with-lacquer` | Working in a lacquer-managed project and the management itself comes up — the drift audit in `Detect changed paths` fails, `lacquer audit` exits 3/4/6, a synced config reverts on the next sync, or a baseline can't be met yet. | [working-with-lacquer](https://github.com/patrickserrano/lacquer/blob/main/core/skills/working-with-lacquer/SKILL.md) |
 
 ### core — marketing
 
