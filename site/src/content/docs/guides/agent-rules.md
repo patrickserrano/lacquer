@@ -146,9 +146,9 @@ Lacquer-managed files are identical or excluded — there's no third state. (The
 exclusions, relaxations, retirement, fleet sweeps — and is what an agent should
 load when actually resolving one of these.) The
 files carrying these checks are rendered from the lacquer, so editing one in a
-project silently diverges it from every other project. The `No lacquer drift` CI
-job runs `lacquer audit` and fails on exit 3 when a managed file was edited
-locally — and on exit 6 when the project runs a **stack** the manifest never
+project silently diverges it from every other project. The drift audit inside the
+`Detect changed paths` CI job runs `lacquer audit` and fails on exit 3 when a
+managed file was edited locally — and on exit 6 when the project runs a **stack** the manifest never
 declared, which is the same failure one level up: a whole toolchain with no
 hooks, no CI, and no CLAUDE region, reported by nothing. Run `lacquer adopt` to
 record it. If a project genuinely owns a file, say so:

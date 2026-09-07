@@ -16,27 +16,36 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The `No lacquer drift` job clones the lacquer, sets up Go, builds the binary
-// and runs `lacquer audit`. Actions bills a MINIMUM OF ONE MINUTE PER JOB, so
-// its cost is a full billed minute on every PR — including the overwhelming
-// majority that touch no lacquer-managed file at all. It is now gated on a paths
-// filter computed by the `changes` job.
+// The drift audit clones the lacquer, sets up Go, builds the binary and runs
+// `lacquer audit`. Actions bills a MINIMUM OF ONE MINUTE PER JOB, so while it
+// was a job of its own (`No lacquer drift`) it cost a full billed minute every
+// time it fired — 301 of them across the fleet in one six-day window, for a
+// median 24 seconds of work. It is now three STEPS at the end of the `changes`
+// job, gated on the same paths filter that job already computes, so it costs
+// nothing when it does not fire and shares an already-billed minute when it
+// does.
 //
-// That gate has two ways to be wrong, and they are not symmetric:
+// That leaves three ways to be wrong, and they are not symmetric:
 //
-//   - Too NARROW: drift stops running on a PR that really did change a managed
-//     file, and the fleet's only drift check silently reports nothing. Nothing
-//     fails; the check just stops existing. TestDriftGateCoversEveryManagedPath
+//   - Too NARROW a filter: drift stops running on a PR that really did change a
+//     managed file, and the fleet's only drift check silently reports nothing.
+//     Nothing fails; the check just stops existing. TestDriftGateCoversEveryManagedPath
 //     derives the managed set from assets.Plan — the same function sync and
 //     audit use — so an asset kind added to the lacquer without widening the
 //     filter fails here rather than going unnoticed in seventeen repos.
+//   - The verdict going unenforced. Now that the audit is a step rather than a
+//     job, `ci-ok` cannot read it from `needs.drift.result`; it reads the
+//     `changes` job's `drift` OUTPUT instead. An output nothing checks, or a
+//     check that treats an unrecognised value as a pass, would make the whole
+//     gate decorative. TestCIOKEnforcesTheDriftVerdict runs the real
+//     aggregation shell over every value the output can take.
 //   - `ci-ok` breaking on a SKIPPED dependency. `ci-ok` is the required status
 //     check every repo's branch protection points at. A dependent job skips by
 //     default when a job it needs skips, and a required check that never reports
-//     wedges branch protection on every PR in the fleet. TestCIOKPassesWhenDriftSkips
-//     runs the actual aggregation shell to prove skipped is treated as passing.
+//     wedges branch protection on every PR in the fleet. The same test runs the
+//     aggregator with everything skipped to prove skipped is treated as passing.
 
-// ciProfiles are the profiles shipping a ci.yml with a drift job.
+// ciProfiles are the profiles shipping a ci.yml with the drift audit.
 var ciProfiles = []string{"ios", "supabase", "web"}
 
 // ciConfig is a manifest complete enough to render any profile's ci.yml.
@@ -77,8 +86,10 @@ type ciDoc struct {
 		If      string            `yaml:"if"`
 		Outputs map[string]string `yaml:"outputs"`
 		Steps   []struct {
-			ID  string `yaml:"id"`
-			Run string `yaml:"run"`
+			ID   string `yaml:"id"`
+			Name string `yaml:"name"`
+			If   string `yaml:"if"`
+			Run  string `yaml:"run"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
 }
@@ -110,51 +121,89 @@ func needsList(t *testing.T, n yaml.Node) []string {
 	return many
 }
 
-// TestDriftIsGatedOnTheChangesJob asserts the wiring: drift depends on changes,
-// its `if` consults the changes job's `lacquer` output, and `changes` actually
-// publishes that output. An `if` naming an output no job declares evaluates to
-// the empty string, which is not 'true' — so the job would skip on every run,
-// forever, in silence. Asserting all three together is what catches that.
-func TestDriftIsGatedOnTheChangesJob(t *testing.T) {
+// TestDriftIsAStepGatedOnTheFilter asserts the wiring the fold depends on: the
+// audit lives inside `changes`, every one of its steps is gated on the `lacquer`
+// output the filter step in that same job computes, and the job publishes the
+// verdict as an output for ci-ok to enforce.
+//
+// An `if` naming a step output that step never writes evaluates to the empty
+// string, which is not 'true' — so the audit would skip on every run, forever,
+// in silence. An UNGATED audit step is the opposite failure and costs real
+// money: it would run the Go build on every PR, which is the whole thing this
+// gate exists to prevent. Asserting both together is what catches either.
+func TestDriftIsAStepGatedOnTheFilter(t *testing.T) {
 	for _, profile := range ciProfiles {
 		t.Run(profile, func(t *testing.T) {
 			doc := parseCI(t, profile)
+
+			if _, ok := doc.Jobs["drift"]; ok {
+				t.Error("there is a `drift` JOB again — it was folded into `changes` because " +
+					"Actions bills a one-minute minimum per job; if it has to be a job again " +
+					"(a repo requiring it by name in branch protection), ci-ok must go back to " +
+					"reading needs.drift.result")
+			}
 
 			changes, ok := doc.Jobs["changes"]
 			if !ok {
 				t.Fatal("no `changes` job")
 			}
-			if _, ok := changes.Outputs["lacquer"]; !ok {
-				t.Errorf("the changes job declares no `lacquer` output (has %v)", keysOf(changes.Outputs))
+			for _, out := range []string{"lacquer", "drift"} {
+				if _, ok := changes.Outputs[out]; !ok {
+					t.Errorf("the changes job declares no `%s` output (has %v)", out, keysOf(changes.Outputs))
+				}
+			}
+			if got := changes.Outputs["drift"]; !strings.Contains(got, "steps.drift.outputs.result") {
+				t.Errorf("the changes job's `drift` output is %q — it must publish the audit "+
+					"step's `result`, or ci-ok has nothing to enforce", got)
 			}
 
-			drift, ok := doc.Jobs["drift"]
-			if !ok {
-				t.Fatal("no `drift` job")
+			// Every step after the filter is part of the audit, and each one
+			// costs money if it runs when it should not.
+			var seenFilter, seenAudit, seenVerdict bool
+			for _, st := range changes.Steps {
+				if st.ID == "filter" {
+					seenFilter = true
+					continue
+				}
+				if !seenFilter {
+					continue // the plain checkout that feeds the diff
+				}
+				seenAudit = true
+				if st.ID == "drift" {
+					seenVerdict = true
+				}
+				if !strings.Contains(st.If, "steps.filter.outputs.lacquer") {
+					t.Errorf("the drift step %q has `if: %s` — every audit step must be gated on "+
+						"the filter's `lacquer` output or it runs on every PR",
+						stepLabel(st.ID, st.Name), st.If)
+				}
 			}
-			if drift.If == "" {
-				t.Fatal("the drift job is unconditional — it burns a billed minute on every PR")
+			if !seenAudit {
+				t.Error("no steps follow the `filter` step in `changes` — the drift audit is gone entirely")
 			}
-			if !strings.Contains(drift.If, "needs.changes.outputs.lacquer") {
-				t.Errorf("drift `if` is %q — it must consult the changes job's `lacquer` output", drift.If)
-			}
-			if !contains(needsList(t, drift.Needs), "changes") {
-				t.Errorf("drift needs %v — a job cannot read needs.changes.outputs without depending on changes",
-					needsList(t, drift.Needs))
+			if !seenVerdict {
+				t.Error("no step with `id: drift` in `changes` — nothing writes the verdict the " +
+					"job's `drift` output reads")
 			}
 		})
 	}
 }
 
-// TestCIOKPassesWhenDriftSkips runs the real aggregation shell out of the
-// rendered workflow with every combination of results that matters.
+// TestCIOKEnforcesTheDriftVerdict runs the real aggregation shell out of the
+// rendered workflow over every value the folded-in audit can report, plus the
+// job-result combinations that matter.
 //
-// This is the one way this change could be actively harmful: `ci-ok` is the
-// single required status check, and if a skipped `drift` made it fail (or skip),
-// branch protection would wedge on every PR in the fleet. Asserting on the YAML
-// would not exercise it — the decision lives in the loop's comparison — so the
-// script is extracted and executed.
-func TestCIOKPassesWhenDriftSkips(t *testing.T) {
+// Two ways this could be actively harmful, both exercised here:
+//
+//   - `ci-ok` is the single required status check. If a skipped dependency made
+//     it fail (or skip), branch protection would wedge on every PR in the fleet.
+//   - The drift verdict now arrives as an OUTPUT, not a job result. If the
+//     aggregator did not read it — or read it and treated anything but an
+//     explicit "fail" as a pass — a drifted PR would merge green.
+//
+// Asserting on the YAML would not exercise either; the decisions live in the
+// script's comparisons, so the script is extracted and executed.
+func TestCIOKEnforcesTheDriftVerdict(t *testing.T) {
 	for _, profile := range ciProfiles {
 		t.Run(profile, func(t *testing.T) {
 			doc := parseCI(t, profile)
@@ -169,20 +218,24 @@ func TestCIOKPassesWhenDriftSkips(t *testing.T) {
 					"when a job it needs skips", ciOK.If)
 			}
 			needs := needsList(t, ciOK.Needs)
-			if !contains(needs, "drift") {
-				t.Fatalf("ci-ok needs %v — drift must stay a gated job, not become unreported", needs)
+			if contains(needs, "drift") {
+				t.Fatalf("ci-ok needs %v — `drift` is no longer a job", needs)
+			}
+			if !contains(needs, "changes") {
+				t.Fatalf("ci-ok needs %v — it cannot read the drift verdict without depending on changes", needs)
 			}
 			if len(ciOK.Steps) == 0 {
 				t.Fatal("ci-ok has no steps")
 			}
 			script := ciOK.Steps[0].Run
+			if !strings.Contains(script, "needs.changes.outputs.drift") {
+				t.Fatal("the ci-ok aggregator never reads needs.changes.outputs.drift, so the drift " +
+					"audit blocks nothing and the gate is decorative")
+			}
 
-			// The results of every job but drift, held at success.
-			others := map[string]string{}
+			green := map[string]string{}
 			for _, n := range needs {
-				if n != "drift" {
-					others[n] = "success"
-				}
+				green[n] = "success"
 			}
 			allSkipped := map[string]string{}
 			for _, n := range needs {
@@ -192,19 +245,25 @@ func TestCIOKPassesWhenDriftSkips(t *testing.T) {
 			for _, tc := range []struct {
 				name     string
 				results  map[string]string
+				drift    string
 				wantFail bool
 			}{
-				{"drift skipped, everything else green", withResult(others, "drift", "skipped"), false},
-				{"drift green", withResult(others, "drift", "success"), false},
-				{"every job skipped (a docs-only PR)", allSkipped, false},
-				{"drift failed", withResult(others, "drift", "failure"), true},
-				{"drift cancelled", withResult(others, "drift", "cancelled"), true},
+				{"audit did not run (no lacquer-managed path touched)", green, "", false},
+				{"audit passed", green, "pass", false},
+				{"every job skipped, audit did not run (a docs-only PR)", allSkipped, "", false},
+				{"audit found drift", green, "fail", true},
+				// The audit's EXIT trap publishes whatever `result` holds, so an
+				// unrecognised value means the script left by a path nobody
+				// planned for. That must block, not pass.
+				{"audit reported something unrecognised", green, "weird", true},
+				{"a required job failed", withResult(green, "changes", "failure"), "pass", true},
+				{"a required job was cancelled", withResult(green, "changes", "cancelled"), "pass", true},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					out, failed := runAggregator(t, script, tc.results)
+					out, failed := runAggregator(t, script, tc.results, tc.drift)
 					if failed != tc.wantFail {
-						t.Errorf("ci-ok failed=%v, want %v\nresults: %v\noutput:\n%s",
-							failed, tc.wantFail, tc.results, out)
+						t.Errorf("ci-ok failed=%v, want %v\nresults: %v drift=%q\noutput:\n%s",
+							failed, tc.wantFail, tc.results, tc.drift, out)
 					}
 				})
 			}
@@ -216,11 +275,16 @@ func TestCIOKPassesWhenDriftSkips(t *testing.T) {
 // is written in, so a fabricated result can be substituted for each.
 var needsResult = regexp.MustCompile(`\$\{\{\s*needs\.([A-Za-z0-9_-]+)\.result\s*\}\}`)
 
-// runAggregator substitutes job results into the extracted ci-ok script and runs
-// it, reporting whether it failed.
-func runAggregator(t *testing.T, script string, results map[string]string) (string, bool) {
+// driftOutput matches the expression the aggregator reads the folded-in audit's
+// verdict from, so a fabricated verdict can be substituted for it.
+var driftOutput = regexp.MustCompile(`\$\{\{\s*needs\.changes\.outputs\.drift\s*\}\}`)
+
+// runAggregator substitutes job results and the drift verdict into the extracted
+// ci-ok script and runs it, reporting whether it failed.
+func runAggregator(t *testing.T, script string, results map[string]string, drift string) (string, bool) {
 	t.Helper()
-	substituted := needsResult.ReplaceAllStringFunc(script, func(m string) string {
+	substituted := driftOutput.ReplaceAllLiteralString(script, drift)
+	substituted = needsResult.ReplaceAllStringFunc(substituted, func(m string) string {
 		job := needsResult.FindStringSubmatch(m)[1]
 		r, ok := results[job]
 		if !ok {
@@ -495,6 +559,19 @@ func runChangesFilter(t *testing.T, script, event string, changed []string) map[
 		}
 	}
 	return got
+}
+
+// stepLabel names a step for an error message, preferring whichever of id/name
+// the step actually carries.
+func stepLabel(id, name string) string {
+	switch {
+	case name != "":
+		return name
+	case id != "":
+		return "id:" + id
+	default:
+		return "<unnamed>"
+	}
 }
 
 func contains(hay []string, needle string) bool {

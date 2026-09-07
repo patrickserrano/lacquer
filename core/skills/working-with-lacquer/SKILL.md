@@ -2,7 +2,8 @@
 name: working-with-lacquer
 description: >
   Use when working in a lacquer-managed project (one with a .lacquer.toml) and
-  anything about that management comes up: the "No lacquer drift" CI job fails,
+  anything about that management comes up: the drift audit inside the
+  "Detect changed paths" CI job fails,
   `lacquer audit` exits 3/4/6, a lint config or CI workflow you edited reverts
   on the next sync, a hook or workflow needs changing, the project can't meet a
   baseline yet, a new stack (Swift package, backend, web app) is added to the

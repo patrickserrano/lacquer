@@ -256,7 +256,7 @@ row here, and a hook never runs weaker than its CI twin.
 | `check` → `turbo run <task>` (monorepo) | same branch in pre-commit `typecheck`, pre-push `test` / `build` |
 | `check` → `pnpm audit` | pre-push `audit` (network, so not at commit time) |
 | `./node_modules/.bin/typedoc` | pre-push `docs`; local only, no CI counterpart |
-| `No lacquer drift` | `lacquer audit` (exit 3) |
+| `Detect changed paths` → drift audit | `lacquer audit` (exit 3) |
 
 One deliberate asymmetry: pre-commit runs Biome over **staged files** while CI
 runs it over the **whole component**. That is inherent to a staged-file hook — a

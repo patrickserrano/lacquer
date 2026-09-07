@@ -851,7 +851,9 @@ func TestCIOKAggregatesMatrixJobs(t *testing.T) {
 		{"the heavy jobs skipped (a docs-only PR)", withResult(withResult(green, "test", "skipped"), "build-release", "skipped"), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, failed := runAggregator(t, script, tc.results)
+			// "pass" for the folded-in drift audit: this test is about the
+			// matrix legs, and a drift verdict of its own would confound it.
+			out, failed := runAggregator(t, script, tc.results, "pass")
 			if failed != tc.wantFail {
 				t.Errorf("ci-ok failed=%v, want %v\nresults: %v\noutput:\n%s",
 					failed, tc.wantFail, tc.results, out)

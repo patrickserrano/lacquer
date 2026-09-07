@@ -92,9 +92,9 @@ row here, and a hook never runs weaker than its CI twin.
 | `check` → `deno check` | pre-push `typecheck` |
 | `check` → `deno test` | pre-push `test` |
 | `deno doc --lint` | pre-commit `docs`; local only, no CI counterpart |
-| `DB Lint (Splinter)`, `DB Tests (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. |
+| `DB Lint (Splinter)`, `DB Tests (pgTAP)` | CI-only: both need a live Postgres. Run `supabase db lint` / `supabase test db` against `supabase start` when touching the schema. **They only run when the PR touches a database input** — `supabase/**`, any `*.sql`, a `migrations/` or `seed/` directory, `scripts/`, `.lacquer.toml` (the pgTAP relaxation lives there) or a `supabase-*` workflow. Each boots a full Postgres stack, so gating them on the old non-docs deny-list meant every pure-SwiftUI PR in a mixed repo booted it twice for nothing. |
 | `Deploy migrations` | CI-only, and only on merge to main — it is the step that touches production. |
-| `No lacquer drift` | `lacquer audit` (exit 3) |
+| `Detect changed paths` → drift audit | `lacquer audit` (exit 3) |
 
 `deno fmt --check` and `deno lint` are **not** scoped to staged files — they check
 everything in `deno.jsonc`'s `include` (`supabase/functions/`). So the first
