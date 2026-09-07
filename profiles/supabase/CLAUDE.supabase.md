@@ -236,7 +236,10 @@ pre-commit.
 
 - `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-
   tested. The synced `supabase-ci.yml` runs `deno fmt --check`, `deno lint`,
-  `deno check`, and `deno test` on `ubuntu-latest`.
+  `deno check`, and `deno test` on `blacksmith-4vcpu-ubuntu-2404`. The `ci-ok`
+  merge gate runs on `[self-hosted, Linux, pi-gate]` instead — it is an
+  `if: always()` job, so it starts on every run and GitHub's
+  one-minute-minimum-per-job billing made it pure waste.
 - CI also **checks the schema, not just the functions**: `supabase db lint
   --level warning` (Splinter — flags missing-RLS / security-definer issues) and
   `supabase test db` (pgTAP against `supabase/tests/*.sql`). Write pgTAP tests
