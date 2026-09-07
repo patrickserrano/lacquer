@@ -177,6 +177,17 @@ The step it replaces was dropped by an onboarding sync in one repo, and the next
 
 **`lacquer sync` now refuses to drop a secret.** If the workflow a project has today reads a `${{ secrets.NAME }}` the incoming lacquer version does not, the sync stops and names it. Resolve it by declaring the keys as above, or by excluding the path with a reason and an expiry. `--force` does not lift it.
 
+If the credential is genuinely **obsolete**, retire it by name instead — the other two answers are both wrong for that case, since declaring it resurrects the secret you are removing and excluding the workflow freezes the whole file out of every later improvement to buy one deletion:
+
+```toml
+[project]
+retired_secrets = [
+  { name = "SANITY_API_READ_TOKEN", reason = "migrated off Sanity to Payload CMS" },
+]
+```
+
+`reason` is required and there is no `until`: a retired secret is retired, not deferred. The requirement is the point — the guard's principle is that a credential may only stop being read by a deliberate act a reviewer can see, and a bare name list would be a silent opt-out of it.
+
 ### CI / server secrets → GitHub Actions (never in the app)
 
 The release and quality workflows — and any server-side job that calls a vendor REST API — read these from repo/org GitHub Actions secrets, never from an xcconfig.

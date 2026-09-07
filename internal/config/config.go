@@ -37,7 +37,12 @@ type Project struct {
 	Stack   string      `toml:"stack"`
 	Tools   []string    `toml:"tools"`
 	Exclude []Exclusion `toml:"exclude"`
-	Skills  []string    `toml:"skills"`
+	// RetiredSecrets names GitHub Actions secrets this project has deliberately
+	// stopped using. The secret-drop guard subtracts them, so a genuine
+	// retirement is a one-line reviewable statement rather than a reason to
+	// excuse the whole workflow from management.
+	RetiredSecrets []RetiredSecret `toml:"retired_secrets"`
+	Skills         []string        `toml:"skills"`
 	// OptionalWorkflows opts a project INTO a workflow the lacquer ships but does
 	// not install by default, named without its `.yml` — e.g.
 	// optional_workflows = ["testflight-feedback"].
@@ -271,6 +276,72 @@ func (e Exclusion) Attributed() bool { return strings.TrimSpace(e.Reason) != "" 
 
 // UntilDate parses Until. Only meaningful when Until is non-empty.
 func (e Exclusion) UntilDate() (time.Time, error) { return time.Parse("2006-01-02", e.Until) }
+
+// RetiredSecret is a credential this project has deliberately stopped reading.
+//
+// The secret-drop guard refuses any sync that would stop a managed workflow
+// reading a `${{ secrets.NAME }}` it reads today, because that is how rail's
+// 1.1.0 shipped with unset runtime keys and was rejected under App Store
+// Guideline 2.1(a) with every check green.
+//
+// But "this credential is obsolete" is a real and ordinary thing to want, and
+// the guard originally had no way to say it. Its two escapes were both wrong
+// for that case: declaring the key in `[[product]].secrets` RESURRECTS a secret
+// you are trying to remove, and excluding the workflow freezes the whole file
+// out of every future improvement to buy one deletion. pixelfoxstudio.com hit
+// exactly this migrating off Sanity — five obsolete SANITY_* names it could
+// neither drop nor honestly excuse.
+//
+// `reason` is REQUIRED, and that is the whole design. The guard's principle is
+// that a credential may only stop being read by a deliberate act a reviewer can
+// see; a bare name list would be a silent opt-out and would defeat it. There is
+// no `until`: a retired secret is retired, not deferred.
+type RetiredSecret struct {
+	Name   string `toml:"name"`
+	Reason string `toml:"reason"` // required
+}
+
+// UnmarshalTOML requires the table form. Unlike Exclusion there is no bare
+// string shorthand, deliberately: the shorthand is what would make dropping a
+// credential easy, and it must not be.
+func (r *RetiredSecret) UnmarshalTOML(v any) error {
+	t, ok := v.(map[string]any)
+	if !ok {
+		return fmt.Errorf("[project].retired_secrets entry must be a table with name and reason, got %T", v)
+	}
+	str := func(key string) (string, error) {
+		raw, ok := t[key]
+		if !ok {
+			return "", nil
+		}
+		s, ok := raw.(string)
+		if !ok {
+			return "", fmt.Errorf("[project].retired_secrets %s must be a string, got %T", key, raw)
+		}
+		return s, nil
+	}
+	for key := range t {
+		switch key {
+		case "name", "reason":
+		default:
+			return fmt.Errorf("unknown [project].retired_secrets key %q (known keys: name, reason)", key)
+		}
+	}
+	var err error
+	if r.Name, err = str("name"); err != nil {
+		return err
+	}
+	if r.Reason, err = str("reason"); err != nil {
+		return err
+	}
+	if r.Name == "" {
+		return fmt.Errorf("[project].retired_secrets entry needs a name")
+	}
+	if strings.TrimSpace(r.Reason) == "" {
+		return fmt.Errorf("[project].retired_secrets entry %q needs a reason — a credential may only stop being read by a deliberate act a reviewer can see", r.Name)
+	}
+	return nil
+}
 
 // SkillEntry is a parsed "<owner>/<repo>@<skill-name>" entry from
 // [project].skills — a third-party (or this lacquer's own) skill package to
