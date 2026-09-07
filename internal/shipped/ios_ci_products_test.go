@@ -803,6 +803,64 @@ func TestIOSCISimulatorsDoNotCollide(t *testing.T) {
 	}
 }
 
+// TestIOSCIFinalCleanupDoesNotCollide covers the OTHER step that deletes
+// simulators — the always()-run "Delete this run's simulators" at the end of the
+// test job.
+//
+// This existed as a real bug. TestIOSCISimulatorsDoNotCollide above proved the
+// SETUP path was scoped per product and stopped there, so the teardown path went
+// unproven and shipped keyed on `GITHUB_RUN_ID` alone. Every matrix leg of one
+// run shares that id, so the leg that finished FIRST deleted its sibling's live
+// device: the faster product always killed the slower one, mid-test. It surfaced
+// as "Failed to prepare device ... No matching device in set" plus whichever
+// test happened to be executing — an unstable failure set that reads like a
+// flaky application test and is not one.
+//
+// The asymmetry is what made it durable: a project whose products take
+// noticeably different times to test fails ONLY on the slower product, every
+// time, which looks like a defect specific to that product.
+func TestIOSCIFinalCleanupDoesNotCollide(t *testing.T) {
+	cfg := soloConfig()
+	cfg.Product = []config.Product{
+		{Name: "Steps", Scheme: "Steps", BundleID: "com.x.steps", AscAppID: "1", TagPrefix: "steps"},
+		{Name: "StepsFree", Scheme: "StepsFree", BundleID: "com.x.free", AscAppID: "2", TagPrefix: "stepsfree"},
+	}
+	script := stepRun(t, parseIOSCI(t, cfg), "test", "Delete this run's simulators")
+	idsLine := mustFind(t, regexp.MustCompile(`(?m)^\s*(ids=.*)$`), script, "the simulator id selection")
+
+	// The sibling leg's simulator, booted and mid-test, plus this leg's own.
+	const listing = "    CI-iPhone-99887766-stepsfree (AAAAAAAA-1111-2222-3333-444444444444) (Booted)\n" +
+		"    CI-iPhone-99887766-steps (BBBBBBBB-1111-2222-3333-444444444444) (Booted)"
+
+	run := func(slug string) string {
+		t.Helper()
+		prog := "xcrun() { printf '%s\\n' \"$LISTING\"; }\n" + idsLine + "\nprintf '%s' \"$ids\"\n"
+		cmd := exec.Command("bash", "-c", prog)
+		cmd.Env = append(os.Environ(),
+			"GITHUB_RUN_ID=99887766", "PRODUCT_SLUG="+slug, "LISTING="+listing)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("extracted cleanup shell failed: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+
+	steps := run("steps")
+	if strings.Contains(steps, "AAAAAAAA-1111-2222-3333-444444444444") {
+		t.Errorf("the `steps` leg would delete the `stepsfree` leg's LIVE simulator. "+
+			"GITHUB_RUN_ID is shared by every matrix leg, so this selector must carry the "+
+			"product suffix and be anchored past the end of the name, exactly as Setup does. got %q", steps)
+	}
+	if !strings.Contains(steps, "BBBBBBBB-1111-2222-3333-444444444444") {
+		t.Errorf("the `steps` leg no longer deletes its OWN simulator (got %q). "+
+			"Leaving strays behind fills the disk on the one shared Mac.", steps)
+	}
+	if free := run("stepsfree"); !strings.Contains(free, "AAAAAAAA-1111-2222-3333-444444444444") ||
+		strings.Contains(free, "BBBBBBBB-1111-2222-3333-444444444444") {
+		t.Errorf("the `stepsfree` leg must delete exactly its own simulator, got %q", free)
+	}
+}
+
 func mustFind(t *testing.T, re *regexp.Regexp, hay, what string) string {
 	t.Helper()
 	m := re.FindStringSubmatch(hay)
