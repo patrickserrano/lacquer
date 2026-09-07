@@ -587,7 +587,12 @@ func assertCredentialsIgnored(t *testing.T, p *project) {
 // workflows use. Without it actionlint reports every `runs-on: [self-hosted,
 // macOS, ARM64, dedicated]` as an unknown label — which is exactly what the
 // config file is for, and not a finding about the workflow.
-const actionlintConfig = "self-hosted-runner:\n  labels:\n    - dedicated\n"
+// actionlintConfig declares the non-GitHub runner labels this fleet uses.
+// actionlint cannot know a third-party provider's or a self-hosted box's
+// labels, so it reports every one as unknown -- a finding about actionlint's
+// knowledge, not about the workflow. `pi-gate` is a ROLE label carried by both
+// the Raspberry Pi and the Synology so either can serve a gate job.
+const actionlintConfig = "self-hosted-runner:\n  labels:\n    - dedicated\n    - pi-gate\n    - blacksmith-4vcpu-ubuntu-2404\n"
 
 // runActionlint lints the rendered workflows when actionlint is installed, and
 // skips cleanly when it is not.
