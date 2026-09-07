@@ -32,9 +32,10 @@ jobs:
     # Always runs — a diff, plus (only when the `lacquer` filter fires) the drift
     # audit folded in at the end — so CI OK still reports on docs-only PRs where
     # the heavy jobs are skipped.
-    runs-on: ubuntu-latest
-    # Bounded because this job now builds and runs `lacquer audit` when the
-    # `lacquer` filter fires; it used to be a diff and nothing else.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Bounded because this job now downloads a lacquer release and runs
+    # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
+    # nothing else.
     timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
@@ -144,7 +145,8 @@ jobs:
             echo "db=false" >> "$GITHUB_OUTPUT"
           fi
           # `lacquer` gates the drift audit at the end of this job, which clones
-          # the lacquer, sets up Go, builds the binary and runs `lacquer audit`.
+          # the lacquer at its latest release tag, downloads the released binary
+          # built from that same tag, and runs `lacquer audit`.
           # That used to be a job of its own and so cost a whole billed minute
           # (Actions bills a one-minute MINIMUM per job) on a PR that cannot
           # possibly have drifted; it is now three steps here, and this filter is
@@ -179,14 +181,15 @@ jobs:
       # ---- lacquer drift ----
       #
       # This used to be a separate `No lacquer drift` job. It is one checkout, a
-      # Go build and one `lacquer audit` — a measured ~24s median across the
-      # fleet — and Actions bills a MINIMUM OF ONE MINUTE PER JOB, so as its own
-      # job it spent a whole billed minute on 24 seconds of work every time it
-      # fired. Cost here is job COUNT, not job duration, so the only way to make
-      # it cheaper is to stop it being a job. Folded in, it costs nothing at all
-      # when `lacquer` is false, and shares this job's already-billed minute when
-      # it is true — this job's own median is 13s, so the pair still lands inside
-      # one minute on the large majority of runs.
+      # binary download and one `lacquer audit` — a measured ~24s median across
+      # the fleet back when it still COMPILED lacquer — and Actions bills a
+      # MINIMUM OF ONE MINUTE PER JOB, so as its own job it spent a whole billed
+      # minute on 24 seconds of work every time it fired. Cost here is job COUNT,
+      # not job duration, so the only way to make it cheaper is to stop it being
+      # a job. Folded in, it costs nothing at all when `lacquer` is false, and
+      # shares this job's already-billed minute when it is true — this job's own
+      # median is 13s, so the pair still lands inside one minute on the large
+      # majority of runs.
       #
       # The trade-off, stated plainly: drift is no longer a separately-named
       # status check. That is safe only while no repo requires it BY NAME in
@@ -201,33 +204,68 @@ jobs:
       # suppress the lint/test results on the very PR you need them for. The
       # audit therefore never exits non-zero; `ci-ok` — the required check —
       # reads the output and fails on it.
+
+      # Resolve the newest lacquer RELEASE first, because BOTH the checkout below
+      # and the binary the audit downloads have to be that one tag.
+      # `releases/latest` redirects to `.../releases/tag/vX.Y.Z`, so the last
+      # segment of the resolved URL IS the tag — no token, no JSON parser, and
+      # none of api.github.com's 60-requests-per-hour unauthenticated budget,
+      # which every runner behind one NAT address shares.
+      - name: Resolve the lacquer release
+        id: lacquerrel
+        if: steps.filter.outputs.lacquer == 'true'
+        run: |
+          set -uo pipefail
+          url=$(curl -fsSL --retry 3 -I -o /dev/null -w '%{url_effective}' \
+            https://github.com/patrickserrano/lacquer/releases/latest) || exit 0
+          tag=${url##*/}
+          # Publish the tag only when it LOOKS like one. An error page, or a
+          # redirect to the releases index on a repo with no releases yet, would
+          # otherwise be handed to `ref:` verbatim and then to the download URL.
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) echo "tag=$tag" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::warning::Could not resolve the latest lacquer release (got '$tag')." ;;
+          esac
+        # continue-on-error on the two SETUP steps, not on the audit. Now that
+        # this shares a job with the path filter, a GitHub-side hiccup resolving
+        # the release or fetching the lacquer must not take the whole workflow
+        # down with it. The audit step below detects the gap and reports a drift
+        # FAILURE — never a silent pass.
+        continue-on-error: true
+
       - name: Fetch the lacquer
         # lacquer is a public repo, so this needs no token.
-        if: steps.filter.outputs.lacquer == 'true'
+        #
+        # PINNED TO THE RELEASE TAG rather than left on the default branch,
+        # because the audit below runs the RELEASE BINARY for that tag against
+        # this checkout. lacquer compares the VERSION embedded in the binary at
+        # compile time against the VERSION under LACQUER_ROOT and treats a
+        # mismatch as a STALE BINARY (internal/rootcheck): today's profiles
+        # rendered with whatever day's logic the binary happens to hold, reported
+        # as success either way — which is how a 1.3.0 binary rewrote a project's
+        # lefthook.yml from 135 lines to 60. Checking out `main` while
+        # downloading the last TAG would manufacture exactly that mismatch for
+        # the whole window between a merge and its release publishing, and that
+        # window is real: release.yml fires on any push touching VERSION and
+        # every merge to main bumps it, so main is ahead of the tag for as long
+        # as the release job takes. Pinning both to one tag removes the window
+        # rather than racing it.
+        if: steps.filter.outputs.lacquer == 'true' && steps.lacquerrel.outputs.tag != ''
         uses: actions/checkout@v7
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
-        # continue-on-error on the two SETUP steps, not on the audit. Now that
-        # this shares a job with the path filter, a GitHub-side hiccup fetching
-        # the lacquer or restoring the Go cache must not take the whole workflow
-        # down with it. The audit step below detects the missing toolchain and
-        # reports a drift FAILURE — never a silent pass.
-        continue-on-error: true
-
-      - name: Set up Go for the audit
-        if: steps.filter.outputs.lacquer == 'true'
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: .lacquer-checkout/go.mod
-          # Without this, the module cache restore probes the PROJECT root for
-          # go.mod and warns on every run.
-          cache-dependency-path: .lacquer-checkout/go.sum
+          ref: ${{ steps.lacquerrel.outputs.tag }}
+        # Same reasoning as the step above.
         continue-on-error: true
 
       - name: Audit for drift
         id: drift
         if: steps.filter.outputs.lacquer == 'true'
+        env:
+          # Through the environment rather than inline `${{ }}`: this value is a
+          # redirect target read off the network, and it ends up in a URL.
+          LACQUER_TAG: ${{ steps.lacquerrel.outputs.tag }}
         run: |
           # `-e` is deliberately absent: this step must never exit non-zero (see
           # the block comment above). `result` starts at `fail` and the EXIT trap
@@ -243,8 +281,8 @@ jobs:
             result=pass
             exit 0
           fi
-          if [ ! -f .lacquer-checkout/go.mod ] || ! command -v go >/dev/null 2>&1; then
-            echo "::error::The drift audit could not be set up — the lacquer checkout or the Go toolchain is missing, so drift was NOT checked on this PR."
+          if [ -z "${LACQUER_TAG:-}" ] || [ ! -f .lacquer-checkout/VERSION ]; then
+            echo "::error::The drift audit could not be set up — the lacquer release did not resolve, or its checkout is missing, so drift was NOT checked on this PR."
             exit 0
           fi
           if [ ! -f .lacquer.lock ]; then
@@ -253,14 +291,69 @@ jobs:
             # nothing can block. Say so instead of reporting a green pass.
             echo "::warning::No .lacquer.lock — this project has never been synced, so drift cannot be attributed. Run \`lacquer sync\` to establish the baseline."
           fi
-          # Build from INSIDE the checkout. `go build ./.lacquer-checkout/cmd/lacquer`
-          # from the project root fails with "go.mod file not found in current
-          # directory or any parent directory" — a Go package path is resolved
-          # against the current MODULE, and a Swift/TS project root is not one.
-          if ! (cd .lacquer-checkout && go build -o "$RUNNER_TEMP/lacquer" ./cmd/lacquer); then
-            echo "::error::Building lacquer failed, so drift was NOT checked on this PR."
+          # DOWNLOAD the released binary; do not compile one. This step used to
+          # install a Go toolchain and compile lacquer from source on every audit
+          # that fired — 122 times in the six days after the fleet moved back to
+          # billed runners. v1.15.0 publishes static (CGO_ENABLED=0) linux
+          # amd64/arm64 tarballs, so there is no toolchain to install, no module
+          # cache to restore and nothing left to compile.
+          case "$(uname -m)" in
+            x86_64) arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            # Deliberately no default guess: the wrong tarball is a binary that
+            # cannot execute, and a binary that cannot execute must never be the
+            # thing that reports "no drift".
+            *) echo "::error::Unsupported runner architecture $(uname -m) — drift was NOT checked on this PR."; exit 0 ;;
+          esac
+          case "$(uname -s)" in
+            Linux) os=linux ;;
+            Darwin) os=darwin ;;
+            *) echo "::error::Unsupported runner OS $(uname -s) — drift was NOT checked on this PR."; exit 0 ;;
+          esac
+          version="${LACQUER_TAG#v}"
+          # Prove the tag pin actually held before trusting either half of it.
+          # release.yml derives the tag from VERSION, so these agree by
+          # construction — which is exactly why a disagreement means something
+          # went wrong upstream of here and the audit's answer is worthless.
+          checkout_version="$(tr -d '[:space:]' < .lacquer-checkout/VERSION)"
+          if [ "$checkout_version" != "$version" ]; then
+            echo "::error::The lacquer checkout is $checkout_version but the release binary is $version — that is the STALE BINARY case, so drift was NOT checked on this PR."
             exit 0
           fi
+          asset="lacquer_${version}_${os}_${arch}.tar.gz"
+          base="https://github.com/patrickserrano/lacquer/releases/download/${LACQUER_TAG}"
+          if ! curl -fsSL --retry 3 -o "$RUNNER_TEMP/$asset" "$base/$asset" ||
+             ! curl -fsSL --retry 3 -o "$RUNNER_TEMP/checksums.txt" "$base/checksums.txt"; then
+            echo "::error::Downloading the lacquer ${LACQUER_TAG} release failed, so drift was NOT checked on this PR."
+            exit 0
+          fi
+          # Verify BEFORE unpacking. A truncated or substituted tarball must not
+          # be able to produce the binary that says "no drift" — a silent pass is
+          # the one outcome this whole step is built to make impossible.
+          verify() (
+            cd "$RUNNER_TEMP" || return 1
+            # Narrowed to this one asset's line. `sha256sum -c checksums.txt`
+            # whole fails on the other archives, which were never downloaded, so
+            # a one-line file is the only usable form — and grep failing to
+            # produce that line is itself an error, which is what stops a MISSING
+            # checksum entry from passing as a verified one.
+            grep -E "[[:space:]]\*?${asset}\$" checksums.txt > lacquer.sha256 || return 1
+            [ -s lacquer.sha256 ] || return 1
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum -c lacquer.sha256
+            else
+              shasum -a 256 -c lacquer.sha256
+            fi
+          )
+          if ! verify; then
+            echo "::error::Checksum verification failed for ${asset} — the download is corrupt or substituted, so drift was NOT checked on this PR."
+            exit 0
+          fi
+          if ! tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" lacquer; then
+            echo "::error::Unpacking ${asset} failed, so drift was NOT checked on this PR."
+            exit 0
+          fi
+          chmod +x "$RUNNER_TEMP/lacquer"
 
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" audit
           code=$?
@@ -281,7 +374,7 @@ jobs:
 
   check:
     name: Format · Lint · Test
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
@@ -336,23 +429,64 @@ jobs:
       #
       # working-directory is pinned to the repo root: this job may default to a
       # component subdirectory, and .lacquer.toml lives at the root.
+      #
+      # Same release pair as the drift audit in the `changes` job: the tag pins
+      # the checkout, and the binary for THAT tag is downloaded, never compiled.
+      # See that job for why the two halves must be one tag (STALE BINARY) and
+      # why the checksum is not optional. The difference here is `set -e` — the
+      # audit must never fail its job, this one MUST, because a doctor probe
+      # that silently did not run is the exact failure it exists to catch.
+      - name: Resolve the lacquer release
+        id: doctorrel
+        run: |
+          set -euo pipefail
+          url=$(curl -fsSL --retry 3 -I -o /dev/null -w '%{url_effective}' \
+            https://github.com/patrickserrano/lacquer/releases/latest)
+          tag=${url##*/}
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Could not resolve the latest lacquer release (got '$tag')."; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
           repository: patrickserrano/lacquer
           path: .lacquer-checkout
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: .lacquer-checkout/go.mod
-          cache-dependency-path: .lacquer-checkout/go.sum
+          ref: ${{ steps.doctorrel.outputs.tag }}
       - name: Prove the checks can fail
         working-directory: .
+        env:
+          LACQUER_TAG: ${{ steps.doctorrel.outputs.tag }}
         run: |
           set -euo pipefail
           if [ ! -f .lacquer.toml ]; then
             echo "::notice::No .lacquer.toml — this project is not lacquer-managed."
             exit 0
           fi
-          (cd .lacquer-checkout && go build -o "$RUNNER_TEMP/lacquer" ./cmd/lacquer)
+          case "$(uname -m)" in
+            x86_64) arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "::error::Unsupported runner architecture $(uname -m)."; exit 1 ;;
+          esac
+          case "$(uname -s)" in
+            Linux) os=linux ;;
+            Darwin) os=darwin ;;
+            *) echo "::error::Unsupported runner OS $(uname -s)."; exit 1 ;;
+          esac
+          version="${LACQUER_TAG#v}"
+          asset="lacquer_${version}_${os}_${arch}.tar.gz"
+          base="https://github.com/patrickserrano/lacquer/releases/download/${LACQUER_TAG}"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$asset" "$base/$asset"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/checksums.txt" "$base/checksums.txt"
+          (cd "$RUNNER_TEMP" && grep -E "[[:space:]]\*?${asset}\$" checksums.txt > lacquer.sha256)
+          [ -s "$RUNNER_TEMP/lacquer.sha256" ]
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$RUNNER_TEMP" && sha256sum -c lacquer.sha256)
+          else
+            (cd "$RUNNER_TEMP" && shasum -a 256 -c lacquer.sha256)
+          fi
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" lacquer
+          chmod +x "$RUNNER_TEMP/lacquer"
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile supabase
 
   lint-database:
@@ -381,7 +515,7 @@ jobs:
     # fleet-wide -- too weak for the heavier profiles' actual workloads to be
     # worth the operational cost of running it. A red CI that cannot run is
     # worth less than a small bill.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changes
     # `db`, not `code`. `code` is the deny-list — true for any non-docs change —
     # so in a repo that carries a Supabase component next to an iOS or web one
@@ -422,7 +556,7 @@ jobs:
     name: DB Tests (pgTAP)
     # GitHub-hosted for the same reason as lint-database above: neither
     # self-hosted Linux box can boot the Supabase stack.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Serialized after lint-database rather than running parallel on `changes`
     # alone. NOTE this is now vestigial: both jobs' `supabase start` create
     # identically-named containers (derived from the project, not randomized),
@@ -520,7 +654,7 @@ jobs:
 
   deploy-database:
     name: Deploy migrations
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Only a merge to main, and only behind the schema jobs. `supabase db push`
     # is the one step here that touches production, so it must not be reachable
     # from a PR, and a migration must never land there without the lint and the
@@ -646,7 +780,7 @@ jobs:
     # points at "CI OK", not at the check job), so it never gets stuck "pending"
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, pi-gate]
     needs: [changes, check, lint-database, test-database]
     if: always()
     timeout-minutes: 2
