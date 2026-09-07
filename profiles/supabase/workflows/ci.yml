@@ -31,7 +31,7 @@ jobs:
     name: Detect changed paths
     # Pure git diff — no toolchain — so it always runs and lets CI OK report even
     # on docs-only PRs where the heavy check is skipped.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       code: ${{ steps.filter.outputs.code }}
       lacquer: ${{ steps.filter.outputs.lacquer }}
@@ -107,7 +107,7 @@ jobs:
 
   check:
     name: Format · Lint · Test
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
@@ -207,7 +207,7 @@ jobs:
     # fleet-wide -- too weak for the heavier profiles' actual workloads to be
     # worth the operational cost of running it. A red CI that cannot run is
     # worth less than a small bill.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changes
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 10
@@ -244,7 +244,7 @@ jobs:
     name: DB Tests (pgTAP)
     # GitHub-hosted for the same reason as lint-database above: neither
     # self-hosted Linux box can boot the Supabase stack.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Serialized after lint-database rather than running parallel on `changes`
     # alone. NOTE this is now vestigial: both jobs' `supabase start` create
     # identically-named containers (derived from the project, not randomized),
@@ -338,7 +338,7 @@ jobs:
 
   deploy-database:
     name: Deploy migrations
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Only a merge to main, and only behind the schema jobs. `supabase db push`
     # is the one step here that touches production, so it must not be reachable
     # from a PR, and a migration must never land there without the lint and the
@@ -461,7 +461,7 @@ jobs:
     name: No lacquer drift
     # Pure Go + a git checkout — no stack toolchain — so it runs on a
     # GitHub-hosted runner rather than tying up the dedicated Mac.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changes
     # Gated on paths, NOT on `code`: a drifted hook or workflow is exactly the
     # kind of change that arrives in an otherwise docs-only PR, so `lacquer`
@@ -540,7 +540,7 @@ jobs:
     # points at "CI OK", not at the check job), so it never gets stuck "pending"
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [changes, check, lint-database, test-database, drift]
     if: always()
     timeout-minutes: 2

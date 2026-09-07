@@ -583,11 +583,16 @@ func assertCredentialsIgnored(t *testing.T, p *project) {
 	}
 }
 
-// actionlintConfig declares the self-hosted runner labels this fleet's iOS
-// workflows use. Without it actionlint reports every `runs-on: [self-hosted,
-// macOS, ARM64, dedicated]` as an unknown label — which is exactly what the
-// config file is for, and not a finding about the workflow.
-const actionlintConfig = "self-hosted-runner:\n  labels:\n    - dedicated\n"
+// actionlintConfig declares the non-GitHub runner labels this fleet's workflows
+// use. Without it actionlint reports every `runs-on: [self-hosted, macOS,
+// ARM64, dedicated]` — and every Blacksmith label — as unknown, which is
+// exactly what the config file is for, and not a finding about the workflow.
+//
+// `blacksmith-4vcpu-ubuntu-2404` is the Linux runner the fleet moved to after
+// PixelFoxStudio exhausted its included GitHub Actions minutes; actionlint
+// cannot know a third-party provider's labels, so they are declared here the
+// same way `dedicated` is.
+const actionlintConfig = "self-hosted-runner:\n  labels:\n    - dedicated\n    - blacksmith-4vcpu-ubuntu-2404\n"
 
 // runActionlint lints the rendered workflows when actionlint is installed, and
 // skips cleanly when it is not.

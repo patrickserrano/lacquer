@@ -126,7 +126,7 @@ jobs:
 
   ci-ok:
     name: CI OK
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [lint, build]
     if: always()
     timeout-minutes: 2
