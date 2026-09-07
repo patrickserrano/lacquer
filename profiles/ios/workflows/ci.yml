@@ -27,8 +27,8 @@ jobs:
   changes:
     name: Detect changed paths
     # A diff, plus (only when the `lacquer` filter fires) the drift audit folded
-    # in at the end. No Xcode either way, so it runs on a GitHub-hosted runner
-    # and doesn't tie up the dedicated Mac (see CLAUDE.md "CI Runners").
+    # in at the end. No Xcode either way, so it runs on Blacksmith rather than
+    # tying up the dedicated Mac (see CLAUDE.md "CI Runners").
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
@@ -1486,8 +1486,12 @@ jobs:
 
   ci-ok:
     name: CI OK
-    # Just aggregates the needs[] results — no Xcode — so it runs on a
-    # GitHub-hosted runner (see CLAUDE.md "CI Runners").
+    # Just aggregates the needs[] results — no toolchain of any kind. It is
+    # `if: always()`, so it starts on EVERY run, and GitHub bills a ONE-MINUTE
+    # MINIMUM PER JOB: on a billed runner this gate spent a whole minute to do
+    # four seconds of reading `needs.*.result`. `pi-gate` is a ROLE label
+    # carried by runners on two separate boxes, so it costs nothing and still
+    # fails over (see CLAUDE.md "CI Runners").
     runs-on: [self-hosted, Linux, pi-gate]
     # The single required status check (branch protection points at "CI OK", not
     # at Lint / Build / Test directly). It ALWAYS runs, so it always reports —
