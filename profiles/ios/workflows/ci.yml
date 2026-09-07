@@ -28,7 +28,7 @@ jobs:
     name: Detect changed paths
     # Pure git diff — no Xcode — so it runs on a GitHub-hosted runner and
     # doesn't tie up the dedicated Mac (see CLAUDE.md "CI Runners").
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       code: ${{ steps.filter.outputs.code }}
       views: ${{ steps.filter.outputs.views }}
@@ -1242,7 +1242,7 @@ jobs:
     name: No lacquer drift
     # Pure Go + a git checkout — no stack toolchain — so it runs on a
     # GitHub-hosted runner rather than tying up the dedicated Mac.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changes
     # Gated on paths, NOT on `code`: a drifted hook or workflow is exactly the
     # kind of change that arrives in an otherwise docs-only PR, so `lacquer`
@@ -1318,7 +1318,7 @@ jobs:
     name: CI OK
     # Just aggregates the needs[] results — no Xcode — so it runs on a
     # GitHub-hosted runner (see CLAUDE.md "CI Runners").
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # The single required status check (branch protection points at "CI OK", not
     # at Lint / Build / Test directly). It ALWAYS runs, so it always reports —
     # even on docs-only PRs where every heavy job skips — so branch protection
