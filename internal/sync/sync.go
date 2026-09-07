@@ -213,7 +213,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// different class, and a re-run completes it.
 	var assetTargets []string
 	if len(plan) > 0 {
-		assetTargets, err = assets.Preflight(projectRoot, plan)
+		assetTargets, err = assets.Preflight(projectRoot, plan, cfg)
 		if err != nil {
 			return Result{}, err
 		}

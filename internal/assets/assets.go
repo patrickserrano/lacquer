@@ -486,7 +486,7 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 // disk — leaving the project half-synced. Queueify landed in exactly that state:
 // one uncommitted workflow file made Copy refuse, and it was left with rewritten
 // CLAUDE.md and AGENTS.md from a sync that reported failure.
-func Preflight(projectRoot string, plan []Asset) ([]string, error) {
+func Preflight(projectRoot string, plan []Asset, cfg *config.Config) ([]string, error) {
 	inRepo, err := gitguard.InWorkTree(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("git check: %w", err)
@@ -528,13 +528,18 @@ func Preflight(projectRoot string, plan []Asset) ([]string, error) {
 		return nil, fmt.Errorf("refusing to overwrite uncommitted changes in:\n  %s\n(commit or stash them, then re-run)",
 			strings.Join(dirty, "\n  "))
 	}
+	// Last, because it reads and renders files: there is no point paying for
+	// that on a plan the cheap checks above already refused.
+	if err := checkSecretDrop(plan, cfg, targets); err != nil {
+		return nil, err
+	}
 	return targets, nil
 }
 
 // Copy preflights and then writes. Kept for callers that do no writing of their
 // own; sync uses Preflight + Write so its region writes sit behind this check.
 func Copy(projectRoot string, plan []Asset, cfg *config.Config) error {
-	targets, err := Preflight(projectRoot, plan)
+	targets, err := Preflight(projectRoot, plan, cfg)
 	if err != nil {
 		return err
 	}

@@ -53,7 +53,15 @@ type Probe struct {
 	File    string `toml:"file"`
 	Content string `toml:"content"`
 	// Argv is the command. Placeholders: {dir} is the scratch directory,
-	// {component} the absolute component directory holding the synced configs.
+	// {component} the absolute component directory holding the synced configs,
+	// and {root} the project root.
+	//
+	// {root} exists because a `root` asset lands at the REPOSITORY root whatever
+	// the component layout, so `{component}/scripts/…` names a file that is only
+	// there when the component IS the root. Every probe for a repo-wide script
+	// was therefore silently scoped to single-component projects, and would have
+	// reported "the script is not installed" on the one project shape most
+	// likely to have a script per component.
 	Argv []string `toml:"argv"`
 	// Requires names tools the probe cannot run without: a bare name is looked
 	// up on PATH, anything containing "/" is a path (placeholders substituted)
@@ -189,7 +197,7 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, only []string, out
 		return nil, err
 	}
 	for _, pr := range coreProbes {
-		r := runProbe(pr, ".", CoreLayer, projectRoot)
+		r := runProbe(pr, ".", CoreLayer, projectRoot, projectRoot)
 		results = append(results, r)
 		report(out, pr, r)
 	}
@@ -215,7 +223,7 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, only []string, out
 				return nil, err
 			}
 			for _, pr := range probes {
-				r := runProbe(pr, c.Path, p, compDir)
+				r := runProbe(pr, c.Path, p, compDir, projectRoot)
 				results = append(results, r)
 				mark := "ok  "
 				if !r.OK {
@@ -251,7 +259,7 @@ func report(out io.Writer, p Probe, r Result) {
 	}
 }
 
-func runProbe(p Probe, compPath, profile, compDir string) Result {
+func runProbe(p Probe, compPath, profile, compDir, projectRoot string) Result {
 	r := Result{Component: compPath, Profile: profile, Name: p.Name}
 
 	dir, err := os.MkdirTemp("", "lacquer-doctor-")
@@ -270,6 +278,7 @@ func runProbe(p Probe, compPath, profile, compDir string) Result {
 
 	subst := func(s string) string {
 		s = strings.ReplaceAll(s, "{dir}", dir)
+		s = strings.ReplaceAll(s, "{root}", projectRoot)
 		return strings.ReplaceAll(s, "{component}", compDir)
 	}
 

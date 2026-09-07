@@ -400,7 +400,7 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		WebExec:           WebExecPrefix(pm),
 		IOSProductCatalog: ProductCatalog(products),
 		IOSProductChoices: ProductChoices(products),
-		IOSProductSecrets: ProductSecrets(products),
+		IOSProductSecrets: ProductSecrets(products, prefix),
 		IOSReleaseTags:    ReleaseTags(products),
 
 		IOSCIProductSuffix:     CIProductSuffix(products),
@@ -979,19 +979,83 @@ func ProductChoices(products []config.Product) string {
 }
 
 // ProductSecrets renders the release-time configuration steps: for each product
-// declaring secrets, a step gated on that product's matrix leg which writes the
-// real values into its xcconfig.
+// declaring secrets, a step gated on that product's matrix leg which hands the
+// real values to scripts/write-release-config.sh.
 //
 // Release deliberately does not fall back to the placeholder seeding ci.yml
 // does. CI seeds placeholders because tests must run without production keys; a
 // release doing the same would sign and ship an IPA wired to `appl_xxxxxxxx`,
 // and nothing would look wrong until the revenue did not arrive.
-func ProductSecrets(products []config.Product) string {
-	var b strings.Builder
+//
+// The step is a CALL, not an inlined program, and the reason is the incident
+// this whole path exists for. Rail's release carried a hand-written secret step,
+// onboarding replaced the workflow with one that had none, and the archive
+// shipped with every app-runtime key unset — App Review rejected 1.1.0 under
+// Guideline 2.1(a) and CI was green throughout. A script can be RUN against
+// known-bad input; a program pasted into a YAML string can only be read. The
+// doctor probes in profiles/ios/doctor.toml run this one with a required secret
+// missing and require it to fail, which is the only form of evidence this
+// repository accepts that the guard still guards.
+//
+// What is still inlined is the part that is documentation: the `env:` block
+// names every GitHub secret by name. GitHub does support dynamic context
+// indexing, but it makes the names invisible — you could no longer grep a repo
+// to learn which secrets its release needs, and a secret nobody knows to set is
+// one that fails at release time.
+//
+// prefix is the component prefix. The secrets_file is declared relative to the
+// COMPONENT root while the workflow runs from the REPOSITORY root, so a nested
+// component (ios/) needs it prepended. The script itself is a root asset and is
+// always at scripts/, whatever the component layout.
+func ProductSecrets(products []config.Product, prefix string) string {
+	// Every distinct destination any product declares. A sibling product that
+	// declares no secrets of its own still reads the same base configuration
+	// file, and `xcodebuild archive` fails before compiling when that file does
+	// not exist — so it gets a seed-only step rather than nothing.
+	var dests []string
+	seen := map[string]bool{}
 	for _, p := range products {
 		if len(p.Secrets) == 0 {
 			continue
 		}
+		d := prefix + p.SecretsPath()
+		if !seen[d] {
+			seen[d] = true
+			dests = append(dests, d)
+		}
+	}
+	// The overwhelmingly common case: no product declares release secrets, so
+	// nothing renders. Twelve projects are in it, and a stray blank step would
+	// be a syntax error in every one of them.
+	if len(dests) == 0 {
+		return ""
+	}
+	sort.Strings(dests)
+
+	var b strings.Builder
+	for _, p := range products {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		// Single quotes: a GitHub expression takes single-quoted string literals
+		// only, and `== "Free"` is a syntax error there, not a failed match. A
+		// literal quote inside is escaped by doubling it.
+		gate := strings.ReplaceAll(p.Name, "'", "''")
+
+		if len(p.Secrets) == 0 {
+			fmt.Fprintf(&b, "      - name: Seed release configuration (%s)\n", p.Name)
+			b.WriteString("        # Declares no secrets of its own, but shares a base configuration\n")
+			b.WriteString("        # file with a sibling that does. A clean checkout has no such file\n")
+			b.WriteString("        # (it is gitignored), and xcodebuild fails before compiling without\n")
+			b.WriteString("        # it — so seed the committed example and archive against that.\n")
+			fmt.Fprintf(&b, "        if: matrix.product.name == '%s'\n", gate)
+			b.WriteString("        run: |\n")
+			for _, d := range dests {
+				fmt.Fprintf(&b, "          scripts/write-release-config.sh %q\n", d)
+			}
+			continue
+		}
+
 		// Sorted: a map's iteration order is random, and an unstable render
 		// would rewrite the workflow on every sync and show as permanent drift.
 		keys := make([]string, 0, len(p.Secrets))
@@ -1000,55 +1064,35 @@ func ProductSecrets(products []config.Product) string {
 		}
 		sort.Strings(keys)
 
-		if b.Len() > 0 {
-			b.WriteString("\n")
-		}
 		fmt.Fprintf(&b, "      - name: Write release configuration (%s)\n", p.Name)
 		// Gated on the matrix leg. A product's keys must never be written into
 		// another product's build: shipping the free app's ad unit IDs inside
 		// the paid app is not a build failure, it is a bad release.
-		// Single quotes: a GitHub expression takes single-quoted string literals
-		// only, and `== "Free"` is a syntax error there, not a failed match. A
-		// literal quote inside is escaped by doubling it.
-		fmt.Fprintf(&b, "        if: matrix.product.name == '%s'\n", strings.ReplaceAll(p.Name, "'", "''"))
+		fmt.Fprintf(&b, "        if: matrix.product.name == '%s'\n", gate)
 		b.WriteString("        env:\n")
 		for _, k := range keys {
 			fmt.Fprintf(&b, "          %s: ${{ secrets.%s }}\n", k, p.Secrets[k])
 		}
 		b.WriteString("        run: |\n")
-		b.WriteString("          set -euo pipefail\n")
-		// The file holds live credentials on a self-hosted runner whose disk
-		// outlives the job.
-		b.WriteString("          umask 077\n")
-		for _, k := range keys {
-			// Fail on an unset OR empty secret. An unset secret expands to the
-			// empty string, and an empty xcconfig value is not an error to
-			// xcodebuild — it would build, sign, upload, and be wrong.
-			fmt.Fprintf(&b, "          : \"${%s:?%s is not set — it is required to release %s}\"\n", k, p.Secrets[k], p.Name)
-		}
-		for _, k := range keys {
-			pattern, ok := p.SecretFormats[k]
-			if !ok {
-				continue
+		// The values reach the script through the environment, never as
+		// arguments: a command line is readable by every process on the runner,
+		// and this one runs on shared, long-lived hardware.
+		fmt.Fprintf(&b, "          scripts/write-release-config.sh %q \\\n", prefix+p.SecretsPath())
+		for i, k := range keys {
+			arg := k
+			if pattern, ok := p.SecretFormats[k]; ok {
+				// Non-empty is not the same as correct. Pasting the paid app's
+				// key into the free app, or shipping Google's public test AdMob
+				// ID, both produce a perfectly non-empty value that builds,
+				// signs, uploads and passes review.
+				arg = k + "=" + pattern
 			}
-			// Non-empty is not the same as correct. Pasting the paid app's key
-			// into the free app, or shipping Google's public test AdMob ID, both
-			// produce a perfectly non-empty value that builds, signs, uploads
-			// and passes review.
-			fmt.Fprintf(&b, "          case \"$%s\" in\n", k)
-			fmt.Fprintf(&b, "            %s) ;;\n", pattern)
-			fmt.Fprintf(&b, "            *) echo \"::error::%s (from secret %s) does not match %s — releasing %s with it would ship the wrong key\"; exit 1 ;;\n",
-				k, p.Secrets[k], pattern, p.Name)
-			b.WriteString("          esac\n")
+			cont := " \\"
+			if i == len(keys)-1 {
+				cont = ""
+			}
+			fmt.Fprintf(&b, "            %q%s\n", arg, cont)
 		}
-		fmt.Fprintf(&b, "          mkdir -p \"$(dirname %q)\"\n", p.SecretsPath())
-		b.WriteString("          {\n")
-		for _, k := range keys {
-			// printf, not echo: a value containing a backslash would be
-			// interpreted by some echo implementations.
-			fmt.Fprintf(&b, "            printf '%%s = %%s\\n' %q \"$%s\"\n", k, k)
-		}
-		fmt.Fprintf(&b, "          } > %q\n", p.SecretsPath())
 	}
 	return b.String()
 }

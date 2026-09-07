@@ -239,3 +239,84 @@ expect = "fail"
 # stayed green over a config that had started rejecting idiomatic test names
 # (also measured). Two violations is not one.
 expect_output = """(?s)Probe\\.swift:[0-9]+:[0-9]+: error: Identifier Name Violation: Function name 'DoTheThing\\(\\)' should start with a lowercase character \\(identifier_name\\).*Done linting! Found 1 violation, 1 serious in 1 file\\."""
+
+[[probe]]
+name = "the release refuses to archive without a required app-runtime secret"
+why = """
+This is the check that was not there when it mattered.
+
+Rail's release workflow carried a hand-written step that wrote six app-runtime
+keys into an xcconfig. Onboarding replaced that workflow with the shared
+profile's, which had no such step, and nothing failed: the archive built, was
+signed, was uploaded, and reached App Review with every key unset. RevenueCatUI
+calls `fatalError("Purchases has not been configured.")` in any non-DEBUG build,
+so 1.1.0 (200) was rejected under Guideline 2.1(a) — after weeks of green CI.
+
+An unset GitHub secret expands to the EMPTY STRING, and an empty xcconfig value
+is not an error to xcodebuild. So "the release was configured" and "the release
+was silently misconfigured" are the same build, the same log and the same exit
+code unless something refuses. This probe is that something: it runs the shipped
+writer with the secret absent and requires it to stop the release.
+"""
+requires = ["bash", "{root}/scripts/write-release-config.sh"]
+argv = ["bash", "{root}/scripts/write-release-config.sh", "{dir}/Secrets.xcconfig", "DOCTOR_PROBE_RC_KEY=appl_*"]
+expect = "fail"
+# Names the key, so "the writer refused because the key was missing" cannot be
+# confused with a syntax error, a missing bash, or the script having been
+# deleted — each of which also exits non-zero and would otherwise report this
+# check as working.
+expect_output = '::error::write-release-config: required release secret\(s\) unset or empty: DOCTOR_PROBE_RC_KEY'
+
+[[probe]]
+name = "the release refuses a secret whose value is the wrong shape"
+why = """
+Non-empty is not the same as correct, and the two ways these keys actually go
+wrong both produce a perfectly non-empty value: pasting the paid app's
+RevenueCat key into the free app, and leaving Google's public test AdMob id in
+place. Both build, sign, upload and pass review, and the app then serves the
+wrong ads or no subscriptions to real users.
+
+The presence check above cannot see either one. `secret_formats` is what can,
+and a `case` pattern that stopped matching would look exactly like one that
+matches everything.
+"""
+requires = ["bash", "{root}/scripts/write-release-config.sh"]
+# The value goes through the environment, as it does in the workflow — a secret
+# on a command line is readable by every process on a shared runner.
+argv = ["bash", "-c", "DOCTOR_PROBE_RC_KEY=8f3a-not-a-key exec bash {root}/scripts/write-release-config.sh {dir}/Secrets.xcconfig DOCTOR_PROBE_RC_KEY=appl_*"]
+expect = "fail"
+expect_output = '::error::write-release-config: DOCTOR_PROBE_RC_KEY does not match its declared shape appl_\*'
+
+[[probe]]
+name = "the release escapes a URL secret so xcconfig cannot truncate it"
+why = """
+xcconfig treats `//` as the start of a comment, so a bare `https://host` value
+truncates to `https:`. That is the worst shape of all the failures here: it is
+NON-EMPTY, so the presence check passes, every accessor that tests for blank
+passes it through, and the service is silently pointed at nothing. A DSN that
+truncates ships a build that looks instrumented and reports into a void.
+
+The profile's own Secrets.xcconfig.example has documented the `/$()/`
+empty-substitution escape for years, and a shipped test enforces it there. The
+code path that wrote REAL values did not apply it — so the file a human filled
+in by hand was safe and the one CI generated was not.
+
+This probe writes a URL-valued secret and requires BOTH that the escape was
+applied and that no bare `//` survived in the file.
+"""
+requires = ["bash", "{root}/scripts/write-release-config.sh"]
+argv = ["bash", "-c", '''
+set -e
+export DOCTOR_PROBE_DSN='https://abc@o0.ingest.sentry.io/1'
+bash {root}/scripts/write-release-config.sh {dir}/Secrets.xcconfig DOCTOR_PROBE_DSN
+# The escape was applied ...
+grep -qF 'DOCTOR_PROBE_DSN = https:/$()/abc@o0.ingest.sentry.io/1' {dir}/Secrets.xcconfig
+# ... and nothing in the file still carries a bare `://`, which is what the
+# compiler would truncate. A literal string, so `$()` reaches grep intact.
+! grep -qE '^[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*[A-Za-z][A-Za-z0-9+.-]*://' {dir}/Secrets.xcconfig
+''']
+expect = "pass"
+# The writer's own per-key line, which it only prints on the escaping path. A
+# `set -e` script that never ran the writer, or ran a writer that wrote the raw
+# value, exits 0 or 1 with no such line.
+expect_output = 'write-release-config: set DOCTOR_PROBE_DSN in .*/Secrets\.xcconfig \(// escaped as /\$\(\)/\)'

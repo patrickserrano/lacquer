@@ -155,6 +155,66 @@ not secret. A truly sensitive secret belongs on a server, never in the app.
 > that grants full account access — it must **never** go in `Secrets.xcconfig` or
 > the binary. It is a CI/server secret (`REVENUECAT_REST_API_KEY`, below).
 
+#### At release time, the real values come from `[[product]].secrets`
+
+CI seeds `Secrets.xcconfig` from the committed example, because tests must run
+without production keys. **A release must not.** An archive built from the
+example ships wired to `appl_xxxxxxxx`, and nothing looks wrong until the
+revenue does not arrive — or until App Review opens the paywall.
+
+Declare the keys the release needs and the shared workflow writes them:
+
+```toml
+[[product]]
+name = "Rail"
+scheme = "Rail"
+bundle_id = "com.pixelfoxstudio.rail"
+asc_app_id = "6772891700"
+# Where the values are written, relative to the component root. Defaults to
+# Secrets.xcconfig, which is what the example file and .gitignore assume.
+secrets_file = "xcconfig/Secrets.xcconfig"
+# xcconfig key -> the NAME of the GitHub Actions secret holding its value.
+# Never the value: this file is committed.
+secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
+# Optional shape check. Non-empty is not the same as correct.
+secret_formats = { REVENUECAT_API_KEY = "appl_*" }
+```
+
+`release.yml` then runs `scripts/write-release-config.sh`, which seeds the
+committed `<secrets_file>.example` and substitutes the declared keys into it.
+Four things it does that a hand-written `sed` step does not:
+
+- **Fails closed on an unset OR empty secret.** An unset GitHub secret expands
+  to the empty string, and an empty xcconfig value is not an error to
+  `xcodebuild` — it would build, sign, upload, and be wrong.
+- **Fails closed on a wrong-shaped value**, per `secret_formats`. The two ways
+  these go wrong in practice — pasting the other app's key, and leaving Google's
+  public test AdMob id in place — both produce perfectly non-empty values.
+- **Escapes `//` as `/$()/`**, because xcconfig treats `//` as the start of a
+  comment. A bare `https://host` truncates to `https:`, which is non-empty, so
+  every accessor that only tests for blank passes it through and the service is
+  silently pointed at nothing.
+- **Seeds from the example first**, so keys the project references but does not
+  hold in secrets are still defined. The xcconfig is the target's base
+  configuration file; writing only the declared keys leaves the rest undefined.
+
+> **Why this is a script and not a step body.** The step it replaces was dropped
+> by an onboarding sync in one repo, and the next four releases archived with
+> every app-runtime key unset. `Purchases.configure` never ran, RevenueCatUI's
+> paywall calls `fatalError("Purchases has not been configured.")` in any
+> non-DEBUG build, and 1.1.0 was rejected under **Guideline 2.1(a)** — with CI
+> green throughout. A script can be RUN against known-bad input; a program
+> pasted into a YAML string can only be read. `lacquer doctor` runs this one
+> with a required secret missing and requires it to fail.
+
+**`lacquer sync` now refuses to drop a secret.** If the workflow a project has
+today reads a `${{ secrets.NAME }}` the incoming lacquer version does not, the
+sync stops and names it. That is the guard the onboarding above did not have —
+the audit's clobber check compares against the lock baseline, and at onboarding
+there is no baseline, so the one sync that discards all of a project's local
+knowledge is the one it cannot see. Resolve it by declaring the keys as above,
+or by excluding the path with a reason and an expiry. `--force` does not lift it.
+
 ### CI / server secrets → GitHub Actions (never in the app)
 
 The release and quality workflows — and any server-side job that calls a vendor
@@ -240,6 +300,30 @@ rather than one declared in the step's own `env:` block: `secrets` is not usable
 a step-level `if`, and a var set in that same step's `env:` is not in scope for its
 `if` either, so the obvious-looking version of this gate skips silently on every
 release and looks configured while uploading nothing.
+
+### A release must come from a commit CI passed
+
+`ios-release.yml` opens with a `verify-ci-provenance` job that refuses the run
+unless the exact SHA being released has a **completed, successful `CI OK` check
+run**, and — for a tag — unless that commit is **reachable from the repository's
+default branch**. It runs first, on Linux, so a release that must not happen
+costs two minutes on a hosted runner rather than forty-five on the dedicated Mac.
+
+`CI OK` is already the required check for **merging**. It was enforced nowhere
+for **releasing**: a tag can be pushed at any commit — an unreviewed branch, a
+revert of the fix, a commit that was never pushed for review — and every job
+downstream built, signed and uploaded it exactly as if it had come off a green
+main. The dispatch path is gated too, so a `workflow_dispatch` cannot launder an
+unverified commit; only the ancestry half is tag-only, because a dispatch runs
+from a branch and "is this on main yet" is not the question it is asking.
+
+Two consequences worth knowing before you hit it:
+
+- **Tag the merge commit, not the branch tip.** A tag on a branch that has not
+  landed is blocked by design.
+- **Let CI finish before you tag.** The check run must be *completed* and
+  *successful* for that SHA; a tag pushed in the same breath as the commit
+  arrives before CI has reported and is refused.
 
 ### Claude-powered workflows
 

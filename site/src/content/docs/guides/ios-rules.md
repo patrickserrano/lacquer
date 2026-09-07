@@ -147,6 +147,36 @@ grants full account access — it must never go in `Secrets.xcconfig` or the
 binary. It is a CI/server secret (`REVENUECAT_REST_API_KEY`, below).
 :::
 
+#### At release time, the real values come from `[[product]].secrets`
+
+CI seeds `Secrets.xcconfig` from the committed example, because tests must run without production keys. A release must not: an archive built from the example ships wired to `appl_xxxxxxxx`, and nothing looks wrong until the revenue doesn't arrive — or until App Review opens the paywall.
+
+Declare the keys the release needs and the shared workflow writes them:
+
+```toml
+[[product]]
+name = "Rail"
+scheme = "Rail"
+bundle_id = "com.pixelfoxstudio.rail"
+asc_app_id = "6772891700"
+# Where the values are written, relative to the component root. Defaults to
+# Secrets.xcconfig, which is what the example file and .gitignore assume.
+secrets_file = "xcconfig/Secrets.xcconfig"
+# xcconfig key -> the NAME of the GitHub Actions secret holding its value.
+# Never the value: this file is committed.
+secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
+# Optional shape check. Non-empty is not the same as correct.
+secret_formats = { REVENUECAT_API_KEY = "appl_*" }
+```
+
+`release.yml` then runs `scripts/write-release-config.sh`, which seeds the committed `<secrets_file>.example` and substitutes the declared keys into it. It fails closed on an unset **or empty** secret (an unset secret expands to the empty string, and an empty xcconfig value is not an error to `xcodebuild`); fails closed on a value that doesn't match its `secret_formats` shape; escapes `//` as `/$()/`, because xcconfig treats `//` as a comment and a bare `https://host` truncates to `https:`; and seeds from the example first, so keys the project references but doesn't hold in secrets stay defined.
+
+:::caution[Why this is a script and not a step body]
+The step it replaces was dropped by an onboarding sync in one repo, and the next releases archived with every app-runtime key unset — `Purchases.configure` never ran, RevenueCatUI's paywall calls `fatalError("Purchases has not been configured.")` in any non-DEBUG build, and 1.1.0 was rejected under **Guideline 2.1(a)**, with CI green throughout. A script can be run against known-bad input; a program pasted into a YAML string can only be read. `lacquer doctor` runs this one with a required secret missing and requires it to fail.
+:::
+
+**`lacquer sync` now refuses to drop a secret.** If the workflow a project has today reads a `${{ secrets.NAME }}` the incoming lacquer version does not, the sync stops and names it. Resolve it by declaring the keys as above, or by excluding the path with a reason and an expiry. `--force` does not lift it.
+
 ### CI / server secrets → GitHub Actions (never in the app)
 
 The release and quality workflows — and any server-side job that calls a vendor REST API — read these from repo/org GitHub Actions secrets, never from an xcconfig.
@@ -221,6 +251,14 @@ saying why. The final `always()` step now captures the prior settings and
 restores them. If your runner is dedicated hardware nobody logs into, none of
 this is visible; if it's also a machine you use, it's worth knowing CI reaches
 your login keychain at all.
+
+### A release must come from a commit CI passed
+
+`ios-release.yml` opens with a `verify-ci-provenance` job that refuses the run unless the exact SHA being released has a completed, successful `CI OK` check run, and — for a tag — unless that commit is reachable from the repository's default branch. It runs first, on Linux, so a release that must not happen costs two minutes on a hosted runner rather than forty-five on the dedicated Mac.
+
+`CI OK` was already the required check for **merging** and was enforced nowhere for **releasing**: a tag can be pushed at any commit — an unreviewed branch, a revert of the fix, a commit never pushed for review — and every job downstream built, signed and uploaded it as if it had come off a green main. The dispatch path is gated too; only the ancestry half is tag-only, because a dispatch runs from a branch.
+
+In practice: tag the merge commit rather than a branch tip, and let CI finish before tagging — the check run must be *completed* and *successful* for that SHA.
 
 ## CI runners
 
