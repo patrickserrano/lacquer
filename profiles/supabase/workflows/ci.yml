@@ -1,9 +1,16 @@
 name: Supabase CI
 
-# Deno backend — runs on GitHub-hosted runners (no Apple toolchain to worry
-# about). Previously routed to the fleet's self-hosted Synology/Pi, but both
-# proved too weak for this profile's workloads (see the lint-database job
-# below) and the fleet-wide self-hosted Linux experiment was abandoned.
+# Deno backend — no Apple toolchain to worry about, so the real work runs on
+# Blacksmith (`blacksmith-4vcpu-ubuntu-2404`), an ephemeral hosted Linux runner
+# billed outside the GitHub Actions allowance.
+#
+# This was once routed to the fleet's self-hosted Synology/Pi and moved back off
+# them: both proved too weak for this profile's workloads (see the lint-database
+# job below). That finding still stands and is why only ONE job here is
+# self-hosted — `ci-ok`, which starts no toolchain and does nothing but read
+# `needs.*.result`. A box too weak to run Supabase is entirely strong enough to
+# read six strings, and GitHub's one-minute-minimum-per-job billing is what
+# makes moving that particular job worth it.
 
 on:
   workflow_dispatch:
@@ -495,7 +502,8 @@ jobs:
     # lint) is what actually enforces it in CI, catching missing-RLS and
     # security-definer issues the Edge-Function checks never see.
     #
-    # GitHub-hosted, like every job in this file. Called out here because this
+    # Hosted (Blacksmith), like every job in this file except the `ci-ok` gate.
+    # Called out here because this
     # is the job that ended the fleet's self-hosted Linux experiment, and the
     # measurement below is what should stop anyone from retrying it:
     #
@@ -541,20 +549,20 @@ jobs:
         run: supabase db lint --level warning
 
       # `supabase start`'s containers are created on the RUNNER'S Docker host,
-      # not scoped to this job's own lifecycle -- on a GitHub-hosted runner
-      # that host is a fresh, disposable VM, so nothing needed cleaning up. On
-      # a self-hosted runner, every job shares the SAME long-lived Docker
-      # daemon, so a stack left running collides with the next run of this
-      # same job ("container name already in use"). always() so a failed
-      # lint still tears the stack down -- otherwise the FIRST failure here
-      # permanently wedges every run after it.
+      # not scoped to this job's own lifecycle -- on an ephemeral hosted runner
+      # (Blacksmith, as here) that host is a fresh, disposable VM, so nothing
+      # needed cleaning up. On a self-hosted runner, every job shares the SAME
+      # long-lived Docker daemon, so a stack left running collides with the
+      # next run of this same job ("container name already in use"). always()
+      # so a failed lint still tears the stack down -- otherwise the FIRST
+      # failure here permanently wedges every run after it.
       - name: Stop local stack
         if: always()
         run: supabase stop --no-backup
 
   test-database:
     name: DB Tests (pgTAP)
-    # GitHub-hosted for the same reason as lint-database above: neither
+    # Hosted (Blacksmith) for the same reason as lint-database above: neither
     # self-hosted Linux box can boot the Supabase stack.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # Serialized after lint-database rather than running parallel on `changes`
@@ -562,7 +570,7 @@ jobs:
     # identically-named containers (derived from the project, not randomized),
     # which was a real collision when they shared one self-hosted Docker host
     # ("Conflict. The container name ... is already in use", observed live) --
-    # but on GitHub-hosted runners each job gets its own VM, so the names
+    # but on an ephemeral hosted runner each job gets its own VM, so the names
     # cannot collide. Kept for now because dropping it changes scheduling for
     # every supabase project; it is safe to remove in its own change.
     needs: [changes, lint-database]
@@ -647,7 +655,7 @@ jobs:
           RELAX_STATE: ${{ steps.relax.outputs.state }}
 
       # See lint-database's identical step for why this exists on a
-      # self-hosted runner and didn't on GitHub-hosted.
+      # self-hosted runner and didn't on an ephemeral hosted one.
       - name: Stop local stack
         if: always()
         run: supabase stop --no-backup

@@ -1,6 +1,8 @@
 name: Web CI
 
-# Web work runs on GitHub-hosted runners (no Apple toolchain). Assumes the
+# Web work has no Apple toolchain, so it runs on Blacksmith
+# (`blacksmith-4vcpu-ubuntu-2404`), billed outside the GitHub Actions
+# allowance; the `ci-ok` gate alone is self-hosted and free. Assumes the
 # component's package.json defines: typecheck, test:coverage, build.
 
 on:
