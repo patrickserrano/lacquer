@@ -1287,7 +1287,15 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          ids=$(xcrun simctl list devices | grep "CI-iPhone-${GITHUB_RUN_ID}" | grep -oE '[A-F0-9-]{36}' || true)
+          # SCOPED PER PRODUCT, exactly like the stale-device sweep in "Setup
+          # Simulator" above. `GITHUB_RUN_ID` is shared by every matrix leg of
+          # one run, so a selector keyed on it alone matches SIBLING legs' live
+          # devices: whichever product finished first deleted the other's
+          # simulator mid-test, and the slower product failed with "Failed to
+          # prepare device ... No matching device in set" plus whichever test
+          # happened to be executing. Setup already carried the suffix; this
+          # step did not, which is the whole bug.
+          ids=$(xcrun simctl list devices | grep "CI-iPhone-${GITHUB_RUN_ID}{{IOS_CI_SIM_SUFFIX}}{{IOS_CI_SIM_MATCH}}" | grep -oE '[A-F0-9-]{36}' || true)
           for id in $ids; do
             echo "Deleting this run's simulator: $id"
             xcrun simctl shutdown "$id" 2>/dev/null || true
