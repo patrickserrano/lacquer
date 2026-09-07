@@ -138,3 +138,62 @@ func TestPreflightComparesAgainstTheRenderedVersion(t *testing.T) {
 		t.Fatalf("preflight refused a sync whose rendered workflow DOES read the secret: %v", err)
 	}
 }
+
+// The affordance the guard originally lacked.
+//
+// "This credential is obsolete" is an ordinary thing to want, and the guard's
+// two original escapes were both wrong for it: declaring the key in
+// `[[product]].secrets` RESURRECTS the secret you are removing, and excluding
+// the workflow freezes the whole file out of every future improvement to buy
+// one deletion. pixelfoxstudio.com hit this migrating off Sanity — five
+// obsolete SANITY_* names it could neither drop nor honestly excuse.
+func TestPreflightAllowsAnExplicitlyRetiredSecret(t *testing.T) {
+	local := "jobs:\n  b:\n    steps:\n      - env:\n" +
+		"          SANITY_API_READ_TOKEN: ${{ secrets.SANITY_API_READ_TOKEN }}\n" +
+		"          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}\n"
+	shipped := "jobs:\n  b:\n    steps:\n      - env:\n          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}\n"
+
+	project, plan := secretDropFixture(t, shipped, local)
+
+	// Without the retirement, this is refused — the control, so a bug that made
+	// the guard permissive could not make this test pass by accident.
+	if _, err := Preflight(project, plan, cfgForDrop()); err == nil {
+		t.Fatal("control failed: the drop was allowed even with no retirement declared")
+	}
+
+	cfg := cfgForDrop()
+	cfg.Project.RetiredSecrets = []config.RetiredSecret{
+		{Name: "SANITY_API_READ_TOKEN", Reason: "migrated off Sanity to Payload CMS"},
+	}
+	if _, err := Preflight(project, plan, cfg); err != nil {
+		t.Fatalf("preflight refused a sync dropping a secret the project explicitly retired: %v", err)
+	}
+}
+
+// Retiring one name must not wave through its neighbours. The guard is a
+// name-set comparison, so the subtraction has to be per-name.
+func TestPreflightStillRefusesUnretiredSiblings(t *testing.T) {
+	local := "jobs:\n  b:\n    steps:\n      - env:\n" +
+		"          SANITY_API_READ_TOKEN: ${{ secrets.SANITY_API_READ_TOKEN }}\n" +
+		"          REVENUECAT_API_KEY: ${{ secrets.REVENUECAT_API_KEY }}\n"
+	shipped := "jobs:\n  b:\n    steps:\n      - env:\n          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}\n"
+
+	project, plan := secretDropFixture(t, shipped, local)
+	cfg := cfgForDrop()
+	cfg.Project.RetiredSecrets = []config.RetiredSecret{
+		{Name: "SANITY_API_READ_TOKEN", Reason: "migrated off Sanity"},
+	}
+	_, err := Preflight(project, plan, cfg)
+	if err == nil {
+		t.Fatal("retiring one secret waved through an unretired one alongside it")
+	}
+	if strings.Contains(err.Error(), "SANITY_API_READ_TOKEN") {
+		t.Errorf("the refusal still names the RETIRED secret:\n%v", err)
+	}
+	if !strings.Contains(err.Error(), "REVENUECAT_API_KEY") {
+		t.Errorf("the refusal does not name the secret that is actually being dropped:\n%v", err)
+	}
+	if !strings.Contains(err.Error(), "retired_secrets") {
+		t.Errorf("the refusal does not mention retirement as a way to proceed:\n%v", err)
+	}
+}

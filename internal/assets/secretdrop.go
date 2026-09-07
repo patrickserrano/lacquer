@@ -84,6 +84,14 @@ func checkSecretDrop(plan []Asset, cfg *config.Config, targets []string) error {
 	}
 	var findings []finding
 
+	// Names the project has explicitly retired, each with a required reason.
+	// Subtracted rather than reported: the guard exists to stop a credential
+	// disappearing UNNOTICED, and an entry here is the opposite of unnoticed.
+	retired := map[string]bool{}
+	for _, r := range cfg.Project.RetiredSecrets {
+		retired[r.Name] = true
+	}
+
 	for i, a := range plan {
 		if !isWorkflow(a.Dest) {
 			continue
@@ -101,7 +109,7 @@ func checkSecretDrop(plan []Asset, cfg *config.Config, targets []string) error {
 		have, want := secretNames(existing), secretNames(incoming)
 		var dropped []string
 		for name := range have {
-			if !want[name] {
+			if !want[name] && !retired[name] {
 				dropped = append(dropped, name)
 			}
 		}
@@ -125,6 +133,8 @@ func checkSecretDrop(plan []Asset, cfg *config.Config, targets []string) error {
 	}
 	b.WriteString("\nEither declare them in .lacquer.toml so the shared workflow writes them:\n")
 	b.WriteString("\n  [[product]]\n  secrets = { KEY = \"GITHUB_SECRET_NAME\" }\n")
+	b.WriteString("\nor, if the credential is genuinely obsolete, retire it by name:\n")
+	b.WriteString("\n  [project]\n  retired_secrets = [{ name = \"…\", reason = \"…\" }]\n")
 	b.WriteString("\nor keep the local file, with a reason and an expiry:\n")
 	b.WriteString("\n  exclude = [{ path = \"…\", reason = \"…\", until = \"YYYY-MM-DD\" }]\n")
 	b.WriteString("\n--force does not lift this. It means \"take the lacquer's version of a file I edited\",\nwhich is a judgement about content; this one is about credentials leaving a release.")
