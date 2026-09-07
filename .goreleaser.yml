@@ -6,7 +6,13 @@ builds:
   - id: lacquer
     main: ./cmd/lacquer
     binary: lacquer
-    goos: [darwin]
+    # linux as well as darwin: the shipped `No lacquer drift` CI job needs a
+    # lacquer binary on a Linux runner, and with no linux artifact it had to
+    # `go build` from source on every run -- a Go toolchain setup plus a compile,
+    # 122 times in the six days after the fleet moved back to billed runners.
+    # linux/arm64 specifically is what lets that job run on the Raspberry Pi
+    # gate runner, where compiling is what made the box unviable before.
+    goos: [darwin, linux]
     goarch: [amd64, arm64]
     env:
       - CGO_ENABLED=0
