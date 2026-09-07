@@ -274,9 +274,21 @@ The rule below matters only when authoring a **brand-new** job:
 Xcode-touching work (build/test/lint/archive/sign/release) uses
 `runs-on: [self-hosted, macOS, ARM64, dedicated]` — never a GitHub-hosted
 macOS runner (`macos-latest`) or a stray self-hosted label like `mac-mini`. A
-pure script/REST-call job with no Xcode dependency (merge gates, a
-TestFlight-feedback fetch, a deploy) uses `ubuntu-latest` instead — don't tie
-up the Mac for work that doesn't need it.
+pure script/REST-call job with no Xcode dependency (a TestFlight-feedback
+fetch, a deploy) uses `blacksmith-4vcpu-ubuntu-2404` instead — don't tie up
+the Mac for work that doesn't need it.
+
+Two rules about the Linux label, because GitHub bills **per job started, with
+a one-minute minimum** — cost tracks job *count*, not duration:
+
+- Ordinary Linux jobs use `blacksmith-4vcpu-ubuntu-2404`. Blacksmith is a
+  drop-in `runs-on` replacement that bills separately from the GitHub Actions
+  allowance, so these jobs no longer draw down the account's included minutes.
+- The `ci-ok` merge gate uses `[self-hosted, Linux, pi-gate]`. It is an
+  `if: always()` job that only reads `needs.*.result`, so it starts on **every**
+  run and its one-minute minimum was pure waste. `pi-gate` is a **role** label
+  carried by more than one box (the Raspberry Pi and the Synology), so the gate
+  fails over instead of blocking the whole fleet on a single runner.
 
 See the `macos-ci-recipes` skill for the reasoning and copy-in recipes when
 the new job is a macOS-only or hybrid iOS+macOS workflow.

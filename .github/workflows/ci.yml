@@ -197,11 +197,21 @@ jobs:
     # `test` to [self-hosted, linux, x64] before that check was made -- caught
     # by a security review before the PR merged, reverted here.
     #
-    # That reasoning still stands on its own, but it is no longer the only
-    # thing keeping this job here: the self-hosted Linux runners have since
-    # been retired fleet-wide (they could not carry the heavier profiles'
-    # workloads), so the shipped web/supabase templates are all ubuntu-latest
-    # too and there is no Synology runner left to move back to.
+    # That reasoning is the whole reason, and it is now the ONLY one. An
+    # earlier version of this comment added that self-hosted Linux runners had
+    # been retired fleet-wide and the shipped templates were all
+    # ubuntu-latest, so there was nothing to move back to. Both halves are now
+    # false: the shipped templates run their `ci-ok` gate on
+    # [self-hosted, Linux, pi-gate], and that role label is carried by live
+    # runners on the Pi and the Synology. What has not changed is that every
+    # repo consuming those templates is PRIVATE, and this one is PUBLIC -- so
+    # the fork-PR exposure above applies here and nowhere else in the fleet.
+    #
+    # Nor does this job move to Blacksmith with the rest of the fleet's Linux
+    # work. GitHub-hosted minutes are FREE on public repositories, so this job
+    # already costs nothing; billing it to Blacksmith instead would add cost to
+    # save none. The fleet's Blacksmith migration is worth it precisely because
+    # those repos are private and their minutes are metered.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

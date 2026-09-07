@@ -191,7 +191,7 @@ If this repo also contains an iOS component, the iOS profile syncs a `.pre-commi
 
 ## Testing & CI
 
-- `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-tested. The synced `supabase-ci.yml` runs `deno fmt --check`, `deno lint`, `deno check`, and `deno test` on `ubuntu-latest`.
+- `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-tested. The synced `supabase-ci.yml` runs `deno fmt --check`, `deno lint`, `deno check`, and `deno test` on `blacksmith-4vcpu-ubuntu-2404`. The `ci-ok` merge gate runs on `[self-hosted, Linux, pi-gate]` instead — it is an `if: always()` job, so it starts on every run and GitHub's one-minute-minimum-per-job billing made it pure waste.
 - CI also checks the schema, not just the functions: `supabase db lint --level warning` (Splinter — flags missing-RLS / security-definer issues) and `supabase test db` (pgTAP against `supabase/tests/*.sql`). Write pgTAP tests that assert RLS actually denies cross-user access — the lint catches a *missing* policy, a test catches a *wrong* one.
 - An empty `supabase/tests/` **fails** the `DB Tests (pgTAP)` job. `supabase test db` exits 0 over a matchless glob, so without that check the job boots a full Postgres stack and reports green having asserted nothing. A project with no tests yet takes the standard time-boxed escape hatch, and the expiry is enforced: `pgtap = { until = "YYYY-MM-DD", reason = "..." }` under `[baseline.relax]`.
 - Remember that `TRUNCATE` is **not** filtered by RLS. A table with RLS on and no policies still permits `TRUNCATE` from any role holding the default grant, so lock the grant down as well as the policy — and assert it, since no policy can express it.

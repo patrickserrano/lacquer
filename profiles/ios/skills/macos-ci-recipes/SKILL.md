@@ -28,7 +28,9 @@ unlock the login keychain, so signing must only ever happen on infrastructure
 you control; the pinned Xcode + simulator runtime lives only on the dedicated
 runner (GitHub-hosted macOS images drift); and GitHub-hosted macOS minutes are
 billed while the dedicated runner isn't. A pure script/REST-call job with no
-Xcode dependency uses `ubuntu-latest` instead.
+Xcode dependency uses `blacksmith-4vcpu-ubuntu-2404` instead, and the
+`if: always()` `ci-ok` merge gate uses `[self-hosted, Linux, pi-gate]` — see
+the `runs-on` note under the hybrid recipe below.
 
 ## Which recipe
 
@@ -126,7 +128,7 @@ jobs:
 
   ci-ok:
     name: CI OK
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, pi-gate]
     needs: [lint, build]
     if: always()
     timeout-minutes: 2
@@ -140,6 +142,18 @@ jobs:
             fi
           done
 ```
+
+**Why `ci-ok` is on `pi-gate` and not a hosted Linux runner.** GitHub bills
+**per job started, with a one-minute minimum**, so the cost of a job tracks its
+*count*, not its duration. `ci-ok` is `if: always()` and does nothing but read
+`needs.*.result`, so it starts on every single run and finishes in seconds —
+the one-minute minimum was the entire bill. Moving it to a box we own makes it
+free. `pi-gate` is a **role** label, carried by both the Raspberry Pi and the
+Synology: `runs-on` label matching is AND, so any box carrying the full set can
+serve the job, and the gate fails over instead of putting the whole fleet
+behind one runner. Ordinary Linux jobs stay on
+`blacksmith-4vcpu-ubuntu-2404`, which bills separately from the GitHub Actions
+allowance.
 
 **UI tests are deliberately absent.** macOS UI tests need a real
 WindowServer/GUI login session on the runner — there's no simulator escape

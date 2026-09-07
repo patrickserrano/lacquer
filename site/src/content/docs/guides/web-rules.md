@@ -277,7 +277,7 @@ If this repo also contains an iOS component, the iOS profile syncs a `.pre-commi
 
 ## CI
 
-`web-ci.yml` runs lint → typecheck → test (coverage) → build → dependency audit on `ubuntu-latest`, path-gated to the component. The audit blocks on critical advisories by default; tighten to `high` (and add `overrides` in `pnpm-workspace.yaml` for unfixable transitives) per project.
+`web-ci.yml` runs lint → typecheck → test (coverage) → build → dependency audit on `blacksmith-4vcpu-ubuntu-2404`, path-gated to the component. The `ci-ok` merge gate runs on `[self-hosted, Linux, pi-gate]` instead — it is an `if: always()` job, so it starts on every run and GitHub's one-minute-minimum-per-job billing made it pure waste. The audit blocks on critical advisories by default; tighten to `high` (and add `overrides` in `pnpm-workspace.yaml` for unfixable transitives) per project.
 
 ## Monorepos — Turborepo
 
