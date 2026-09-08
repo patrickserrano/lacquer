@@ -259,6 +259,25 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # This job ARCHIVES, so it compiles the asset catalogs -- the same
+          # reason ci.yml's build and test jobs set this. It was missing here,
+          # and releases survived only by accident: Actions gives a repository
+          # one workspace per runner, so this job inherited a tree some earlier
+          # CI run had already materialised. A release on a runner that had not
+          # built this repo recently would archive with pointer files.
+          lfs: true
+
+      - name: Materialise LFS assets
+        # `lfs: true` FETCHES the objects; it does not guarantee they are
+        # SMUDGED into the working tree. On a persistent self-hosted runner the
+        # files already exist from a previous checkout as pointer stand-ins, so
+        # git sees them as unchanged and never runs the smudge filter. See
+        # ci.yml's identical step for the measurement.
+        #
+        # It matters more here than in CI: a CI failure is loud and stops at
+        # actool, but the same gap on the release path is what puts a 130-byte
+        # pointer where an app icon belongs in a build headed for App Review.
+        run: git lfs checkout
 
       - name: Compute a filesystem-safe ref for artifact names
         id: safe_ref
