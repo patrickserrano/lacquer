@@ -163,6 +163,15 @@ jobs:
       # runner behind one NAT address shares.
       - name: Resolve the lacquer version this project synced with
         id: lacquerrel
+        # Pinned to the repo root. .lacquer.lock lives there, and this job may
+        # DEFAULT to a component subdirectory -- momfriend's web component is
+        # "admin/.", its supabase one "server/". Without this the lookup reads
+        # admin/.lacquer.lock, finds nothing, and reports the project as never
+        # synced. The "Prove the checks can fail" step below already carried
+        # this pin, with a comment saying why; the version-resolve step added
+        # beside it did not, and broke every MULTI-COMPONENT project in the
+        # fleet at once while single-component ones stayed green.
+        working-directory: "."
         if: steps.filter.outputs.lacquer == 'true'
         run: |
           set -uo pipefail
@@ -469,6 +478,15 @@ jobs:
       # carrying the config the previous version had shipped.
       - name: Resolve the lacquer version this project synced with
         id: doctorrel
+        # Pinned to the repo root. .lacquer.lock lives there, and this job may
+        # DEFAULT to a component subdirectory -- momfriend's web component is
+        # "admin/.", its supabase one "server/". Without this the lookup reads
+        # admin/.lacquer.lock, finds nothing, and reports the project as never
+        # synced. The "Prove the checks can fail" step below already carried
+        # this pin, with a comment saying why; the version-resolve step added
+        # beside it did not, and broke every MULTI-COMPONENT project in the
+        # fleet at once while single-component ones stayed green.
+        working-directory: "."
         run: |
           set -euo pipefail
           if [ ! -f .lacquer.lock ]; then
@@ -490,7 +508,7 @@ jobs:
           path: .lacquer-checkout
           ref: ${{ steps.doctorrel.outputs.tag }}
       - name: Prove the checks can fail
-        working-directory: .
+        working-directory: "."
         env:
           LACQUER_TAG: ${{ steps.doctorrel.outputs.tag }}
         run: |
