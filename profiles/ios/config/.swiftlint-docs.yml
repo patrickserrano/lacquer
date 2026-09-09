@@ -24,6 +24,32 @@ excluded:
   - "**/DerivedData"
   - "**/DerivedData-*"
   - "**/Package.swift"
+  # Test targets, for the SAME two reasons `private`/`fileprivate` are excluded
+  # under missing_docs below: DocC never renders them, and requiring a doc
+  # comment on every declaration buys noise rather than understanding. That
+  # rationale was written about private helpers and is just as true of `@Test`
+  # methods; the exclusion list is path-based and test targets were simply not
+  # in view when it was written.
+  #
+  # Measured before deciding, on dailybread: 1,321 violations, of which 718 --
+  # 54% -- were test targets, and almost all were `@Test` methods. The cheapest
+  # way to clear 644 of those is `/// Tests the label.` on every one, which
+  # satisfies the rule and makes the codebase worse. A rule whose cheapest
+  # satisfaction is filler is producing filler.
+  #
+  # This does NOT say tests deserve no prose. A test earns a comment when it
+  # records WHY a behaviour is pinned -- the regression it prevents -- which is
+  # exactly the thing a lint rule cannot ask for and a reviewer can.
+  #
+  # Directories rather than filename patterns, deliberately. Under-exclusion is
+  # the safe direction here: a test file living outside a Tests directory keeps
+  # being linted, which is noise. Over-exclusion would silently drop real app
+  # code from the documentation standard, which is the failure this whole config
+  # exists to prevent. `**/Tests` covers the SPM layout (flare has bare `Tests`
+  # directories under Packages/); `**/*Tests` covers the Xcode convention,
+  # including names with spaces like "MomFriend Capture Watch AppTests".
+  - "**/Tests"
+  - "**/*Tests"
 
 missing_docs:
   # `internal` is the load-bearing entry, not a nicety. An app target's code is

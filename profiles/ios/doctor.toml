@@ -115,6 +115,73 @@ expect = "fail"
 expect_output = '(?s)Probe\.swift:[0-9]+:[0-9]+: error: Missing Docs Violation:.*\(missing_docs\)'
 
 [[probe]]
+name = "missing_docs does not apply to test targets"
+why = """
+The companion to the probe above, and it asserts `pass` rather than `fail` for
+the same reason the supabase profile's `env()` probe does: the thing under test
+is an ALLOWANCE, and an allowance that silently stopped allowing would show up
+as a project suddenly owing documentation on every `@Test` method.
+
+`excluded` gained `**/Tests` and `**/*Tests` because the rationale already
+written under `missing_docs` for `private`/`fileprivate` — DocC never renders
+them, and a doc comment on every declaration buys noise rather than
+understanding — is just as true of test methods, and the path-based exclusion
+list simply did not have them in view. Measured on dailybread before the change:
+1,321 violations, 718 of them (54%) in test targets, almost all `@Test` methods.
+
+Both layouts are covered because both exist in this fleet: `AppTests/` is the
+Xcode convention, `Packages/<Kit>/Tests/` the SPM one (flare has the latter).
+This probe stages the fixture under a `Tests/` directory precisely so a change
+that dropped either pattern is caught here rather than as a surprise wave of
+violations in a project that had none.
+
+The probe above still proves app code IS covered, so the pair pins both
+directions: a change that gutted the rule entirely fails that one, and a change
+that removed this allowance fails this one.
+"""
+file = "SuiteProbe.swift"
+content = """
+import Testing
+
+@Suite struct DoctorProbeSuite {
+    @Test func doctorProbeUndocumentedTest() {}
+}
+"""
+requires = ["swiftlint"]
+argv = ["sh", "-c", """
+set -eu
+cd {dir}
+# The config is COPIED here rather than referenced in place, and that is the
+# whole reason this probe works. SwiftLint resolves `excluded` globs relative to
+# the CONFIG FILE's directory, not the working directory -- so pointing
+# --config at {component} while the fixture sits in {dir} means `**/Tests`
+# resolves under the project and never matches this fixture at all. The first
+# version of this probe did exactly that and reported the exclusion broken when
+# it was not. Same reason the supabase profile copies deno.jsonc into the
+# scratch directory before running fmt/lint.
+cp {component}/.swiftlint-docs.yml ./.swiftlint-docs.yml
+mkdir -p Tests
+mv SuiteProbe.swift Tests/SuiteProbe.swift
+# A DOCUMENTED app file alongside it, and it is not decoration. With the test
+# file excluded it would be the only thing left to lint, and `swiftlint
+# --strict` exits 2 on finding no lintable files at all -- so without this the
+# probe would fail for "nothing to lint" and, worse, a version of it that
+# treated exit 2 as success would pass while checking nothing. That is the
+# silent-pass shape this whole config exists to prevent, so the probe must not
+# reproduce it. Its presence means exit 0 can only mean "the app file linted
+# clean AND the test file was excluded".
+cat > Documented.swift <<'SWIFT'
+/// A documented type, so the lint has something to pass on.
+struct DoctorProbeDocumented {
+    /// A documented member.
+    func documented() {}
+}
+SWIFT
+exec swiftlint --strict --config ./.swiftlint-docs.yml .
+"""]
+expect = "pass"
+
+[[probe]]
 name = "the formatter and the linter agree on member order"
 why = """
 SwiftFormat's organizeDeclarations is what makes type_contents_order fixable.
