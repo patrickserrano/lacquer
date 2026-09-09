@@ -97,7 +97,14 @@ extra_test_targets = ["CoreKitTests", "Feature KitTests"]
 
 Per-product, for the same reason `test_target` is: a package linked into one
 scheme and not the other must not be selected on the leg that cannot run it,
-where it would match nothing and pass. The selectors are built as a shell
+where it would match nothing and pass. **A single-product project declares it
+under `[project]` instead**, where it folds into the product the manifest
+synthesises — the same fallback `asc_app_id`, `bundle_id`, `extra_bundle_ids`
+and `scheme` already have. The per-product rationale is about paid and free
+variants compiling different bundles; with one product there is no other leg
+for a selector to be wrong on. Setting it in both places is rejected rather
+than merged, since which product an unattached list belonged to would have to
+be guessed. It is validated identically either way. The selectors are built as a shell
 **array**, so a target name containing a space stays one argument rather than
 word-splitting into two selectors that each match nothing.
 

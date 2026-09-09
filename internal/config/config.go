@@ -42,7 +42,28 @@ type Project struct {
 	// retirement is a one-line reviewable statement rather than a reason to
 	// excuse the whole workflow from management.
 	RetiredSecrets []RetiredSecret `toml:"retired_secrets"`
-	Skills         []string        `toml:"skills"`
+	// ExtraTestTargets is the single-product spelling of
+	// [[product]].extra_test_targets, folded into the product Products()
+	// synthesises when a manifest declares no [[product]] block.
+	//
+	// [project] is already the implicit single product for asc_app_id,
+	// bundle_id, extra_bundle_ids and scheme -- release.yml's own comment says
+	// "asc_app_id comes from the matrix product (or [project] when only one)".
+	// Accepting release-shaped fields here but not test-shaped ones meant a
+	// single-product repo could only reach this field by declaring a [[product]]
+	// block, restating every value that feeds the release matrix purely to gain
+	// a test selector. That is a real cost, not a hypothetical: dailybread's
+	// release path had just been repaired from an empty asc_app_id, and
+	// duplicating those values invites exactly the drift that caused it.
+	//
+	// The per-product rationale on the [[product]] field is about paid and free
+	// variants compiling DIFFERENT bundles. With one product there is no other
+	// leg for a selector to be wrong on, so it does not apply.
+	//
+	// Declaring it here AND a [[product]] block is rejected rather than merged:
+	// which product an ambiguous list belonged to would have to be guessed.
+	ExtraTestTargets []string `toml:"extra_test_targets"`
+	Skills           []string `toml:"skills"`
 	// OptionalWorkflows opts a project INTO a workflow the lacquer ships but does
 	// not install by default, named without its `.yml` — e.g.
 	// optional_workflows = ["testflight-feedback"].
@@ -1116,6 +1137,10 @@ func (c *Config) Products() []Product {
 		BundleID:       c.Project.BundleID,
 		AscAppID:       c.Project.AscAppID,
 		ExtraBundleIDs: c.Project.ExtraBundleIDs,
+		// Same fallback as the fields above it. Validated in Load, against the
+		// synthesised product, so it cannot skip the empty/invalid/duplicate
+		// guards a declared product gets.
+		ExtraTestTargets: c.Project.ExtraTestTargets,
 	}}
 }
 
@@ -1474,6 +1499,39 @@ func Load(path string) (*Config, error) {
 		}
 		seenProduct[p.Name] = true
 	}
+
+	// [project].extra_test_targets is the single-product spelling of the
+	// [[product]] field above. Validate it with the SAME guards: the loop above
+	// only sees declared products, so without this a manifest could reach the
+	// field by the [project] route and skip the empty/invalid/duplicate checks
+	// entirely — and those checks are the only thing standing between this
+	// field and "a per-line licence to run nothing and call it green", in the
+	// field's own words.
+	if len(cfg.Project.ExtraTestTargets) > 0 {
+		if len(cfg.Product) > 0 {
+			return nil, fmt.Errorf("[project].extra_test_targets is set alongside %d [[product]] block(s) — it is the single-product spelling of [[product]].extra_test_targets, and which product these belong to would have to be guessed. Declare them on the product instead", len(cfg.Product))
+		}
+		p := cfg.Products()[0] // the synthesised product
+		seen := map[string]bool{}
+		for _, t := range []string{p.TestTargetName(), p.UITestTarget} {
+			if t != "" {
+				seen[t] = true
+			}
+		}
+		for j, t := range cfg.Project.ExtraTestTargets {
+			if t == "" {
+				return nil, fmt.Errorf("[project]: extra_test_targets[%d] is empty — that renders a bare `-only-testing:` selector, which matches no tests and still exits 0", j)
+			}
+			if !projNameVal.MatchString(t) {
+				return nil, fmt.Errorf("[project]: invalid extra_test_targets[%d] %q", j, t)
+			}
+			if seen[t] {
+				return nil, fmt.Errorf("[project]: extra_test_targets[%d] %q is already selected by this project; a repeated selector runs nothing extra", j, t)
+			}
+			seen[t] = true
+		}
+	}
+
 	seenProfile := map[string]string{} // profile -> first component path that declared it
 	for _, c := range cfg.Components {
 		if err := validateComponentPath(c.Path); err != nil {
