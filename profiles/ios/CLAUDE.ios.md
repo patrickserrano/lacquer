@@ -87,6 +87,40 @@ exists to prevent, and nobody would notice until a disk filled — the same
 hunting. The check runs *before* the build, so an unmounted volume costs you a
 few seconds rather than a full archive.
 
+## App Store Connect accepts a binary before it lists it
+
+There is a window of minutes where Apple has taken your upload and the build is
+not yet in the builds list or in `get-latest-testflight-build-number`. **Absence
+is not proof the upload failed.** Reading it as proof is how a successful release
+gets "recovered" into a duplicate binary.
+
+This is why the TestFlight upload passes `--altool-retries 1`. The CLI's default
+is **10**, and an upload is not idempotent: a succeeded-then-timed-out attempt is
+retried, Apple answers 409
+`ENTITY_ERROR.RELATIONSHIP.INVALID.INVALID_STATE` on `/data/relationships/buildUpload`
+because the build now exists, and the step **fails a release that worked**.
+
+Measured across three consecutive releases, every one making two altool
+invocations from a single `publish` call:
+
+| build | attempt 1 | attempt 2 | step reported |
+|---|---|---|---|
+| 314 | uploaded | 409 | passed, plus an ITMS-90189 "Redundant Binary Upload" email |
+| 315 | uploaded | 409 | **failed — the build landed anyway** |
+| 316 | failed | uploaded | passed |
+
+One mechanism, three presentations, decided only by which attempt lands last.
+
+Re-running the job is a correct recovery on its own: the build number is
+re-derived from App Store Connect each run, so a re-run takes the next number
+rather than repeating a consumed one. The retry only made that automatic, and
+charged a non-idempotent double upload for it.
+
+**If you ever add smarter 409 handling** — on conflict, ask ASC whether the build
+exists and pass if so — the processing gap above is the thing to get right. A
+poll loop that cannot tell "not there" from "not there yet" reproduces the bug it
+was written to fix.
+
 ## Shipping more than one app from one repository
 
 A repository that ships a paid and a free variant declares each as a
