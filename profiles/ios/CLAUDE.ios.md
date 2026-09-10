@@ -439,40 +439,81 @@ flowdeck project packages update  # bump SPM deps within constraints (no .pbxpro
 
 **Prefer a UDID over a simulator name** — names duplicate across OS versions and resolve ambiguously.
 
-**`--test-cases` silently skips parameterized tests — do not trust a targeted run.**
-`flowdeck test --test-cases <Suite>` expands to per-function selectors and drops
-every `@Test(arguments:)` case. Measured 2026-08-22 on a suite of seven
-functions, one of them parameterized with four arguments: it printed
-`Resolved to 7 test(s)`, ran **6**, reported **"All tests passed!"** and exited
-**0**. The four argument cases never ran, and nothing said so.
+**Two flowdeck test selectors silently run fewer tests than you asked for.**
+Both turn a genuinely failing suite green. Measured 2026-09-09 against a
+purpose-built probe project on flowdeck 1.26.5 / Xcode 27.0 (27A266a), with a
+parameterized test whose `n == 3` argument case is written to FAIL — so "did the
+argument cases run?" is answered by whether the run goes red, not by a count:
 
-That is the *"never ran looks like passed"* failure sitting inside the test
+| invocation | ran | verdict | exit |
+|---|---|---|---|
+| everything (baseline, 19 declared) | 19 | 1 failed | 1 |
+| `--test-targets AlphaTests` | 3 | 1 failed | 1 |
+| `--test-targets AlphaTests,BetaTests` | 9 | 1 failed | 1 |
+| `--only AlphaTests/AlphaSuite` | **2** of `Resolved to 3` | **All tests passed!** | **0** |
+| `--test-cases AlphaTests/AlphaSuite` | **2** of `Resolved to 3` | **All tests passed!** | **0** |
+| `--test-targets AlphaTests --test-targets BetaTests` | **6** | **All tests passed!** | **0** |
+
+**1. `--test-cases` and `--only` both drop `@Test(arguments:)` cases.** They
+expand to per-function selectors, so every argument case disappears. The failing
+canary never ran and the run reported success. `--only` carries the identical
+bug to `--test-cases`; only `--test-cases` was documented here before.
+
+**2. Repeating `--test-targets` silently discards all but the last.** It is a
+single-value option — `flowdeck test --help` spells it *"comma-separated"* — so
+a second `--test-targets` overwrites the first with no warning. Above, the
+target holding the failing test was thrown away and the run went green.
+Reversing the order ran 3 and failed 1, which is the tell: **the result depends
+on flag order.**
+
+- **Pass one `--test-targets` with a comma-separated list** —
+  `--test-targets A,B,C`. This is the supported spelling, it unions correctly
+  (all three of the probe's suites gave 19, identical to the baseline), and it
+  keeps the failing case. Do not repeat the flag, and do not loop one invocation
+  per target to work around repeating it.
+- **Never use `--only` or `--test-cases` on a suite that contains — or could
+  later contain — a parameterized test.** Keep them for a single
+  non-parameterized function in a tight RED/GREEN loop, and re-run the full
+  target before believing a result you intend to report or commit behind.
+- If a run's passed count is **lower than its own `Resolved to N`**, tests were
+  skipped. That discrepancy is printed; it just is not acted on.
+
+**What is NOT a trap here: a selector that matches nothing is a hard error.**
+`--test-targets NopeTests`, `--only AlphaTests/NoSuchSuite`, and a typo inside a
+comma list (`--test-targets AlphaTests,Typoo`) each exited **1** with
+"Test run failed". Misspelling a target is loud. The silent failure is
+specifically the *partial* selection above — which is why the comma form is the
+safe one: its bad names are caught, and its good names all run.
+
+This is the *"never ran looks like passed"* failure sitting inside the test
 runner, which is the last place it can be caught by reading a result. Anything
 built on top of it inherits a silently smaller denominator — a green targeted
 run, a coverage figure, a report that says "N/N passed".
 
-- Use **`--test-targets <Target>`** for anything parameterized, or that might
-  become parameterized later.
-- Keep `--test-cases` for a single non-parameterized function during a tight
-  RED/GREEN loop, and **re-run the full target before believing a result you
-  intend to report or commit behind**.
-- If a run's passed count is **lower than its own `Resolved to N`**, tests were
-  skipped. That discrepancy is printed; it just is not acted on.
-
-**`flowdeck build`/`flowdeck test` exit 0 on failure — never trust `$?`.**
-Verified directly 2026-08-28: a genuine build/test failure (a real
+**`flowdeck build`/`flowdeck test` exited 0 on failure through 2026-08-28 —
+FIXED in 1.26.5. Check your version before trusting `$?`.**
+The original bug (verified 2026-08-28): a genuine build/test failure (a real
 `Could not find test host` error, printed in red, "✗ Test run failed.") still
-exited `0`. So does a plain usage error (a missing required flag, nothing run
-at all). This is FlowDeck's own bug, not something this profile can fix — the
-adaptation has to be on the reading side.
+exited `0`, as did a plain usage error.
 
-- **Always check the printed output for `✗`/`Error`/"failed", or parse
-  `--json` and check its `success`/`failed` fields — never branch on the
-  process exit code alone.** A script or hook that does `flowdeck test && echo
-  passed` will print "passed" after a real failure.
-- This compounds with the `--test-cases` silent-skip bug above: a targeted run
-  can both under-count AND report success on outright failure, with a clean
-  exit code either way. Two independent ways for "green" to mean nothing.
+Re-measured 2026-09-09 on **flowdeck 1.26.5 / Xcode 27.0**, and the exit code is
+now correct in every case tried — test failure `1`, compile error `1`, unknown
+scheme `1`, missing required flag `1`, clean build `0`.
+
+- **Run `flowdeck --version`.** On **1.26.5 or newer**, `$?` is trustworthy for
+  build/test. On anything **older**, it is not: check the printed output for
+  `✗`/`Error`/"failed", or parse `--json` and read its `success`/`failed`
+  fields, because `flowdeck test && echo passed` will print "passed" after a
+  real failure.
+- **The exit-code fix does not rescue the selector bugs above, and this is the
+  part that still bites.** A `--only`/`--test-cases` run that skipped every
+  parameterized case exits `0` *legitimately* — every test it chose to run did
+  pass. A correct exit code on the wrong denominator still means nothing, so
+  the selector rules stand on their own.
+- When measuring an exit code, capture it from the command itself
+  (`out=$(flowdeck test ...); code=$?`). `flowdeck test ... | tail -20; echo $?`
+  reports **`tail`'s** status and will read `0` no matter what flowdeck did —
+  a mistake made while gathering exactly these numbers.
 - If you are the one writing a pre-commit hook, CI step, or any script that
   gates on a flowdeck command's result, gate on the parsed output, not the
   shell's `$?`.
@@ -485,7 +526,9 @@ installed successfully", returned `"success": true`, and exited `0` in under
 installed. Confirmed absent from `flowdeck simulator runtime list --json`, no
 new CoreSimulator volume created, no disk space consumed. Same failure shape
 as the build/test exit-0 bug above, this is FlowDeck's own bug, not something
-this profile can fix.
+this profile can fix. **The build/test half of that shape was fixed in 1.26.5;
+this subcommand has not been re-measured since, so do not assume it was fixed
+too.**
 
 - **Always verify with `flowdeck simulator runtime list --json` after any
   `runtime install` — don't trust the command's own exit code or `success`
