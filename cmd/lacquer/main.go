@@ -25,6 +25,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/exclusion"
 	"github.com/patrickserrano/lacquer/internal/fixcmd"
 	"github.com/patrickserrano/lacquer/internal/fleet"
+	"github.com/patrickserrano/lacquer/internal/hooks"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
@@ -310,6 +311,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if out := baseline.FormatReports(reports); out != "" {
 			fmt.Fprint(stdout, "\n"+out)
 		}
+
+		// Reported, deliberately not gated. A project whose hooks are not
+		// installed is not DRIFTED -- every managed file is exactly right, which
+		// is the whole trouble: the config says the gates are active and nothing
+		// contradicts it. Failing the audit over it would also fail every fresh
+		// clone, where not-yet-installed is the normal state rather than a
+		// finding.
+		fmt.Fprint(stdout, hooks.Format(hooks.Check(projectRoot)))
 
 		// Every remaining report is computed and PRINTED before any exit code is
 		// chosen. It used to return 3 here, which meant a project with a single
