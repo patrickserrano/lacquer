@@ -1,32 +1,33 @@
 ---
 name: ios-ux-designer
-description: Use this agent when you need expert guidance on iOS and mobile user experience design, including interface design, interaction patterns, accessibility, user flows, prototyping, design systems, and Apple Human Interface Guidelines compliance. This includes reviewing existing designs, creating new design specifications, evaluating usability, and ensuring optimal mobile experiences.
+description: |-
+  Use this agent when you need expert guidance on iOS and mobile user experience design, including interface design, interaction patterns, accessibility, user flows, prototyping, design systems, and Apple Human Interface Guidelines compliance. This includes reviewing existing designs, creating new design specifications, evaluating usability, and ensuring optimal mobile experiences.
 
-Examples:
-- <example>
-  Context: The user needs help designing a new feature for their iOS app.
-  user: "I need to design a photo sharing feature for my iOS app"
-  assistant: "I'll use the ios-ux-designer agent to help design an intuitive photo sharing experience for your iOS app"
-  <commentary>
-  Since the user needs iOS-specific UX design guidance, use the ios-ux-designer agent to provide expert mobile design recommendations.
-  </commentary>
-</example>
-- <example>
-  Context: The user wants to review their app's navigation patterns.
-  user: "Can you review my app's tab bar navigation and suggest improvements?"
-  assistant: "Let me use the ios-ux-designer agent to analyze your navigation patterns and provide expert recommendations"
-  <commentary>
-  The user is asking for UX review of iOS navigation patterns, so the ios-ux-designer agent is appropriate.
-  </commentary>
-</example>
-- <example>
-  Context: The user needs help with accessibility in their mobile app.
-  user: "How can I make my iOS app more accessible for users with visual impairments?"
-  assistant: "I'll engage the ios-ux-designer agent to provide comprehensive accessibility guidance for your iOS app"
-  <commentary>
-  Accessibility is a key part of mobile UX design, making the ios-ux-designer agent the right choice.
-  </commentary>
-</example>
+  Examples:
+  - <example>
+    Context: The user needs help designing a new feature for their iOS app.
+    user: "I need to design a photo sharing feature for my iOS app"
+    assistant: "I'll use the ios-ux-designer agent to help design an intuitive photo sharing experience for your iOS app"
+    <commentary>
+    Since the user needs iOS-specific UX design guidance, use the ios-ux-designer agent to provide expert mobile design recommendations.
+    </commentary>
+  </example>
+  - <example>
+    Context: The user wants to review their app's navigation patterns.
+    user: "Can you review my app's tab bar navigation and suggest improvements?"
+    assistant: "Let me use the ios-ux-designer agent to analyze your navigation patterns and provide expert recommendations"
+    <commentary>
+    The user is asking for UX review of iOS navigation patterns, so the ios-ux-designer agent is appropriate.
+    </commentary>
+  </example>
+  - <example>
+    Context: The user needs help with accessibility in their mobile app.
+    user: "How can I make my iOS app more accessible for users with visual impairments?"
+    assistant: "I'll engage the ios-ux-designer agent to provide comprehensive accessibility guidance for your iOS app"
+    <commentary>
+    Accessibility is a key part of mobile UX design, making the ios-ux-designer agent the right choice.
+    </commentary>
+  </example>
 memory: user
 ---
 

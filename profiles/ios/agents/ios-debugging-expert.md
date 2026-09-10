@@ -1,33 +1,34 @@
 ---
 name: ios-debugging-expert
-description: Use this agent when you need to debug iOS/Swift issues, review code or tests for bugs, analyze crash logs, investigate performance problems, or collaborate on planning fixes for complex technical issues. This agent excels at root cause analysis and providing actionable debugging strategies.
+description: |-
+  Use this agent when you need to debug iOS/Swift issues, review code or tests for bugs, analyze crash logs, investigate performance problems, or collaborate on planning fixes for complex technical issues. This agent excels at root cause analysis and providing actionable debugging strategies.
 
-<example>
-Context: The user needs help debugging a SwiftUI view that's not updating properly
-user: "My SwiftUI view isn't refreshing when the data changes. Can you help debug this?"
-assistant: "I'll use the ios-debugging-expert agent to analyze your SwiftUI view update issue and help identify the root cause."
-<commentary>
-Since the user needs help debugging a specific iOS/SwiftUI issue, use the ios-debugging-expert agent to investigate the problem.
-</commentary>
-</example>
+  <example>
+  Context: The user needs help debugging a SwiftUI view that's not updating properly
+  user: "My SwiftUI view isn't refreshing when the data changes. Can you help debug this?"
+  assistant: "I'll use the ios-debugging-expert agent to analyze your SwiftUI view update issue and help identify the root cause."
+  <commentary>
+  Since the user needs help debugging a specific iOS/SwiftUI issue, use the ios-debugging-expert agent to investigate the problem.
+  </commentary>
+  </example>
 
-<example>
-Context: The user wants to review recently written test code for potential issues
-user: "I just wrote some unit tests for my view model. Can you review them?"
-assistant: "Let me use the ios-debugging-expert agent to review your test code for potential issues and improvements."
-<commentary>
-The user is asking for a test review, which is one of the ios-debugging-expert's specialties.
-</commentary>
-</example>
+  <example>
+  Context: The user wants to review recently written test code for potential issues
+  user: "I just wrote some unit tests for my view model. Can you review them?"
+  assistant: "Let me use the ios-debugging-expert agent to review your test code for potential issues and improvements."
+  <commentary>
+  The user is asking for a test review, which is one of the ios-debugging-expert's specialties.
+  </commentary>
+  </example>
 
-<example>
-Context: The user is experiencing app crashes and needs help analyzing
-user: "My app keeps crashing when users navigate to the settings screen"
-assistant: "I'll engage the ios-debugging-expert agent to help analyze the crash and identify potential causes."
-<commentary>
-Crash analysis and debugging is a core competency of the ios-debugging-expert agent.
-</commentary>
-</example>
+  <example>
+  Context: The user is experiencing app crashes and needs help analyzing
+  user: "My app keeps crashing when users navigate to the settings screen"
+  assistant: "I'll engage the ios-debugging-expert agent to help analyze the crash and identify potential causes."
+  <commentary>
+  Crash analysis and debugging is a core competency of the ios-debugging-expert agent.
+  </commentary>
+  </example>
 memory: user
 ---
 

@@ -1,33 +1,34 @@
 ---
 name: test-automation-engineer
-description: Use this agent when you need expert assistance with test automation, including writing test cases, creating mock data, reviewing existing tests, debugging test failures, or identifying edge cases. This agent enforces TDD principles and maintains high testing standards. Examples:
+description: |-
+  Use this agent when you need expert assistance with test automation, including writing test cases, creating mock data, reviewing existing tests, debugging test failures, or identifying edge cases. This agent enforces TDD principles and maintains high testing standards. Examples:
 
-<example>
-Context: The user needs help writing comprehensive test cases for a new feature.
-user: "I've implemented a user authentication service and need to write tests for it"
-assistant: "I'll use the test-automation-engineer agent to help create comprehensive test cases following TDD principles"
-<commentary>
-Since the user needs test cases written for their authentication service, the test-automation-engineer agent is perfect for this task.
-</commentary>
-</example>
+  <example>
+  Context: The user needs help writing comprehensive test cases for a new feature.
+  user: "I've implemented a user authentication service and need to write tests for it"
+  assistant: "I'll use the test-automation-engineer agent to help create comprehensive test cases following TDD principles"
+  <commentary>
+  Since the user needs test cases written for their authentication service, the test-automation-engineer agent is perfect for this task.
+  </commentary>
+  </example>
 
-<example>
-Context: The user is experiencing test failures and needs help debugging.
-user: "My integration tests are failing intermittently and I can't figure out why"
-assistant: "Let me use the test-automation-engineer agent to analyze these test failures and identify the root cause"
-<commentary>
-The user has failing tests that need analysis, which is a core capability of the test-automation-engineer agent.
-</commentary>
-</example>
+  <example>
+  Context: The user is experiencing test failures and needs help debugging.
+  user: "My integration tests are failing intermittently and I can't figure out why"
+  assistant: "Let me use the test-automation-engineer agent to analyze these test failures and identify the root cause"
+  <commentary>
+  The user has failing tests that need analysis, which is a core capability of the test-automation-engineer agent.
+  </commentary>
+  </example>
 
-<example>
-Context: The user wants to review test coverage and identify missing edge cases.
-user: "Can you review my test suite and see if I'm missing any important test cases?"
-assistant: "I'll use the test-automation-engineer agent to review your test suite and identify any gaps in coverage or missing edge cases"
-<commentary>
-Test review and edge case identification are key responsibilities of the test-automation-engineer agent.
-</commentary>
-</example>
+  <example>
+  Context: The user wants to review test coverage and identify missing edge cases.
+  user: "Can you review my test suite and see if I'm missing any important test cases?"
+  assistant: "I'll use the test-automation-engineer agent to review your test suite and identify any gaps in coverage or missing edge cases"
+  <commentary>
+  Test review and edge case identification are key responsibilities of the test-automation-engineer agent.
+  </commentary>
+  </example>
 memory: user
 ---
 
