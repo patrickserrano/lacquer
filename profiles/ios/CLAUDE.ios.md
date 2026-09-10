@@ -409,6 +409,26 @@ a step-level `if`, and a var set in that same step's `env:` is not in scope for 
 `if` either, so the obvious-looking version of this gate skips silently on every
 release and looks configured while uploading nothing.
 
+**`inputs` is populated ONLY on `workflow_dispatch` (and `workflow_call`), so on
+any other trigger a `|| default` is unconditional.** A workflow started by
+`workflow_run`, `push` or `schedule` sees an empty `inputs`, and
+
+```yaml
+WHATS_NEW: ${{ github.event.inputs.whats_new || '• Bug fixes and performance improvements' }}
+```
+
+ships the placeholder every single time. It reads as configurable, it reads as
+deliberate, and it is dead on the trigger that fires ~100% of the time. Measured
+in dailybread, where every automatic TestFlight build shipped that exact string
+to testers.
+
+Same shape as the `HAS_SENTRY_TOKEN` note above and as the `--test-cases`
+silent-skip: an expression that cannot distinguish *"the user chose nothing"*
+from *"this trigger has no user to ask"*, defaulting to the quiet answer. If a
+value must differ per trigger, branch on `github.event_name` and say so, rather
+than leaning on a fallback that hides which branch you are in.
+
+
 ### A release must come from a commit CI passed
 
 `ios-release.yml` opens with a `verify-ci-provenance` job that refuses the run

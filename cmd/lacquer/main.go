@@ -31,6 +31,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
 	"github.com/patrickserrano/lacquer/internal/retire"
 	"github.com/patrickserrano/lacquer/internal/rootcheck"
+	"github.com/patrickserrano/lacquer/internal/shadow"
 	"github.com/patrickserrano/lacquer/internal/skillsync"
 	"github.com/patrickserrano/lacquer/internal/status"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
@@ -320,6 +321,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// clone, where not-yet-installed is the normal state rather than a
 		// finding.
 		fmt.Fprint(stdout, hooks.Format(hooks.Check(projectRoot)))
+		// A second workflow that archives, signs and uploads inherits none of the
+		// hardening on the managed release path — and may well be the one that
+		// actually ships. See internal/shadow.
+		fmt.Fprint(stdout, shadow.Format(shadow.Check(projectRoot)))
 
 		// Both directions of the test-selector comparison. Reported, not gated,
 		// for the same reason as the hooks check: a project whose widget suite
