@@ -37,7 +37,26 @@ jobs:
     # A diff, plus (only when the `lacquer` filter fires) the drift audit folded
     # in at the end. No Xcode either way, so it runs on Blacksmith rather than
     # tying up the dedicated Mac (see CLAUDE.md "CI Runners").
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    #
+    # 2vcpu-arm, not 4vcpu-x64, and the reason is billing rather than speed.
+    # Blacksmith bills vCPU-weighted minutes with a ONE-MINUTE MINIMUM per job:
+    # a 4-vCPU job that finishes in 23s still bills 4 minutes. Measured over a
+    # week, this job ran 67 times at a 23s average and accounted for 288 billable
+    # minutes -- more than every test, lint and build job on the fleet combined,
+    # while doing nothing but `git diff` and `grep`. Halving the vCPUs halves the
+    # weighting, and ARM carries a x0.625 rate multiplier on top, so the same
+    # work bills 1.25 minutes instead of 4.
+    #
+    # ARM is safe here specifically because the drift audit already resolves its
+    # tarball by `uname -m` (aarch64|arm64 -> arm64) and lacquer publishes a
+    # linux_arm64 build. A job that downloaded an amd64-only binary must NOT be
+    # moved without adding that mapping first -- the failure is a binary that
+    # will not execute, discovered on someone's PR.
+    #
+    # The supabase profile is deliberately left on 4vcpu-x64: its jobs drive
+    # Postgres, pgTAP and the Supabase CLI, and the saving is not worth
+    # revalidating that stack on a different architecture.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.

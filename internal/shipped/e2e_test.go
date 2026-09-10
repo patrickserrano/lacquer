@@ -593,7 +593,7 @@ func assertCredentialsIgnored(t *testing.T, p *project) {
 // label, carried by both the Raspberry Pi and the Synology so either can serve
 // a gate job. `blacksmith-4vcpu-ubuntu-2404` is the third-party Linux runner
 // the fleet's ordinary Linux jobs moved to.
-const actionlintConfig = "self-hosted-runner:\n  labels:\n    - dedicated\n    - pi-gate\n    - blacksmith-4vcpu-ubuntu-2404\n"
+const actionlintConfig = "self-hosted-runner:\n  labels:\n    - dedicated\n    - pi-gate\n    - blacksmith-4vcpu-ubuntu-2404\n    - blacksmith-2vcpu-ubuntu-2404-arm\n"
 
 // runActionlint lints the rendered workflows when actionlint is installed, and
 // skips cleanly when it is not.
