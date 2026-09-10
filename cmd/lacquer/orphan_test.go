@@ -74,8 +74,21 @@ func TestAuditReportsOrphansWithoutGating(t *testing.T) {
 	if !strings.Contains(all, ".github/workflows/web-legacy.yml") {
 		t.Errorf("audit does not report the orphan:\n%s", all)
 	}
-	if !strings.Contains(all, "no longer shipped") {
+	if !strings.Contains(all, "no longer managed") {
 		t.Errorf("audit has no orphan section:\n%s", all)
+	}
+	// The header says MANAGED, not SHIPPED, and that word choice is the fix.
+	// "No longer shipped" reads as "dead": three readers concluded
+	// "retired, safe to delete" from it inside a day, for a file that CI and a
+	// pre-commit hook still run in eight repositories.
+	if strings.Contains(all, "no longer shipped") {
+		t.Errorf("orphan header still says \"shipped\", which reads as unused:\n%s", all)
+	}
+	// Every orphan is annotated with whether anything still calls it. An
+	// unannotated entry is the ambiguous form that caused the problem.
+	if !strings.Contains(all, "referenced by nothing tracked") && !strings.Contains(all, "STILL REFERENCED by") {
+		t.Errorf("orphan entries carry no reference annotation, so the report cannot "+
+			"distinguish safe-to-delete from wired-into-CI:\n%s", all)
 	}
 }
 

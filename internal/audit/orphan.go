@@ -3,6 +3,8 @@ package audit
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -191,22 +193,145 @@ func stillPresent(projectRoot string, o Orphan) bool {
 // broken for having one, and a CI failure is not the way to ask someone to
 // delete a file the tool refuses to delete itself.
 func FormatOrphans(orphans []Orphan) string {
+	return FormatOrphansWithRefs(orphans, nil)
+}
+
+// FormatOrphansWithRefs renders the orphan report, annotating each entry with
+// the project files that still reference it.
+//
+// The annotation exists because the unannotated wording actively misled people.
+// "No longer shipped by the lacquer" means UNMANAGED and reads as DEAD. Three
+// separate readers reached "retired, safe to delete" from that line inside one
+// day, for `scripts/build-docs.sh` — a file `ios-docs.yml` runs in CI and
+// `.pre-commit-config.yaml` runs on every commit, in eight repositories. The
+// report was accurate and the conclusion it produced would have broken working
+// pipelines, which makes it the report's problem.
+//
+// So the decisive fact goes on the line itself, not in prose underneath it.
+func FormatOrphansWithRefs(orphans []Orphan, refs map[string][]string) string {
 	if len(orphans) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\nno longer shipped by the lacquer, still in this project:\n")
+	b.WriteString("\nno longer managed by the lacquer, still in this project:\n")
+	anyReferenced := false
 	for _, o := range orphans {
 		what := "file"
 		if o.IsRegion() {
 			what = "managed region"
 		}
-		fmt.Fprintf(&b, "  %s (%s)\n", o.Label(), what)
+		r := refs[o.Key]
+		switch {
+		case o.IsRegion():
+			fmt.Fprintf(&b, "  %s (%s)\n", o.Label(), what)
+		case len(r) > 0:
+			anyReferenced = true
+			shown := r
+			extra := ""
+			if len(shown) > 3 {
+				extra = fmt.Sprintf(" +%d more", len(shown)-3)
+				shown = shown[:3]
+			}
+			fmt.Fprintf(&b, "  %s (%s) — STILL REFERENCED by %s%s\n",
+				o.Label(), what, strings.Join(shown, ", "), extra)
+		default:
+			fmt.Fprintf(&b, "  %s (%s) — referenced by nothing tracked\n", o.Label(), what)
+		}
 	}
 	b.WriteString("The lacquer wrote each of these and has stopped producing it — a workflow it retired, " +
-		"or a profile or tool this manifest no longer asks for. `sync` never deletes a project file, " +
-		"deliberately, so these are yours: delete the file (or just the marked region) if you do not want " +
-		"it, or keep it and it becomes ordinary project-owned content. Excluded and retirement-dropped " +
-		"paths are not listed here — the lacquer still ships those.\n")
+		"or a profile or tool this manifest no longer asks for. It means UNMANAGED, not unused. " +
+		"`sync` never deletes a project file, deliberately, so these are yours to keep or remove.\n")
+	if anyReferenced {
+		b.WriteString("DO NOT delete anything marked STILL REFERENCED without following the reference first: " +
+			"the lacquer stopped shipping it, but something in this project still runs it, and removing it " +
+			"breaks that caller.\n")
+	}
+	b.WriteString("The reference list is a text search of tracked files, so read WHICH files it names: " +
+		"a `.github/workflows/*.yml` or `.pre-commit-config.yaml` hit is a caller, while a CLAUDE.md or " +
+		"AGENTS.md hit is prose mentioning the path and does not keep the file alive. Over-reporting is " +
+		"deliberate — an extra finding costs a look, a missed one costs working CI.\n" +
+		"\"Referenced by nothing tracked\" is the safe-to-delete case, but it is a search, not proof: a " +
+		"caller that builds the path dynamically will not be found.\n" +
+		"Excluded and retirement-dropped paths are not listed here — the lacquer still ships those.\n")
 	return b.String()
+}
+
+// References returns the project files that mention this orphan's path, so the
+// report can tell "nothing calls this, delete it" apart from "this is still
+// wired into your CI".
+//
+// The distinction is the whole point. "No longer shipped by the lacquer" means
+// UNMANAGED, and it reads as DEAD. Three separate readers drew the wrong
+// conclusion from that line within one day and were a `rm` away from deleting
+// `scripts/build-docs.sh` out of eight repositories — where `ios-docs.yml`
+// runs it in CI and `.pre-commit-config.yaml` runs it on every commit. An
+// orphan that something still calls is not a leftover; it is project-owned
+// content the project depends on.
+//
+// Searches tracked files only, via `git ls-files`, because the interesting
+// callers are committed ones and an untracked scratch file mentioning the path
+// is not a dependency. Matches the destination path and its basename: a
+// workflow says `scripts/build-docs.sh`, while a sibling script may say
+// `./build-docs.sh`, and missing the second would report "unreferenced" for a
+// file with a live caller — the failure direction that loses working CI.
+func References(projectRoot string, o Orphan) []string {
+	if o.IsRegion() {
+		// A region lives inside a file the project owns and keeps. There is no
+		// path for anything to reference, so the question does not apply.
+		return nil
+	}
+	tracked, err := trackedFiles(projectRoot)
+	if err != nil {
+		// Not a git repo, or git unavailable. Report nothing rather than
+		// claiming "unreferenced" — an unverified all-clear on this question is
+		// exactly what gets a live file deleted.
+		return nil
+	}
+	needles := []string{o.Dest}
+	if base := path.Base(o.Dest); base != o.Dest && base != "" {
+		needles = append(needles, base)
+	}
+
+	var out []string
+	for _, rel := range tracked {
+		if rel == o.Dest {
+			continue // the file itself
+		}
+		if rel == lock.Name {
+			continue // the lock records what was written; that is not a caller
+		}
+		data, err := os.ReadFile(filepath.Join(projectRoot, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		body := string(data)
+		for _, n := range needles {
+			if strings.Contains(body, n) {
+				out = append(out, rel)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// trackedFiles lists the project's git-tracked paths.
+func trackedFiles(projectRoot string) ([]string, error) {
+	cmd := exec.Command("git", "ls-files", "-z")
+	cmd.Dir = projectRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, f := range strings.Split(string(out), "\x00") {
+		if f != "" {
+			files = append(files, filepath.ToSlash(f))
+		}
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no tracked files")
+	}
+	return files, nil
 }
