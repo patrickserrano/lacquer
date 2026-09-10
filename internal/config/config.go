@@ -63,7 +63,28 @@ type Project struct {
 	// Declaring it here AND a [[product]] block is rejected rather than merged:
 	// which product an ambiguous list belonged to would have to be guessed.
 	ExtraTestTargets []string `toml:"extra_test_targets"`
-	Skills           []string `toml:"skills"`
+	// XcodeVersion is the Xcode this project expects, as `xcodebuild -version`
+	// reports it ("27.0", or "27.0 (27A266a)" to pin the build too). OPTIONAL,
+	// and deliberately an ASSERTION rather than a path pin.
+	//
+	// A path pin cannot work on this fleet: the Mac runners carry exactly one
+	// Xcode at /Applications/Xcode.app, upgraded IN PLACE, so pointing
+	// DEVELOPER_DIR at a versioned bundle would fail every build the moment it
+	// was written. What IS achievable is making a toolchain change loud.
+	//
+	// The failure this exists for: Xcode 27.0 landed on the shared host
+	// mid-session and turned a project's `main` red on a merge whose own PR run
+	// had passed four minutes earlier. Nothing in the diff was implicated,
+	// nothing in the job summary said "toolchain", and the first local symptom
+	// was `unable to spawn process '.../embeddedBinaryValidationUtility' (No
+	// such file or directory)` for a file that exists — the real cause, an
+	// unaccepted licence, was two layers down in a different log.
+	//
+	// Leaving it unset still buys the two things that cost nothing: the version
+	// is echoed into every Mac job, so a change is visible in the log rather
+	// than inferred, and an unaccepted licence is reported AS a licence problem.
+	XcodeVersion string   `toml:"xcode_version"`
+	Skills       []string `toml:"skills"`
 	// OptionalWorkflows opts a project INTO a workflow the lacquer ships but does
 	// not install by default, named without its `.yml` — e.g.
 	// optional_workflows = ["testflight-feedback"].

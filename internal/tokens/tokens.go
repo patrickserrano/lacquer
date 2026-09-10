@@ -264,7 +264,11 @@ const (
 	// have fixed anything. Matching `"$SIM_NAME ("` pins the match to the end of
 	// the name in `simctl list devices` output, where ` (` always follows it.
 	IOSCISimSuffix = "{{IOS_CI_SIM_SUFFIX}}"
-	IOSCISimMatch  = "{{IOS_CI_SIM_MATCH}}"
+	// IOSXcodeExpected is the Xcode version the project asserts, or empty. Empty
+	// renders a step that ECHOES the toolchain without asserting it, which is the
+	// state most of the fleet is in and must keep working in.
+	IOSXcodeExpected = "{{IOS_XCODE_EXPECTED}}"
+	IOSCISimMatch    = "{{IOS_CI_SIM_MATCH}}"
 	// DependabotUpdates expands to the `updates:` list of .github/dependabot.yml:
 	// one github-actions entry for the repo, plus one npm entry per web
 	// component, each pointing at that component's directory.
@@ -334,6 +338,7 @@ var registry = []entry{
 	{IOSCICoverageJQ, true},
 	{IOSCIArtifactSuffix, false},
 	{IOSCISimSuffix, false},
+	{IOSXcodeExpected, false},
 	{IOSCISimMatch, false},
 	{DependabotUpdates, false},
 }
@@ -416,6 +421,7 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCICoverageJQ:     CICoverageJQ(products),
 		IOSCIArtifactSuffix: CIArtifactSuffix(products),
 		IOSCISimSuffix:      CISimSuffix(products),
+		IOSXcodeExpected:    cfg.Project.XcodeVersion,
 		IOSCISimMatch:       CISimMatch(products),
 
 		DependabotUpdates: dependabotUpdates(cfg),

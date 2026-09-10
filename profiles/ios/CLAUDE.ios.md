@@ -37,6 +37,31 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 
 - **A version train closes permanently once its version reaches `READY_FOR_SALE`.** Uploading another build against that same marketing version fails with **error 90186** ("Invalid Pre-Release Train"), no matter the build number. A shipped app needs a **version bump** to accept a new build. In a repo shipping several apps, this is why one release trigger must never fan out to every product: the already-shipped one can only fail.
 
+**The toolchain is asserted, not inherited.** Every macOS job starts with a
+`Verify the toolchain` step, and the workflow sets `DEVELOPER_DIR` explicitly
+rather than taking whatever `xcode-select` points at. On a shared self-hosted
+host the installed Xcode is HOST state: it changes with no PR, no warning, and
+the first symptom is a red `main` on an unrelated merge. That happened —
+Xcode 27.0 landed mid-session and turned a project's `main` red on a commit
+whose own PR run had passed four minutes earlier.
+
+The licence check is the load-bearing half. An unaccepted licence after an
+upgrade does not report itself as a licence problem: the observed first symptom
+was `unable to spawn process '.../embeddedBinaryValidationUtility' (No such
+file or directory)` for a file sitting on disk, which sends you hunting a
+corrupted install. `xcodebuild -checkFirstLaunchStatus` exits non-zero for
+exactly that state and costs nothing.
+
+```toml
+[project]
+xcode_version = "27.0"   # optional; "27.0 (27A266a)" pins the build too
+```
+
+Declaring it is an ASSERTION, not a path pin — these runners carry one Xcode
+upgraded in place, so a versioned `DEVELOPER_DIR` would name a bundle that does
+not exist. Declaring nothing still echoes the version into every job, so a
+silent upgrade becomes visible in the log instead of inferred from a failure.
+
 ## Shipping more than one app from one repository
 
 A repository that ships a paid and a free variant declares each as a

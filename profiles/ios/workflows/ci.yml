@@ -16,6 +16,14 @@ on:
 
 # No job talks to the GitHub API (caches/artifacts/step summaries use the
 # Actions runtime token, not GITHUB_TOKEN) — checkout is all the token does.
+# Pinned explicitly rather than inherited from `xcode-select`. On a shared
+# self-hosted host, whatever xcode-select points at is host state that changes
+# without a PR — see the "Verify the toolchain" step for the incident this
+# addresses. This names the path; the step asserts the VERSION, because these
+# runners carry one Xcode upgraded in place and a versioned path would not exist.
+env:
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+
 permissions:
   contents: read
 
@@ -374,6 +382,36 @@ jobs:
     # "Require approval for all fork PRs" for defense-in-depth).
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     steps:
+      # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
+      # host arrives with no PR and no warning, and its first symptom is a red
+      # `main` on an unrelated merge. This turns that into a named failure.
+      #
+      # The licence check is the load-bearing half. An unaccepted Xcode licence
+      # does not report itself as a licence problem — the observed first symptom
+      # was `unable to spawn process '.../embeddedBinaryValidationUtility' (No
+      # such file or directory)` for a file that was sitting on disk, which sends
+      # you looking for a corrupted install. `-checkFirstLaunchStatus` exits
+      # non-zero for exactly this state and costs nothing.
+      - name: Verify the toolchain
+        run: |
+          set -uo pipefail
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-<unset, inheriting xcode-select>}"
+          if ! xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+            echo "::error::Xcode's first-launch tasks are not complete on this runner — most often an unaccepted licence after an upgrade. Every xcodebuild and simctl call will fail, and NOT with a message that says so. Run: sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch"
+            exit 1
+          fi
+          have="$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g; s/ $//')"
+          echo "Toolchain: $have"
+          echo "Toolchain: \`$have\`" >> "$GITHUB_STEP_SUMMARY"
+          # Echoed unconditionally, asserted only when the project declares an
+          # expectation. Most of the fleet declares none and must keep building
+          # on whatever the host has; for them the echo above is the whole point,
+          # because it makes a silent upgrade visible in the log.
+          want="{{IOS_XCODE_EXPECTED}}"
+          if [ -n "$want" ] && ! printf '%s' "$have" | grep -qF "$want"; then
+            echo "::error::This project expects Xcode $want; the runner has: $have. A toolchain moved under CI without a PR. Either install/select the expected Xcode on the host, or change xcode_version in .lacquer.toml deliberately — as a change that runs CI before it lands."
+            exit 1
+          fi
       - uses: actions/checkout@v7
 
       - name: Detect Swift sources
@@ -525,6 +563,36 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true') && needs.changes.outputs.xcodeproj == 'true'
     timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
     steps:
+      # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
+      # host arrives with no PR and no warning, and its first symptom is a red
+      # `main` on an unrelated merge. This turns that into a named failure.
+      #
+      # The licence check is the load-bearing half. An unaccepted Xcode licence
+      # does not report itself as a licence problem — the observed first symptom
+      # was `unable to spawn process '.../embeddedBinaryValidationUtility' (No
+      # such file or directory)` for a file that was sitting on disk, which sends
+      # you looking for a corrupted install. `-checkFirstLaunchStatus` exits
+      # non-zero for exactly this state and costs nothing.
+      - name: Verify the toolchain
+        run: |
+          set -uo pipefail
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-<unset, inheriting xcode-select>}"
+          if ! xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+            echo "::error::Xcode's first-launch tasks are not complete on this runner — most often an unaccepted licence after an upgrade. Every xcodebuild and simctl call will fail, and NOT with a message that says so. Run: sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch"
+            exit 1
+          fi
+          have="$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g; s/ $//')"
+          echo "Toolchain: $have"
+          echo "Toolchain: \`$have\`" >> "$GITHUB_STEP_SUMMARY"
+          # Echoed unconditionally, asserted only when the project declares an
+          # expectation. Most of the fleet declares none and must keep building
+          # on whatever the host has; for them the echo above is the whole point,
+          # because it makes a silent upgrade visible in the log.
+          want="{{IOS_XCODE_EXPECTED}}"
+          if [ -n "$want" ] && ! printf '%s' "$have" | grep -qF "$want"; then
+            echo "::error::This project expects Xcode $want; the runner has: $have. A toolchain moved under CI without a PR. Either install/select the expected Xcode on the host, or change xcode_version in .lacquer.toml deliberately — as a change that runs CI before it lands."
+            exit 1
+          fi
       - uses: actions/checkout@v7
         # Without this, actions/checkout leaves Git LFS-tracked assets (app
         # icons, launch screens, ...) as their tiny pointer-file stand-ins
@@ -771,6 +839,36 @@ jobs:
     # backstop with headroom for a cold, cache-cold build.
     timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
     steps:
+      # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
+      # host arrives with no PR and no warning, and its first symptom is a red
+      # `main` on an unrelated merge. This turns that into a named failure.
+      #
+      # The licence check is the load-bearing half. An unaccepted Xcode licence
+      # does not report itself as a licence problem — the observed first symptom
+      # was `unable to spawn process '.../embeddedBinaryValidationUtility' (No
+      # such file or directory)` for a file that was sitting on disk, which sends
+      # you looking for a corrupted install. `-checkFirstLaunchStatus` exits
+      # non-zero for exactly this state and costs nothing.
+      - name: Verify the toolchain
+        run: |
+          set -uo pipefail
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-<unset, inheriting xcode-select>}"
+          if ! xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+            echo "::error::Xcode's first-launch tasks are not complete on this runner — most often an unaccepted licence after an upgrade. Every xcodebuild and simctl call will fail, and NOT with a message that says so. Run: sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch"
+            exit 1
+          fi
+          have="$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g; s/ $//')"
+          echo "Toolchain: $have"
+          echo "Toolchain: \`$have\`" >> "$GITHUB_STEP_SUMMARY"
+          # Echoed unconditionally, asserted only when the project declares an
+          # expectation. Most of the fleet declares none and must keep building
+          # on whatever the host has; for them the echo above is the whole point,
+          # because it makes a silent upgrade visible in the log.
+          want="{{IOS_XCODE_EXPECTED}}"
+          if [ -n "$want" ] && ! printf '%s' "$have" | grep -qF "$want"; then
+            echo "::error::This project expects Xcode $want; the runner has: $have. A toolchain moved under CI without a PR. Either install/select the expected Xcode on the host, or change xcode_version in .lacquer.toml deliberately — as a change that runs CI before it lands."
+            exit 1
+          fi
       - uses: actions/checkout@v7
         # Without this, actions/checkout leaves Git LFS-tracked assets (app
         # icons, launch screens, ...) as their tiny pointer-file stand-ins
@@ -1372,6 +1470,36 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
     timeout-minutes: 10
     steps:
+      # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
+      # host arrives with no PR and no warning, and its first symptom is a red
+      # `main` on an unrelated merge. This turns that into a named failure.
+      #
+      # The licence check is the load-bearing half. An unaccepted Xcode licence
+      # does not report itself as a licence problem — the observed first symptom
+      # was `unable to spawn process '.../embeddedBinaryValidationUtility' (No
+      # such file or directory)` for a file that was sitting on disk, which sends
+      # you looking for a corrupted install. `-checkFirstLaunchStatus` exits
+      # non-zero for exactly this state and costs nothing.
+      - name: Verify the toolchain
+        run: |
+          set -uo pipefail
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-<unset, inheriting xcode-select>}"
+          if ! xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+            echo "::error::Xcode's first-launch tasks are not complete on this runner — most often an unaccepted licence after an upgrade. Every xcodebuild and simctl call will fail, and NOT with a message that says so. Run: sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch"
+            exit 1
+          fi
+          have="$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g; s/ $//')"
+          echo "Toolchain: $have"
+          echo "Toolchain: \`$have\`" >> "$GITHUB_STEP_SUMMARY"
+          # Echoed unconditionally, asserted only when the project declares an
+          # expectation. Most of the fleet declares none and must keep building
+          # on whatever the host has; for them the echo above is the whole point,
+          # because it makes a silent upgrade visible in the log.
+          want="{{IOS_XCODE_EXPECTED}}"
+          if [ -n "$want" ] && ! printf '%s' "$have" | grep -qF "$want"; then
+            echo "::error::This project expects Xcode $want; the runner has: $have. A toolchain moved under CI without a PR. Either install/select the expected Xcode on the host, or change xcode_version in .lacquer.toml deliberately — as a change that runs CI before it lands."
+            exit 1
+          fi
       - uses: actions/checkout@v7
 
       - name: Create Secrets.xcconfig (build-time placeholder)
