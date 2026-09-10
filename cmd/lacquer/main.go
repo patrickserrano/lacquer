@@ -34,6 +34,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/skillsync"
 	"github.com/patrickserrano/lacquer/internal/status"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
+	"github.com/patrickserrano/lacquer/internal/testtargets"
 	"github.com/patrickserrano/lacquer/internal/version"
 )
 
@@ -319,6 +320,33 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// clone, where not-yet-installed is the normal state rather than a
 		// finding.
 		fmt.Fprint(stdout, hooks.Format(hooks.Check(projectRoot)))
+
+		// Both directions of the test-selector comparison. Reported, not gated,
+		// for the same reason as the hooks check: a project whose widget suite
+		// nobody wired is not DRIFTED -- every managed file is exactly right,
+		// which is why this went unnoticed three times in one repo.
+		if cfg.Project.Xcodeproj != "" {
+			pbx := filepath.Join(projectRoot, cfg.Project.Xcodeproj, "project.pbxproj")
+			declared, read, err := testtargets.Parse(pbx)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			// Only compare when the project was actually READ. A manifest may name
+			// an .xcodeproj that does not exist yet (multimeter says so in its own
+			// comment), and reporting every selector as naming a missing target
+			// then would be the check confusing "I could not look" with "it is not
+			// there" -- the exact failure it exists to catch.
+			if !read {
+				declared = nil
+			}
+			var selectors []string
+			for _, p := range cfg.Products() {
+				selectors = append(selectors, p.TestSelectors()...)
+			}
+			if read {
+				fmt.Fprint(stdout, testtargets.Format(testtargets.Compare(declared, selectors)))
+			}
+		}
 
 		// Every remaining report is computed and PRINTED before any exit code is
 		// chosen. It used to return 3 here, which meant a project with a single
