@@ -63,6 +63,27 @@ upgraded in place, so a versioned `DEVELOPER_DIR` would name a bundle that does
 not exist. Declaring nothing still echoes the version into every job, so a
 silent upgrade becomes visible in the log instead of inferred from a failure.
 
+## Release archives go to the archive volume, not the repository
+
+`.xcarchive` bundles are 60–100 MB each. They used to be written into the repository checkout, where every release left one behind on the runner and any tool that walked the working tree tripped over them. The release workflow now writes them to a dedicated volume, namespaced by repository and run id:
+
+```
+/Volumes/Developer Archives/CI Archives/<repo>/<run-id>/<Product>.xcarchive
+```
+
+Override the root per project if your runner mounts it elsewhere:
+
+```toml
+[project]
+archive_root = "/Volumes/Somewhere Else"   # optional
+```
+
+:::danger[The release fails if that path is missing — it does not fall back to the repository]
+A silent fallback would restore the exact problem the change exists to prevent, and nobody would notice until a disk filled — the same "quietly did the wrong thing and reported success" shape this profile keeps hunting.
+
+The check runs **before** the build, so an unmounted volume costs a few seconds rather than a full archive.
+:::
+
 ## Shipping more than one app from one repository
 
 A repository that ships a paid and a free variant declares each as a

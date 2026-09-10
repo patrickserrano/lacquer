@@ -84,6 +84,18 @@ type Project struct {
 	// is echoed into every Mac job, so a change is visible in the log rather
 	// than inferred, and an unaccepted licence is reported AS a licence problem.
 	XcodeVersion string   `toml:"xcode_version"`
+	// ArchiveRoot is the directory the iOS release workflow writes .xcarchive
+	// bundles into. OPTIONAL; defaults to the fleet's dedicated archive volume.
+	//
+	// Archives used to land inside the repository checkout, where a 60-100 MB
+	// bundle per release accumulated on the runner and turned up in anything that
+	// walked the working tree. The default points at the volume mounted on the
+	// dedicated Mac runner; a project whose runner mounts it elsewhere overrides
+	// it here rather than editing the managed workflow (which would read as drift).
+	//
+	// The workflow FAILS when this path is absent rather than falling back to the
+	// repo: a silent fallback would restore the exact problem it exists to prevent.
+	ArchiveRoot  string   `toml:"archive_root"`
 	Skills       []string `toml:"skills"`
 	// OptionalWorkflows opts a project INTO a workflow the lacquer ships but does
 	// not install by default, named without its `.yml` — e.g.
