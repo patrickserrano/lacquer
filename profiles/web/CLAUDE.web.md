@@ -325,10 +325,22 @@ web checks to it as `repo: local` hooks (e.g. an entry running
 `./node_modules/.bin/biome ci` scoped to the web component) rather than
 installing lefthook alongside it.
 
-`lacquer audit` reports the loser as "configured but NOT installed" and names
-the rival manager when it is the other one this lacquer ships. That finding is
-accurate and is **not** by itself a reason to switch: reinstalling the reported
-manager disables whatever the winner is currently catching.
+**The composed setup is the intended end state, and it now ships.** The
+`lefthook.yml` this profile syncs carries an `ios-pre-commit` command that runs
+`pre-commit run --hook-stage pre-commit`, so lefthook owns `.git/hooks` and
+calls pre-commit from inside it — one installed hook, both rule sets. The
+command is byte-identical in the web and supabase fragments, so a repo with all
+three components bridges once rather than twice, and it no-ops in a repo with no
+`.pre-commit-config.yaml`. `commit-msg` needs no bridge: both sides already run
+the same `scripts/check-commit-msg.sh`.
+
+So in a mixed repo, run `lefthook install` and not `pre-commit install`.
+
+`lacquer audit` still lists `.pre-commit-config.yaml` as "not installed" — which
+is literally true, lefthook wrote the hook — but says the rules **do** run and
+that there is nothing to fix. Where the bridge is absent it says the opposite,
+and warns that reinstalling the reported manager disables whatever the winner is
+currently catching.
 
 ## CI
 

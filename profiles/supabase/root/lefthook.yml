@@ -42,6 +42,39 @@ pre-commit:
 # CI runs `deno check` and `deno test` and nothing local did, so a type error or
 # a failing test only surfaced after push. Both are too slow for pre-commit and
 # both are exactly what pre-push is for. Mirrors profiles/web/root/lefthook.yml.
+
+    # BRIDGE TO THE iOS PROFILE'S HOOKS. A repo with both an iOS and a
+    # web/supabase component carries `.pre-commit-config.yaml` AND this file,
+    # and `pre-commit install` and `lefthook install` each overwrite
+    # `.git/hooks/pre-commit`. Only one wins, so half the gates silently vanish
+    # — and every signal a human checks says the repo is healthy, because a hook
+    # exists and commits do get gated. Worse, the answer flips whenever somebody
+    # re-runs an install for unrelated reasons.
+    #
+    # Resolution: lefthook owns `.git/hooks` and calls pre-commit from here, so
+    # one installed hook runs both rule sets. Byte-identical in the web and
+    # supabase fragments on purpose — the merge keeps one copy of a command two
+    # profiles ship the SAME way, so an ios+web+supabase repo bridges once, not
+    # twice.
+    #
+    # `commit-msg` needs no bridge: the iOS `conventional-commit` hook and this
+    # file's `conventional` command both run scripts/check-commit-msg.sh, so
+    # whichever manager owns that hook runs the identical check.
+    #
+    # No `root:` — the iOS hooks carry their own `files:` patterns and filter
+    # the staged set themselves.
+    ios-pre-commit:
+      run: |
+        # No iOS component here: nothing to bridge, and this must not fail a
+        # single-stack web/supabase repo.
+        [ -f .pre-commit-config.yaml ] || exit 0
+        if ! command -v pre-commit >/dev/null 2>&1; then
+          echo "lefthook owns .git/hooks in this mixed repo and bridges to pre-commit," >&2
+          echo "but pre-commit is not installed, so the iOS gates (SwiftLint, SwiftFormat," >&2
+          echo "secret scan) would run on nothing. Install it: brew install pre-commit" >&2
+          exit 1
+        fi
+        pre-commit run --hook-stage pre-commit --files {staged_files}
 pre-push:
   parallel: true
   commands:

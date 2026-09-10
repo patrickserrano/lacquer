@@ -1,6 +1,7 @@
 package assets
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -420,5 +421,52 @@ func TestPlanExclusionSurvivesASecondClaimant(t *testing.T) {
 	if !seen {
 		t.Errorf("lefthook.yml is not reported as suppressed (%v); an exclusion nothing records reads as "+
 			"dead text the next time somebody reviews it", sup)
+	}
+}
+
+// #303: a repo with an iOS component AND a web/supabase one carries both
+// .pre-commit-config.yaml and lefthook.yml, and each manager's `install`
+// overwrites the other's .git/hooks/pre-commit. Only one wins, so half the gates
+// vanish while every signal a human checks says the repo is healthy — a hook
+// exists and commits do get gated.
+//
+// The resolution is a bridge command that makes lefthook call pre-commit, so one
+// installed hook runs both rule sets. It is byte-identical in the web and
+// supabase fragments ON PURPOSE: mergeCommands keeps a single copy of a command
+// two profiles ship the same way. If the two ever drift, an ios+web+supabase
+// repo bridges TWICE and runs every iOS hook twice on every commit.
+func TestIOSBridgeMergesToExactlyOneCommand(t *testing.T) {
+	web, err := os.ReadFile("../../profiles/web/root/lefthook.yml")
+	if err != nil {
+		t.Skipf("not a lacquer checkout: %v", err)
+	}
+	sup, err := os.ReadFile("../../profiles/supabase/root/lefthook.yml")
+	if err != nil {
+		t.Skipf("not a lacquer checkout: %v", err)
+	}
+
+	body, err := mergeLefthook("lefthook.yml", fragments(string(web), string(sup)))
+	if err != nil {
+		t.Fatalf("merge failed: %v", err)
+	}
+	got := string(body)
+
+	if n := strings.Count(got, "ios-pre-commit"); n != 1 {
+		t.Errorf("the bridge appears %d times in the merged config, want exactly 1. The web and "+
+			"supabase fragments have drifted, so an ios+web+supabase repo would run every iOS "+
+			"hook %d times per commit:\n%s", n, n, got)
+	}
+	if !strings.Contains(got, "pre-commit run --hook-stage pre-commit") {
+		t.Errorf("merged config never invokes pre-commit, so the iOS gates still run on nothing:\n%s", got)
+	}
+	// The single-stack case. A web-only repo has no .pre-commit-config.yaml, and
+	// the bridge must no-op there rather than fail every commit.
+	if !strings.Contains(got, "[ -f .pre-commit-config.yaml ] || exit 0") {
+		t.Errorf("bridge lacks its single-stack guard; a web-only repo would fail every commit:\n%s", got)
+	}
+	// And it must fail loudly, not silently, when the component IS present but
+	// the binary is missing — "I could not run the gates" is not "the gates passed".
+	if !strings.Contains(got, "command -v pre-commit") {
+		t.Errorf("bridge does not check that pre-commit exists; a missing binary would skip the iOS gates:\n%s", got)
 	}
 }

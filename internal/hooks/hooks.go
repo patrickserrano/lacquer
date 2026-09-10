@@ -74,6 +74,13 @@ type Finding struct {
 	// Without it a mixed ios+web repo reads as "your hooks are broken", and the
 	// obvious remedy makes things worse -- see Format.
 	Rival string
+	// Bridged is true when the rival's config invokes this manager, so this
+	// config IS enforced -- just through the other hook rather than its own.
+	//
+	// Without this the composed setup that FIXES the collision still reports as
+	// broken, which is the worst possible outcome: it trains people to ignore
+	// the finding on precisely the repos that got it right.
+	Bridged bool
 }
 
 // Check reports hook managers the project has configured whose hooks are not
@@ -103,13 +110,15 @@ func Check(projectRoot string) []Finding {
 		if installed(hooksDir, m.Marker) {
 			continue
 		}
+		rival := rivalInstalled(projectRoot, hooksDir, m.Name)
 		out = append(out, Finding{
 			Manager:      m.Name,
 			ConfigFile:   m.ConfigFile,
 			HooksDir:     hooksDir,
 			HooksPathSet: hooksPathSet,
 			ForeignHook:  foreignHook(hooksDir),
-			Rival:        rivalInstalled(projectRoot, hooksDir, m.Name),
+			Rival:        rival,
+			Bridged:      rival != "" && bridges(projectRoot, rival, m.Name),
 		})
 	}
 	return out
@@ -181,6 +190,13 @@ func Format(fs []Finding) string {
 		if f.ForeignHook != "" {
 			b.WriteString("  " + f.ConfigFile + " (" + f.Manager + ") is not installed; a different hook runs instead:\n")
 			b.WriteString("    " + f.ForeignHook + "\n")
+			if f.Bridged {
+				b.WriteString("    That is " + f.Rival + ", which this lacquer also ships — and its config CALLS\n")
+				b.WriteString("    " + f.Manager + ", so these rules DO run. One installed hook, both rule sets.\n")
+				b.WriteString("    Nothing to fix. Do NOT run `" + f.Manager + " install`: it would take .git/hooks\n")
+				b.WriteString("    back from " + f.Rival + " and silence " + f.Rival + "'s own gates.\n")
+				continue
+			}
 			if f.Rival != "" {
 				// The other manager is one the lacquer itself ships, so this is
 				// a known mixed-repo collision rather than an unexplained gap.
@@ -237,4 +253,25 @@ func rivalInstalled(projectRoot, hooksDir, self string) string {
 		}
 	}
 	return ""
+}
+
+// bridges reports whether the installed rival's config invokes `self`, which is
+// how a mixed ios+web repo runs both rule sets from one hook (#303): lefthook
+// owns .git/hooks and calls `pre-commit run` from a command.
+//
+// A substring match on the invocation, deliberately, rather than parsing the
+// config: the question is only "does this file call that binary", and a YAML
+// walk would have to know every place a command can hide.
+func bridges(projectRoot, rival, self string) bool {
+	for _, m := range managers {
+		if m.Name != rival {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(projectRoot, m.ConfigFile))
+		if err != nil {
+			return false
+		}
+		return strings.Contains(string(data), self+" run")
+	}
+	return false
 }
