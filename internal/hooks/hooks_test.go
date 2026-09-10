@@ -180,3 +180,51 @@ func TestRivalManagerIsNamedNotJustReportedMissing(t *testing.T) {
 		t.Errorf("report hedges on a collision it can name precisely:\n%s", out)
 	}
 }
+
+// The composed setup from #303. lefthook owns .git/hooks and its config calls
+// `pre-commit run`, so BOTH rule sets execute from one installed hook.
+//
+// Reporting that as broken would be the worst outcome available: it trains
+// people to ignore the finding on exactly the repos that resolved the collision
+// correctly, and the "obvious" remedy — `pre-commit install` — would take the
+// hooks back and silence lefthook's own gates.
+func TestABridgedManagerIsReportedAsWorking(t *testing.T) {
+	dir := gitRepo(t)
+	write(t, dir, ".pre-commit-config.yaml", "repos: []\n")
+	write(t, dir, "lefthook.yml", "pre-commit:\n  commands:\n    ios-pre-commit:\n      run: pre-commit run --hook-stage pre-commit\n")
+	write(t, dir, ".git/hooks/pre-commit", "#!/bin/sh\ncall_lefthook()\n{\n  :\n}\n")
+
+	fs := Check(dir)
+	if len(fs) != 1 {
+		t.Fatalf("expected the pre-commit finding, got %+v", fs)
+	}
+	if !fs[0].Bridged {
+		t.Fatalf("a lefthook.yml that calls `pre-commit run` was not detected as bridging: %+v", fs[0])
+	}
+	out := Format(fs)
+	if !strings.Contains(out, "these rules DO run") {
+		t.Errorf("report does not say the bridged rules execute:\n%s", out)
+	}
+	if !strings.Contains(out, "Nothing to fix") {
+		t.Errorf("report does not tell the reader this is the resolved state:\n%s", out)
+	}
+	if strings.Contains(out, "DO NOT reflexively reinstall") {
+		t.Errorf("report still uses the unbridged collision wording:\n%s", out)
+	}
+}
+
+// And the collision case must NOT be mistaken for the bridged one.
+func TestAnUnbridgedRivalIsStillReportedAsAConflict(t *testing.T) {
+	dir := gitRepo(t)
+	write(t, dir, ".pre-commit-config.yaml", "repos: []\n")
+	write(t, dir, "lefthook.yml", "pre-commit:\n  commands:\n    biome:\n      run: biome ci\n")
+	write(t, dir, ".git/hooks/pre-commit", "#!/bin/sh\ncall_lefthook()\n{\n  :\n}\n")
+
+	fs := Check(dir)
+	if len(fs) != 1 || fs[0].Bridged {
+		t.Fatalf("a lefthook.yml that never calls pre-commit was read as bridging: %+v", fs)
+	}
+	if !strings.Contains(Format(fs), "DO NOT reflexively reinstall") {
+		t.Error("the unbridged collision lost its warning")
+	}
+}
