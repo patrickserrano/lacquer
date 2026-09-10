@@ -274,7 +274,7 @@ const (
 	// empty value would render `-archivePath "/$PRODUCT_NAME.xcarchive"` and try
 	// to write to the filesystem root.
 	IOSArchiveRoot = "{{IOS_ARCHIVE_ROOT}}"
-	IOSCISimMatch    = "{{IOS_CI_SIM_MATCH}}"
+	IOSCISimMatch  = "{{IOS_CI_SIM_MATCH}}"
 	// DependabotUpdates expands to the `updates:` list of .github/dependabot.yml:
 	// one github-actions entry for the repo, plus one npm entry per web
 	// component, each pointing at that component's directory.
