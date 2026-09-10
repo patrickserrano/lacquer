@@ -656,6 +656,15 @@ the documentation baseline is the one rule set a project may relax, and mixing i
 into the main config would either hand every style rule an escape hatch or leave
 this one without the escape hatch the standard promises.
 
+**A `[baseline.relax]` entry does not take effect until it is COMMITTED.**
+`pre-commit` stashes unstaged changes before running hooks, so the hook reads
+`.lacquer.toml` as it exists at HEAD. Add a relaxation, leave it unstaged, and
+the very next commit still fails the gate you just relaxed — with no hint that
+the file it read was not the file you edited. Stage and commit the manifest
+change on its own, or pass `--no-verify` for that one commit, then let the
+following commit be gated normally. "I added the relaxation and it did not take"
+is the obvious first experience, and the cause is invisible from the error.
+
 ### Three settings, if the DocC build is ever reinstated
 
 `scripts/build-docs.sh` encoded all three and no longer ships. They are kept
