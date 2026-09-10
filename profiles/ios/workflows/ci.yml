@@ -1315,6 +1315,36 @@ jobs:
               # it actually is. Route it to FAIL CLOSED below instead.
               elif [ "$RESULT" = "Failed" ] && [ -n "$FAILED_COUNT" ]; then
                 echo "Test failures detected via xcresulttool: $FAILED_COUNT failed (result: $RESULT)"
+
+                # NAME THE FAILURES, IN THE LOG. The same JSON already parsed
+                # above carries `testFailures[]` with `targetName`, `testName`
+                # and `failureText`; this branch used to read the count off it
+                # and throw the rest away. A bare count is the weakest useful
+                # signal a CI job can emit: enough to block, not enough to act
+                # on, and just enough to make re-running feel reasonable.
+                #
+                # That is not hypothetical. A DailyBread PR failed 1 of 738 on
+                # CI after passing locally, and the first instinct was "flake,
+                # re-run it" -- which would have merged a genuinely broken test
+                # into a release branch on a green retry. The name is what
+                # reframed it: the failure was in one of the four tests just
+                # added, and the defect was real (an unawaited Task made the
+                # write unobservable, so the test could only poll for it).
+                # Reading it required downloading a 68 MB artifact.
+                #
+                # The step summary already listed NAMES via `get test-results
+                # tests`. It never carried the failure TEXT, and neither
+                # reached the log, which is where someone opening a red job
+                # looks first.
+                #
+                # Capped at 20 so a suite-wide breakage does not bury the step.
+                echo "$SUMMARY_JSON" | jq -r '
+                  def indent: gsub("\n"; "\n            ");
+                  (.testFailures // []) as $f
+                  | ($f[0:20][] | "  FAILED: \(.targetName // "?")/\(.testName // "?")\n            \(.failureText // "(no failure text)" | indent)"),
+                    (if ($f|length) > 20 then "  ... and \(($f|length) - 20) more" else empty end)
+                ' 2>/dev/null || echo "  (could not parse testFailures[] out of the summary JSON)"
+
                 {
                   echo "test_result=failed"
                   echo "failure_count=$FAILED_COUNT"
@@ -1380,22 +1410,42 @@ jobs:
                 echo "### Failed Tests"
               } >> "$GITHUB_STEP_SUMMARY"
 
-              # Modern `get test-results tests` subcommand — the legacy
-              # `get --format json` form used here too, and is refused by current
-              # Xcode (see the "Run Tests" step for the full story). Selector
-              # verified against Apple's schema: nodeType "Test Case", result one
-              # of Passed/Failed/Skipped/Expected Failure/unknown.
-              FAILED_TESTS=$(xcrun xcresulttool get test-results tests --path TestResults.xcresult 2>/dev/null | \
-                jq -r '.. | objects | select(.result? == "Failed" and .nodeType? == "Test Case") | .nodeIdentifier // empty' 2>/dev/null | head -20)
+              # `get test-results summary`, not `... tests`. Both work — the
+              # `... tests` selector was verified to return nodeIdentifier
+              # correctly — but it yields the NAME only, and a name does not say
+              # whether a test timed out, crashed, or asserted. The summary's
+              # testFailures[] carries failureText alongside targetName and
+              # testName, which is the difference between "go download the
+              # artifact" and "you already know".
+              DETAIL=$(xcrun xcresulttool get test-results summary --path TestResults.xcresult 2>/dev/null | \
+                jq -r '
+                  (.testFailures // []) as $f
+                  | ($f[0:20][] | "**\(.targetName // "?")/\(.testName // "?")**\n\n~~~\n\(.failureText // "(no failure text)")\n~~~\n"),
+                    (if ($f|length) > 20 then "_… and \(($f|length) - 20) more_" else empty end)
+                ' 2>/dev/null)
 
-              if [ -n "$FAILED_TESTS" ]; then
-                {
-                  echo '```'
-                  echo "$FAILED_TESTS"
-                  echo '```'
-                } >> "$GITHUB_STEP_SUMMARY"
+              if [ -n "$DETAIL" ]; then
+                echo "$DETAIL" >> "$GITHUB_STEP_SUMMARY"
               else
-                grep -E "Test Case .* failed" xcodebuild.log 2>/dev/null | head -20 >> "$GITHUB_STEP_SUMMARY" || echo "See logs for details" >> "$GITHUB_STEP_SUMMARY"
+                # NOT a grep of xcodebuild.log. The previous fallback hunted for
+                # `Test Case .* failed`, which is XCTest's old console format and
+                # which Swift Testing NEVER emits — so on a Swift Testing project
+                # it matched nothing and wrote an empty section under a "Failed
+                # Tests" heading. That is the same dead text-scraping the "Run
+                # Tests" step documents at length, in the one place a reader
+                # would go to find out what broke.
+                #
+                # Say plainly that the names could not be read, and give the one
+                # command that gets them, so an empty section is never ambiguous
+                # between "no detail available" and "no failures".
+                {
+                  echo "Could not read failed test names from TestResults.xcresult."
+                  echo ""
+                  echo "Download the ios-test-results artifact and run:"
+                  echo "~~~"
+                  echo "xcrun xcresulttool get test-results summary --path TestResults.xcresult"
+                  echo "~~~"
+                } >> "$GITHUB_STEP_SUMMARY"
               fi
             fi
           else
