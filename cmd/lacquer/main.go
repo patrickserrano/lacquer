@@ -325,6 +325,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// hardening on the managed release path — and may well be the one that
 		// actually ships. See internal/shadow.
 		fmt.Fprint(stdout, shadow.Format(shadow.Check(projectRoot)))
+		// Declared [[product]].secrets that no workflow here will write. See
+		// internal/audit/inert.go.
+		fmt.Fprint(stdout, audit.FormatInertSecrets(audit.InertSecretDeclarations(projectRoot, cfg)))
 
 		// Both directions of the test-selector comparison. Reported, not gated,
 		// for the same reason as the hooks check: a project whose widget suite
