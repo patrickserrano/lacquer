@@ -448,6 +448,37 @@ jobs:
           cd {{COMPONENT_PREFIX}}. && agvtool new-version -all "$NEXT"
 
 {{IOS_PRODUCT_SECRETS}}
+      # Archives are 60-100 MB each and used to be written into the repository
+      # checkout, where they sat on the runner's disk indefinitely and showed up
+      # in any tooling that walks the working tree. They belong on the dedicated
+      # archive volume instead.
+      #
+      # This FAILS if the volume is absent rather than falling back to the repo.
+      # A silent fallback would put archives back where this step exists to keep
+      # them out of, and nobody would notice until the disk filled -- the same
+      # "quietly did the wrong thing and reported success" shape the rest of this
+      # profile is built to avoid. An unmounted volume is a real problem on a
+      # dedicated runner and should stop the release, loudly, before the
+      # expensive build rather than after it.
+      - name: Resolve the archive destination
+        run: |
+          set -euo pipefail
+          ROOT="{{IOS_ARCHIVE_ROOT}}"
+          if [ ! -d "$ROOT" ]; then
+            echo "::error::Archive volume not mounted: $ROOT — the release cannot store its archive. Mount the volume on this runner, or set [project].archive_root in .lacquer.toml to a path that exists."
+            exit 1
+          fi
+          if [ ! -w "$ROOT" ]; then
+            echo "::error::Archive root is not writable: $ROOT"
+            exit 1
+          fi
+          # Namespaced by repo and run so concurrent products cannot collide and
+          # so the archive for a given run stays findable afterwards.
+          DEST="$ROOT/${GITHUB_REPOSITORY##*/}/${GITHUB_RUN_ID}"
+          mkdir -p "$DEST"
+          echo "ARCHIVE_DIR=$DEST" >> "$GITHUB_ENV"
+          echo "Archives for this run: $DEST"
+
       - name: Clean stale build intermediates
         run: |
           # Gitignored output from a prior run persists between runs on the
@@ -464,13 +495,13 @@ jobs:
             -project "{{XCODEPROJ}}" \
             -scheme "$PRODUCT_SCHEME" \
             -configuration Release \
-            -archivePath "{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive" \
+            -archivePath "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive" \
             -allowProvisioningUpdates \
             2>&1 | xcpretty || EXIT_CODE=$?
           # Exit code 65 is a known spurious xcodebuild failure. Treat as success
           # ONLY if the .xcarchive was actually produced; otherwise fail. (pipefail
           # ensures $EXIT_CODE reflects xcodebuild's status, not xcpretty's.)
-          if [ $EXIT_CODE -eq 65 ] && [ -d "{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive" ]; then
+          if [ $EXIT_CODE -eq 65 ] && [ -d "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive" ]; then
             echo "xcodebuild exited 65 but archive exists — treating as success."
             EXIT_CODE=0
           fi
@@ -480,7 +511,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -exportArchive \
-            -archivePath "{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive" \
+            -archivePath "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive" \
             -exportOptionsPlist {{COMPONENT_PREFIX}}ExportOptions.plist \
             -exportPath {{COMPONENT_PREFIX}}build/ \
             2>&1 | xcpretty
@@ -541,7 +572,7 @@ jobs:
           # default a fleet-wide template should make on a project's behalf. Add
           # it per-project if you want source context in stack traces.
           sentry-cli debug-files upload \
-            "{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive/dSYMs"
+            "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive/dSYMs"
 
       - name: Upload to TestFlight
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
@@ -586,7 +617,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: '${{ matrix.product.name }}-${{ steps.safe_ref.outputs.value }}.dSYM'
-          path: "{{COMPONENT_PREFIX}}build/${{ matrix.product.name }}.xcarchive/dSYMs/*.dSYM"
+          path: "${{ env.ARCHIVE_DIR }}/${{ matrix.product.name }}.xcarchive/dSYMs/*.dSYM"
           # This said 90, and asserted that dSYMs are kept longer because they
           # are not reproducible from a later build and crash reports arrive for
           # weeks. The reasoning is right; the number was fiction. An
@@ -620,7 +651,7 @@ jobs:
           SAFE_REF: ${{ steps.safe_ref.outputs.value }}
         run: |
           set -euo pipefail
-          dir="{{COMPONENT_PREFIX}}build/$PRODUCT_NAME.xcarchive/dSYMs"
+          dir="$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive/dSYMs"
           if [ ! -d "$dir" ] || [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
             echo "::warning::no dSYMs at $dir — the release will carry no symbols"
             exit 0

@@ -268,7 +268,13 @@ const (
 	// renders a step that ECHOES the toolchain without asserting it, which is the
 	// state most of the fleet is in and must keep working in.
 	IOSXcodeExpected = "{{IOS_XCODE_EXPECTED}}"
-	IOSCISimMatch    = "{{IOS_CI_SIM_MATCH}}"
+
+	// IOSArchiveRoot is the directory the release workflow writes .xcarchive
+	// bundles into. Never empty: it falls back to DefaultArchiveRoot, because an
+	// empty value would render `-archivePath "/$PRODUCT_NAME.xcarchive"` and try
+	// to write to the filesystem root.
+	IOSArchiveRoot = "{{IOS_ARCHIVE_ROOT}}"
+	IOSCISimMatch  = "{{IOS_CI_SIM_MATCH}}"
 	// DependabotUpdates expands to the `updates:` list of .github/dependabot.yml:
 	// one github-actions entry for the repo, plus one npm entry per web
 	// component, each pointing at that component's directory.
@@ -339,6 +345,7 @@ var registry = []entry{
 	{IOSCIArtifactSuffix, false},
 	{IOSCISimSuffix, false},
 	{IOSXcodeExpected, false},
+	{IOSArchiveRoot, false},
 	{IOSCISimMatch, false},
 	{DependabotUpdates, false},
 }
@@ -422,6 +429,7 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCIArtifactSuffix: CIArtifactSuffix(products),
 		IOSCISimSuffix:      CISimSuffix(products),
 		IOSXcodeExpected:    cfg.Project.XcodeVersion,
+		IOSArchiveRoot:      archiveRoot(cfg.Project.ArchiveRoot),
 		IOSCISimMatch:       CISimMatch(products),
 
 		DependabotUpdates: dependabotUpdates(cfg),
@@ -1352,3 +1360,18 @@ var (
 	swiftMu    sync.Mutex
 	swiftCache = map[string]detect.SwiftManifestIndex{}
 )
+
+// DefaultArchiveRoot is where iOS release archives land when a project does not
+// set [project].archive_root: the dedicated volume on the Mac runner, chosen so
+// that archives stop accumulating inside repository checkouts.
+const DefaultArchiveRoot = "/Volumes/Developer Archives/CI Archives"
+
+// archiveRoot resolves the configured archive root, falling back to the fleet
+// default. It never returns "" — an empty root would render an -archivePath
+// rooted at "/".
+func archiveRoot(configured string) string {
+	if strings.TrimSpace(configured) == "" {
+		return DefaultArchiveRoot
+	}
+	return strings.TrimSpace(configured)
+}

@@ -343,3 +343,17 @@ func TestValuesWebPackageManagerFromDisk(t *testing.T) {
 		t.Errorf("admin/: WebPMSetup = %q, want empty for an npm component", npmVals[WebPMSetup])
 	}
 }
+
+// The archive root is rendered straight into `-archivePath "<root>/<name>.xcarchive"`.
+// An empty root would silently produce "/<name>.xcarchive" and try to write to the
+// filesystem root, so "never empty" is the property worth pinning, not just the default.
+func TestArchiveRootNeverEmpty(t *testing.T) {
+	for _, configured := range []string{"", "   ", "\t"} {
+		if got := archiveRoot(configured); got != DefaultArchiveRoot {
+			t.Errorf("archiveRoot(%q) = %q, want the fleet default %q", configured, got, DefaultArchiveRoot)
+		}
+	}
+	if got := archiveRoot("  /Volumes/Elsewhere  "); got != "/Volumes/Elsewhere" {
+		t.Errorf("configured root should be trimmed, got %q", got)
+	}
+}
