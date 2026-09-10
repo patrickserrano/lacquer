@@ -804,8 +804,41 @@ jobs:
 
       - name: Install xcpretty
         run: |
-          gem install xcpretty -v 0.4.1 --user-install --no-document
-          echo "XCPRETTY=$(ruby -e 'puts File.join(Gem.user_dir, "bin", "xcpretty")')" >> "$GITHUB_ENV"
+          # Per-job GEM_HOME, not the shared ~/.gem. THREE jobs install this same
+          # gem -- `build-release` and `test` in this file, plus release.yml --
+          # and on the PERSISTENT Mac runner they all wrote into one user gem
+          # dir. When two overlap, RubyGems 3.0.3.1 trips its own path-traversal
+          # check on a half-extracted tree:
+          #
+          #   Gem::Package::PathError: installing into parent path
+          #   assets/report.html.erb of .../xcpretty-0.4.1 is not allowed
+          #
+          # Measured on DailyBread: `test` died in THIS step at 20:51 while
+          # `build-release` was still installing, which passed at 20:53. No test
+          # ran. `Build (Release)`, `Lint` and `Baseline` were green on the same
+          # commit, so the run read as "the tests broke" when nothing had
+          # compiled yet -- two people read it that way before finding the gem
+          # error. On a hosted runner each job gets a clean box and the two
+          # installs cannot see each other, which is why this only bites here.
+          #
+          # `gem install --conservative` was the other candidate. It makes an
+          # already-installed gem a no-op, which covers the common case and
+          # STILL races when the gem genuinely is not there yet: a fresh runner,
+          # or the first run after a version bump. Isolation removes the shared
+          # resource rather than narrowing the window on it.
+          #
+          # RUNNER_TEMP is per-runner and emptied around every job, and a runner
+          # executes one job at a time -- so this cannot be shared, even by two
+          # jobs of the same run landing on the same machine.
+          export GEM_HOME="$RUNNER_TEMP/gems"
+          # No --user-install: it forces Gem.user_dir and would defeat GEM_HOME.
+          # Its reason for being here was that the system gem dir is not
+          # writable; GEM_HOME is, so the flag is not needed.
+          gem install xcpretty -v 0.4.1 --no-document
+          # GEM_HOME must persist to later steps too: xcpretty loads its own
+          # libraries at run time, not just its launcher.
+          echo "GEM_HOME=$GEM_HOME" >> "$GITHUB_ENV"
+          echo "XCPRETTY=$GEM_HOME/bin/xcpretty" >> "$GITHUB_ENV"
 
       - name: Build Release
         run: |
@@ -1064,8 +1097,41 @@ jobs:
 
       - name: Install xcpretty
         run: |
-          gem install xcpretty -v 0.4.1 --user-install --no-document
-          echo "XCPRETTY=$(ruby -e 'puts File.join(Gem.user_dir, "bin", "xcpretty")')" >> "$GITHUB_ENV"
+          # Per-job GEM_HOME, not the shared ~/.gem. THREE jobs install this same
+          # gem -- `build-release` and `test` in this file, plus release.yml --
+          # and on the PERSISTENT Mac runner they all wrote into one user gem
+          # dir. When two overlap, RubyGems 3.0.3.1 trips its own path-traversal
+          # check on a half-extracted tree:
+          #
+          #   Gem::Package::PathError: installing into parent path
+          #   assets/report.html.erb of .../xcpretty-0.4.1 is not allowed
+          #
+          # Measured on DailyBread: `test` died in THIS step at 20:51 while
+          # `build-release` was still installing, which passed at 20:53. No test
+          # ran. `Build (Release)`, `Lint` and `Baseline` were green on the same
+          # commit, so the run read as "the tests broke" when nothing had
+          # compiled yet -- two people read it that way before finding the gem
+          # error. On a hosted runner each job gets a clean box and the two
+          # installs cannot see each other, which is why this only bites here.
+          #
+          # `gem install --conservative` was the other candidate. It makes an
+          # already-installed gem a no-op, which covers the common case and
+          # STILL races when the gem genuinely is not there yet: a fresh runner,
+          # or the first run after a version bump. Isolation removes the shared
+          # resource rather than narrowing the window on it.
+          #
+          # RUNNER_TEMP is per-runner and emptied around every job, and a runner
+          # executes one job at a time -- so this cannot be shared, even by two
+          # jobs of the same run landing on the same machine.
+          export GEM_HOME="$RUNNER_TEMP/gems"
+          # No --user-install: it forces Gem.user_dir and would defeat GEM_HOME.
+          # Its reason for being here was that the system gem dir is not
+          # writable; GEM_HOME is, so the flag is not needed.
+          gem install xcpretty -v 0.4.1 --no-document
+          # GEM_HOME must persist to later steps too: xcpretty loads its own
+          # libraries at run time, not just its launcher.
+          echo "GEM_HOME=$GEM_HOME" >> "$GITHUB_ENV"
+          echo "XCPRETTY=$GEM_HOME/bin/xcpretty" >> "$GITHUB_ENV"
 
       - name: Clean stale build intermediates
         run: |
