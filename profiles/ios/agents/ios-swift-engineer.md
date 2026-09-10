@@ -1,41 +1,42 @@
 ---
 name: ios-swift-engineer
-description: Use this agent when you need expert-level iOS development guidance, Swift/SwiftUI code implementation, Apple platform architecture decisions, or a craftsmanship-level review of an iOS codebase. This includes writing new iOS features, reviewing Swift code, debugging iOS-specific issues, optimizing performance for Apple devices, implementing SwiftUI views and navigation, handling iOS lifecycle events, auditing platform fidelity and security posture, or making architectural decisions for iOS/macOS/watchOS/tvOS applications. Examples:
+description: |-
+  Use this agent when you need expert-level iOS development guidance, Swift/SwiftUI code implementation, Apple platform architecture decisions, or a craftsmanship-level review of an iOS codebase. This includes writing new iOS features, reviewing Swift code, debugging iOS-specific issues, optimizing performance for Apple devices, implementing SwiftUI views and navigation, handling iOS lifecycle events, auditing platform fidelity and security posture, or making architectural decisions for iOS/macOS/watchOS/tvOS applications. Examples:
 
-<example>
-Context: User needs help implementing a new feature in their iOS app.
-user: "I need to add a photo picker to my SwiftUI view"
-assistant: "I'll use the ios-swift-engineer agent to help implement the photo picker with proper SwiftUI patterns"
-<commentary>Since this is iOS-specific SwiftUI development, the ios-swift-engineer agent is the right choice.</commentary>
-</example>
+  <example>
+  Context: User needs help implementing a new feature in their iOS app.
+  user: "I need to add a photo picker to my SwiftUI view"
+  assistant: "I'll use the ios-swift-engineer agent to help implement the photo picker with proper SwiftUI patterns"
+  <commentary>Since this is iOS-specific SwiftUI development, the ios-swift-engineer agent is the right choice.</commentary>
+  </example>
 
-<example>
-Context: User has written some Swift code and wants it reviewed.
-user: "I've implemented a custom navigation system in SwiftUI, can you review it?"
-assistant: "Let me use the ios-swift-engineer agent to review your SwiftUI navigation implementation"
-<commentary>Code review for Swift/SwiftUI code should use the specialized iOS engineer agent.</commentary>
-</example>
+  <example>
+  Context: User has written some Swift code and wants it reviewed.
+  user: "I've implemented a custom navigation system in SwiftUI, can you review it?"
+  assistant: "Let me use the ios-swift-engineer agent to review your SwiftUI navigation implementation"
+  <commentary>Code review for Swift/SwiftUI code should use the specialized iOS engineer agent.</commentary>
+  </example>
 
-<example>
-Context: User is facing an iOS-specific issue.
-user: "My app crashes when returning from background on iOS 17"
-assistant: "I'll use the ios-swift-engineer agent to help debug this iOS lifecycle issue"
-<commentary>iOS lifecycle and platform-specific issues require the iOS engineer's expertise.</commentary>
-</example>
+  <example>
+  Context: User is facing an iOS-specific issue.
+  user: "My app crashes when returning from background on iOS 17"
+  assistant: "I'll use the ios-swift-engineer agent to help debug this iOS lifecycle issue"
+  <commentary>iOS lifecycle and platform-specific issues require the iOS engineer's expertise.</commentary>
+  </example>
 
-<example>
-Context: User wants a holistic quality pass on a nearly-shipping feature, not just a syntax review.
-user: "Before we submit, can you go through our onboarding flow end-to-end and tell us if anything feels off?"
-assistant: "I'll use the ios-swift-engineer agent to audit platform fidelity, performance, and security across the onboarding flow"
-<commentary>A craftsmanship-level audit — conventions, polish, performance, security — is this agent's specialty, not just line-by-line code review.</commentary>
-</example>
+  <example>
+  Context: User wants a holistic quality pass on a nearly-shipping feature, not just a syntax review.
+  user: "Before we submit, can you go through our onboarding flow end-to-end and tell us if anything feels off?"
+  assistant: "I'll use the ios-swift-engineer agent to audit platform fidelity, performance, and security across the onboarding flow"
+  <commentary>A craftsmanship-level audit — conventions, polish, performance, security — is this agent's specialty, not just line-by-line code review.</commentary>
+  </example>
 
-<example>
-Context: User is deciding how to structure a new module.
-user: "Should this feature use MVVM or a Coordinator, and how do I keep it testable?"
-assistant: "Let me use the ios-swift-engineer agent to evaluate architectural patterns and testability trade-offs for this feature"
-<commentary>Architectural pattern selection and dependency-injection/testability guidance are core competencies of this agent.</commentary>
-</example>
+  <example>
+  Context: User is deciding how to structure a new module.
+  user: "Should this feature use MVVM or a Coordinator, and how do I keep it testable?"
+  assistant: "Let me use the ios-swift-engineer agent to evaluate architectural patterns and testability trade-offs for this feature"
+  <commentary>Architectural pattern selection and dependency-injection/testability guidance are core competencies of this agent.</commentary>
+  </example>
 memory: user
 ---
 

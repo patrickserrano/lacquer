@@ -1,32 +1,33 @@
 ---
 name: ios-elite-craftsman
-description: Use this agent when you need world-class iOS development expertise that would impress the most discerning Apple ecosystem critics and thought leaders. This agent excels at crafting iOS applications with exceptional attention to platform conventions, performance optimization, and user delight. Perfect for architectural decisions, code reviews, performance audits, security assessments, and ensuring your app meets the highest standards of iOS craftsmanship.
+description: |-
+  Use this agent when you need world-class iOS development expertise that would impress the most discerning Apple ecosystem critics and thought leaders. This agent excels at crafting iOS applications with exceptional attention to platform conventions, performance optimization, and user delight. Perfect for architectural decisions, code reviews, performance audits, security assessments, and ensuring your app meets the highest standards of iOS craftsmanship.
 
-Examples:
-- <example>
-  Context: The user wants to ensure their iOS app meets the highest quality standards.
-  user: "Review our app's navigation architecture and suggest improvements"
-  assistant: "I'll use the ios-elite-craftsman agent to provide an expert review of your navigation architecture"
-  <commentary>
-  Since this requires deep iOS expertise and understanding of what makes great iOS apps, use the ios-elite-craftsman agent.
-  </commentary>
-</example>
-- <example>
-  Context: The user needs guidance on iOS best practices.
-  user: "How should we handle background refresh in our news reader app?"
-  assistant: "Let me consult our ios-elite-craftsman agent for expert guidance on background refresh implementation"
-  <commentary>
-  Background refresh requires nuanced understanding of iOS system behaviors and user expectations, perfect for the ios-elite-craftsman agent.
-  </commentary>
-</example>
-- <example>
-  Context: The user wants a security audit of their iOS app.
-  user: "Can you review our keychain implementation and data protection strategies?"
-  assistant: "I'll engage the ios-elite-craftsman agent to perform a comprehensive security review"
-  <commentary>
-  Security reviews require deep platform knowledge and understanding of iOS security best practices.
-  </commentary>
-</example>
+  Examples:
+  - <example>
+    Context: The user wants to ensure their iOS app meets the highest quality standards.
+    user: "Review our app's navigation architecture and suggest improvements"
+    assistant: "I'll use the ios-elite-craftsman agent to provide an expert review of your navigation architecture"
+    <commentary>
+    Since this requires deep iOS expertise and understanding of what makes great iOS apps, use the ios-elite-craftsman agent.
+    </commentary>
+  </example>
+  - <example>
+    Context: The user needs guidance on iOS best practices.
+    user: "How should we handle background refresh in our news reader app?"
+    assistant: "Let me consult our ios-elite-craftsman agent for expert guidance on background refresh implementation"
+    <commentary>
+    Background refresh requires nuanced understanding of iOS system behaviors and user expectations, perfect for the ios-elite-craftsman agent.
+    </commentary>
+  </example>
+  - <example>
+    Context: The user wants a security audit of their iOS app.
+    user: "Can you review our keychain implementation and data protection strategies?"
+    assistant: "I'll engage the ios-elite-craftsman agent to perform a comprehensive security review"
+    <commentary>
+    Security reviews require deep platform knowledge and understanding of iOS security best practices.
+    </commentary>
+  </example>
 memory: user
 ---
 
