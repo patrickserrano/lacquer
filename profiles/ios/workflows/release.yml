@@ -428,6 +428,7 @@ jobs:
           xcode-project use-profiles --export-options-plist {{COMPONENT_PREFIX}}ExportOptions.plist
 
       - name: Increment build number
+        id: build_number
         env:
           APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.ASC_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -446,6 +447,9 @@ jobs:
           NEXT=$((LATEST + 1))
           echo "Build number: $LATEST -> $NEXT"
           cd {{COMPONENT_PREFIX}}. && agvtool new-version -all "$NEXT"
+          # Exported so the release-notes step can find THIS build in App Store
+          # Connect without re-deriving a number that may have moved on.
+          echo "build_number=$NEXT" >> "$GITHUB_OUTPUT"
 
 {{IOS_PRODUCT_SECRETS}}
       # Archives are 60-100 MB each and used to be written into the repository
@@ -629,10 +633,90 @@ jobs:
           # loop has to tell "not there" apart from "not there YET". Apple ACCEPTS
           # a binary before it LISTS it, by minutes -- reading that gap as proof
           # of failure is the exact mistake that produced the duplicate above.
+          #
+          # NO --whats-new HERE, and that is the point of this shape.
+          # `publish` waits for the build to become DISCOVERABLE in App Store
+          # Connect only because a follow-up action was requested -- and
+          # --whats-new is one. So passing it couples this step's success to
+          # Apple's indexing latency, with --max-find-build-wait sitting at its
+          # 10-minute default.
+          #
+          # Measured on DailyBread build 317: the IPA uploaded fine, ASC took
+          # over ten minutes to surface it, and the step exited 1. The tool says
+          # so plainly -- "the build was successfully uploaded ... but processing
+          # took longer than expected" -- while the job conclusion reads
+          # `failure`. A release that fully succeeded at its ONLY irreversible
+          # step reported as a failed release, and the What's New text was
+          # silently not applied, because that is one of the follow-ups it
+          # abandons.
+          #
+          # That is the same "cannot tell absent from could-not-look" ambiguity
+          # this file fights elsewhere, moved up into the run conclusion: red
+          # means EITHER "the upload failed" OR "Apple was slow", and those want
+          # opposite responses. Retrying the second case uploads a duplicate
+          # build number.
+          #
+          # Raising --max-find-build-wait only moves the cliff, and the flag
+          # REJECTS 0 (unlike --max-build-processing-wait, which documents 0 as
+          # "skip"), so the wait cannot be kept and skipped. Decoupling is the
+          # only shape that makes this step fail exactly when the upload fails.
+          #
+          # It also un-blocks everything after it: the IPA artifact and the
+          # GitHub Release are attached below, and a slow index used to cost the
+          # release those too.
           app-store-connect publish \
             --path "$ipa" \
-            --altool-retries 1 \
-            --whats-new "$(cat "$NOTES_FILE")"
+            --altool-retries 1
+
+      # Release notes are metadata on an artifact that has ALREADY shipped, so
+      # this step never fails the release. It polls for the build, applies the
+      # notes when it appears, and on timeout emits a warning naming the exact
+      # command to finish by hand.
+      #
+      # Deliberately NOT `continue-on-error`. That would mark the step red and
+      # let the job pass, which says "something broke, carry on" -- exactly the
+      # ambiguous signal this change exists to remove. This step reports what
+      # actually happened: applied, or not-yet-applied with the recovery.
+      - name: Attach TestFlight release notes
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
+        env:
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.ASC_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.ASC_KEY_CONTENT }}
+          NOTES_FILE: ${{ steps.whats_new.outputs.notes_file }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+        run: |
+          set -uo pipefail
+          if [ -z "${BUILD_NUMBER:-}" ]; then
+            echo "::warning::No build number recorded, so the release notes were not applied."
+            exit 0
+          fi
+
+          # Poll rather than assume. Apple ACCEPTS a binary minutes before it
+          # LISTS it, so an empty result here means "not yet", never "the upload
+          # failed" -- the upload already succeeded or this step would not run.
+          BUILD_ID=""
+          for _ in $(seq 1 20); do
+            BUILD_ID=$(app-store-connect builds list \
+              --app-id "$PRODUCT_ASC_APP_ID" \
+              --build-version-number "$BUILD_NUMBER" \
+              --json 2>/dev/null | jq -r '.[0].id // empty' 2>/dev/null || true)
+            [ -n "$BUILD_ID" ] && break
+            sleep 30
+          done
+
+          if [ -z "$BUILD_ID" ]; then
+            echo "::warning::Build $BUILD_NUMBER is uploaded but App Store Connect has not surfaced it within 10 minutes, so the release notes are not applied yet. The BUILD IS FINE — do not re-run the release, which would consume another build number. Apply them once it appears: app-store-connect builds add-beta-test-info <build-id> --locale en-US --whats-new \"\$(cat notes.txt)\""
+            exit 0
+          fi
+
+          if app-store-connect builds add-beta-test-info "$BUILD_ID" \
+            --locale en-US \
+            --whats-new "$(cat "$NOTES_FILE")"; then
+            echo "Release notes applied to build $BUILD_NUMBER ($BUILD_ID)."
+          else
+            echo "::warning::Build $BUILD_NUMBER ($BUILD_ID) is uploaded but the release notes could not be applied. The build is fine. Retry: app-store-connect builds add-beta-test-info $BUILD_ID --locale en-US --whats-new \"\$(cat notes.txt)\""
+          fi
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7
