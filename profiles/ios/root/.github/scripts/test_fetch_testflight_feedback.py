@@ -275,26 +275,56 @@ class ScreenshotTests(unittest.TestCase):
         self.assertEqual(tf.markdown_url(SHOT_URL), SHOT_URL)
 
 
+CRASH_LOG_LINK = (
+    "https://api.appstoreconnect.apple.com/v1/betaFeedbackCrashSubmissions/X/crashLog"
+)
+
+
 class CrashLogTests(unittest.TestCase):
     """crashLog is a relationship carrying inline logText — not a `url`."""
 
     def test_crash_log_is_followed_and_read_from_log_text(self):
-        link = "https://api.appstoreconnect.apple.com/v1/betaFeedbackCrashSubmissions/X/crashLog"
-        row = {"id": "X", "relationships": {"crashLog": {"links": {"related": link}}}}
-        fake = FakeGet({link: {"data": {"attributes": {"logText": "Thread 0 crashed"}}}})
+        fake = FakeGet({CRASH_LOG_LINK: {"data": {"attributes": {"logText": "Thread 0 crashed"}}}})
         with Patched(_get=fake):
-            self.assertEqual(tf.crash_log_text(row, "tok"), "Thread 0 crashed")
+            self.assertEqual(tf.crash_log_text(CRASH_LOG_LINK, "X", "tok"), "Thread 0 crashed")
 
-    def test_no_crash_log_relationship_yields_empty(self):
-        with Patched(_get=FakeGet({})):
-            self.assertEqual(tf.crash_log_text({"id": "X", "relationships": {}}, "tok"), "")
+    def test_no_crash_log_link_makes_no_request_at_all(self):
+        fake = FakeGet({})
+        with Patched(_get=fake):
+            self.assertEqual(tf.crash_log_text("", "X", "tok"), "")
+        self.assertEqual(fake.urls, [])
 
     def test_crash_log_http_failure_does_not_lose_the_submission(self):
-        link = "https://api.appstoreconnect.apple.com/v1/x/crashLog"
-        row = {"id": "X", "relationships": {"crashLog": {"links": {"related": link}}}}
-        fake = FakeGet({link: urllib.error.HTTPError(link, 500, "boom", {}, None)})
+        fake = FakeGet({CRASH_LOG_LINK: urllib.error.HTTPError(
+            CRASH_LOG_LINK, 500, "boom", {}, None)})
         with Patched(_get=fake):
-            self.assertEqual(tf.crash_log_text(row, "tok"), "")
+            self.assertEqual(tf.crash_log_text(CRASH_LOG_LINK, "X", "tok"), "")
+
+    def test_a_missing_logText_attribute_is_empty_not_a_crash(self):
+        fake = FakeGet({CRASH_LOG_LINK: {"data": {"attributes": {}}}})
+        with Patched(_get=fake):
+            self.assertEqual(tf.crash_log_text(CRASH_LOG_LINK, "X", "tok"), "")
+
+    def test_fetch_captures_the_link_without_downloading_the_log(self):
+        # One request per crash log, and every crash ever submitted comes back
+        # on every run — so fetch must NOT resolve them.
+        row = {
+            "type": "betaFeedbackCrashSubmissions", "id": "CRASH1",
+            "attributes": {"createdDate": "2026-06-07T23:35:18.01Z",
+                           "deviceModel": "iPhone18_2", "osVersion": "26.6",
+                           "email": "tester@example.com", "comment": "boom"},
+            "relationships": {
+                "build": {"data": {"type": "builds", "id": BUILD_ID}},
+                "crashLog": {"links": {"related": CRASH_LOG_LINK}},
+            },
+        }
+        fake = FakeGet({PRV_LINK: PRERELEASE_RESPONSE})
+        with Patched(_paginate=lambda *a, **k: ([row], included_build()), _get=fake):
+            rows, failures = tf.fetch("crash", "123", "tok")
+        self.assertEqual(failures, [])
+        self.assertEqual(rows[0]["crashLogLink"], CRASH_LOG_LINK)
+        self.assertEqual(rows[0]["crashLog"], "", "fetch must not download the log")
+        self.assertNotIn(CRASH_LOG_LINK, fake.urls)
 
 
 # ── Rendering: an unknown field is omitted, never blank ───────────────────────
@@ -306,7 +336,7 @@ def record(**overrides):
         "createdDate": "2026-06-07T23:35:18.01Z", "comment": "Wtf is up with this button",
         "screenshots": [{"url": SHOT_URL, "width": 1320, "height": 2868,
                          "expires": "2026-09-16T00:00:00Z"}],
-        "crashLog": "",
+        "crashLogLink": "", "crashLog": "",
     }
     base.update(overrides)
     return base
@@ -474,18 +504,21 @@ class MainExitCodeTests(unittest.TestCase):
         "APP_ID": "123",
     }
 
-    def _run(self, per_kind):
+    def _run(self, per_kind, exists=lambda fid: False, crash_log=None):
         """Run main() with the API and `gh` stubbed out. Returns (code, filed)."""
         filed = []
         saved = {k: os.environ.get(k) for k in self.ENV}
         os.environ.update(self.ENV)
+        patches = dict(
+            make_jwt=lambda *a: "token",
+            fetch=lambda kind, app, tok: per_kind[kind],
+            issue_exists=exists,
+            create_issue=filed.append,
+        )
+        if crash_log is not None:
+            patches["crash_log_text"] = crash_log
         try:
-            with Patched(
-                make_jwt=lambda *a: "token",
-                fetch=lambda kind, app, tok: per_kind[kind],
-                issue_exists=lambda fid: False,
-                create_issue=filed.append,
-            ), contextlib.redirect_stdout(io.StringIO()), \
+            with Patched(**patches), contextlib.redirect_stdout(io.StringIO()), \
                     contextlib.redirect_stderr(io.StringIO()):
                 return tf.main(), filed
         finally:
@@ -526,6 +559,35 @@ class MainExitCodeTests(unittest.TestCase):
             for k, v in saved.items():
                 if v is not None:
                     os.environ[k] = v
+
+    def test_the_crash_log_is_fetched_only_for_a_submission_being_filed(self):
+        asked = []
+
+        def crash_log(link, sid, token):
+            asked.append(sid)
+            return "Thread 0 crashed"
+
+        crash = record(kind="crash", id="CRASH1", screenshots=[],
+                       crashLogLink=CRASH_LOG_LINK)
+        code, filed = self._run({"screenshot": ([], []), "crash": ([crash], [])},
+                                crash_log=crash_log)
+        self.assertEqual(code, 0)
+        self.assertEqual(asked, ["CRASH1"])
+        self.assertIn("Thread 0 crashed", tf.issue_body(filed[0]))
+
+    def test_a_deduped_crash_log_is_never_downloaded(self):
+        # One request per log, and every crash ever submitted comes back every
+        # run — so an already-filed crash must cost zero extra requests.
+        asked = []
+        crash = record(kind="crash", id="CRASH1", screenshots=[],
+                       crashLogLink=CRASH_LOG_LINK)
+        code, filed = self._run(
+            {"screenshot": ([], []), "crash": ([crash], [])},
+            exists=lambda fid: True,
+            crash_log=lambda link, sid, token: asked.append(sid) or "")
+        self.assertEqual(code, 0)
+        self.assertEqual(filed, [])
+        self.assertEqual(asked, [], "downloaded the log of an already-filed crash")
 
     def test_an_already_filed_submission_is_not_filed_twice(self):
         saved = {k: os.environ.get(k) for k in self.ENV}

@@ -286,21 +286,25 @@ def markdown_url(url) -> str:
     return url
 
 
-def crash_log_text(item: dict, token: str) -> str:
-    """The crash log body for a crash submission, or "".
+def crash_log_text(link: str, submission_id: str, token: str) -> str:
+    """The crash log body behind a `crashLog` relationship link, or "".
 
     `crashLog` is a relationship whose resource carries the log as inline
     `logText` — there is no downloadable asset and no `crashLog.url` attribute,
     which is what the previous `a.get("crashLog", {}).get("url", "")` was
     reaching for and why it always produced "".
+
+    Takes the link rather than the submission because this is deliberately
+    called LATE: one request per crash log, so resolving it during fetch would
+    re-download the log of every crash ever submitted on every nightly run,
+    including the overwhelming majority already filed. See main().
     """
-    link = _related_link(item, "crashLog")
     if not link:
         return ""
     try:
         data = _get(link, token).get("data") or {}
     except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        print(f"::warning::could not fetch the crash log for {item.get('id')}: {e}",
+        print(f"::warning::could not fetch the crash log for {submission_id}: {e}",
               file=sys.stderr)
         return ""
     return (data.get("attributes") or {}).get("logText") or ""
@@ -362,7 +366,10 @@ def fetch(kind: str, app_id: str, token: str) -> tuple:
             "createdDate": attrs.get("createdDate") or "",
             "comment": sanitize((attrs.get("comment") or "").strip()),
             "screenshots": screenshots(attrs) if kind == "screenshot" else [],
-            "crashLog": sanitize(crash_log_text(item, token)) if kind == "crash" else "",
+            # The log itself is one request, so only the link is captured here
+            # and main() resolves it for the submissions it actually files.
+            "crashLogLink": _related_link(item, "crashLog") or "" if kind == "crash" else "",
+            "crashLog": "",
         }
         out.append(record)
     return out, failures
@@ -500,6 +507,12 @@ def main() -> int:
         for f in items:
             if not f["id"] or issue_exists(f["id"]):
                 continue
+            # Only now, for a submission actually being filed: a crash log costs
+            # a request each, and every crash ever submitted comes back on every
+            # run, so resolving them all during fetch would grow the run's
+            # request count without bound for logs nobody will ever see again.
+            if f["kind"] == "crash":
+                f["crashLog"] = sanitize(crash_log_text(f["crashLogLink"], f["id"], token))
             create_issue(f)
             filed += 1
     print(f"Filed {filed} new issue(s).")
