@@ -391,7 +391,17 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err != nil {
 			return fail(stderr, fmt.Errorf("resolve orphans: %w", err))
 		}
-		fmt.Fprint(stdout, audit.FormatOrphans(orphans))
+		// Look up what still references each orphan. This is the difference
+		// between "delete it" and "that runs in your CI" — see
+		// audit.FormatOrphansWithRefs for why the unannotated report was worth
+		// changing.
+		refs := map[string][]string{}
+		for _, o := range orphans {
+			if r := audit.References(projectRoot, o); len(r) > 0 {
+				refs[o.Key] = r
+			}
+		}
+		fmt.Fprint(stdout, audit.FormatOrphansWithRefs(orphans, refs))
 
 		// Exit codes, in precedence order. Unchanged from when each returned
 		// early — only the reporting above moved.

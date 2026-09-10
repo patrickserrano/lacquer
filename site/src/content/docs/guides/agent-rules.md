@@ -292,12 +292,15 @@ There is no hosted API documentation, for any stack. `gh-pages` used to be the
 composed site — each stack's nightly docs workflow wrote its own subdirectory
 and `scripts/publish-docs.sh` regenerated the root index from whatever was
 present. Those workflows were removed, so no branch is written and no site is
-served. `scripts/publish-docs.sh` has now been unshipped too, having outlived
-every caller. Sync never deletes, so a project that already has a copy keeps it;
-`lacquer audit` lists it as no longer shipped by the lacquer, which is the
-prompt to remove it. Only the publishing went — the doc comments are still
-required on every stack, and the docs build still runs from the hook on web and
-Supabase.
+served. `scripts/publish-docs.sh` has now been unshipped too.
+
+:::danger[Unshipped means unmanaged — not unused, and not an instruction to delete]
+This paragraph used to say the script had "outlived every caller" and that the audit listing was "the prompt to remove it". Both were wrong, and the second was wrong in the dangerous direction: in `dick-passport`, `flare`, `kit` and `skein`, `ios-docs.yml` runs `scripts/build-docs.sh` in CI and `.pre-commit-config.yaml` runs it on **every commit**. Three separate readers reached "retired, safe to remove" from that wording within a day, and acting on it would have broken working pipelines in eight repositories.
+
+**Before removing any unshipped file, grep for its path and its basename.** The audit now annotates each entry: `STILL REFERENCED by …` has a live caller; `referenced by nothing tracked` is the safe case — though a caller that builds the path dynamically will not be found by either check.
+:::
+
+Only the publishing went — the doc comments are still required on every stack, and the docs build still runs from the hook on web and Supabase.
 
 **If you ever bring publishing back, do not turn GitHub Pages on for a private
 project.** A Pages site is served publicly even when its repository is private —
