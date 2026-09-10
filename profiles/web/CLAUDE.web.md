@@ -306,11 +306,29 @@ it, and `lacquer audit` reports the edit as drift.
 **Git hooks in a mixed repo.** If this repo ALSO contains an iOS component, the
 iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a
 `lefthook.yml` — both write `.git/hooks`, and whichever `install`s last silently
-wins. Don't install both. The iOS `pre-commit` framework should own `.git/hooks`;
-the web checks always run in CI regardless, so rely on that. To keep them running
-locally too, add them as `repo: local` hooks in the iOS `.pre-commit-config.yaml`
-(e.g. an entry that runs `./node_modules/.bin/biome ci` scoped to the web component) rather than
-installing lefthook alongside pre-commit.
+wins. Don't install both.
+
+**Which one should win depends on which stack has code on disk, and this
+paragraph used to say otherwise.** It read "the iOS `pre-commit` framework
+should own `.git/hooks`" unconditionally. In a repo where the iOS component is
+declared but not yet created — the pre-code `.xcodeproj` gate is a normal state,
+not an anomaly — following that trades working web gates for iOS gates that run
+on nothing. multimeter is exactly that shape: lefthook won the race, and its web
+checks caught a Biome complexity violation, a `tsc` `exactOptionalPropertyTypes`
+error and a secrets-scan hit in one week, while pre-commit's Swift hooks would
+have had no Swift to look at.
+
+So: **whichever manager guards code that actually exists should own
+`.git/hooks`.** Once both stacks have code, prefer `pre-commit` — its Swift
+hooks are the ones with no CI-side equivalent that runs per-commit — and add the
+web checks to it as `repo: local` hooks (e.g. an entry running
+`./node_modules/.bin/biome ci` scoped to the web component) rather than
+installing lefthook alongside it.
+
+`lacquer audit` reports the loser as "configured but NOT installed" and names
+the rival manager when it is the other one this lacquer ships. That finding is
+accurate and is **not** by itself a reason to switch: reinstalling the reported
+manager disables whatever the winner is currently catching.
 
 ## CI
 

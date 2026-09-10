@@ -68,6 +68,12 @@ type Finding struct {
 	// would be false, and a check that mislabels a deliberate setup is one people
 	// learn to skip past.
 	ForeignHook string
+	// Rival names the OTHER lacquer-shipped hook manager when that is what
+	// wrote ForeignHook. Empty when the foreign hook came from anywhere else.
+	//
+	// Without it a mixed ios+web repo reads as "your hooks are broken", and the
+	// obvious remedy makes things worse -- see Format.
+	Rival string
 }
 
 // Check reports hook managers the project has configured whose hooks are not
@@ -103,6 +109,7 @@ func Check(projectRoot string) []Finding {
 			HooksDir:     hooksDir,
 			HooksPathSet: hooksPathSet,
 			ForeignHook:  foreignHook(hooksDir),
+			Rival:        rivalInstalled(projectRoot, hooksDir, m.Name),
 		})
 	}
 	return out
@@ -174,9 +181,24 @@ func Format(fs []Finding) string {
 		if f.ForeignHook != "" {
 			b.WriteString("  " + f.ConfigFile + " (" + f.Manager + ") is not installed; a different hook runs instead:\n")
 			b.WriteString("    " + f.ForeignHook + "\n")
-			b.WriteString("    That may be deliberate — a project can enforce the same rules its own way.\n")
-			b.WriteString("    What it means either way is that this config is enforced by nothing, so a rule\n")
-			b.WriteString("    added to it upstream will not reach this checkout.\n")
+			if f.Rival != "" {
+				// The other manager is one the lacquer itself ships, so this is
+				// a known mixed-repo collision rather than an unexplained gap.
+				// Saying so matters: both managers write .git/hooks and the last
+				// `install` wins, and the reflex fix -- reinstall the one being
+				// reported -- DISABLES whatever the winner was catching. In a
+				// mixed ios+web repo with no Swift on disk yet, handing the
+				// hooks back to pre-commit trades working web gates for iOS
+				// gates that would run on nothing.
+				b.WriteString("    That is " + f.Rival + ", which this lacquer also ships. Both write .git/hooks\n")
+				b.WriteString("    and the last `install` wins, so this is a collision, not a missing setup.\n")
+				b.WriteString("    DO NOT reflexively reinstall " + f.Manager + ": that disables " + f.Rival + "'s gates.\n")
+				b.WriteString("    Whichever manager guards code that actually EXISTS should own the hooks.\n")
+			} else {
+				b.WriteString("    That may be deliberate — a project can enforce the same rules its own way.\n")
+			}
+			b.WriteString("    Either way, " + f.ConfigFile + " is enforced by nothing here, so a rule added to\n")
+			b.WriteString("    it upstream will not reach this checkout.\n")
 			continue
 		}
 		b.WriteString("  " + f.ConfigFile + " (" + f.Manager + ") — nothing in " + f.HooksDir + " runs it\n")
@@ -193,4 +215,26 @@ func Format(fs []Finding) string {
 	b.WriteString("have caught reaches CI instead, which is the local-checks-match-CI rule failing\n")
 	b.WriteString("one level up: the local checks were never run.\n")
 	return b.String()
+}
+
+// rivalInstalled names the OTHER lacquer-shipped hook manager when that manager
+// both has a config here and actually wrote the installed hook.
+//
+// Both conditions matter. A project could carry a foreign hook from anywhere;
+// only when the winner is the lacquer's own other manager is this the known
+// mixed ios+web collision, where the reflex remedy — reinstall the one being
+// reported — turns off gates that are currently working.
+func rivalInstalled(projectRoot, hooksDir, self string) string {
+	for _, m := range managers {
+		if m.Name == self {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(projectRoot, m.ConfigFile)); err != nil {
+			continue
+		}
+		if installed(hooksDir, m.Marker) {
+			return m.Name
+		}
+	}
+	return ""
 }

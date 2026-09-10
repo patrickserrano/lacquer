@@ -133,3 +133,50 @@ func TestNoConfigAndNoRepoAreQuiet(t *testing.T) {
 		t.Errorf("reported a non-repository: %+v", fs)
 	}
 }
+
+// The mixed ios+web collision. Both profiles ship a hook manager, both write
+// .git/hooks, and the last `install` wins. Reporting the loser as a bare
+// "configured but not installed" invites the reflex fix — reinstall it — which
+// DISABLES the gates the winner is currently running.
+//
+// multimeter is the live instance: lefthook won, and its web checks caught a
+// Biome complexity violation, a tsc exactOptionalPropertyTypes error and a
+// secrets-scan hit in one week, while pre-commit's Swift hooks had no Swift on
+// disk to look at. The profile's own guidance said to hand the hooks to
+// pre-commit, which would have been strictly worse.
+func TestRivalManagerIsNamedNotJustReportedMissing(t *testing.T) {
+	dir := gitRepo(t)
+	write(t, dir, ".pre-commit-config.yaml", "repos: []\n")
+	write(t, dir, "lefthook.yml", "pre-commit:\n  commands: {}\n")
+	// lefthook's generated hook, identified by the shell function it defines
+	// rather than by its name.
+	write(t, dir, ".git/hooks/pre-commit", "#!/bin/sh\ncall_lefthook()\n{\n  :\n}\ncall_lefthook run pre-commit\n")
+
+	fs := Check(dir)
+	if len(fs) != 1 {
+		t.Fatalf("expected exactly the pre-commit finding, got %+v", fs)
+	}
+	if fs[0].Manager != "pre-commit" {
+		t.Fatalf("wrong manager reported: %+v", fs[0])
+	}
+	if fs[0].Rival != "lefthook" {
+		t.Fatalf("the rival manager was not identified; the report cannot then distinguish a "+
+			"mixed-repo collision from an unexplained gap: %+v", fs[0])
+	}
+
+	out := Format(fs)
+	if !strings.Contains(out, "which this lacquer also ships") {
+		t.Errorf("report does not say the winner is the lacquer's own other manager:\n%s", out)
+	}
+	if !strings.Contains(out, "DO NOT reflexively reinstall") {
+		t.Errorf("report does not warn against the remedy that disables working gates:\n%s", out)
+	}
+	if !strings.Contains(out, "guards code that actually EXISTS") {
+		t.Errorf("report does not give the actual decision rule:\n%s", out)
+	}
+	// The "may be deliberate" hedge is for an unknown foreign hook. Here the
+	// cause is known, and saying "may be deliberate" would understate it.
+	if strings.Contains(out, "may be deliberate") {
+		t.Errorf("report hedges on a collision it can name precisely:\n%s", out)
+	}
+}
