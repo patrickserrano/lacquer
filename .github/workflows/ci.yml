@@ -229,3 +229,52 @@ jobs:
       - run: go vet ./...
       - run: go build ./...
       - run: go test ./... -race
+
+  # The docs site was built by NOTHING on a pull request. `docs.yml` builds it,
+  # but only on `push: branches: [main]` — so a change that breaks the build was
+  # caught after merge, during deploy, on a branch that had already gone green.
+  #
+  # Found by two dependabot bumps (#288, #289) that both passed `test` while
+  # proving nothing about the site: `test` runs Go, and the site is TypeScript.
+  # #288 in particular was Starlight 0.41 -> 0.42, a release whose own changelog
+  # declares breaking changes. It happened to be fine — verified by building it
+  # by hand before merging — but "someone built it by hand" is not a gate.
+  #
+  # This is the same failure shape this repo keeps finding and writing down: a
+  # green check attesting to a denominator that excludes the thing you care
+  # about. See the `pull_request` trigger comment at the top for the stacked-PR
+  # version of it, and the VERSION guard for the merge-base version.
+  #
+  # Runs on EVERY pull request rather than behind a `site/**` paths filter. A
+  # paths filter would leave the check not-reporting on most PRs, which cannot
+  # then be required by branch protection — and an unrunnable gate is what the
+  # rest of this file exists to prevent. `pnpm run build` also runs
+  # `generate-skill-docs`, which reads core/skills and profiles/*/skills, so a
+  # PR that touches only a skill can break this without touching site/ at all.
+  # That is precisely why the filter would be wrong here.
+  #
+  # ubuntu-latest, for the same two reasons the `test` job above spells out:
+  # GitHub-hosted minutes are FREE on this repository because it is PUBLIC, so
+  # there is no cost to save; and that same PUBLIC visibility is what makes
+  # self-hosted runners (including the Pi/Synology `pi-gate` role) unsafe here,
+  # since a fork PR would run its own code on that hardware.
+  site:
+    name: Site builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      # --frozen-lockfile so a package.json edited without regenerating the
+      # lockfile fails here rather than resolving to something the lockfile
+      # never described. Dependabot updates both together, so its PRs pass.
+      - name: Install
+        working-directory: site
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        working-directory: site
+        run: pnpm run build
