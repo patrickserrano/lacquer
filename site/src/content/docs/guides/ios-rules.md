@@ -337,6 +337,22 @@ restores them. If your runner is dedicated hardware nobody logs into, none of
 this is visible; if it's also a machine you use, it's worth knowing CI reaches
 your login keychain at all.
 
+
+:::danger[`inputs` is dispatch-only — on any other trigger a `|| default` is unconditional]
+`inputs` is populated only on `workflow_dispatch` (and `workflow_call`). A workflow started by `workflow_run`, `push` or `schedule` sees an empty `inputs`, so:
+
+```yaml
+WHATS_NEW: ${{ github.event.inputs.whats_new || '• Bug fixes and performance improvements' }}
+```
+
+ships the placeholder **every single time**. It reads as configurable, it reads as deliberate, and it is dead on the trigger that fires ~100% of the time. Measured in dailybread, where every automatic TestFlight build shipped that exact string to testers.
+
+Same shape as the `HAS_SENTRY_TOKEN` note above and as the `--test-cases` silent-skip: an expression that cannot distinguish *"the user chose nothing"* from *"this trigger has no user to ask"*, defaulting to the quiet answer.
+
+If a value must differ per trigger, branch on `github.event_name` and say so, rather than leaning on a fallback that hides which branch you are in.
+:::
+
+
 ### A release must come from a commit CI passed
 
 `ios-release.yml` opens with a `verify-ci-provenance` job that refuses the run unless the exact SHA being released has a completed, successful `CI OK` check run, and — for a tag — unless that commit is reachable from the repository's default branch. It runs first, on Linux, so a release that must not happen costs two minutes on a hosted runner rather than forty-five on the dedicated Mac.
