@@ -285,6 +285,34 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		for name, out := range res.Failed {
 			fmt.Fprintf(stderr, "failed: %s\n%s\n", name, out)
 		}
+
+		// Plugins a local tool materializes, rather than a marketplace serving
+		// them. Re-applied every run on purpose: Xcode's plugin path carries its
+		// BUILD, so an upgrade moves it and the link stops resolving — fifteen
+		// skills and an MCP server silently absent from every session afterwards.
+		home, herr := os.UserHomeDir()
+		switch {
+		case herr != nil:
+			fmt.Fprintf(stderr, "provided plugins: cannot resolve home directory: %v\n", herr)
+		default:
+			for _, l := range pluginbootstrap.ApplyProvided(home, manifest.Provided) {
+				switch l.Action {
+				case "linked", "relinked":
+					fmt.Fprintf(stdout, "%s: %s (%s)", l.Action, l.Name, l.Format)
+					if l.Details != "" {
+						fmt.Fprintf(stdout, " — %s", l.Details)
+					}
+					fmt.Fprintln(stdout)
+				case "current":
+					fmt.Fprintf(stdout, "current: %s (%s)\n", l.Name, l.Format)
+				default:
+					// Reported, never silent: "I did not link it" and "there was
+					// nothing to link" are different answers.
+					fmt.Fprintf(stderr, "%s: %s (%s) — %s\n", l.Action, l.Name, l.Format, l.Details)
+				}
+			}
+		}
+
 		if len(res.Failed) > 0 {
 			return 1
 		}
