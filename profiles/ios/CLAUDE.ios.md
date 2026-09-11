@@ -695,7 +695,7 @@ table).
 | `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
 | `Test` | CI-only — see below |
 | `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |
-| `Build (Release)` | CI-only: a full Release archive is not a commit-time cost |
+| `Build (Release)` | CI-only: a full Release archive is not a commit-time cost, and CI now runs it on every code PR — so building Release locally duplicates it on the same Mac |
 | `Detect changed paths` → drift audit | `lacquer audit` (exit 3) — run it locally any time |
 
 **No local `xcodebuild test`/`docbuild` hook, deliberately.** This fleet's

@@ -63,7 +63,6 @@ jobs:
     timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
-      views: ${{ steps.filter.outputs.views }}
       lacquer: ${{ steps.filter.outputs.lacquer }}
       # Empty when the drift audit below did not run; `pass` or `fail` when it did.
       drift: ${{ steps.drift.outputs.result }}
@@ -83,7 +82,7 @@ jobs:
           # project.yml counts as "present" too — the Generate Xcode project step
           # in each job regenerates {{XCODEPROJ}} from it before anything else
           # runs, so this stays true for the common gitignored-xcodeproj case.
-          # Independent of event type (unlike code/views/lacquer below), since
+          # Independent of event type (unlike code/lacquer below), since
           # it reads the checked-out tree directly rather than a diff.
           xcodeproj_present=false
           if [ -d "{{XCODEPROJ}}" ] || [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
@@ -100,7 +99,6 @@ jobs:
             # flags as SC2129 once there are three of them.
             {
               echo "code=true"
-              echo "views=true"
               echo "lacquer=true"
             } >> "$GITHUB_OUTPUT"
             exit 0
@@ -126,15 +124,6 @@ jobs:
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
-          # `views` triggers the Release archive on PRs (where a Release-only
-          # leak — e.g. an un-gated #Preview using a #if DEBUG-only helper — can
-          # pass Debug build + Test but fail the archive). The leading path is
-          # optional so a root-layout `App/` (no parent dir) still matches.
-          if echo "$changed" | grep -qE '^{{COMPONENT_PREFIX}}(.*/)?(Views|App)/'; then
-            echo "views=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "views=false" >> "$GITHUB_OUTPUT"
           fi
           # `lacquer` gates the drift audit at the end of this job, which clones
           # the lacquer at its latest release tag, downloads the released binary
@@ -571,15 +560,40 @@ jobs:
     name: Build (Release){{IOS_CI_PRODUCT_SUFFIX}}
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     needs: [lint, changes]
-    # Runs on every main push, and on PRs that touch SwiftUI views/app — where a
-    # DEBUG-only-in-Release leak (e.g. an un-gated #Preview using a #if DEBUG-only
-    # helper) can pass DEBUG builds + the Test job but fail the archive. See the
-    # SwiftLint comment near the custom rules for the fast local guard.
+    # Runs on every main push and on every pull request that touches code.
+    #
+    # It used to additionally require a path filter on PRs that matched only
+    # SwiftUI view directories, on the theory that the bug Release uniquely
+    # catches -- a DEBUG-only-in-Release leak, e.g. an un-gated #Preview using a
+    # #if DEBUG-only helper -- is view-shaped. That is right about THAT bug and
+    # wrong about the gate, because it assumes we can predict which changes can
+    # break a Release build.
+    #
+    # Measured: six pull requests setting SWIFT_TREAT_WARNINGS_AS_ERRORS at the
+    # project level reported `Build (Release)` as `skipping` on five of them.
+    # That setting changes which diagnostics are fatal in EVERY target and
+    # touches no view file, and Release is precisely where `#if DEBUG` code is
+    # excluded and a different set of warnings appears. The one build that would
+    # have tested the change was the one the filter skipped.
+    #
+    # It compounds with branch protection: a skipped required check and a passing
+    # one are indistinguishable to GitHub, so an absent Release build and a green
+    # one look identical on the pull request. That is the same defect class as a
+    # `-only-testing:` whitelist matching nothing, which this profile already
+    # guards against -- the principle was established here and simply had not
+    # been applied to this gate.
+    #
+    # The cost is one Release build on pull requests that touch code but not
+    # views. On a dedicated Mac runner that is real, and it is still the cheaper
+    # side: without it, agents build Release locally on that same machine to get
+    # the signal CI is not producing -- the same minutes with none of the
+    # visibility. See the SwiftLint comment near the custom rules for the fast
+    # local guard.
     # SECURITY: same-repo guard — fork-PR code must not build on the self-hosted runner.
     # `needs.changes.outputs.xcodeproj`: a pre-code component (no {{XCODEPROJ}}
     # committed and no project.yml to regenerate it) has nothing to build yet —
     # see the `changes` job's `xcodeproj` output for the full reasoning.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.views == 'true') && needs.changes.outputs.xcodeproj == 'true'
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
     timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
     steps:
       # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
