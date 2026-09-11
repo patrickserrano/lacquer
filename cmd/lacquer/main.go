@@ -432,6 +432,19 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		}
 		fmt.Fprint(stdout, audit.FormatOrphansWithRefs(orphans, refs))
 
+		// The orphan report's mirror image: an orphan is a file the lacquer
+		// stopped shipping and something may still call, this is a file the
+		// lacquer still ships and nothing calls. Reported and not gated for the
+		// same reason — it is dead weight, not a broken project — but reported
+		// out loud because the documentation describes some of these as running,
+		// which is what let scripts/write-release-config.sh sit inert in every
+		// project that declares no [[product]].secrets.
+		uncalled, err := audit.UncalledScripts(lacquerRoot, projectRoot)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("resolve script callers: %w", err))
+		}
+		fmt.Fprint(stdout, audit.FormatUncalledScripts(uncalled))
+
 		// Exit codes, in precedence order. Unchanged from when each returned
 		// early — only the reporting above moved.
 		switch {
