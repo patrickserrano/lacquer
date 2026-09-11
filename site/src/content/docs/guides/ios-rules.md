@@ -294,7 +294,6 @@ done
 | `ASC_KEY_CONTENT` | release | the `.p8` private key contents |
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
 | `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's login-keychain password — set this as an org-level secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step restores the keychain's prior settings and re-locks it, so neither the unlocked window nor the timeout change outlives the run) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | claude, quality-review, dependency-audit | `claude setup-token` |
 | `SENTRY_AUTH_TOKEN` | release (dSYM upload) | Sentry → Settings → Auth Tokens, scoped to `project:releases` |
 | `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug |
 | `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug — differs per repo, so this one is never org-level |
@@ -315,44 +314,6 @@ project that hasn't provisioned a vendor isn't permanently red:
   new feedback".
 - **Sentry dSYM upload.** All three `SENTRY_*` secrets must be present or the
   step skips — a project with no Sentry gets a clean release, not a red one.
-- **The three Claude-powered workflows** (`ios-claude.yml`,
-  `ios-quality-review.yml`, `ios-dependency-audit.yml`) hard-fail inside the
-  action when `CLAUDE_CODE_OAUTH_TOKEN` is empty, so each checks for it first
-  and behaves according to who is waiting. Unattended runs (quality-review,
-  dependency-audit) skip with a `::warning::` and stay green, because a
-  permanently red scheduled run trains you to stop reading the Actions tab.
-  The interactive one (`ios-claude.yml`) fails *and* comments on the thread
-  saying why — someone typed `@claude` and is waiting.
-
-`GITHUB_TOKEN` is provided automatically by Actions — do not set it.
-
-**The release job borrows your login keychain, so it must give it back.** It
-unlocks the login keychain to sign, and sets an auto-lock timeout to keep it open
-across a 45-minute job. That timeout is a change to a keychain the job doesn't
-own, and it used to be permanent: a runner Mac that is also somebody's personal
-machine was left with `lock-on-sleep timeout=3600s` — macOS defaults to neither —
-so it locked hourly and on every sleep, days later, with nothing in any run
-saying why. The final `always()` step now captures the prior settings and
-restores them. If your runner is dedicated hardware nobody logs into, none of
-this is visible; if it's also a machine you use, it's worth knowing CI reaches
-your login keychain at all.
-
-
-:::danger[`inputs` is dispatch-only — on any other trigger a `|| default` is unconditional]
-`inputs` is populated only on `workflow_dispatch` (and `workflow_call`). A workflow started by `workflow_run`, `push` or `schedule` sees an empty `inputs`, so:
-
-```yaml
-WHATS_NEW: ${{ github.event.inputs.whats_new || '• Bug fixes and performance improvements' }}
-```
-
-ships the placeholder **every single time**. It reads as configurable, it reads as deliberate, and it is dead on the trigger that fires ~100% of the time. Measured in dailybread, where every automatic TestFlight build shipped that exact string to testers.
-
-Same shape as the `HAS_SENTRY_TOKEN` note above and as the `--test-cases` silent-skip: an expression that cannot distinguish *"the user chose nothing"* from *"this trigger has no user to ask"*, defaulting to the quiet answer.
-
-If a value must differ per trigger, branch on `github.event_name` and say so, rather than leaning on a fallback that hides which branch you are in.
-:::
-
-
 ### A release must come from a commit CI passed
 
 `ios-release.yml` opens with a `verify-ci-provenance` job that refuses the run unless the exact SHA being released has a completed, successful `CI OK` check run, and — for a tag — unless that commit is reachable from the repository's default branch. It runs first, on Linux, so a release that must not happen costs two minutes on a hosted runner rather than forty-five on the dedicated Mac.

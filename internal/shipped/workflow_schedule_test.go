@@ -107,8 +107,14 @@ func TestScheduledMacJobsDoNotShareASlot(t *testing.T) {
 	}
 
 	// Guard the guard: a walk that finds nothing would pass forever.
-	if len(found) < 3 {
-		t.Fatalf("only %d scheduled self-hosted workflows found; the walk is not reaching them", len(found))
+	//
+	// The threshold was 3 when quality-review.yml and dependency-audit.yml were
+	// still shipped. Both were un-shipped, leaving cleanup-ci.yml as the only
+	// scheduled self-hosted workflow — so the number is 1, and the guard's job
+	// is unchanged: catch a walk that reaches nothing, which is the failure mode
+	// that would make the collision check below pass forever on an empty set.
+	if len(found) < 1 {
+		t.Fatalf("no scheduled self-hosted workflows found; the walk is not reaching them")
 	}
 
 	seen := map[string]string{}
