@@ -53,10 +53,32 @@ jobs:
     # moved without adding that mapping first -- the failure is a binary that
     # will not execute, discovered on someone's PR.
     #
+    #
+    # REVERTED FROM 2vcpu-arm, 2026-09-11. The ARM label was spelled correctly --
+    # it matches Blacksmith's documented convention -- but no runner is ever
+    # ASSIGNED to it on this account. darndest-api-proxy was the first repository
+    # to sync past the version that introduced it, and its `Detect changed paths`
+    # sat `queued` with `runner=unassigned` for nine minutes and counting, while
+    # the same job completed normally on 4vcpu-x64 in every repository that had
+    # not yet synced.
+    #
+    # The failure mode is why this is reverted rather than retried: the job does
+    # not go red, it HANGS. A required check that never resolves reads as "CI is
+    # slow today" rather than as breakage, so it blocks every merge in the repo
+    # while looking like nothing is wrong -- and every repository inherits it
+    # silently at its next sync, with no symptom until someone opens a pull
+    # request. It is the same shape as a skipped required check: a state that is
+    # indistinguishable from working.
+    #
+    # The billing argument above is unchanged and still worth acting on -- 2 vCPUs
+    # would halve the weighting even without ARM's multiplier. But
+    # `blacksmith-2vcpu-ubuntu-2404` is ALSO unproven on this account, and
+    # shipping a second untested runner label to the whole fleet is precisely the
+    # mistake that caused this. Prove it on one repository first.
     # The supabase profile is deliberately left on 4vcpu-x64: its jobs drive
     # Postgres, pgTAP and the Supabase CLI, and the saving is not worth
     # revalidating that stack on a different architecture.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
