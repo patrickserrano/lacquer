@@ -802,43 +802,29 @@ jobs:
             rm -rf {{COMPONENT_PREFIX}}DerivedData/SourcePackages
           fi
 
-      - name: Install xcpretty
-        run: |
-          # Per-job GEM_HOME, not the shared ~/.gem. THREE jobs install this same
-          # gem -- `build-release` and `test` in this file, plus release.yml --
-          # and on the PERSISTENT Mac runner they all wrote into one user gem
-          # dir. When two overlap, RubyGems 3.0.3.1 trips its own path-traversal
-          # check on a half-extracted tree:
-          #
-          #   Gem::Package::PathError: installing into parent path
-          #   assets/report.html.erb of .../xcpretty-0.4.1 is not allowed
-          #
-          # Measured on DailyBread: `test` died in THIS step at 20:51 while
-          # `build-release` was still installing, which passed at 20:53. No test
-          # ran. `Build (Release)`, `Lint` and `Baseline` were green on the same
-          # commit, so the run read as "the tests broke" when nothing had
-          # compiled yet -- two people read it that way before finding the gem
-          # error. On a hosted runner each job gets a clean box and the two
-          # installs cannot see each other, which is why this only bites here.
-          #
-          # `gem install --conservative` was the other candidate. It makes an
-          # already-installed gem a no-op, which covers the common case and
-          # STILL races when the gem genuinely is not there yet: a fresh runner,
-          # or the first run after a version bump. Isolation removes the shared
-          # resource rather than narrowing the window on it.
-          #
-          # RUNNER_TEMP is per-runner and emptied around every job, and a runner
-          # executes one job at a time -- so this cannot be shared, even by two
-          # jobs of the same run landing on the same machine.
-          export GEM_HOME="$RUNNER_TEMP/gems"
-          # No --user-install: it forces Gem.user_dir and would defeat GEM_HOME.
-          # Its reason for being here was that the system gem dir is not
-          # writable; GEM_HOME is, so the flag is not needed.
-          gem install xcpretty -v 0.4.1 --no-document
-          # GEM_HOME must persist to later steps too: xcpretty loads its own
-          # libraries at run time, not just its launcher.
-          echo "GEM_HOME=$GEM_HOME" >> "$GITHUB_ENV"
-          echo "XCPRETTY=$GEM_HOME/bin/xcpretty" >> "$GITHUB_ENV"
+      # xcbeautify, not xcpretty. Three reasons, in order of how much they cost:
+      #
+      # 1. xcpretty is a RUBY GEM, and that alone caused a CI failure: three jobs
+      #    installed it into one shared ~/.gem on the persistent Mac runner, and
+      #    overlapping installs tripped RubyGems' own path-traversal check --
+      #    failing a test job before any test ran. Isolating GEM_HOME per job
+      #    worked around that; a single Homebrew binary removes the shared
+      #    resource entirely, which is the better fix.
+      # 2. --renderer github-actions emits `::error file=...::` lines, so compile
+      #    errors land as ANNOTATIONS ON THE PR DIFF instead of being buried in a
+      #    log. Three separate investigations in one evening had to read raw logs
+      #    to find errors this would have surfaced inline.
+      # 3. xcpretty is 0.4.1 and effectively unmaintained; xcbeautify is 3.2.1 and
+      #    tracks current Xcode output. On Xcode 27 xcpretty has been observed
+      #    swallowing output entirely on this runner, which is why the `tee` below
+      #    is load-bearing -- it is kept regardless, because a formatter that
+      #    drops a line must never be the only copy of it.
+      #
+      # NOT a fix for exit codes. Both tools are filters and both exit 0; the
+      # `set -o pipefail` above each pipe is what carries xcodebuild's status,
+      # and that is unchanged.
+      - name: Install xcbeautify
+        run: brew list xcbeautify >/dev/null 2>&1 || brew install xcbeautify
 
       - name: Build Release
         run: |
@@ -854,7 +840,7 @@ jobs:
             -derivedDataPath {{COMPONENT_PREFIX}}DerivedData \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-          2>&1 | tee xcodebuild-release.log | $XCPRETTY --color || {
+          2>&1 | tee xcodebuild-release.log | xcbeautify --renderer github-actions || {
             echo "::error::Release build failed — raw xcodebuild tail:"
             grep -iE 'error:|fatal|failed|ld:|actool|CodeSign' xcodebuild-release.log | tail -60
             exit 1
@@ -1095,43 +1081,29 @@ jobs:
             rm -rf {{COMPONENT_PREFIX}}DerivedData/SourcePackages
           fi
 
-      - name: Install xcpretty
-        run: |
-          # Per-job GEM_HOME, not the shared ~/.gem. THREE jobs install this same
-          # gem -- `build-release` and `test` in this file, plus release.yml --
-          # and on the PERSISTENT Mac runner they all wrote into one user gem
-          # dir. When two overlap, RubyGems 3.0.3.1 trips its own path-traversal
-          # check on a half-extracted tree:
-          #
-          #   Gem::Package::PathError: installing into parent path
-          #   assets/report.html.erb of .../xcpretty-0.4.1 is not allowed
-          #
-          # Measured on DailyBread: `test` died in THIS step at 20:51 while
-          # `build-release` was still installing, which passed at 20:53. No test
-          # ran. `Build (Release)`, `Lint` and `Baseline` were green on the same
-          # commit, so the run read as "the tests broke" when nothing had
-          # compiled yet -- two people read it that way before finding the gem
-          # error. On a hosted runner each job gets a clean box and the two
-          # installs cannot see each other, which is why this only bites here.
-          #
-          # `gem install --conservative` was the other candidate. It makes an
-          # already-installed gem a no-op, which covers the common case and
-          # STILL races when the gem genuinely is not there yet: a fresh runner,
-          # or the first run after a version bump. Isolation removes the shared
-          # resource rather than narrowing the window on it.
-          #
-          # RUNNER_TEMP is per-runner and emptied around every job, and a runner
-          # executes one job at a time -- so this cannot be shared, even by two
-          # jobs of the same run landing on the same machine.
-          export GEM_HOME="$RUNNER_TEMP/gems"
-          # No --user-install: it forces Gem.user_dir and would defeat GEM_HOME.
-          # Its reason for being here was that the system gem dir is not
-          # writable; GEM_HOME is, so the flag is not needed.
-          gem install xcpretty -v 0.4.1 --no-document
-          # GEM_HOME must persist to later steps too: xcpretty loads its own
-          # libraries at run time, not just its launcher.
-          echo "GEM_HOME=$GEM_HOME" >> "$GITHUB_ENV"
-          echo "XCPRETTY=$GEM_HOME/bin/xcpretty" >> "$GITHUB_ENV"
+      # xcbeautify, not xcpretty. Three reasons, in order of how much they cost:
+      #
+      # 1. xcpretty is a RUBY GEM, and that alone caused a CI failure: three jobs
+      #    installed it into one shared ~/.gem on the persistent Mac runner, and
+      #    overlapping installs tripped RubyGems' own path-traversal check --
+      #    failing a test job before any test ran. Isolating GEM_HOME per job
+      #    worked around that; a single Homebrew binary removes the shared
+      #    resource entirely, which is the better fix.
+      # 2. --renderer github-actions emits `::error file=...::` lines, so compile
+      #    errors land as ANNOTATIONS ON THE PR DIFF instead of being buried in a
+      #    log. Three separate investigations in one evening had to read raw logs
+      #    to find errors this would have surfaced inline.
+      # 3. xcpretty is 0.4.1 and effectively unmaintained; xcbeautify is 3.2.1 and
+      #    tracks current Xcode output. On Xcode 27 xcpretty has been observed
+      #    swallowing output entirely on this runner, which is why the `tee` below
+      #    is load-bearing -- it is kept regardless, because a formatter that
+      #    drops a line must never be the only copy of it.
+      #
+      # NOT a fix for exit codes. Both tools are filters and both exit 0; the
+      # `set -o pipefail` above each pipe is what carries xcodebuild's status,
+      # and that is unchanged.
+      - name: Install xcbeautify
+        run: brew list xcbeautify >/dev/null 2>&1 || brew install xcbeautify
 
       - name: Clean stale build intermediates
         run: |
@@ -1309,7 +1281,7 @@ jobs:
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_REQUIRED=NO \
-          2>&1 | tee xcodebuild.log | $XCPRETTY --color --test || EXIT_CODE=$?
+          2>&1 | tee xcodebuild.log | xcbeautify --renderer github-actions || EXIT_CODE=$?
 
           kill $WATCHDOG_PID 2>/dev/null || true
 
