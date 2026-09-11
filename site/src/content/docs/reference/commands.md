@@ -193,6 +193,30 @@ same slug are rejected at load.
 **A project declaring no products renders the CI workflow byte-for-byte as it
 did before products existed** — the matrix machinery expands to nothing.
 
+### A target the managed workflow cannot run
+
+`audit` reports every test target in the Xcode project that no selector names.
+Some targets are unreachable from the iOS test leg by construction — a watchOS
+bundle is a testable of a different scheme, and the workflow carries one
+`platform=iOS Simulator` destination — so the only way to run them today is a
+project-owned workflow. Declare that, rather than leaving the audit wrong about
+it:
+
+```toml
+[[project.covered_elsewhere]]
+target   = "DailyBreadWatchApp Watch AppTests"
+workflow = ".github/workflows/watch-ci.yml"
+reason   = "watchOS bundle: different scheme, watch simulator destination"
+```
+
+The declaration is verified on every audit, never taken on trust: the workflow
+must exist, must not be one the lacquer writes, must name the target outside a
+comment, must contain a test invocation, and must be triggered by a code change.
+Anything short of that and the target is reported again with the failed check
+printed beside it. There is no `until` — the declaration expires by ceasing to
+verify, not on a date, and a declaration naming a target the project no longer
+has is reported as stale.
+
 ### Release-time secrets
 
 A product that needs real values at release — monetization SDK keys, ad unit
