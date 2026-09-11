@@ -110,10 +110,18 @@ var legacyIOSCITokens = map[string]string{
 	// twelve workflows.
 	"{{IOS_CI_EXTRA_TEST_SETUP}}": "",
 	"{{IOS_CI_VERIFY_SELECTORS}}": "",
-	"{{IOS_CI_SCHEME}}":           "{{SCHEME}}",
-	"{{IOS_CI_ONLY_TESTING}}":     `"-only-testing:{{PROJECT_NAME}}Tests"`,
-	"{{IOS_CI_APP_TARGET}}":       "{{PROJECT_NAME}}.app",
-	"{{IOS_CI_COVERAGE_JQ}}":      `'.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100'`,
+	// All four empty unless a product declares [product.watch_tests]. A watch
+	// suite is not reachable from the Test job under any manifest, so the
+	// lacquer renders a job for it — and a project with no watch bundle must
+	// receive the workflow it already had, job list and CI OK gate included.
+	"{{IOS_CI_WATCH_TEST_JOB}}": "",
+	"{{IOS_CI_WATCH_NEED}}":     "",
+	"{{IOS_CI_WATCH_ECHO}}":     "",
+	"{{IOS_CI_WATCH_RESULT}}":   "",
+	"{{IOS_CI_SCHEME}}":         "{{SCHEME}}",
+	"{{IOS_CI_ONLY_TESTING}}":   `"-only-testing:{{PROJECT_NAME}}Tests"`,
+	"{{IOS_CI_APP_TARGET}}":     "{{PROJECT_NAME}}.app",
+	"{{IOS_CI_COVERAGE_JQ}}":    `'.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100'`,
 }
 
 // iosCITokenRe finds every IOS_CI_* placeholder in the template.

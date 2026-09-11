@@ -206,25 +206,84 @@ product, and error 90186 means a release trigger that fans out to a product whic
 has already shipped that version can only fail — see [App Store
 requirements](#app-store-requirements) above.
 
-### A test target the managed workflow cannot run
+### Watch tests: a scheme AND a destination the iOS leg does not have
 
-Some test bundles are not reachable from the iOS test leg at all. A **watchOS**
-suite is the case this was written for: it is a testable of a *different scheme*,
-so naming it in `extra_test_targets` fails hard — `Tests in the target "… Watch
-AppTests" can't be run because … isn't a member of the specified test plan or
-scheme` — and `ci.yml` carries exactly one test destination,
-`platform=iOS Simulator`. No `[[product]]` field changes either of those. The
-only way to run those tests today is a workflow the project owns, and the
-uncovered-target audit then called the target uncovered while CI ran 76 of its
-tests on every pull request.
+A **watchOS** suite is not reachable from the iOS test leg, and for two
+independent reasons — fixing either one alone fixes nothing:
 
-Declare it, and the audit stops guessing:
+1. **Scheme.** It is a testable of a *different* scheme, so naming it in
+   `extra_test_targets` fails hard: `Tests in the target "… Watch AppTests"
+   can't be run because … isn't a member of the specified test plan or scheme`.
+2. **Destination.** The Test job carries exactly one, `platform=iOS Simulator`.
+   A watch bundle cannot run there whatever scheme the leg names.
+
+Declare the bundle and the lacquer renders a `watch-test` job for it:
+
+```toml
+[project.watch_tests]                   # the single-product spelling
+scheme      = "DailyBreadWatchApp Watch App"
+test_target = "DailyBreadWatchApp Watch AppTests"
+```
+
+```toml
+[[product]]                             # or per product, when there are several
+name   = "Paid"
+scheme = "DailyBread"
+
+  [product.watch_tests]
+  scheme      = "DailyBreadWatchApp Watch App"
+  test_target = "DailyBreadWatchApp Watch AppTests"
+  platform    = "watchOS"               # optional; the only value today
+```
+
+`platform` is a **closed set**, not a free-form `-destination`. The value is
+spliced into the rendered job's shell, and each platform needs its own device
+type, runtime pin and boot-readiness signal — none of which can be guessed from
+a name. The destination, the device type and the runtime are all constants in
+the lacquer; nothing the manifest writes reaches the runner except the scheme
+and the target, held to the same charset as every other Xcode name.
+
+**Declare nothing and no job is rendered**, and the workflow is byte-identical
+to the one the project already had — including the `CI OK` gate, which gains the
+job in its `needs` *and* in its result loop only when there is one. A job the
+gate waits for but never reads is worse than no job: it looks like coverage.
+
+Three things the job knows that a project should not have to rediscover:
+
+- **The watch simulator must be UNPAIRED.** A paired watch activates a real
+  `WCSession`, so a suite written against the unpaired state exercises different
+  behaviour — silently, and only on CI. The job **creates** a run-scoped device
+  (`CI-Watch-$GITHUB_RUN_ID-<slug>`) and asserts it is absent from `simctl list
+  pairs`. "Find an existing unpaired watch" is not a strategy: measured on this
+  fleet's runner at watchOS 27.0, three of the five stock watch simulators were
+  already paired to phones, and which three is not a property to rely on.
+- **A watchOS simulator runs Carousel, not SpringBoard.** Measured on a booted
+  watchOS 27.0 device, `launchctl list` carries `com.apple.Carousel` and no
+  SpringBoard at all — so the iOS job's readiness poll copied across would time
+  out and warn on a device that had been ready for forty seconds.
+- **The verdict comes from the result bundle, not the exit code.** A selector
+  that matches nothing exits 0 and reports "0 failed". The assertion step fails
+  if the bundle is absent, if `totalTestCount` is 0, or if `.result` is anything
+  but `Passed` — `unknown` included, because that is `xcresulttool` saying it
+  could not tell. There is no `|| true` anywhere in that read path.
+
+The watch job does not archive, sign or release. A watch app ships inside its
+host app, and it is deliberately **not** a second `[[product]]`: every product
+needs a `bundle_id` and an `asc_app_id`, and the release matrix, tag filter and
+product catalog are all derived from the product list — so a watch entry would
+mean inventing an App Store Connect id and rendering a release leg that uploads
+a watch archive.
+
+### A test target the managed workflow still cannot run
+
+For anything the lacquer has no job for, say so rather than leaving the audit to
+guess:
 
 ```toml
 [[project.covered_elsewhere]]
-target   = "DailyBreadWatchApp Watch AppTests"
-workflow = ".github/workflows/watch-ci.yml"
-reason   = "watchOS bundle: different scheme, watch simulator destination — neither expressible in a [[product]] leg"
+target   = "SomeTargetTests"
+workflow = ".github/workflows/some-ci.yml"
+reason   = "run by a project-owned workflow; no managed job covers it"
 ```
 
 **It is checked, not believed.** `audit` opens that file and requires all of it:
