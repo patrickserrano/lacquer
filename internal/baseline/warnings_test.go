@@ -278,3 +278,52 @@ func TestRealProjectMissingDebugStillFails(t *testing.T) {
 		t.Errorf("a real project missing its Debug configuration was not caught: %v", vs)
 	}
 }
+
+// TestWorktreeXcconfigCannotShadowTheRealOne pins the a-bible-verse-each-day
+// failure: that repo keeps three copies of Config/Base.xcconfig, two of them in
+// abandoned .claude/worktrees checkouts, and one of those sets nothing. A
+// lexical walk reaches ".claude/..." before "Config/", so the stale copy won
+// and the gate reported 12 violations against a fully compliant project.
+func TestWorktreeXcconfigCannotShadowTheRealOne(t *testing.T) {
+	refs := map[string]string{"FR1": "Base.xcconfig"}
+	dir := pbxproj(t,
+		[]cfg{{id: "P1", name: "Debug", baseRef: "FR1"}, {id: "P2", name: "Release", baseRef: "FR1"}},
+		[]cfg{{id: "T1", name: "Debug"}, {id: "T2", name: "Release"}}, refs)
+
+	// The stale copy is written FIRST and at a path that sorts first, which is
+	// the condition that produced the false failure.
+	writeFile(t, dir, ".claude/worktrees/old-branch/Config/Base.xcconfig", "# nothing set here\n")
+	writeFile(t, dir, ".worktrees/other-branch/Config/Base.xcconfig", "SWIFT_TREAT_WARNINGS_AS_ERRORS = NO\n")
+	writeFile(t, dir, "Config/Base.xcconfig", "SWIFT_TREAT_WARNINGS_AS_ERRORS = YES\n")
+
+	if vs := check(t, dir); len(vs) != 0 {
+		t.Errorf("a stale worktree copy shadowed the real xcconfig — this refuses sync for a compliant project: %v", vs)
+	}
+}
+
+// TestDeclaredButMissingXcodeprojIsSkipped. multimeter declares an xcodeproj
+// that is not on disk, deliberately and with a manifest comment saying so —
+// it is pre-code. `lacquer audit` already exits non-zero on that, so refusing
+// the sync too would convert an existing warning into a new block, on exactly
+// the projects least able to act on it.
+func TestDeclaredButMissingXcodeprojIsSkipped(t *testing.T) {
+	dir := t.TempDir()
+	err := baseline.EnforceTargets(dir, []baseline.Target{
+		{Profile: "ios", Component: ".", Xcodeproj: "Nope.xcodeproj"},
+	})
+	if err != nil {
+		t.Errorf("a declared-but-absent xcodeproj refused the sync: %v", err)
+	}
+}
+
+// TestNonIOSTargetsAreIgnored — a web or supabase component has no xcodeproj
+// and no Swift build settings; checking it would be a category error.
+func TestNonIOSTargetsAreIgnored(t *testing.T) {
+	dir := t.TempDir()
+	if err := baseline.EnforceTargets(dir, []baseline.Target{
+		{Profile: "web", Component: "web", Xcodeproj: "Whatever.xcodeproj"},
+		{Profile: "supabase", Component: "db"},
+	}); err != nil {
+		t.Errorf("a non-iOS target was checked: %v", err)
+	}
+}

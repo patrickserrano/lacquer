@@ -247,6 +247,21 @@ func indexXcconfigs(componentDir string) map[string]string {
 			// this project with a fact about a dependency.
 			case ".git", "DerivedData", "Pods", "Carthage", "node_modules", ".build", "SourcePackages":
 				return filepath.SkipDir
+			// Worktrees hold a FULL SECOND COPY of the project, often months
+			// stale, and a lexical walk reaches ".claude/worktrees/..." before
+			// "Config/" -- so an abandoned worktree silently shadows the real
+			// file. Measured on a-bible-verse-each-day: three Base.xcconfig
+			// copies, and the one a walk hits first sets nothing, which reported
+			// 12 violations against a project that is fully compliant. The same
+			// hazard cost two other bad measurements in one day, so it is worth
+			// naming rather than relying on the skip list above catching it.
+			case ".worktrees", "worktrees":
+				return filepath.SkipDir
+			}
+			// .claude/worktrees and .codex/worktrees sit one level down, so the
+			// name check above does not see them.
+			if filepath.Base(filepath.Dir(path)) == "worktrees" {
+				return filepath.SkipDir
 			}
 			if strings.HasPrefix(de.Name(), "DerivedData") {
 				return filepath.SkipDir
@@ -285,7 +300,14 @@ func EnforceTargets(projectRoot string, targets []Target) error {
 		}
 		path := filepath.Join(projectRoot, filepath.FromSlash(t.Xcodeproj))
 		if _, err := os.Stat(path); err != nil {
-			return fmt.Errorf("%s: xcodeproj declared in .lacquer.toml is missing: %s", t.Component, t.Xcodeproj)
+			// A declared-but-absent xcodeproj is skipped, not refused. It is
+			// already a reported condition -- `lacquer audit` exits non-zero on
+			// it -- and at least one project (multimeter) sits in that state
+			// deliberately, with a comment in its manifest saying so, because it
+			// is pre-code. Refusing here would turn an existing warning into a
+			// new sync block that nobody asked for, and it would do it on the
+			// projects least able to act on it.
+			continue
 		}
 		componentDir := filepath.Join(projectRoot, filepath.FromSlash(t.Component))
 		vs, err := EnforceWarningsAsErrors(path, componentDir)
