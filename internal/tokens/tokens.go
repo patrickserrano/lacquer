@@ -340,6 +340,12 @@ var registry = []entry{
 	{IOSCIExtraTestSetup, false},
 	{IOSCIVerifySelectors, false},
 	{IOSWatchSimulatorSetup, false},
+	// All four empty for every project that declares no [product.watch_tests],
+	// which is what keeps the rest of the fleet's ci.yml byte-identical.
+	{IOSCIWatchTestJob, false},
+	{IOSCIWatchNeed, false},
+	{IOSCIWatchEcho, false},
+	{IOSCIWatchResult, false},
 	{IOSCIAppTarget, true},
 	{IOSCICoverageJQ, true},
 	{IOSCIArtifactSuffix, false},
@@ -423,6 +429,11 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCIExtraTestSetup:    CIExtraTestSetup(products),
 		IOSCIVerifySelectors:   CIVerifySelectors(products),
 		IOSWatchSimulatorSetup: WatchSimulatorSetup(p.WatchTarget),
+
+		IOSCIWatchTestJob: CIWatchTestJob(cfg, prefix),
+		IOSCIWatchNeed:    CIWatchNeed(products),
+		IOSCIWatchEcho:    CIWatchEcho(products),
+		IOSCIWatchResult:  CIWatchResult(products),
 
 		IOSCIAppTarget:      CIAppTarget(products),
 		IOSCICoverageJQ:     CICoverageJQ(products),

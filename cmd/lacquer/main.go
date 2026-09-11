@@ -351,6 +351,15 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			var selectors []string
 			for _, p := range cfg.Products() {
 				selectors = append(selectors, p.TestSelectors()...)
+				// The watch leg's selector too. It is a SEPARATE list on Product
+				// because the two are run by different jobs and neither can run
+				// the other's -- the iOS leg's "Verify Test Selectors Matched"
+				// step would fail on a watch bundle it was never asked to run.
+				// The audit is the one place that wants the union: a target the
+				// rendered watch job runs on every pull request is covered, and
+				// reporting it as uncovered is the false positive this whole
+				// feature exists to remove rather than re-create.
+				selectors = append(selectors, p.WatchTestSelectors()...)
 			}
 			if read {
 				// [[project.covered_elsewhere]], verified against the repository

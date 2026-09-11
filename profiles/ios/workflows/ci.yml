@@ -1897,7 +1897,7 @@ jobs:
             echo "::error::Project baseline not met. See profiles/ios/baseline.toml in the lacquer, or add a time-boxed [baseline.relax] entry to .lacquer.toml."
             exit 1
           fi
-          echo "Project baseline met."
+          echo "Project baseline met."{{IOS_CI_WATCH_TEST_JOB}}
 
   ci-ok:
     name: CI OK
@@ -1929,19 +1929,19 @@ jobs:
     # not render), so requiring any of them by name buys a gate that a skip can
     # satisfy. This one is `if: always()` and reads `needs.*.result`, which is
     # why it is the only name worth requiring.
-    needs: [changes, lint, baseline, build-release, test]
+    needs: [changes, lint, baseline, build-release, test{{IOS_CI_WATCH_NEED}}]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} baseline=${{ needs.baseline.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}"
+          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} baseline=${{ needs.baseline.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}{{IOS_CI_WATCH_ECHO}}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.lint.result }}" \
             "${{ needs.baseline.result }}" \
             "${{ needs.build-release.result }}" \
-            "${{ needs.test.result }}"; do
+            "${{ needs.test.result }}"{{IOS_CI_WATCH_RESULT}}; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"
               exit 1

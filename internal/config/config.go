@@ -160,6 +160,19 @@ type Project struct {
 	// apart from "something outside the managed workflows runs this". See
 	// CoveredElsewhere.
 	CoveredElsewhere []CoveredElsewhere `toml:"covered_elsewhere"`
+	// WatchTests is the single-product spelling of [product.watch_tests], folded
+	// into the product Products() synthesises when a manifest declares no
+	// [[product]] block — exactly as ExtraTestTargets is, and for the same
+	// reason: the project this was built for declares no [[product]], and
+	// requiring one here would mean restating scheme, bundle_id and asc_app_id
+	// purely to gain a watch test leg. That restatement is where drift comes
+	// from; a release path in this fleet had just been repaired from an empty
+	// asc_app_id introduced exactly that way.
+	//
+	// Declaring it here AND a [[product]] block is rejected rather than merged,
+	// for the same reason as extra_test_targets: which product the watch bundle
+	// belongs to would have to be guessed.
+	WatchTests *WatchTests `toml:"watch_tests"`
 }
 
 // Retirement is the [project].retired entry: a project the fleet keeps but stops
@@ -958,6 +971,176 @@ type Product struct {
 	// Project.ExtraBundleIDs for the single-product equivalent and the
 	// reasoning behind this field.
 	ExtraBundleIDs []string `toml:"extra_bundle_ids"`
+	// WatchTests is this product's watchOS test bundle, run by the managed CI
+	// workflow on a WATCH simulator rather than the iPhone one. Nil for almost
+	// every product, and nil renders no watch job at all.
+	//
+	// It is a table rather than two more scalars on Product because the value it
+	// carries is a second (scheme, target, destination) TRIPLE, not a variation
+	// on the first one. See WatchTests for what makes that bundle unreachable
+	// from the iOS test leg.
+	WatchTests *WatchTests `toml:"watch_tests"`
+}
+
+// WatchTests declares a test bundle that the iOS test leg cannot run, and the
+// managed workflow runs on its own simulator instead.
+//
+//	[[product]]
+//	name   = "DailyBread"
+//	scheme = "DailyBread"
+//
+//	  [product.watch_tests]
+//	  scheme      = "DailyBreadWatchApp Watch App"
+//	  test_target = "DailyBreadWatchApp Watch AppTests"
+//
+// TWO independent things put a watchOS suite out of reach of `test_target`,
+// `ui_test_target` and `extra_test_targets`, and fixing either one alone fixes
+// nothing:
+//
+//  1. SCHEME. The bundle is a testable of a different scheme, so naming it as a
+//     selector on the iOS scheme fails with `Tests in the target "… Watch
+//     AppTests" can't be run because … isn't a member of the specified test plan
+//     or scheme`. Product.Scheme is already per-product, so this half was
+//     expressible — but only by spending a whole [[product]] on it.
+//  2. DESTINATION. ci.yml's test job carries exactly one test destination,
+//     `platform=iOS Simulator,id=$DEVICE_ID`. A watch bundle cannot run there
+//     under any manifest a project could write.
+//
+// So a project with watch tests had no supported way to run them and wrote its
+// own workflow — which the uncovered-target audit then reported as a violation,
+// because the arrangement it forced was not one it recognised. Declaring this
+// makes the lacquer render the job instead, and Product.WatchTestSelectors puts
+// the target into the audit's covered set.
+//
+// It is deliberately NOT a second [[product]]. bundle_id and asc_app_id are
+// required on every product, the release workflow's matrix, tag filter and
+// product catalog are all derived from Products(), and the Build (Release) job
+// archives `generic/platform=iOS` — so a watch entry there would mean inventing
+// an App Store Connect app id for something that ships inside another app, and
+// rendering a release leg that uploads a watch archive.
+type WatchTests struct {
+	// Scheme is the scheme the watch test bundle is a testable of. Required:
+	// there is no sane default, and the whole reason this table exists is that
+	// it differs from the product's own scheme.
+	Scheme string `toml:"scheme"`
+	// TestTarget is the `-only-testing:` selector. Required, and NOT derived
+	// from the scheme the way Product.TestTarget is derived from Product.Name:
+	// the real pair is ("DailyBreadWatchApp Watch App", "DailyBreadWatchApp
+	// Watch AppTests"), and a derivation that appended "Tests" to the scheme
+	// would produce a selector that matches nothing — which xcodebuild reports
+	// as a pass.
+	TestTarget string `toml:"test_target"`
+	// Platform selects the simulator the job stands up, from the closed set in
+	// SimulatorPlatforms. Blank means DefaultWatchPlatform.
+	//
+	// An enum, not a free-form `-destination` string. The value is spliced into
+	// the rendered job's shell, and a manifest that could write its own
+	// destination could write its own command; every character that reaches the
+	// runner comes from the table below, keyed by a value checked at load.
+	Platform string `toml:"platform"`
+}
+
+// DefaultWatchPlatform is what a [product.watch_tests] with no `platform` means.
+const DefaultWatchPlatform = "watchOS"
+
+// SimulatorPlatform is everything the rendered watch-test job needs in order to
+// stand up a simulator and point xcodebuild at it.
+//
+// Every field is a CONSTANT chosen here, never a manifest value. That is the
+// containment: a manifest picks a key, and nothing it writes becomes shell.
+type SimulatorPlatform struct {
+	// DestinationPrefix is the `-destination` argument WITHOUT the device id:
+	// the job appends `,id=$DEVICE_ID` in shell, once it has created the device.
+	//
+	// Split that way rather than carried whole because the id is not known until
+	// the setup step runs, and a matrix leg's value reaches the shell through the
+	// environment — where a `$DEVICE_ID` embedded in the value would arrive as
+	// four literal characters, not as the device. An empty or partial
+	// `-destination` is NOT an error to xcodebuild; it picks something.
+	DestinationPrefix string
+	// Runtime is the pinned simctl runtime identifier, and DownloadPlatform the
+	// name `xcodebuild -downloadPlatform` installs it under. A watch runtime is
+	// NOT preinstalled on a fresh runner.
+	Runtime          string
+	DownloadPlatform string
+	// DeviceType is the simctl device type to create. Measured on this fleet's
+	// runner (watchOS 27.0): `simctl create` of this type produces a device that
+	// `simctl list pairs` does not list — which is the property the tests need.
+	DeviceType string
+	// ReadyService is the launchd label the setup step polls for once the device
+	// reports booted. It is NOT SpringBoard: measured on a booted watchOS 27.0
+	// simulator, `launchctl list` carries `com.apple.Carousel` and no SpringBoard
+	// at all, so the iOS job's readiness poll copied across would always time out
+	// and warn on a device that was in fact ready.
+	ReadyService string
+	// SimPrefix scopes the simulator name this job creates and deletes. Distinct
+	// from the iOS job's `CI-iPhone-` so the two jobs' cleanups cannot reach each
+	// other's devices — which on a shared Mac is what "the test runner crashed
+	// before establishing connection" actually means.
+	SimPrefix string
+}
+
+// SimulatorPlatforms is the closed set of non-iOS destinations a watch_tests
+// table may name.
+//
+// One entry today, and a map rather than a bool because adding tvOS or visionOS
+// is not a matter of swapping "watchOS" into a string: each needs its own device
+// type, its own runtime pin and its own readiness signal, and none of those can
+// be guessed from the platform name. An entry here is a claim that somebody
+// measured those three on a real runner.
+var SimulatorPlatforms = map[string]SimulatorPlatform{
+	DefaultWatchPlatform: {
+		DestinationPrefix: "platform=watchOS Simulator",
+		Runtime:           "com.apple.CoreSimulator.SimRuntime.watchOS-27-0",
+		DownloadPlatform:  "watchOS",
+		DeviceType:        "Apple Watch Series 12 (46mm)",
+		ReadyService:      "com.apple.Carousel",
+		SimPrefix:         "CI-Watch",
+	},
+}
+
+// SimulatorPlatformNames lists the legal `platform` values, sorted, for error
+// messages.
+func SimulatorPlatformNames() []string {
+	out := make([]string, 0, len(SimulatorPlatforms))
+	for k := range SimulatorPlatforms {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// PlatformName is the simulator platform this bundle runs on, with the default
+// applied.
+func (w WatchTests) PlatformName() string {
+	if w.Platform == "" {
+		return DefaultWatchPlatform
+	}
+	return w.Platform
+}
+
+// Simulator resolves the platform's constants. The bool is false for a value
+// Load would have rejected, so callers rendering CI fail closed rather than
+// emitting a job with an empty destination — which xcodebuild reads as "any
+// destination" and would run the watch suite on whatever it found first.
+func (w WatchTests) Simulator() (SimulatorPlatform, bool) {
+	s, ok := SimulatorPlatforms[w.PlatformName()]
+	return s, ok
+}
+
+// WatchTestSelectors is every `-only-testing:` selector this product's WATCH
+// test leg runs. Empty when there is no watch_tests table.
+//
+// Kept separate from TestSelectors rather than folded into it, because the two
+// lists are consumed by jobs that cannot run each other's selectors: passing the
+// watch target to the iOS leg's "Verify Test Selectors Matched" step would fail
+// that job for a bundle it was never asked to run. The audit takes the union —
+// see cmd/lacquer's uncovered-target report.
+func (p Product) WatchTestSelectors() []string {
+	if p.WatchTests == nil || p.WatchTests.TestTarget == "" {
+		return nil
+	}
+	return []string{p.WatchTests.TestTarget}
 }
 
 // TestTargetName is the `-only-testing:` selector for this product's unit tests.
@@ -1359,6 +1542,10 @@ func (c *Config) Products() []Product {
 		// synthesised product, so it cannot skip the empty/invalid/duplicate
 		// guards a declared product gets.
 		ExtraTestTargets: c.Project.ExtraTestTargets,
+		// Likewise: [project].watch_tests is the single-product spelling, and
+		// folding it here is what lets every renderer and the audit read one
+		// field instead of branching on where it was written.
+		WatchTests: c.Project.WatchTests,
 	}}
 }
 
@@ -1710,6 +1897,9 @@ func Load(path string) (*Config, error) {
 				return nil, fmt.Errorf("[[product]] %q: secrets_file set but no secrets declared", p.Name)
 			}
 		}
+		if err := validateWatchTests(fmt.Sprintf("[[product]] %q", p.Name), p.WatchTests, seenTarget); err != nil {
+			return nil, err
+		}
 		if seenProduct[p.Name] {
 			// Names become artifact names and matrix keys; duplicates would
 			// collide silently and one product's build would overwrite another's.
@@ -1747,6 +1937,25 @@ func Load(path string) (*Config, error) {
 				return nil, fmt.Errorf("[project]: extra_test_targets[%d] %q is already selected by this project; a repeated selector runs nothing extra", j, t)
 			}
 			seen[t] = true
+		}
+	}
+
+	// [project].watch_tests, same story as extra_test_targets directly above:
+	// the product loop only sees DECLARED products, so without this a manifest
+	// could reach the field by the [project] route and skip every guard —
+	// including the platform allowlist, which is the only thing keeping manifest
+	// text out of the rendered job's shell.
+	if cfg.Project.WatchTests != nil {
+		if len(cfg.Product) > 0 {
+			return nil, fmt.Errorf("[project].watch_tests is set alongside %d [[product]] block(s) — it is the single-product spelling of [product.watch_tests], and which product the watch bundle belongs to would have to be guessed. Declare it on the product instead", len(cfg.Product))
+		}
+		p := cfg.Products()[0] // the synthesised product
+		seen := map[string]bool{}
+		for _, t := range p.TestSelectors() {
+			seen[t] = true
+		}
+		if err := validateWatchTests("[project]", cfg.Project.WatchTests, seen); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1822,6 +2031,38 @@ func componentOwns(component, path string) bool {
 		return true
 	}
 	return strings.HasPrefix(path, component+"/")
+}
+
+// validateWatchTests checks one watch_tests table, from either spelling. label
+// is how the containing table is written in a manifest, so the error names the
+// line the reader has to go and fix.
+//
+// seenSelectors is the set of `-only-testing:` selectors the product's IOS leg
+// already runs. A watch target repeated there is rejected: the iOS leg would
+// fail outright on it (the bundle is a testable of another scheme), and a
+// manifest declaring both is a reader who believes one of the two runs it, which
+// is the belief this whole feature exists to correct.
+func validateWatchTests(label string, w *WatchTests, seenSelectors map[string]bool) error {
+	if w == nil {
+		return nil
+	}
+	// Held to the same charset as scheme and test_target everywhere else: it
+	// permits the spaces a real watch scheme carries ("DailyBreadWatchApp Watch
+	// App") and excludes every quote, backslash and shell metacharacter, which is
+	// what makes it safe to splice into the rendered job's command line.
+	if !projNameVal.MatchString(w.Scheme) {
+		return fmt.Errorf("%s: watch_tests.scheme %q is missing or invalid — the watch bundle is a testable of a DIFFERENT scheme, which is the whole reason this table exists, so there is nothing to default it to", label, w.Scheme)
+	}
+	if !projNameVal.MatchString(w.TestTarget) {
+		return fmt.Errorf("%s: watch_tests.test_target %q is missing or invalid — it is not derived from the scheme, because the real pair is (%q, %q) and appending \"Tests\" to a scheme produces a selector that matches nothing and still exits 0", label, w.TestTarget, "DailyBreadWatchApp Watch App", "DailyBreadWatchApp Watch AppTests")
+	}
+	if _, ok := w.Simulator(); !ok {
+		return fmt.Errorf("%s: watch_tests.platform %q is not a platform this lacquer can stand up a simulator for (have: %s). It is a closed set rather than a free-form -destination because the value is spliced into the rendered job's shell, and because each platform needs its own device type, runtime pin and boot-readiness signal — none of which can be guessed from the name", label, w.PlatformName(), strings.Join(SimulatorPlatformNames(), ", "))
+	}
+	if seenSelectors[w.TestTarget] {
+		return fmt.Errorf("%s: watch_tests.test_target %q is already an -only-testing: selector on the iOS test leg, where it cannot run — xcodebuild reports `isn't a member of the specified test plan or scheme` and fails that job. Name it here or there, not both", label, w.TestTarget)
+	}
+	return nil
 }
 
 // validateBaseline checks every [baseline.relax] entry.
