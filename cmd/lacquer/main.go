@@ -352,7 +352,27 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				selectors = append(selectors, p.TestSelectors()...)
 			}
 			if read {
-				fmt.Fprint(stdout, testtargets.Format(testtargets.Compare(declared, selectors)))
+				// [[project.covered_elsewhere]], verified against the repository
+				// rather than believed. The `managed` set is what the lacquer
+				// would ship here with nothing opted out, so a declaration
+				// pointing at a file sync overwrites is refused; it is left empty
+				// when the plan cannot be resolved, which skips that one check
+				// instead of guessing.
+				managed := map[string]bool{}
+				if dests, err := assets.Shipped(lacquerRoot, cfg); err == nil {
+					for _, d := range dests {
+						managed[d] = true
+					}
+				}
+				var decls []testtargets.Declaration
+				for _, c := range cfg.Project.CoveredElsewhere {
+					decls = append(decls, testtargets.Declaration{
+						Target: c.Target, Workflow: c.Workflow, Reason: c.Reason,
+					})
+				}
+				claims := testtargets.Verify(projectRoot, decls, declared, managed)
+				report := testtargets.Apply(testtargets.Compare(declared, selectors), claims)
+				fmt.Fprint(stdout, testtargets.Format(report))
 			}
 		}
 

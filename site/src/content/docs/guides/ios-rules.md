@@ -206,6 +206,51 @@ product, and error 90186 means a release trigger that fans out to a product whic
 has already shipped that version can only fail — see [App Store
 requirements](#app-store-requirements) above.
 
+### A test target the managed workflow cannot run
+
+Some test bundles are not reachable from the iOS test leg at all. A **watchOS**
+suite is the case this was written for: it is a testable of a *different scheme*,
+so naming it in `extra_test_targets` fails hard — `Tests in the target "… Watch
+AppTests" can't be run because … isn't a member of the specified test plan or
+scheme` — and `ci.yml` carries exactly one test destination,
+`platform=iOS Simulator`. No `[[product]]` field changes either of those. The
+only way to run those tests today is a workflow the project owns, and the
+uncovered-target audit then called the target uncovered while CI ran 76 of its
+tests on every pull request.
+
+Declare it, and the audit stops guessing:
+
+```toml
+[[project.covered_elsewhere]]
+target   = "DailyBreadWatchApp Watch AppTests"
+workflow = ".github/workflows/watch-ci.yml"
+reason   = "watchOS bundle: different scheme, watch simulator destination — neither expressible in a [[product]] leg"
+```
+
+**It is checked, not believed.** `audit` opens that file and requires all of it:
+the workflow exists, is not one the lacquer writes, names the target outside a
+comment, contains a test invocation, and is triggered by a code change. Fail any
+one and the target goes back in the uncovered list with the failed check printed
+on its line — a declaration that suppressed a finding just by being written
+would be a check whose passing state is reachable without the checked thing
+having happened, failing open and in silence.
+
+What it proves is that the arrangement is real and current. It does **not**
+prove the tests ran or passed, that the mention is the `-only-testing:` selector
+rather than a job name, or that the workflow's result is required to merge. If
+the suite has to be green before a merge, require that workflow's check on the
+branch — this declaration is not a substitute for that.
+
+**There is no `until`**, and that is the deliberate divergence from
+`dependabot_ignore`, where a date is required. An ignore is debt with a term the
+project can pay: upstream ships, the pin is dropped, or the breakage is
+accepted. This is not — the missing capability is in the lacquer, and no date a
+project writes brings it closer. An expiry would come due on a project whose CI
+is correct and offer two moves: delete a passing suite, or push the date. What
+replaces it is stricter, because it is event-driven: the declaration has to go
+on verifying. Rename the workflow, delete it, stop naming the target, or rename
+the target, and it is reported on the next audit rather than on an anniversary.
+
 ## Secrets & service keys
 
 Two separate buckets — never mix them.

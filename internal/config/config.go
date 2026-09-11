@@ -155,6 +155,11 @@ type Project struct {
 	// same iOS simulator as the host app; only an actual watch app needs its
 	// own simulator platform, which is not preinstalled on a fresh runner.
 	WatchTarget bool `toml:"watch_target"`
+	// CoveredElsewhere names test targets run by a workflow this lacquer does
+	// not manage, so the uncovered-target report can tell "nothing runs this"
+	// apart from "something outside the managed workflows runs this". See
+	// CoveredElsewhere.
+	CoveredElsewhere []CoveredElsewhere `toml:"covered_elsewhere"`
 }
 
 // Retirement is the [project].retired entry: a project the fleet keeps but stops
@@ -639,6 +644,21 @@ func validateProject(p Project) error {
 			return fmt.Errorf("[project].retired has an invalid since %q (want YYYY-MM-DD)", r.Since)
 		}
 	}
+	// Shape only, like the exclusion above: whether a declaration is actually
+	// TRUE of this repository is an audit-time question, because it needs the
+	// project's files and because a manifest that cannot load cannot be repaired
+	// by `sync` or `fix`. See internal/testtargets.Verify.
+	seenCovered := map[string]bool{}
+	for i, c := range p.CoveredElsewhere {
+		if err := validateCoveredElsewhere(i, c); err != nil {
+			return err
+		}
+		if seenCovered[c.Target] {
+			return fmt.Errorf("[[project.covered_elsewhere]][%d] names %q twice; one target has one "+
+				"reason and one workflow, and a second entry is a second answer nobody will reconcile", i, c.Target)
+		}
+		seenCovered[c.Target] = true
+	}
 	if _, err := p.ParsedSkills(); err != nil {
 		return err
 	}
@@ -661,6 +681,170 @@ func validateXcodeproj(p string) error {
 	}
 	if !xcodeprojVal.MatchString(filepath.ToSlash(clean)) || !strings.HasSuffix(clean, ".xcodeproj") {
 		return fmt.Errorf("[project].xcodeproj %q is not a valid .xcodeproj path", p)
+	}
+	return nil
+}
+
+// CoveredElsewhere is one test target run by a workflow this lacquer does not
+// manage.
+//
+//	[[project.covered_elsewhere]]
+//	target   = "DailyBreadWatchApp Watch AppTests"
+//	workflow = ".github/workflows/watch-ci.yml"
+//	reason   = "watchOS bundle: a different scheme and a watch simulator destination, neither expressible in a [[product]] leg (lacquer#334)"
+//
+// It exists because the uncovered-target report was structurally unable to be
+// right about a watch project. A watch test bundle is a testable of a DIFFERENT
+// scheme, and `-only-testing:` on the iOS scheme fails hard with "isn't a member
+// of the specified test plan or scheme"; `profiles/ios/workflows/ci.yml` carries
+// exactly one test destination, `platform=iOS Simulator`, and Product has no
+// platform or destination field to change it. So the only way to run those tests
+// today is a project-owned workflow — and `lacquer audit` then reported the
+// target as running nowhere while CI ran 76 of its tests on every pull request.
+// A check that is wrong in a way requiring prose to explain is a check people
+// learn to skip.
+//
+// This does NOT close the capability gap: a watch project still writes and
+// maintains its own workflow. It stops the audit being wrong about one.
+//
+// WHAT IS AND IS NOT TAKEN ON FAITH. A declaration that the audit believed
+// unconditionally would be the defect in lacquer#333 — a passing state reachable
+// without the checked thing having happened — and it would fail OPEN and
+// silently, which is worse than the false positive it replaces. So the audit
+// verifies every declaration against the repository and suppresses nothing it
+// cannot confirm; see internal/testtargets.Verify for exactly what the evidence
+// proves and what it does not. Load checks SHAPE only, as it does for
+// [project].exclude, because a manifest that cannot load cannot be repaired by
+// the commands that repair it.
+//
+// NO EXPIRY, deliberately, and this is the divergence from
+// [[component]].dependabot_ignore, where `until` is required and an expired
+// entry exits 4. That rule is right for an ignore because an ignore is DEBT with
+// a term the project itself can pay: upstream ships, the pin is dropped, or the
+// breakage is accepted. This is not debt and the project holds none of the
+// remedies — the missing capability is in the lacquer (a per-product destination,
+// or a rendered watch-test job), and no date the project writes brings it any
+// closer. An `until` here would come due on a project whose CI is correct,
+// offering exactly two moves: delete a passing test suite, or push the date. The
+// same argument this repo already makes for [project].retired — "invented and
+// rubber-stamped forever" — applies unchanged, with the extra sting that the
+// expiry would re-fire the very false failure this field exists to remove.
+//
+// What replaces the date is stricter than a date, and event-driven rather than
+// calendar-driven: the declaration must go on being TRUE. Rename the workflow,
+// delete it, stop naming the target in it, or migrate to a managed watch-test
+// job when one exists, and the claim stops verifying and is reported — on the
+// next audit, not on some anniversary. A declaration naming a target the project
+// no longer has is reported as stale, the same way a dependabot ignore naming a
+// dependency the component does not declare is.
+type CoveredElsewhere struct {
+	// Target is the test target's EXACT name as project.pbxproj spells it —
+	// "DailyBreadWatchApp Watch AppTests", quotes and spaces included. Compared
+	// case-sensitively against the parsed targets, because a near-miss suppresses
+	// nothing and would leave the reader believing it had.
+	Target string `toml:"target"`
+	// Workflow is the repo-relative path of the workflow that runs it, under
+	// .github/workflows/. Required, and required to be a real path rather than a
+	// description: it is the thing the audit goes and reads, and a declaration
+	// pointing at nothing confirms nothing.
+	Workflow string `toml:"workflow"`
+	// Reason is why this target cannot be run by the managed workflows. Required,
+	// same standard as [baseline.relax], an attributed [project].exclude and a
+	// dependabot ignore. It is printed in the audit report beside the target, and
+	// with no expiry to force the question it is the only thing that will tell a
+	// later reader whether the gap that justified this still exists.
+	Reason string `toml:"reason"`
+}
+
+// UnmarshalTOML accepts only the table form with a closed key set.
+//
+// Nothing has ever written a bare-string spelling of this, so there is no
+// compatible shorthand to keep and a typo'd key is an error rather than a
+// silently dropped field. The dropped-field failure mode is specific and bad
+// here: a mistyped `workflow` leaves a declaration with nothing to verify
+// against, and the honest handling of "nothing to verify" is to keep reporting
+// the target — so the author would see their declaration apparently ignored with
+// no indication of why.
+func (c *CoveredElsewhere) UnmarshalTOML(v any) error {
+	t, ok := v.(map[string]any)
+	if !ok {
+		return fmt.Errorf("[[project.covered_elsewhere]] entry must be a table "+
+			"{ target = \"…\", workflow = \".github/workflows/…\", reason = \"…\" }, got %T", v)
+	}
+	for key := range t {
+		switch key {
+		case "target", "workflow", "reason":
+		default:
+			// `until` is the likely typo, because every other exemption in this
+			// manifest carries one and a reader who knows the others will reach
+			// for it. Silently dropping it would leave the author believing this
+			// declaration comes back for review on a date. It does not; it comes
+			// back when it stops being true. See CoveredElsewhere.
+			if key == "until" || key == "expires" {
+				return fmt.Errorf("[[project.covered_elsewhere]] does not support %q: this is not a "+
+					"time-boxed exception and the project holds no remedy a date could force — it is "+
+					"re-verified against the repository on every audit instead, and reported the moment "+
+					"it stops being true", key)
+			}
+			return fmt.Errorf("unknown [[project.covered_elsewhere]] key %q "+
+				"(known keys: target, workflow, reason)", key)
+		}
+	}
+	str := func(key string) (string, error) {
+		raw, ok := t[key]
+		if !ok {
+			return "", nil
+		}
+		s, ok := raw.(string)
+		if !ok {
+			return "", fmt.Errorf("[[project.covered_elsewhere]] %s must be a string, got %T", key, raw)
+		}
+		return s, nil
+	}
+	var err error
+	if c.Target, err = str("target"); err != nil {
+		return err
+	}
+	if c.Workflow, err = str("workflow"); err != nil {
+		return err
+	}
+	c.Reason, err = str("reason")
+	return err
+}
+
+// workflowVal is a repo-relative path to a GitHub Actions workflow file.
+//
+// The .github/workflows/ prefix is REQUIRED rather than conventional. The claim
+// this field makes is that CI runs the target, and in this fleet CI is GitHub
+// Actions: a path outside that directory is not a workflow, and a declaration
+// pointing at a README or a shell script would be verified against a file that
+// cannot run anything. No subdirectories, because GitHub does not read them.
+var workflowVal = regexp.MustCompile(`^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$`)
+
+// validateCoveredElsewhere checks one entry's shape. Every field is required:
+// a declaration missing any one of them cannot be verified, and an unverifiable
+// declaration is exactly the thing this must not become.
+func validateCoveredElsewhere(i int, c CoveredElsewhere) error {
+	where := fmt.Sprintf("[[project.covered_elsewhere]][%d]", i)
+	if c.Target == "" {
+		return fmt.Errorf("%s needs a target (the test target's exact name in project.pbxproj)", where)
+	}
+	if !projNameVal.MatchString(c.Target) {
+		return fmt.Errorf("%s has an invalid target %q (must match %s); a watch bundle's real name "+
+			"has spaces but nothing else exotic", where, c.Target, projNameVal.String())
+	}
+	if c.Workflow == "" {
+		return fmt.Errorf("%s %q needs a workflow (the .github/workflows/… file that runs it); "+
+			"with nothing to read, the claim could only be believed on faith", where, c.Target)
+	}
+	if !workflowVal.MatchString(c.Workflow) {
+		return fmt.Errorf("%s %q has an invalid workflow %q: it must be a repo-relative path like "+
+			"\".github/workflows/watch-ci.yml\" — the audit opens this file and reads it", where, c.Target, c.Workflow)
+	}
+	if strings.TrimSpace(c.Reason) == "" {
+		return fmt.Errorf("%s %q needs a reason (what the managed workflows cannot run and why); "+
+			"this declaration has no expiry, so the reason is the only thing that will tell a later "+
+			"reader whether the gap still exists", where, c.Target)
 	}
 	return nil
 }

@@ -112,6 +112,19 @@ type Report struct {
 	// Missing are selectors naming a target the project does not have. Each one
 	// renders a `-only-testing:` that matches nothing and exits 0.
 	Missing []string
+	// Elsewhere are [[project.covered_elsewhere]] declarations that verified:
+	// their target is run by a workflow this lacquer does not manage. Their
+	// targets are NOT in Uncovered — and they are printed anyway, because an
+	// exception nobody can see is an exception nobody reviews. Set by Apply.
+	Elsewhere []Claim
+	// Unconfirmed are declarations the repository did not bear out. Their
+	// targets are STILL in Uncovered: a claim the audit cannot check must not
+	// remove a finding, or the declaration is just a way of writing findings
+	// away. Set by Apply.
+	Unconfirmed []Claim
+	// Stale are declarations that are not doing anything — the target no longer
+	// exists, or a managed selector already covers it. Set by Apply.
+	Stale []Claim
 }
 
 // Compare reports both directions.
@@ -148,7 +161,8 @@ func Compare(project []Target, selectors []string) Report {
 // Format renders the report for `lacquer audit`, empty when there is nothing to
 // say so the caller can print it unconditionally.
 func Format(r Report) string {
-	if len(r.Uncovered) == 0 && len(r.Missing) == 0 {
+	if len(r.Uncovered) == 0 && len(r.Missing) == 0 &&
+		len(r.Elsewhere) == 0 && len(r.Unconfirmed) == 0 && len(r.Stale) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -165,6 +179,10 @@ func Format(r Report) string {
 	}
 
 	if len(r.Uncovered) > 0 {
+		unconfirmed := map[string]Claim{}
+		for _, c := range r.Unconfirmed {
+			unconfirmed[c.Target] = c
+		}
 		b.WriteString("\ntest targets no selector covers:\n")
 		for _, t := range r.Uncovered {
 			kind := "unit"
@@ -172,6 +190,15 @@ func Format(r Report) string {
 				kind = "UI"
 			}
 			b.WriteString("  " + t.Name + "  (" + kind + " tests)\n")
+			// The declaration does not get to be silent about failing. It is
+			// printed on the target's own line, with the check that failed,
+			// because the author of that entry believes this finding is gone.
+			if c, ok := unconfirmed[t.Name]; ok {
+				b.WriteString("    DECLARED covered_elsewhere, NOT CONFIRMED:\n")
+				for _, p := range c.Problems {
+					b.WriteString("      " + p + "\n")
+				}
+			}
 		}
 		// Removal is a legitimate resolution and the report has to say so.
 		// Implying that wiring is the only fix pushes somebody toward
@@ -182,6 +209,39 @@ func Format(r Report) string {
 		b.WriteString("    test_target / ui_test_target) — OR DELETE IT. Removing a target that should\n")
 		b.WriteString("    not exist is a correct resolution, not a failure to act; a suite nothing has\n")
 		b.WriteString("    run in months is as likely to be testing an app that changed under it.\n")
+		if len(r.Unconfirmed) > 0 {
+			b.WriteString("    A [[project.covered_elsewhere]] entry does not remove a target from this list\n")
+			b.WriteString("    by being written; it removes it by checking out against the repository. Fix\n")
+			b.WriteString("    the entry or the workflow — the declaration is currently claiming something\n")
+			b.WriteString("    the files do not show.\n")
+		}
+	}
+
+	if len(r.Elsewhere) > 0 {
+		b.WriteString("\ntest targets covered by a workflow this lacquer does not manage:\n")
+		for _, c := range r.Elsewhere {
+			b.WriteString("  " + c.Target + "  <- " + c.Workflow + "\n")
+			b.WriteString("    " + c.Reason + "\n")
+		}
+		// The limits go next to the claim, not in a doc nobody opens. Every
+		// sentence here is what the check DID, so nobody reads this section as
+		// "these tests pass".
+		b.WriteString("    Checked: that file exists, is not one the lacquer writes, names the target\n")
+		b.WriteString("    outside a comment, contains a test invocation, and is triggered by a code\n")
+		b.WriteString("    change. NOT checked, and not claimed: that the tests ran, that they passed,\n")
+		b.WriteString("    that the mention is the -only-testing: selector, or that the workflow's result\n")
+		b.WriteString("    is required to merge. This is evidence the arrangement is real and current,\n")
+		b.WriteString("    not proof it works — read the workflow, or require its check on the branch.\n")
+	}
+
+	if len(r.Stale) > 0 {
+		b.WriteString("\ncovered_elsewhere declarations that are not doing anything:\n")
+		for _, c := range r.Stale {
+			b.WriteString("  " + c.Target + " — " + c.Stale + "\n")
+		}
+		b.WriteString("    Each one reads as a live exception and is not one. Remove it, or correct the\n")
+		b.WriteString("    target name — a declaration nobody has looked at since the target was renamed\n")
+		b.WriteString("    is how a project ends up believing something is covered that nothing runs.\n")
 	}
 	return b.String()
 }
