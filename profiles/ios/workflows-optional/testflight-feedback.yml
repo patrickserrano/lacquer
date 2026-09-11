@@ -16,7 +16,7 @@ permissions:
 jobs:
   fetch-feedback:
     name: Fetch and file TestFlight feedback
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: {{LINUX_RUNNER}}
     steps:
       # This job needs three DEDICATED App Store Connect secrets that most
       # projects have not provisioned. Without this gate the scheduled run fails

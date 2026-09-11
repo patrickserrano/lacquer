@@ -56,7 +56,7 @@ jobs:
     # The supabase profile is deliberately left on 4vcpu-x64: its jobs drive
     # Postgres, pgTAP and the Supabase CLI, and the saving is not worth
     # revalidating that stack on a different architecture.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: {{LINUX_RUNNER}}
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
