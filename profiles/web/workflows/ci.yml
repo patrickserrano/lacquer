@@ -32,7 +32,7 @@ jobs:
     # Always runs — a diff, plus (only when the `lacquer` filter fires) the drift
     # audit folded in at the end — so CI OK still reports on docs-only PRs where
     # the heavy check is skipped.
-    runs-on: {{LINUX_RUNNER}}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
@@ -338,7 +338,7 @@ jobs:
 
   check:
     name: Lint · Types · Test · Build
-    runs-on: {{LINUX_RUNNER}}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
