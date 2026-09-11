@@ -16,7 +16,7 @@ permissions:
 jobs:
   ping:
     name: Ping REST gateway
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - name: Ping Supabase REST gateway
         env:

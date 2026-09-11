@@ -1,8 +1,7 @@
 name: Supabase CI
 
 # Deno backend — no Apple toolchain to worry about, so the real work runs on
-# Blacksmith (`blacksmith-4vcpu-ubuntu-2404`), an ephemeral hosted Linux runner
-# billed outside the GitHub Actions allowance.
+# GitHub-hosted `ubuntu-latest`.
 #
 # This was once routed to the fleet's self-hosted Synology/Pi and moved back off
 # them: both proved too weak for this profile's workloads (see the lint-database
@@ -39,7 +38,7 @@ jobs:
     # Always runs — a diff, plus (only when the `lacquer` filter fires) the drift
     # audit folded in at the end — so CI OK still reports on docs-only PRs where
     # the heavy jobs are skipped.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
@@ -407,7 +406,7 @@ jobs:
 
   check:
     name: Format · Lint · Test
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
@@ -570,7 +569,7 @@ jobs:
     # fleet-wide -- too weak for the heavier profiles' actual workloads to be
     # worth the operational cost of running it. A red CI that cannot run is
     # worth less than a small bill.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     needs: changes
     # `db`, not `code`. `code` is the deny-list — true for any non-docs change —
     # so in a repo that carries a Supabase component next to an iOS or web one
@@ -611,7 +610,7 @@ jobs:
     name: DB Tests (pgTAP)
     # Hosted (Blacksmith) for the same reason as lint-database above: neither
     # self-hosted Linux box can boot the Supabase stack.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Serialized after lint-database rather than running parallel on `changes`
     # alone. NOTE this is now vestigial: both jobs' `supabase start` create
     # identically-named containers (derived from the project, not randomized),
@@ -709,7 +708,7 @@ jobs:
 
   deploy-database:
     name: Deploy migrations
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Only a merge to main, and only behind the schema jobs. `supabase db push`
     # is the one step here that touches production, so it must not be reachable
     # from a PR, and a migration must never land there without the lint and the

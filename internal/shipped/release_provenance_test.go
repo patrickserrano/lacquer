@@ -49,15 +49,24 @@ func TestReleaseRefusesACommitCINeverPassed(t *testing.T) {
 	// two minutes on a hosted runner, not forty-five on the box every other
 	// repository's release is queued behind.
 	//
-	// Asserted as a PROPERTY (a hosted Blacksmith Linux SKU) rather than one
-	// exact label. The property is what the paragraph above actually cares
-	// about; pinning the string additionally froze the vCPU count, so
-	// right-sizing this job to a cheaper SKU failed a test whose stated intent
-	// it satisfied. A regression that matters here -- moving the gate onto the
-	// dedicated Mac, or onto a self-hosted array -- still fails.
+	// Asserted as a PROPERTY -- a HOSTED Linux runner -- rather than one exact
+	// label, because the paragraph above cares about where the job is NOT: the
+	// dedicated Mac, or a self-hosted array. Pinning the string froze more than
+	// the intent twice over. First it froze the vCPU count, so right-sizing to a
+	// cheaper SKU failed a test whose stated intent it satisfied. Then it froze
+	// the PROVIDER: when the profiles moved off Blacksmith to `ubuntu-latest`
+	// -- because the Blacksmith app is installed on the org and not on the
+	// personal account, so its jobs queue forever in personally-owned
+	// repositories -- this failed on a change that satisfies every word of the
+	// reasoning above it.
+	//
+	// `ubuntu-latest` and a Blacksmith ubuntu SKU are both hosted Linux and both
+	// pass. `[self-hosted, ...]` parses as a list rather than a string and fails
+	// on the type assertion, and a macOS label fails the check below, so the
+	// regression that matters is still caught.
 	got, _ := job.RunsOn.(string)
-	if !strings.HasPrefix(got, "blacksmith-") || !strings.Contains(got, "ubuntu") {
-		t.Errorf("provenance gate runs on %v, want a hosted Blacksmith Linux runner", job.RunsOn)
+	if !strings.Contains(got, "ubuntu") {
+		t.Errorf("provenance gate runs on %v, want a hosted Linux runner (ubuntu-latest, or a hosted ubuntu SKU) -- never the dedicated Mac or a self-hosted array", job.RunsOn)
 	}
 	// A job-level permissions block REPLACES the workflow default, so both keys
 	// have to be present: `checks: read` alone leaves checkout unable to clone.

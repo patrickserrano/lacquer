@@ -33,52 +33,35 @@ concurrency:
 
 jobs:
   changes:
-    name: Detect changed paths
     # A diff, plus (only when the `lacquer` filter fires) the drift audit folded
-    # in at the end. No Xcode either way, so it runs on Blacksmith rather than
-    # tying up the dedicated Mac (see CLAUDE.md "CI Runners").
+    # in at the end. No Xcode either way, so it must not tie up the dedicated Mac
+    # (see CLAUDE.md "CI Runners").
     #
-    # 2vcpu-arm, not 4vcpu-x64, and the reason is billing rather than speed.
-    # Blacksmith bills vCPU-weighted minutes with a ONE-MINUTE MINIMUM per job:
-    # a 4-vCPU job that finishes in 23s still bills 4 minutes. Measured over a
-    # week, this job ran 67 times at a 23s average and accounted for 288 billable
-    # minutes -- more than every test, lint and build job on the fleet combined,
-    # while doing nothing but `git diff` and `grep`. Halving the vCPUs halves the
-    # weighting, and ARM carries a x0.625 rate multiplier on top, so the same
-    # work bills 1.25 minutes instead of 4.
+    # GITHUB-HOSTED, not Blacksmith. Blacksmith is cheaper per minute and the
+    # billing case for it was real -- this job runs about 67 times a week at a 23s
+    # average, and under Blacksmith's one-minute minimum a 4-vCPU leg billed 4
+    # minutes each time: 288 vCPU-weighted minutes a week to run `git diff` and
+    # `grep`, more than every test, lint and build job on the fleet combined.
     #
-    # ARM is safe here specifically because the drift audit already resolves its
-    # tarball by `uname -m` (aarch64|arm64 -> arm64) and lacquer publishes a
-    # linux_arm64 build. A job that downloaded an amd64-only binary must NOT be
-    # moved without adding that mapping first -- the failure is a binary that
-    # will not execute, discovered on someone's PR.
+    # It is not used because it is not universally available. The Blacksmith app is
+    # installed on the PixelFoxStudio org and NOT on the personal account, so every
+    # Blacksmith job in a personally-owned repository queues with no runner
+    # assigned, forever. Measured on patrickserrano/darndest-api-proxy: every
+    # Blacksmith job, x64 and arm64 alike, sat `queued` with `runner=unassigned`
+    # while the same jobs completed in seconds in org-owned repositories.
     #
+    # The failure mode is what settles it. The job does not go red, it HANGS, and a
+    # required check that never resolves reads as "CI is slow today" rather than as
+    # breakage -- so it blocks every merge in the repository while looking like
+    # nothing is wrong. A profile that renders into repositories under more than
+    # one owner cannot depend on a runner that only exists under one of them, and
+    # `ubuntu-latest` exists everywhere.
     #
-    # REVERTED FROM 2vcpu-arm, 2026-09-11. The ARM label was spelled correctly --
-    # it matches Blacksmith's documented convention -- but no runner is ever
-    # ASSIGNED to it on this account. darndest-api-proxy was the first repository
-    # to sync past the version that introduced it, and its `Detect changed paths`
-    # sat `queued` with `runner=unassigned` for nine minutes and counting, while
-    # the same job completed normally on 4vcpu-x64 in every repository that had
-    # not yet synced.
-    #
-    # The failure mode is why this is reverted rather than retried: the job does
-    # not go red, it HANGS. A required check that never resolves reads as "CI is
-    # slow today" rather than as breakage, so it blocks every merge in the repo
-    # while looking like nothing is wrong -- and every repository inherits it
-    # silently at its next sync, with no symptom until someone opens a pull
-    # request. It is the same shape as a skipped required check: a state that is
-    # indistinguishable from working.
-    #
-    # The billing argument above is unchanged and still worth acting on -- 2 vCPUs
-    # would halve the weighting even without ARM's multiplier. But
-    # `blacksmith-2vcpu-ubuntu-2404` is ALSO unproven on this account, and
-    # shipping a second untested runner label to the whole fleet is precisely the
-    # mistake that caused this. Prove it on one repository first.
-    # The supabase profile is deliberately left on 4vcpu-x64: its jobs drive
-    # Postgres, pgTAP and the Supabase CLI, and the saving is not worth
-    # revalidating that stack on a different architecture.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # If Blacksmith is ever installed account-wide, the billing case above is worth
+    # revisiting -- on ONE repository first. An earlier move to
+    # `blacksmith-2vcpu-ubuntu-2404-arm` shipped fleet-wide with a written note
+    # that it was untested in production, and the note did not prevent anything.
+    runs-on: ubuntu-latest
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.

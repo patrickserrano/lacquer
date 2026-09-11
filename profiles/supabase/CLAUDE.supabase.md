@@ -236,7 +236,7 @@ pre-commit.
 
 - `deno test --allow-all` for Edge Function logic; keep `_shared/` helpers unit-
   tested. The synced `supabase-ci.yml` runs `deno fmt --check`, `deno lint`,
-  `deno check`, and `deno test` on `blacksmith-4vcpu-ubuntu-2404`. The `ci-ok`
+  `deno check`, and `deno test` on `ubuntu-latest`. The `ci-ok`
   merge gate runs on `[self-hosted, Linux, pi-gate]` instead — it is an
   `if: always()` job, so it starts on every run and GitHub's
   one-minute-minimum-per-job billing made it pure waste.
