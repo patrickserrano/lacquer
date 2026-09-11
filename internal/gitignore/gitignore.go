@@ -89,6 +89,55 @@ Secrets.xcconfig
 # nothing to resolve, and the .env.* rule above would otherwise swallow it.
 !.env.op`
 
+// agentArtifacts covers what an AGENT leaves behind in the working tree. It is
+// the same fleet finding as the credentials block, one class down: measured
+// across 38 repositories, seven carry a .playwright-mcp/ directory, SIX
+// hand-wrote the identical rule for it -- at lines 2, 6, 11, 94 and 112 of five
+// different .gitignore files, none of them in a managed region -- and the
+// seventh (journalcast) wrote nothing and now has 22 files and 208K of it
+// sitting unignored, one `git add -A` from a commit.
+//
+// The three repositories with a real playwright.config disagree three further
+// ways on where Playwright's own output goes: one ignores playwright-report/
+// only, one ignores test-results/ only, one ignores both. A convention that
+// every project reinvents is not a convention, and this is exactly the shape
+// this package exists to end.
+//
+// NOT in the credentials block above, deliberately. None of this is a key, and
+// putting it there would dilute what that block means -- every line in it is a
+// file that grants access, and that has to stay true for it to be read the way
+// it needs to be. The argument here is smaller and still real: .playwright-mcp/
+// holds a console dump and an accessibility snapshot of whatever page the
+// browser was pointed at. Sampled across the fleet, that already includes a
+// real user's email address in two repositories and Supabase references in a
+// third. No token turned up in the sample, but nothing BOUNDS it to that --
+// the content is whatever was on screen, which for an agent debugging an
+// authenticated app is the authenticated app.
+//
+// Ungated on profile, for the credentials block's reason. The MCP server writes
+// into the working directory of whatever repository an agent happens to be in,
+// and four of the seven repositories carrying the directory are iOS or mixed,
+// not web. Gating on the web profile would leave exactly those four unprotected.
+//
+// Unanchored: an agent's working directory is often a component subdirectory in
+// a nested-layout repository, so an anchored rule would miss the case that
+// actually produces these. Safe to leave unanchored because no repository in
+// the fleet tracks a single file under any of these three paths -- checked, not
+// assumed, because an ignore rule that lands on a tracked file is how you get a
+// file that is committed, invisible to `git status`, and stale forever.
+const agentArtifacts = `# Agent and browser-automation artifacts. Regenerated on demand and never an
+# input to anything, so committing them only puts someone's debugging session
+# in everyone else's diff.
+
+# Written by the Playwright MCP server into the working directory: a console
+# dump and an accessibility snapshot of whatever page was open. Treat it as a
+# recording of a browsing session, not as test output.
+.playwright-mcp/
+# Playwright's own run output: the HTML report and the per-test artifacts
+# (traces, screenshots, videos) its outputDir collects.
+playwright-report/
+test-results/`
+
 // Body renders the managed region body for cfg.
 //
 // plan is what assets.Plan returns for this project — the whole-file assets the
@@ -98,7 +147,7 @@ Secrets.xcconfig
 // place: that project ignores .agents/skills/ wholesale, which quietly untracks
 // every skill the lacquer syncs alongside the third-party ones.
 func Body(cfg *config.Config, plan []assets.Asset) (string, error) {
-	sections := []string{credentials}
+	sections := []string{credentials, agentArtifacts}
 
 	if s := productSecrets(cfg); s != "" {
 		sections = append(sections, s)

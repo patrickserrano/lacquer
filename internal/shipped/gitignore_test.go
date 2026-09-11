@@ -410,3 +410,49 @@ func TestSyncingTwiceLeavesTheGitignoreRegionAlone(t *testing.T) {
 		t.Errorf("a second sync changed the tree — every one of these shows as drift forever:\n%s", out)
 	}
 }
+
+// TestGitignoreRegionIgnoresAgentArtifacts covers the third fleet finding.
+// Seven of 38 repositories carry a .playwright-mcp/ directory; six hand-wrote
+// the identical rule in five different places and the seventh wrote nothing,
+// leaving 22 files of browsing-session snapshots one `git add -A` from a commit.
+//
+// Depth matters here more than it looks. An agent's working directory is
+// frequently a component subdirectory, so the rule that only fires at the
+// repository root is the rule that misses the case that produces these.
+func TestGitignoreRegionIgnoresAgentArtifacts(t *testing.T) {
+	project := syncedProject(t, "")
+
+	for _, path := range []string{
+		// Where the MCP server actually writes: the agent's working directory,
+		// root or component.
+		".playwright-mcp/page-2026-09-10T00-00-00Z.yml",
+		".playwright-mcp/console-2026-09-10T00-00-00Z.log",
+		"web/.playwright-mcp/page-2026-09-10T00-00-00Z.yml",
+		"ios/.playwright-mcp/console-2026-09-10T00-00-00Z.log",
+		// Playwright's own output, at both depths for the same reason.
+		"playwright-report/index.html",
+		"test-results/some-spec-chromium/trace.zip",
+		"web/playwright-report/index.html",
+		"web/test-results/some-spec-chromium/video.webm",
+	} {
+		if !ignored(t, project, path) {
+			t.Errorf("%s is NOT ignored — a `git add -A` would stage a browsing session", path)
+		}
+	}
+
+	// The rule must not reach past the artifact directories. `test-results` is
+	// a generic enough name that a source file or a differently-named directory
+	// could collide with a sloppy pattern, and an ignore rule that lands on a
+	// tracked file produces a file that is committed, invisible to `git status`
+	// and stale forever.
+	for _, path := range []string{
+		"test-results.md",
+		"src/test-results-parser.ts",
+		"docs/playwright-report-format.md",
+		"src/playwright.config.ts",
+	} {
+		if ignored(t, project, path) {
+			t.Errorf("%s IS ignored — the artifact rule reached past the directories it names", path)
+		}
+	}
+}
