@@ -465,23 +465,7 @@ done
 | `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug (e.g. `pixel-fox-studio`) |
 | `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug (e.g. `rail`) — differs per repo, so this one is never org-level |
 | `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → **secret** key (`sk_…`) — full account access |
-| `APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER` | testflight-feedback | a **separate, least-privilege** ASC API key id (read-only) |
-| `APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` | testflight-feedback | issuer id for that key |
-| `APP_STORE_CONNECT_FEEDBACK_PRIVATE_KEY` | testflight-feedback | that key's `.p8` contents |
 
-The TestFlight-feedback job uses its **own** App Store Connect key, distinct from
-the release/signing key (`ASC_*`) — it only needs read access to beta feedback,
-and it runs on a GitHub-hosted runner, so it must never carry the signing key.
-
-**TestFlight feedback is opt-in.** Without all three `APP_STORE_CONNECT_FEEDBACK_*`
-secrets the daily run skips with a `::notice::` and stays green; a **manual**
-`workflow_dispatch` fails loudly instead, because someone deliberately asked for
-feedback and a green check with zero results is indistinguishable from "no new
-feedback". This is the same unattended-vs-interactive split the Claude workflows
-use (below) — testflight-feedback was simply never brought under it, and it
-failed every night in every repo that had not provisioned the key. Three
-projects each worked around it locally before it was fixed here: one deleted the
-`schedule:` block, one excluded the whole file, one carried three empty secrets.
 Three identical workarounds in three repos is a lacquer defect, not a project
 defect.
 
@@ -565,8 +549,8 @@ The rule below matters only when authoring a **brand-new** job:
 Xcode-touching work (build/test/lint/archive/sign/release) uses
 `runs-on: [self-hosted, macOS, ARM64, dedicated]` — never a GitHub-hosted
 macOS runner (`macos-latest`) or a stray self-hosted label like `mac-mini`. A
-pure script/REST-call job with no Xcode dependency (a TestFlight-feedback
-fetch, a deploy) uses `blacksmith-4vcpu-ubuntu-2404` instead — don't tie up
+pure script/REST-call job with no Xcode dependency (a docs publish, a
+deploy) uses `blacksmith-4vcpu-ubuntu-2404` instead — don't tie up
 the Mac for work that doesn't need it.
 
 Two rules about the Linux label, because GitHub bills **per job started, with

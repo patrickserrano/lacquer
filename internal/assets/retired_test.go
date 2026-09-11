@@ -129,29 +129,6 @@ func TestRetiredPlanDropsScheduledWorkAndKeepsTheRest(t *testing.T) {
 	}
 }
 
-// An opted-in optional workflow is scheduled work like any other. It is not
-// special-cased anywhere — it goes through the same content check — but it is
-// the one asset a project asked for BY NAME, so the drop is worth pinning.
-func TestRetiredPlanDropsOptedInScheduledWorkflow(t *testing.T) {
-	iosOnly := func(retired bool) *config.Config {
-		p := config.Project{OptionalWorkflows: []string{"testflight-feedback"}}
-		if retired {
-			p.Retired = &config.Retirement{Since: "2026-08-18", Reason: "not a viable app"}
-		}
-		return &config.Config{
-			Project:    p,
-			Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
-		}
-	}
-	const dest = ".github/workflows/ios-testflight-feedback.yml"
-	if !planDests(t, iosOnly(false))[dest] {
-		t.Fatalf("%s is not installed by opting in; this test is out of date", dest)
-	}
-	if planDests(t, iosOnly(true))[dest] {
-		t.Errorf("%s survived retirement — it is a daily cron", dest)
-	}
-}
-
 // Only .github/workflows/*.yml and dependabot are candidates. A retired project
 // keeps every skill, command, agent and CLAUDE region it had.
 func TestRetiredPlanTouchesOnlyGithubAssets(t *testing.T) {

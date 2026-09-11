@@ -56,15 +56,19 @@ empty profile list and a notice — it doesn't break `sync`.
 by default, named without its `.yml`:
 
 ```toml
-optional_workflows = ["testflight-feedback"]
+optional_workflows = ["some-workflow"]
 ```
 
-The default-off set exists because a workflow needing credentials nobody has
-doesn't fail loudly — it fails **daily and quietly**. `testflight-feedback` wants
-`APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` and two siblings; no project in this fleet
-had them, so it was red on every scheduled run in every repo that received it. A
-scheduled job nobody can satisfy is worse than a missing feature: it trains
-people to ignore red.
+**The profiles currently ship none**, so this installs nothing today and a name
+with no file behind it is an error rather than a silent no-op. The mechanism is
+kept because the reason it exists has not gone away: a workflow needing
+credentials nobody has doesn't fail loudly, it fails **daily and quietly**.
+`testflight-feedback` was the case that produced it — it wanted
+`APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` and two siblings, no project in this fleet
+had them, and it was red on every scheduled run in every repo that received it.
+A scheduled job nobody can satisfy is worse than a missing feature: it trains
+people to ignore red. It has since been removed outright rather than left
+default-off, because in three years nothing opted in.
 
 A name with no matching file is an error, not a silent no-op.
 

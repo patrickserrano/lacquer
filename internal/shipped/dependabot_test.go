@@ -577,19 +577,44 @@ func TestDependabotDoesNotDuplicateEcosystems(t *testing.T) {
 
 // A default-off workflow must not ship unless the project asks for it.
 //
-// testflight-feedback is the reason this exists: it needs
-// APP_STORE_CONNECT_FEEDBACK_ISSUER_ID and two siblings, no project in the fleet
-// had them, and it had therefore been red on EVERY scheduled run since it was
-// added, in every repository that received it. A scheduled job nobody can
-// satisfy is worse than a missing feature — it trains people to ignore red.
+// The mechanism exists because of testflight-feedback: it needed three
+// APP_STORE_CONNECT_FEEDBACK_* secrets, no project in the fleet had them, and it
+// had therefore been red on EVERY scheduled run since it was added, in every
+// repository that received it. A scheduled job nobody can satisfy is worse than
+// a missing feature -- it trains people to ignore red.
+//
+// That workflow has since been removed entirely, so the profiles ship no
+// optional workflow at all and this test builds its own. Testing the MECHANISM
+// rather than one instance of it is the better shape anyway: the previous
+// version asserted that a specific file existed, so it would have gone green by
+// accident the moment that file was deleted, and the opt-in path it is actually
+// guarding would have stopped being exercised with nothing to say so.
 func TestOptionalWorkflowsShipOnlyWhenRequested(t *testing.T) {
-	r := root(t)
-	// It must still exist in the lacquer: dropped as a default, kept as a choice.
-	if _, err := os.Stat(filepath.Join(r, "profiles", "ios", "workflows-optional", "testflight-feedback.yml")); err != nil {
-		t.Fatalf("the optional workflow is gone entirely, not just defaulted off: %v", err)
+	// Only the trees Plan reads, not the whole repository: the working copy can
+	// contain agent worktrees under .claude/ whose symlinks copyTree refuses,
+	// and a test that breaks when someone leaves a worktree lying around is
+	// testing the wrong thing.
+	lacquer := t.TempDir()
+	for _, dir := range []string{"core", "profiles"} {
+		copyTree(t, filepath.Join(root(t), dir), filepath.Join(lacquer, dir))
 	}
-	if _, err := os.Stat(filepath.Join(r, "profiles", "ios", "workflows", "testflight-feedback.yml")); err == nil {
-		t.Error("testflight-feedback is still in workflows/, so it would ship by default")
+	for _, f := range []string{"VERSION"} {
+		b, err := os.ReadFile(filepath.Join(root(t), f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(lacquer, f), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	opt := filepath.Join(lacquer, "profiles", "ios", "workflows-optional")
+	if err := os.MkdirAll(opt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "name: Synthetic\non:\n  schedule:\n    - cron: \"0 9 * * 1\"\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"
+	if err := os.WriteFile(filepath.Join(opt, "synthetic.yml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	base := &config.Config{
@@ -597,33 +622,32 @@ func TestOptionalWorkflowsShipOnlyWhenRequested(t *testing.T) {
 		Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
 	}
 	has := func(cfg *config.Config) bool {
-		plan, err := assets.Plan(r, cfg)
+		plan, err := assets.Plan(lacquer, cfg)
 		if err != nil {
 			t.Fatalf("Plan: %v", err)
 		}
 		for _, a := range plan {
-			if strings.HasSuffix(a.Dest, "ios-testflight-feedback.yml") {
+			if strings.HasSuffix(a.Dest, "ios-synthetic.yml") {
 				return true
 			}
 		}
 		return false
 	}
 	if has(base) {
-		t.Error("shipped without being requested")
+		t.Error("an optional workflow shipped without being requested")
 	}
 
 	opted := *base
-	opted.Project.OptionalWorkflows = []string{"testflight-feedback"}
+	opted.Project.OptionalWorkflows = []string{"synthetic"}
 	if !has(&opted) {
 		t.Error("did not ship when explicitly requested, so opting in does nothing")
 	}
 
-	// A typo must fail loudly. Silently installing nothing is the exact failure
-	// this mechanism exists to prevent.
-	typo := *base
-	typo.Project.OptionalWorkflows = []string{"testflght-feedback"}
-	if _, err := assets.Plan(r, &typo); err == nil {
-		t.Error("a misspelled optional workflow was accepted; it would silently install nothing")
+	// A name with no file behind it must fail loudly rather than ship nothing.
+	missing := *base
+	missing.Project.OptionalWorkflows = []string{"does-not-exist"}
+	if _, err := assets.Plan(lacquer, &missing); err == nil {
+		t.Error("an unknown optional workflow name was accepted, so a typo would silently ship nothing")
 	}
 }
 
