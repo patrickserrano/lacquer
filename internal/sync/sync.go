@@ -9,6 +9,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/gitattributes"
@@ -200,6 +201,12 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 			return Result{}, fmt.Errorf("refusing to overwrite local changes the lacquer did not make — run `lacquer audit` to review, then either promote the change into the lacquer or re-sync with --force to take the lacquer version:\n  %s",
 				strings.Join(clob, "\n  "))
 		}
+	}
+
+	// Warnings-as-errors gate. Runs with the other refusals, before anything is
+	// written, and is NOT bypassable by --force — see baseline.EnforceTargets.
+	if err := baseline.EnforceTargets(projectRoot, cfg.BaselineTargets()); err != nil {
+		return Result{}, err
 	}
 
 	// Asset preflight BEFORE any write. assets.Copy used to preflight itself,

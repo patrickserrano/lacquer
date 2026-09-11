@@ -16,6 +16,12 @@ type Config struct {
 	Name         string
 	Settings     map[string]string
 	ProjectLevel bool
+	// BaseConfig is the base name of the .xcconfig this configuration points at
+	// via baseConfigurationReference, or "" when it names none. Resolved to a
+	// base name rather than an object id because the id is meaningless to every
+	// caller, and a project that sets a value ONLY in an xcconfig is otherwise
+	// indistinguishable from one that does not set it at all.
+	BaseConfig string
 }
 
 // Declared is what a project's own files say about the build settings the
@@ -103,6 +109,7 @@ const (
 	kindProject
 	kindConfigList
 	kindBuildConfig
+	kindFileRef
 )
 
 // ReadXcodeproj parses every XCBuildConfiguration in a project, plus enough of
@@ -139,6 +146,8 @@ func ReadXcodeproj(path string) (Declared, error) {
 		lists       = map[string][]string{} // config-list id -> member config ids
 		listID      string                  // config list being filled
 		projectList string                  // the PBXProject's buildConfigurationList id
+		fileRefs    = map[string]string{}   // PBXFileReference id -> base name
+		fileRefID   string                  // file reference being filled
 		kind        = kindNone
 		prev        string // previous line, for the id lookbehind
 	)
@@ -147,6 +156,25 @@ func ReadXcodeproj(path string) (Declared, error) {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
+
+		// PBXFileReference is written on ONE line, with `isa` in the middle of it:
+		//
+		//	<id> /* Debug.xcconfig */ = {isa = PBXFileReference; ... path = Debug.xcconfig; ...};
+		//
+		// The multi-line scanner below never sees it, which is not a cosmetic
+		// gap: with no file references resolved, no configuration can be matched
+		// to its xcconfig, and a project that sets a value ONLY in an xcconfig
+		// reads as setting it nowhere. rail does exactly that and was reported
+		// as having six violations while being fully compliant.
+		if strings.Contains(line, "isa = PBXFileReference") {
+			if id := openingID(line); id != "" {
+				if v := inlineSetting(line, "path"); v != "" {
+					fileRefs[id] = filepath.Base(v)
+				}
+			}
+			prev = line
+			continue
+		}
 
 		if isa, ok := strings.CutPrefix(line, "isa = "); ok {
 			id := openingID(prev)
@@ -160,6 +188,8 @@ func ReadXcodeproj(path string) (Declared, error) {
 				kind = kindBuildConfig
 				configs = append(configs, Config{ID: id, Settings: map[string]string{}})
 				cur = &configs[len(configs)-1]
+			case "PBXFileReference":
+				kind, fileRefID = kindFileRef, id
 			}
 			prev = line
 			continue
@@ -177,9 +207,20 @@ func ReadXcodeproj(path string) (Declared, error) {
 			if id := memberID(line); id != "" {
 				lists[listID] = append(lists[listID], id)
 			}
+		case kindFileRef:
+			// `path` is the file's own name; a PBXFileReference for an xcconfig
+			// carries it directly. Only the base name is kept — see Config.BaseConfig.
+			if v, ok := strings.CutPrefix(line, "path = "); ok {
+				fileRefs[fileRefID] = filepath.Base(strings.Trim(strings.TrimSuffix(v, ";"), `"`))
+			}
 		case kindBuildConfig:
 			if cur == nil {
 				continue
+			}
+			// Appears BEFORE buildSettings, and before the `name` line that ends
+			// the block, so it is captured on the way past.
+			if v, ok := strings.CutPrefix(line, "baseConfigurationReference = "); ok {
+				cur.BaseConfig = firstToken(strings.TrimSuffix(v, ";"))
 			}
 			if v, ok := strings.CutPrefix(line, "name = "); ok {
 				cur.Name = strings.Trim(strings.TrimSuffix(v, ";"), `"`)
@@ -201,8 +242,35 @@ func ReadXcodeproj(path string) (Declared, error) {
 	}
 	for i := range configs {
 		configs[i].ProjectLevel = projectMembers[configs[i].ID]
+		// Resolved in a second pass: a PBXFileReference can appear anywhere in
+		// the file, including after the configuration that points at it.
+		if base, ok := fileRefs[configs[i].BaseConfig]; ok {
+			configs[i].BaseConfig = base
+		} else if configs[i].BaseConfig != "" {
+			configs[i].BaseConfig = ""
+		}
 	}
 	return Declared{Configs: configs}, nil
+}
+
+// inlineSetting reads `key = value;` out of a single-line pbxproj object, where
+// the fields are semicolon separated on one line.
+func inlineSetting(line, key string) string {
+	for _, field := range strings.Split(line, ";") {
+		k, v, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		// The opening `<id> /* name */ = {isa` field leaves a brace on the key
+		// of the FIRST field; every later field is clean.
+		k = strings.TrimSpace(strings.TrimPrefix(k, "{"))
+		if k != key {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(v), `"`)
+	}
+	return ""
 }
 
 // openingID pulls the object id out of a block-opening line, which pbxproj
