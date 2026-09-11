@@ -1519,10 +1519,40 @@ jobs:
           fi
 
       - name: Check Coverage
-        if: always() && hashFiles('TestResults.xcresult') != ''
+        # Gated on the tests having PASSED, not merely on the bundle existing.
+        #
+        # A .xcresult is written even for a build that never compiled, so
+        # `hashFiles()` alone let this step run after a failure. `xccov` then
+        # printed `Error: Error Domain=XCCovErrorDomain` where JSON belongs, jq
+        # answered `Parse error: bad token`, and because this step runs AFTER the
+        # real failure that became the LAST error-shaped line in the whole log.
+        #
+        # Measured cost: two separate investigations, in two different repos,
+        # both grepped the failing log for `error:` and got back only `bad
+        # token` — a jq message about an empty pipe, pointing at nothing. The
+        # real diagnostics (a SwiftUI `@Entry` macro error in one, three Swift
+        # 6.4 diagnostics in the other) were sitting further up in the
+        # `Testing failed:` block, unreferenced. A step that runs after a failure
+        # and emits a louder, emptier error than the failure itself is a
+        # diagnostic hazard, however correct its own logic is.
+        #
+        # `always()` is kept so coverage still reports when the suite passes but
+        # a LATER step fails.
+        if: always() && steps.tests.outputs.test_result == 'passed' && hashFiles('TestResults.xcresult') != ''
         run: |
           # Calculate coverage for {{IOS_CI_APP_TARGET}} only (excludes third-party dependencies)
-          APP_COVERAGE=$(xcrun xccov view --report --json TestResults.xcresult | \
+          #
+          # Read xccov's output ONCE and check it before it reaches jq. Piping
+          # straight into jq means any xccov failure surfaces as a jq parse error
+          # about stdin, which names neither the tool that failed nor the reason.
+          set -o pipefail
+          COV_JSON=$(xcrun xccov view --report --json TestResults.xcresult 2>&1) || COV_EXIT=$?
+          if [ "${COV_EXIT:-0}" -ne 0 ] || [ -z "$COV_JSON" ] || ! printf '%s' "$COV_JSON" | jq -e . >/dev/null 2>&1; then
+            echo "::error::Could not read a coverage report from TestResults.xcresult (xccov exit=${COV_EXIT:-0}). This is the COVERAGE step failing, not the tests — check the Test job's own output for the real failure. xccov said:"
+            printf '%s\n' "$COV_JSON" | head -5
+            exit 1
+          fi
+          APP_COVERAGE=$(printf '%s' "$COV_JSON" | \
             jq {{IOS_CI_COVERAGE_JQ}} | \
             xargs printf "%.1f")
 
