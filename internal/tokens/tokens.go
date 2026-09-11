@@ -1195,13 +1195,13 @@ func dependabotUpdates(cfg *config.Config) string {
       # fleet lost Dead Code Analysis in seven repositories to a
       # download-artifact v7.0.1 that never existed. A major buried in a batch
       # of twenty is a major nobody read.
-      routine:
+%s      routine:
         patterns:
           - "*"
         update-types:
           - minor
           - patch
-`, ecosystem, dir, ignore)
+`, ecosystem, dir, ignore, lockstep(ecosystem))
 	}
 
 	var b strings.Builder
@@ -1264,6 +1264,49 @@ func dependabotUpdates(cfg *config.Config) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// lockstep renders group entries for dependency families that MUST move
+// together, or "" for an ecosystem that has none.
+//
+// It sits above `routine` because Dependabot places a dependency in the first
+// group whose patterns match it, so a family named here is grouped for every
+// update type — majors included. That is the one deliberate exception to the
+// "majors stay separate" rule above, and it exists because for these packages a
+// major is not a decision that CAN be taken one package at a time.
+//
+// Measured on darndest-api-proxy, 2026-09-11. Dependabot offered vitest 5.0.0
+// and @vitest/coverage-v8 5.0.0 as two pull requests, and BOTH failed before a
+// test ran:
+//
+//	npm error Conflicting peer dependency: vitest@4.1.11
+//	npm error   peer vitest@"4.1.11" from @vitest/coverage-v8@4.1.11
+//
+// The peer is an EXACT version, not a range, so neither pull request can
+// install on its own no matter what order they are merged in. Each one cost a
+// full CI cycle and a failed preview deployment, and could only ever end in a
+// close. Four repositories in the fleet declare both packages, so the same pair
+// of dead pull requests is waiting in each of them on the next vitest major.
+//
+// The rule for adding a family here is the exact-peer-pin, not scope: two
+// packages published from one repository at one version, where one names the
+// other as a peer at `=x.y.z`. A family whose peer range is `^x` resolves fine
+// split up and belongs in `routine` with everything else. Only vitest is listed
+// because only vitest has been observed failing this way — a family added on
+// suspicion would silently batch majors that were fine to read one at a time.
+func lockstep(ecosystem string) string {
+	if ecosystem != "npm" {
+		return ""
+	}
+	return `      # vitest and its plugins are published together and peer-pin each other at
+      # an EXACT version, so a major that moves one without the others cannot
+      # install. Grouped for ALL update types, majors included: splitting them
+      # does not produce two reviewable pull requests, it produces two dead ones.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+`
 }
 
 // dependabotIgnores renders a component's declared ignores as Dependabot's

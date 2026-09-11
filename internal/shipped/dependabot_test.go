@@ -755,3 +755,93 @@ func TestDependabotWithoutIgnoresRendersUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// renderDependabotRaw is the rendered file as TEXT. Group ordering is load
+// bearing — Dependabot places a dependency in the FIRST group whose patterns
+// match it — and a parsed YAML mapping does not preserve order, so the
+// assertion has to be made against the text.
+func renderDependabotRaw(t *testing.T, cfg *config.Config) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root(t), "core", "root", ".github", "dependabot.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, missing := tokens.Substitute(string(raw), tokens.Values(cfg, ""))
+	if len(missing) > 0 {
+		t.Fatalf("unsubstituted tokens: %v", missing)
+	}
+	var doc dependabotFile
+	if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("rendered dependabot.yml is not valid YAML: %v\n%s", err, out)
+	}
+	return out
+}
+
+// ecosystemBlocks splits the rendered file into one chunk per update entry,
+// keyed by ecosystem. Needed because "does the vitest group exist" is the wrong
+// question — it must exist in the npm entry and NOT in the github-actions one.
+func ecosystemBlocks(t *testing.T, rendered string) map[string]string {
+	t.Helper()
+	blocks := map[string]string{}
+	for _, chunk := range strings.Split(rendered, "  - package-ecosystem: ") {
+		if !strings.Contains(chunk, "groups:") {
+			continue
+		}
+		eco := strings.TrimSpace(strings.SplitN(chunk, "\n", 2)[0])
+		blocks[eco] = chunk
+	}
+	return blocks
+}
+
+// TestDependabotGroupsLockstepFamiliesAheadOfRoutine covers the darndest-api-proxy
+// failure of 2026-09-11: Dependabot offered vitest 5.0.0 and @vitest/coverage-v8
+// 5.0.0 as two pull requests and both died at `npm install` with
+//
+//	Conflicting peer dependency: vitest@4.1.11
+//	  peer vitest@"4.1.11" from @vitest/coverage-v8@4.1.11
+//
+// The peer is an exact version, so neither PR could install alone in any merge
+// order. Four repositories in the fleet declare both packages.
+func TestDependabotGroupsLockstepFamiliesAheadOfRoutine(t *testing.T) {
+	cfg := &config.Config{
+		Project:    config.Project{ProjectName: "Web", Scheme: "Web", BundleID: "com.x.w", AscAppID: "1", Xcodeproj: "Web.xcodeproj"},
+		Components: []config.Component{{Path: ".", Profiles: []string{"web"}}},
+	}
+	blocks := ecosystemBlocks(t, renderDependabotRaw(t, cfg))
+
+	npm, ok := blocks["npm"]
+	if !ok {
+		t.Fatalf("no npm entry rendered; got ecosystems %v", blocks)
+	}
+	vitest := strings.Index(npm, "\n      vitest:")
+	routine := strings.Index(npm, "\n      routine:")
+	switch {
+	case vitest < 0:
+		t.Error("npm entry has no vitest group — a vitest major will again arrive as two pull requests that cannot install")
+	case routine < 0:
+		t.Error("npm entry lost its routine group")
+	case vitest > routine:
+		// Order is the whole mechanism, not cosmetics. Behind `routine`, the
+		// vitest packages match `*` first and the lockstep group never applies
+		// to anything — the file would look correct and do nothing.
+		t.Error("vitest group is rendered AFTER routine; routine's `*` claims the packages first and the lockstep group becomes dead config")
+	}
+
+	// Grouped for EVERY update type. `update-types` here would re-split majors,
+	// which is the exact failure being fixed.
+	family := npm[vitest:routine]
+	if strings.Contains(family, "update-types:") {
+		t.Errorf("vitest group restricts update-types, so majors still split:\n%s", family)
+	}
+	for _, pattern := range []string{`"vitest"`, `"@vitest/*"`} {
+		if !strings.Contains(family, pattern) {
+			t.Errorf("vitest group does not match %s:\n%s", pattern, family)
+		}
+	}
+
+	// github-actions has no npm packages, so a vitest group there would be
+	// config that can never match — and this file is read by people.
+	if actions, ok := blocks["github-actions"]; ok && strings.Contains(actions, "vitest:") {
+		t.Error("github-actions entry carries a vitest group, which can never match anything there")
+	}
+}
