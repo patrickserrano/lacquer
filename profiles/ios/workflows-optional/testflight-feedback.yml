@@ -65,6 +65,14 @@ jobs:
       - uses: actions/checkout@v7.0.1
         if: steps.preflight.outputs.configured == 'true'
 
+      # Cheap, offline, and it fails before any credential is used: the fetcher
+      # parses real captured App Store Connect payloads, so a project running a
+      # stale or half-synced copy of the script is caught here rather than by
+      # someone noticing weeks later that the filed issues lost a field.
+      - name: Test the fetcher
+        if: steps.preflight.outputs.configured == 'true'
+        run: python3 .github/scripts/test_fetch_testflight_feedback.py
+
       - name: Fetch feedback and create issues
         if: steps.preflight.outputs.configured == 'true'
         env:
