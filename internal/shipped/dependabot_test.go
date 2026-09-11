@@ -127,6 +127,60 @@ func TestDependabotAlwaysWatchesActions(t *testing.T) {
 	}
 }
 
+// The entry survives even when every workflow in the project is lacquer-managed,
+// which is the configuration somebody will reach for after reading issue #331.
+//
+// The reasoning there is that a Dependabot bump to a managed workflow can only
+// ever be reverted by the next sync, so watching actions in a fully-managed repo
+// is pure churn and the entry should be dropped. The first half is true. The
+// second does not follow, and this test is here because the mistake is invisible
+// once made — nothing fails when an action pin stops being watched.
+//
+// Dependabot's github-actions ecosystem reads .github/workflows and a root
+// action.yml, in ONE repository. It cannot see profiles/ in any repo, this one
+// included, so the refs these workflows ship — actions/upload-artifact,
+// actions/cache, supabase/setup-cli, softprops/action-gh-release,
+// denoland/setup-deno, actions/dependency-review-action — are watched by nothing
+// except the project repos that receive them. Dropping this entry fleet-wide
+// would trade a stream of revertible pull requests for silence.
+//
+// The bumps that do land on managed workflows are handled on the read side: see
+// audit.ActionBumps, which reports an action-version-only divergence as
+// promotable and names the upstream one-line fix.
+func TestDependabotKeepsWatchingActionsInAFullyManagedProject(t *testing.T) {
+	cfg := &config.Config{
+		Project: config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
+		Components: []config.Component{
+			{Path: ".", Profiles: []string{"ios"}},
+			{Path: "web", Profiles: []string{"web"}},
+		},
+	}
+	doc := renderDependabot(t, cfg)
+	var actions int
+	for _, u := range doc.Updates {
+		if u.Ecosystem != "github-actions" {
+			continue
+		}
+		actions++
+		if u.Directory != "/" {
+			t.Errorf("github-actions directory = %q; anything but \"/\" reads no workflows at all", u.Directory)
+		}
+		// The other way to stop the churn, and the one the policy above forbids:
+		// `ignore` withholds the update everywhere, including from the
+		// project-owned workflows in the same repo, and carries neither a reason
+		// nor an expiry when it is rendered from here.
+		if len(u.Ignore) > 0 {
+			t.Errorf("github-actions entry has %d ignore rule(s); path churn is not a reason to stop offering an update", len(u.Ignore))
+		}
+		if len(u.Allow) > 0 {
+			t.Error("github-actions entry has an allow list, which narrows what gets opened")
+		}
+	}
+	if actions != 1 {
+		t.Errorf("github-actions entries = %d, want exactly 1 — the lacquer's own workflow pins are invisible to Dependabot, so this is the only thing watching the refs these profiles ship", actions)
+	}
+}
+
 // Dependabot's swift ecosystem needed a top-level Package.swift until
 // 2026-03-31; it now discovers Package.resolved inside .xcodeproj bundles, which
 // is the layout every iOS project here uses. Dropping this entry would leave

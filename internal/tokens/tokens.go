@@ -1236,6 +1236,32 @@ func dependabotUpdates(cfg *config.Config) string {
 	// limit rather than an oversight — an action that breaks a repo breaks it in
 	// the workflow, where the fix is a version bump somebody makes, not a
 	// third-party peer-dependency conflict nobody in the repo can resolve.
+	//
+	// This entry bumps LACQUER-MANAGED workflows too, and that is not fixable
+	// here. Recorded because it looks fixable and is the first thing anyone
+	// reading issue #331 will reach for:
+	//
+	//   - Dependabot's github-actions ecosystem has no path scope. `directory`
+	//     must be "/" (it then reads all of .github/workflows plus a root
+	//     action.yml), `directories` supports globs but no negation, and `ignore`
+	//     names dependencies rather than files. The ownership boundary here is
+	//     PER FILE and Dependabot's unit of work is PER REPO, so no rendering of
+	//     this file can express it.
+	//   - Dropping the entry for a fully-managed project does not work either.
+	//     Dependabot cannot see profiles/ — that path is not .github/workflows in
+	//     any repository, including this one — so the refs these workflows ship
+	//     (actions/upload-artifact, actions/cache, supabase/setup-cli,
+	//     softprops/action-gh-release, denoland/setup-deno,
+	//     actions/dependency-review-action) are watched by NOTHING except the
+	//     project repos that receive them. Removing this entry would trade a
+	//     stream of revertible pull requests for silence, and a stale action pin
+	//     never fails — it just stops being current.
+	//
+	// The bumps that do land on managed workflows are handled on the read side
+	// instead: `lacquer audit` recognises a divergence that is only action
+	// versions and reports it as promotable, naming the action and both refs, so
+	// the project can merge the security bump now and the one-line upstream edit
+	// is spelled out rather than rediscovered. See internal/audit/promote.go.
 	b.WriteString(entry("github-actions", "/", ""))
 
 	// One entry per component, at that component's directory: Dependabot has no

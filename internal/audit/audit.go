@@ -51,6 +51,9 @@ type Row struct {
 	Detail  string // region marker key, or "" for assets
 	Status  Status
 	Stamped version.Version // region: version in the on-disk start marker (zero if absent/asset)
+	// Bumps is non-empty only when this unit's ENTIRE divergence is a set of
+	// action-version changes — the Dependabot case. See promote.go.
+	Bumps []ActionBump
 }
 
 // unit is one thing the lacquer manages: a region body merged into a file, or a
@@ -199,6 +202,22 @@ func Classify(lacquerRoot, projectRoot string) ([]Row, version.Version, error) {
 			row.Status = OK
 		default:
 			row.Status = classifyDivergence(lk, locked, u.lockKey, lock.Hash(onDisk), lacquerHash)
+			// Only for the statuses that block, and only for whole-file assets.
+			//
+			// Blocking is the point: an Untracked or Behind unit is already going
+			// to be overwritten without anyone being asked, so there is no
+			// decision to inform. Modified and Conflict are the two that stop a
+			// sync and put a human in front of a file they did not knowingly
+			// edit, and "Dependabot bumped an action here" is the answer to the
+			// question they are about to ask.
+			//
+			// Assets only because a region is a body the lacquer merges into a
+			// file the project owns — CLAUDE.md, .gitignore, .gitattributes —
+			// and none of them carries workflow steps. Running the line-pair
+			// match over them would burn cycles to always return nil.
+			if row.Status.Clobbers() && u.kind == "asset" {
+				row.Bumps = ActionBumps(u.content, onDisk)
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -342,6 +361,31 @@ func Format(rows []Row, ver version.Version) string {
 			}
 			fmt.Fprintf(&b, "  %s\n", label)
 		}
+	}
+	// Named separately from the status sections above, and BEFORE the clobber
+	// count, because it is the one class of divergence whose fix is not in this
+	// repository. Dependabot's github-actions ecosystem is repo-scoped — it reads
+	// every file under .github/workflows and has no way to be told that some of
+	// them have another author — so its bumps land on managed workflows as a
+	// matter of course. Measured on darndest-api-proxy, 2026-09-11: one pull
+	// request rewrote `actions/checkout` in two project-owned workflows AND in
+	// the lacquer-managed web-ci.yml, in the same diff.
+	//
+	// Naming the action and both versions is the whole value. The upstream edit
+	// is a one-line change to a file in profiles/, and without this the report
+	// said only "you changed it, the lacquer didn't" about a file the project
+	// never touched — advice whose cheapest reading is "revert", which throws the
+	// bump away and guarantees it comes back tomorrow.
+	if promo := Promotable(rows); len(promo) > 0 {
+		b.WriteString("\npromotable (only action versions differ — the fix is upstream, in profiles/):\n")
+		for _, r := range promo {
+			fmt.Fprintf(&b, "  %s\n", r.Dest)
+			for _, bump := range r.Bumps {
+				fmt.Fprintf(&b, "    %s  %s → %s\n", bump.Action, bump.From, bump.To)
+			}
+		}
+		b.WriteString("  Nothing else in these files differs. Merging the bump here is safe and the\n" +
+			"  next sync reverts it; the same change in the lacquer reaches every project.\n")
 	}
 	if n := len(Clobbered(rows)); n > 0 {
 		fmt.Fprintf(&b, "\n%d unit(s) would be overwritten by sync — review before adopting (sync --force) or promote into the lacquer.\n", n)
