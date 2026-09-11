@@ -357,7 +357,6 @@ done
 | `ASC_KEY_CONTENT` | release | the `.p8` private key contents |
 | `APPLE_TEAM_ID` | release | Apple Developer membership |
 | `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step restores the keychain's prior settings and re-locks it, so neither the unlocked window nor the timeout change outlives the run) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | claude, quality-review, dependency-audit | `claude setup-token` |
 | `SENTRY_AUTH_TOKEN` | release (dSYM upload) | Sentry → Settings → Auth Tokens, scoped to `project:releases` |
 | `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug (e.g. `pixel-fox-studio`) |
 | `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug (e.g. `rail`) — differs per repo, so this one is never org-level |
@@ -452,30 +451,6 @@ Two consequences worth knowing before you hit it:
 - **Let CI finish before you tag.** The check run must be *completed* and
   *successful* for that SHA; a tag pushed in the same breath as the commit
   arrives before CI has reported and is refused.
-
-### Claude-powered workflows
-
-Three synced workflows call `anthropics/claude-code-action` and therefore need
-`CLAUDE_CODE_OAUTH_TOKEN`: `ios-claude.yml` (responds to an `@claude` mention),
-`ios-quality-review.yml` (weekly), and `ios-dependency-audit.yml` (twice
-monthly).
-
-The action **hard-fails** when the token is empty — `Environment variable
-validation failed` — before doing any work. Each workflow now checks for the
-token first and behaves according to who is waiting on it:
-
-- **Unattended** (quality-review, dependency-audit): skip the Claude step with
-  a `::warning::` and a job-summary remedy. The job stays green, because a
-  permanently red scheduled run is noise that trains you to stop reading the
-  Actions tab — which is exactly how this went unnoticed. Dependency-audit
-  still collects and publishes its report, so the run is not worthless without
-  the token.
-- **Interactive** (claude.yml): fail, *and post a comment on the thread* saying
-  why. Someone typed `@claude` and is waiting; a silent skip is the worst
-  outcome, and a red X on a workflow they will not open is barely better.
-
-The `secrets` context is unavailable in a job-level `if`, so the check is always
-a step that exports an output the later steps gate on.
 
 ## CI Runners
 
