@@ -24,6 +24,7 @@ const (
 	Xcodeproj       = "{{XCODEPROJ}}"
 	SwiftVersion    = "{{SWIFT_VERSION}}"
 	GithubOrg       = "{{GITHUB_ORG}}"
+	LinuxRunner     = "{{LINUX_RUNNER}}"
 	ComponentPrefix = "{{COMPONENT_PREFIX}}"
 	// ComponentToRoot is the inverse of ComponentPrefix: the relative path from
 	// a component's own directory back UP to the repo root — "." at the root,
@@ -302,6 +303,9 @@ var registry = []entry{
 	{Xcodeproj, true},
 	{SwiftVersion, true},
 	{GithubOrg, false}, // empty is valid: a project may not have a repo/org yet
+	// Required: it renders into `runs-on`, and an empty value there is a
+	// workflow that parses and never runs. LinuxRunnerFor never returns "".
+	{LinuxRunner, true},
 	{ComponentPrefix, false},
 	// Required, unlike ComponentPrefix. The two are not symmetric: the empty
 	// prefix is the correct rendering for a root layout, whereas ToRoot never
@@ -400,6 +404,7 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		Xcodeproj:         p.Xcodeproj,
 		SwiftVersion:      p.SwiftVersion,
 		GithubOrg:         p.GithubOrg,
+		LinuxRunner:       LinuxRunnerFor(p.LinuxRunner),
 		ComponentPrefix:   prefix,
 		ComponentToRoot:   ToRoot(prefix),
 		WebBuildEnv:       BuildEnvBlock(p.BuildEnv),
@@ -822,6 +827,24 @@ func jsonStringArray(vals []string) string {
 	}
 	b.WriteString("]")
 	return b.String()
+}
+
+// DefaultLinuxRunner is the label every Linux job renders with unless a project
+// overrides it.
+const DefaultLinuxRunner = "blacksmith-4vcpu-ubuntu-2404"
+
+// LinuxRunnerFor resolves a project's Linux runner label, falling back to
+// Blacksmith.
+//
+// The fallback is the fleet default rather than `ubuntu-latest` because 13 of
+// the 19 managed projects live under the org where Blacksmith is installed, and
+// defaulting the majority to the more expensive runner to protect the minority
+// gets the trade backwards. The minority declares itself.
+func LinuxRunnerFor(s string) string {
+	if s == "" {
+		return DefaultLinuxRunner
+	}
+	return s
 }
 
 // BuildEnvBlock renders [project].build_env as a job-level YAML env block, or

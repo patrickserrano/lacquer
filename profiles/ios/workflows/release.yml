@@ -70,7 +70,7 @@ jobs:
   # repositories do not have.
   verify-ci-provenance:
     name: Verify release provenance
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: {{LINUX_RUNNER}}
     timeout-minutes: 5
     permissions:
       # A job-level block REPLACES the workflow default, so `contents` has to be
@@ -148,7 +148,7 @@ jobs:
   # not occupy the dedicated Mac.
   select-products:
     name: Select products
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: {{LINUX_RUNNER}}
     timeout-minutes: 2
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
@@ -829,7 +829,7 @@ jobs:
 
   notify-on-failure:
     name: Notify on Failure
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: {{LINUX_RUNNER}}
     needs: [verify-ci-provenance, select-products, build-and-deploy]
     # `always()` rather than `failure()`, because a failed selection SKIPS
     # build-and-deploy rather than failing it, and a job whose need was skipped

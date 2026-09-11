@@ -29,6 +29,26 @@ type Project struct {
 	Xcodeproj    string `toml:"xcodeproj"`
 	SwiftVersion string `toml:"swift_version"`
 	GithubOrg    string `toml:"github_org"`
+	// LinuxRunner is the `runs-on` label for every Linux job the profiles render.
+	//
+	// Defaults to Blacksmith, which is cheaper per minute and is what the fleet
+	// wants: Blacksmith bills vCPU-weighted minutes, and the coordination job
+	// alone runs about 67 times a week at a 23s average.
+	//
+	// It is overridable because Blacksmith is installed PER ACCOUNT, and a profile
+	// renders into repositories under more than one owner. The app is installed on
+	// the PixelFoxStudio org and not on the personal account, so a Blacksmith job
+	// in a personally-owned repository queues with no runner assigned, forever --
+	// measured on patrickserrano/darndest-api-proxy, where both the arm64 and x64
+	// jobs sat `queued` while the same jobs completed in seconds in org repos.
+	//
+	// NOT derived from GithubOrg, deliberately. That field goes stale: as of
+	// 2026-09-11 a-bible-verse-each-day declares `github_org = "patrickserrano"`
+	// while the repository actually lives under PixelFoxStudio, so deriving the
+	// runner from it would have moved a working repository onto the wrong one.
+	// An explicit override is wrong only when someone writes it wrong; a derived
+	// one is wrong whenever the thing it derives from drifts.
+	LinuxRunner string `toml:"linux_runner"`
 	// Stack is the archetype this project was initialised from (see
 	// lacquer's archetypes/). Provenance only — the [[component]] blocks are
 	// what sync acts on. It records the answer the brief/PCD gave so a later
@@ -642,12 +662,38 @@ func validateProject(p Project) error {
 	if _, err := p.ParsedSkills(); err != nil {
 		return err
 	}
+	if err := validateLinuxRunner(p.LinuxRunner); err != nil {
+		return err
+	}
 	return validateXcodeproj(p.Xcodeproj)
 }
 
 // validateXcodeproj accepts a blank value, or a relative, non-escaping,
 // charset-safe path ending in ".xcodeproj" (it is substituted into CI -project
 // args via {{XCODEPROJ}}).
+// runnerVal is a GitHub `runs-on` label: letters, digits, dots and hyphens.
+//
+// Deliberately does not accept a YAML list. A self-hosted array is expressible
+// as `[self-hosted, ...]`, and the profiles already write those literally where
+// they mean them; letting a project inject one here would let a manifest move
+// Linux work onto the dedicated Mac, which the release provenance gate exists
+// to prevent.
+var runnerVal = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// validateLinuxRunner accepts a blank value, meaning "use the default".
+//
+// An unparseable label is worth rejecting at load rather than at render because
+// its failure mode is the one this field was added for: a `runs-on` that no
+// runner matches does not fail the workflow, it leaves the job QUEUED forever,
+// and a required check that never resolves reads as "CI is slow" rather than as
+// breakage.
+func validateLinuxRunner(s string) error {
+	if s == "" || runnerVal.MatchString(s) {
+		return nil
+	}
+	return fmt.Errorf("[project].linux_runner %q is not a valid runs-on label", s)
+}
+
 func validateXcodeproj(p string) error {
 	if p == "" {
 		return nil
