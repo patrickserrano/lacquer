@@ -500,7 +500,7 @@ jobs:
             2>&1 | xcbeautify --renderer github-actions || EXIT_CODE=$?
           # Exit code 65 is a known spurious xcodebuild failure. Treat as success
           # ONLY if the .xcarchive was actually produced; otherwise fail. (pipefail
-          # ensures $EXIT_CODE reflects xcodebuild's status, not xcpretty's.)
+          # ensures $EXIT_CODE reflects xcodebuild's status, not the formatter's.)
           if [ $EXIT_CODE -eq 65 ] && [ -d "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive" ]; then
             echo "xcodebuild exited 65 but archive exists — treating as success."
             EXIT_CODE=0
