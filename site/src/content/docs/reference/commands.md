@@ -17,6 +17,7 @@ description: Every lacquer CLI subcommand.
 | `lacquer audit` | Classify project drift and check the project baseline. Exit 3 if a sync would clobber a local change, 4 on a baseline violation or an expired `[project].exclude`, 6 if a stack on disk is undeclared (usable as a CI gate). |
 | `lacquer fleet --roster F [--json]` | Audit every project in a roster; exit 4 if any would fail its own audit. `--json` emits a snapshot. |
 | `lacquer fleet diff A.json B.json` | What changed between two snapshots; exit 4 on a regression. |
+| `lacquer protection [--repo O/N] [--branch B] [--roster F]` | Compare what branch protection **requires** against what CI can **post**. GitHub counts a skipped check as satisfying a required one, so a repo passes only if it requires the always-running `CI OK` aggregate — or some other context posted by a job nothing can skip. Reaches the GitHub API through `gh`, so it is opt-in and separate from `audit`. Exit 4 on a finding; **exit 7 if a repository could not be checked** — never reported as a pass. |
 | `lacquer console --roster F` | One screen: fleet truth + live sessions + open PRs. |
 | `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, re-attach, check, or stop work on a project or a named role. See `lacquer help` for the flag combinations each takes. |
 | `lacquer version` | Print the lacquer version. |

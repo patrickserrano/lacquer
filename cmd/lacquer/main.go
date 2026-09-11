@@ -29,6 +29,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
+	"github.com/patrickserrano/lacquer/internal/protection"
 	"github.com/patrickserrano/lacquer/internal/retire"
 	"github.com/patrickserrano/lacquer/internal/rootcheck"
 	"github.com/patrickserrano/lacquer/internal/shadow"
@@ -500,6 +501,85 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return 4
 			}
 		}
+	case "protection":
+		// The one command that reaches the GitHub API to answer a question, and
+		// it is separate from `audit` on purpose — see internal/protection for
+		// the full argument. In short: branch protection is in no file, reading
+		// it needs ADMIN on the repo (which a workflow's GITHUB_TOKEN does not
+		// have), and a repository cannot usefully judge a setting that decides
+		// whether its own verdict can be ignored.
+		//
+		// No requireLacquerRoot: this renders nothing and compares against
+		// nothing the lacquer ships, so demanding a lacquer checkout would stop
+		// an operator running it from the repo they are looking at.
+		fs := flag.NewFlagSet("protection", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		repo := fs.String("repo", "", "repository as owner/name (default: this checkout's origin remote)")
+		branch := fs.String("branch", "", "branch to check (default: the repository's default branch)")
+		rosterPath := fs.String("roster", "", "check every project in a roster instead of this one")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+
+		var reports []protection.Report
+		if *rosterPath != "" {
+			roster, err := fleet.LoadRoster(*rosterPath)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			for _, e := range roster.Project {
+				slug := e.Repo
+				if slug == "" {
+					// The roster's `repo` is optional, so fall back to the
+					// checkout's own origin. A project whose slug cannot be
+					// resolved at all becomes an UNCHECKED line rather than a
+					// skipped one — silently omitting it would make a roster of
+					// seventeen report seventeen clean repositories while having
+					// looked at sixteen.
+					s, err := protection.Slug(e.Path)
+					if err != nil {
+						reports = append(reports, protection.Unreachable(e.Name, err))
+						continue
+					}
+					slug = s
+				}
+				reports = append(reports, protection.Check(e.Path, slug, *branch))
+			}
+		} else {
+			slug := *repo
+			here, hereErr := protection.Slug(projectRoot)
+			switch {
+			case slug == "" && hereErr != nil:
+				return fail(stderr, hereErr)
+			case slug == "":
+				slug = here
+			case hereErr == nil && !strings.EqualFold(slug, here):
+				// Refused rather than reported. The check needs BOTH sides —
+				// what the branch requires AND what this checkout can post — so
+				// naming one repository while standing in another produces a
+				// comparison between two different projects that still renders
+				// as a verdict. That is the defect this command hunts, spelled
+				// with its own output. Use --roster to sweep repos you are not
+				// standing in.
+				return fail(stderr, fmt.Errorf("--repo %s, but this checkout's origin is %s; the required contexts and the posted ones would come from different repositories (run from that checkout, or use --roster)", slug, here))
+			}
+			reports = append(reports, protection.Check(projectRoot, slug, *branch))
+		}
+		fmt.Fprint(stdout, protection.Format(reports))
+
+		// Two exit codes, and the second one is the point. Exit 4 is a finding,
+		// matching every other "this is out of standard" result in this tool.
+		// Exit 7 is "a repository could not be checked", which is NOT a finding
+		// and must never be a pass: a logged-out `gh` or a 403 from an account
+		// that cannot have branch protection at all would otherwise exit 0 and
+		// report a fleet as verified that nobody looked at. A finding outranks
+		// an unchecked repo because it is the stronger, already-proven statement.
+		switch {
+		case protection.Blocking(reports) > 0:
+			return 4
+		case protection.Unchecked(reports) > 0:
+			return 7
+		}
 	case "console":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -745,6 +825,13 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  fleet --roster F [--json]    audit every project in a roster (exit 4 if any would fail its own")
 	fmt.Fprintln(w, "                               audit); --json emits a snapshot for a later run to diff against")
 	fmt.Fprintln(w, "  fleet diff A.json B.json     what changed between two snapshots (exit 4 on a regression)")
+	fmt.Fprintln(w, "  protection [--repo O/N] [--branch B] [--roster F]")
+	fmt.Fprintln(w, "                               compare what branch protection REQUIRES against what CI can")
+	fmt.Fprintln(w, "                               post. GitHub counts a skipped check as satisfying a required")
+	fmt.Fprintln(w, "                               one, so a repo passes only if it requires the always-running")
+	fmt.Fprintln(w, "                               \"CI OK\" aggregate, or a context no job can skip. Reaches the API")
+	fmt.Fprintln(w, "                               via `gh` (exit 4 on a finding; exit 7 if a repo could NOT be")
+	fmt.Fprintln(w, "                               checked — which is never reported as a pass)")
 	fmt.Fprintln(w, "  console --roster F           one screen: fleet truth + live sessions + open PRs")
 	fmt.Fprintln(w, "  console ... --mode bg|tmux dispatch <project> \"<task>\"")
 	fmt.Fprintln(w, "                               start work on one project (bg = isolated worktree; tmux = the checkout)")

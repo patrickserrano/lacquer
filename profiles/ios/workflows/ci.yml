@@ -174,11 +174,20 @@ jobs:
       #
       # The trade-off, stated plainly: drift is no longer a separately-named
       # status check. That is safe only while no repo requires it BY NAME in
-      # branch protection — checked across the whole fleet before this landed:
-      # every protected repo requires "CI OK" (one legacy repo requires iOS job
-      # names), none requires "No lacquer drift", and there are no rulesets at
-      # repo or org level. If a repo ever does require it by name, this has to go
-      # back to being its own job.
+      # branch protection. Re-measured across all 17 non-archived repos: 14
+      # require exactly "CI OK"; dailybread requires "Build (Release), Lint +
+      # Test"; Windsock and dailybread-image-proxy require NOTHING AT ALL. None
+      # requires "No lacquer drift", and there are no rulesets at repo or org
+      # level. If a repo ever does require it by name, this has to go back to
+      # being its own job.
+      #
+      # The three exceptions are not a footnote — they are the reason `lacquer
+      # protection` exists. GitHub counts a `skipped` conclusion as SATISFYING a
+      # required check, so requiring anything but the always-running aggregate
+      # is requiring something a skip can satisfy: on dailybread PR #482 both
+      # required checks were skips, and nothing ran. Run `lacquer protection
+      # --roster ...` to re-measure rather than trusting this paragraph, which
+      # is a snapshot and will age.
       #
       # The verdict leaves via an OUTPUT rather than by failing this job. Failing
       # `changes` would skip every job that `needs` it, so a drift finding would
@@ -1899,12 +1908,27 @@ jobs:
     # carried by runners on two separate boxes, so it costs nothing and still
     # fails over (see CLAUDE.md "CI Runners").
     runs-on: [self-hosted, Linux, pi-gate]
-    # The single required status check (branch protection points at "CI OK", not
-    # at Lint / Build / Test directly). It ALWAYS runs, so it always reports —
-    # even on docs-only PRs where every heavy job skips — so branch protection
-    # never gets stuck "pending" and docs PRs merge without an admin bypass.
-    # Fails only if a required job actually FAILED or was CANCELLED; a skipped
-    # job counts as OK.
+    # The check branch protection is MEANT to point at — "CI OK", not Lint /
+    # Build / Test directly. It ALWAYS runs, so it always reports — even on
+    # docs-only PRs where every heavy job skips — so branch protection never
+    # gets stuck "pending" and docs PRs merge without an admin bypass. Fails
+    # only if a required job actually FAILED or was CANCELLED; a skipped job
+    # counts as OK.
+    #
+    # "Meant to", not "does": this file cannot make it so. Branch protection is
+    # a repository setting, lives in no file here, and needs ADMIN to even read
+    # — a workflow's GITHUB_TOKEN cannot. Measured, 3 of 17 repos point
+    # elsewhere or nowhere (see the paragraph in `changes` above). That gap is
+    # checked by `lacquer protection`, deliberately from an operator's machine:
+    # a repo whose protection requires nothing real cannot be the thing that
+    # reports so, because the report would not be required either.
+    #
+    # Why THIS job rather than the real ones: a skipped check SATISFIES a
+    # required status check on GitHub. Every job below is skippable by
+    # construction (path filters, `needs` short-circuits, matrix legs that do
+    # not render), so requiring any of them by name buys a gate that a skip can
+    # satisfy. This one is `if: always()` and reads `needs.*.result`, which is
+    # why it is the only name worth requiring.
     needs: [changes, lint, baseline, build-release, test]
     if: always()
     timeout-minutes: 2
