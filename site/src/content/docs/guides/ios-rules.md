@@ -402,20 +402,11 @@ done
 | `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug |
 | `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug — differs per repo, so this one is never org-level |
 | `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → secret key (`sk_…`) — full account access |
-| `APP_STORE_CONNECT_FEEDBACK_KEY_IDENTIFIER` | testflight-feedback | a separate, least-privilege ASC API key id (read-only) |
-| `APP_STORE_CONNECT_FEEDBACK_ISSUER_ID` | testflight-feedback | issuer id for that key |
-| `APP_STORE_CONNECT_FEEDBACK_PRIVATE_KEY` | testflight-feedback | that key's `.p8` contents |
 
-The TestFlight-feedback job uses its own App Store Connect key, distinct from the release/signing key (`ASC_*`) — it only needs read access to beta feedback, and it runs on a GitHub-hosted runner, so it must never carry the signing key.
 
 **Several of these are opt-in, and skip rather than fail when unset**, so a
 project that hasn't provisioned a vendor isn't permanently red:
 
-- **TestFlight feedback.** Without all three `APP_STORE_CONNECT_FEEDBACK_*`
-  secrets the daily run skips with a `::notice::` and stays green; a manual
-  `workflow_dispatch` fails loudly instead, because someone deliberately asked
-  for feedback and a green check with zero results is indistinguishable from "no
-  new feedback".
 - **Sentry dSYM upload.** All three `SENTRY_*` secrets must be present or the
   step skips — a project with no Sentry gets a clean release, not a red one.
 ### A release must come from a commit CI passed
@@ -430,7 +421,7 @@ In practice: tag the merge commit rather than a branch tip, and let CI finish be
 
 Every synced workflow already sets the correct runner per job — when editing an existing job, keep whatever `runs-on` it already has; don't re-derive it. The rule below matters only when authoring a brand-new job:
 
-Xcode-touching work (build/test/lint/archive/sign/release) uses `runs-on: [self-hosted, macOS, ARM64, dedicated]` — never a GitHub-hosted macOS runner (`macos-latest`) or a stray self-hosted label like `mac-mini`. A pure script/REST-call job with no Xcode dependency (a TestFlight-feedback fetch, a deploy) uses `blacksmith-4vcpu-ubuntu-2404` instead — don't tie up the Mac for work that doesn't need it.
+Xcode-touching work (build/test/lint/archive/sign/release) uses `runs-on: [self-hosted, macOS, ARM64, dedicated]` — never a GitHub-hosted macOS runner (`macos-latest`) or a stray self-hosted label like `mac-mini`. A pure script/REST-call job with no Xcode dependency (a docs publish, a deploy) uses `blacksmith-4vcpu-ubuntu-2404` instead — don't tie up the Mac for work that doesn't need it.
 
 Two rules about the Linux label, because GitHub bills **per job started, with a one-minute minimum** — cost tracks job *count*, not duration:
 

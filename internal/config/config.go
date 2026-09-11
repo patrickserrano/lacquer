@@ -98,17 +98,23 @@ type Project struct {
 	ArchiveRoot string   `toml:"archive_root"`
 	Skills      []string `toml:"skills"`
 	// OptionalWorkflows opts a project INTO a workflow the lacquer ships but does
-	// not install by default, named without its `.yml` — e.g.
-	// optional_workflows = ["testflight-feedback"].
+	// not install by default, named without its `.yml`.
 	//
-	// The default-off set exists because a workflow that needs credentials nobody
-	// has does not fail loudly, it fails DAILY and quietly. testflight-feedback
-	// wants APP_STORE_CONNECT_FEEDBACK_ISSUER_ID and two siblings; no project in
-	// this fleet had them, so it had been red on every scheduled run since it was
+	// THE PROFILES CURRENTLY SHIP NONE, so this selects nothing today and a name
+	// with no file behind it is an error rather than a silent no-op. The mechanism
+	// is kept because the reason for it has not gone away: a workflow that needs
+	// credentials nobody has does not fail loudly, it fails DAILY and quietly.
+	//
+	// testflight-feedback was the case that produced it. It wanted
+	// APP_STORE_CONNECT_FEEDBACK_ISSUER_ID and two siblings, no project in this
+	// fleet had them, and it had been red on every scheduled run since it was
 	// added, in every repository that received it. A scheduled job nobody can
 	// satisfy is worse than a missing feature: it trains people to ignore red.
 	//
-	// Shipping it on request keeps the capability without imposing the failure.
+	// It was made default-off rather than deleted, and then deleted anyway once
+	// nothing had opted in. That order is the lesson worth keeping: default-off
+	// stopped the bleeding, and the absence of a single opt-in over the months
+	// that followed is what made the removal obvious rather than a judgement call.
 	OptionalWorkflows []string `toml:"optional_workflows"`
 	// BuildEnv names repository secrets the project's build needs at BUILD time,
 	// rendered into the synced web CI job's env block as

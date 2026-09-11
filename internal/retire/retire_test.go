@@ -47,7 +47,6 @@ func shippedWorkflows(t *testing.T) map[string]string {
 // retired projects stop receiving it, and this test is where that decision gets
 // made out loud. A new NON-scheduled workflow passes untouched.
 var scheduledShipped = []string{
-	"profiles/ios/workflows-optional/testflight-feedback.yml",
 	"profiles/ios/workflows/cleanup-ci.yml",
 	"profiles/supabase/workflows/health.yml",
 }
