@@ -1145,9 +1145,9 @@ jobs:
           pkill -9 -f "$GITHUB_WORKSPACE" 2>/dev/null || true
           sleep 3
 
-          # Pin to a specific iOS runtime for consistency.
-          # Update this when upgrading Xcode/iOS SDK.
-          PINNED_RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-26-2"
+          # Pin to a specific iOS runtime so every repository tests against the
+          # same one. Update this when the host Xcode moves.
+          PINNED_RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
 
           if ! xcrun simctl list runtimes | grep -q "$PINNED_RUNTIME"; then
             FALLBACK=$(xcrun simctl list runtimes | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS[0-9-]*' | sort -V | tail -1)
@@ -1159,7 +1159,33 @@ jobs:
             echo "::warning::Pinned runtime $PINNED_RUNTIME not found, falling back to $FALLBACK"
             PINNED_RUNTIME="$FALLBACK"
           fi
-          echo "Using runtime: $PINNED_RUNTIME"
+
+          # WARN WHEN THE PIN HAS FALLEN BEHIND THE HOST.
+          #
+          # The fallback above only fires when the pinned runtime is ABSENT. An
+          # installed-but-old runtime therefore holds forever: the host upgrades
+          # Xcode, the pin does not move, and nothing says so. That is not
+          # hypothetical -- the pin sat at iOS-26-2 while the host ran Xcode 27,
+          # two majors behind, and the fallback never fired because 26.2 was
+          # still installed.
+          #
+          # It cost a real failure that looked like a product bug. FoundationModels
+          # proxies simulator inference to the HOST's modelmanagerd, and the host's
+          # instruct_300m.safety adapter stopped carrying the prompt template in
+          # the shape an iOS 26.x runtime asks for. Measured across three runtimes
+          # on one host: 26.2 failed, 26.5 failed, 27.0 skipped cleanly. Most
+          # frameworks do not care about this pairing; the ones that do fail in
+          # ways that read as your code being broken.
+          #
+          # A warning, not an error: a lagging pin is usually fine and a hard
+          # failure here would block every repository the day Apple ships a major.
+          # What it must not do is stay silent, which is the behaviour being fixed.
+          HOST_SDK_MAJOR=$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null | cut -d. -f1)
+          PIN_MAJOR=$(echo "$PINNED_RUNTIME" | grep -oE 'iOS-[0-9]+' | cut -d- -f2)
+          if [ -n "$HOST_SDK_MAJOR" ] && [ -n "$PIN_MAJOR" ] && [ "$PIN_MAJOR" -lt "$HOST_SDK_MAJOR" ]; then
+            echo "::warning::Simulator runtime pin is iOS $PIN_MAJOR.x but this host's SDK is iOS $HOST_SDK_MAJOR.x. Frameworks that proxy to the host (FoundationModels among them) can fail in ways that look like product bugs. Update PINNED_RUNTIME in the lacquer's ios profile."
+          fi
+          echo "Using runtime: $PINNED_RUNTIME (host SDK iOS ${HOST_SDK_MAJOR:-unknown}.x)"
 
           # The simulator name is scoped to THIS REPOSITORY, and the cleanup
           # below only ever touches names carrying that scope.
