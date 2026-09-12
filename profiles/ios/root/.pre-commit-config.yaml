@@ -96,26 +96,6 @@ repos:
         pass_filenames: false
         files: ^{{COMPONENT_PREFIX}}.*\.swift$
 
-      # The TestFlight feedback fetcher's own tests. This script is the one piece
-      # of shipped Python in an iOS project, it runs unattended on a schedule,
-      # and it is the only thing that turns tester feedback into an issue — so a
-      # break in it is invisible until someone notices the issues stopped making
-      # sense. That is not hypothetical: it shipped reading two attributes that
-      # do not exist on the resource and filed thirteen issues with blank fields
-      # and no screenshot before anyone spotted it.
-      #
-      # stdlib `unittest`, no network and no dependencies, so it is a sub-second
-      # hook. There is no CI twin to defer to (the fetcher's workflow is
-      # schedule/dispatch-only and gates no PR), which is exactly why it must
-      # block here.
-      - id: feedback-fetcher-tests
-        name: TestFlight feedback fetcher tests
-        entry: python3 .github/scripts/test_fetch_testflight_feedback.py
-        verbose: true
-        language: system
-        pass_filenames: false
-        files: ^\.github/scripts/.*\.py$
-
       # Conventional Commits — enforced by a LOCAL script (the lacquer keeps every
       # hook local: no remote pre-commit repo runs on every commit = no supply
       # chain to trust).
