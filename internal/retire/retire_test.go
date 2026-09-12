@@ -1,7 +1,9 @@
 package retire
 
 import (
+	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -201,6 +203,107 @@ func TestDrops(t *testing.T) {
 
 	if _, err := Drops(filepath.Join(dir, "gone.yml"), ".github/workflows/x.yml"); err == nil {
 		t.Error("an unreadable workflow must be an error, not a silent keep")
+	}
+}
+
+// workflowDest computes the destination sync would write for a shipped
+// workflow source, given its repo-relative path as returned by
+// shippedWorkflows: "profiles/<p>/workflows/<file>" or
+// "profiles/<p>/workflows-optional/<file>" get the profile's dest-prefix
+// ("<p>-<file>"); "core/root/.github/workflows/<file>" does not, because core
+// assets are stack-agnostic. Mirrors the naming rule in
+// internal/assets/assets.go's add() calls for workflows (p+"-"+basename) and
+// workflows-optional (p+"-"+want+".yml") without importing internal/assets,
+// which itself imports this package — importing it here would cycle.
+func workflowDest(t *testing.T, repoRelPath string) string {
+	t.Helper()
+	base := path.Base(repoRelPath)
+	switch {
+	case strings.HasPrefix(repoRelPath, "core/root/.github/workflows/"):
+		return ".github/workflows/" + base
+	case strings.HasPrefix(repoRelPath, "profiles/"):
+		rest := strings.TrimPrefix(repoRelPath, "profiles/")
+		profile, _, ok := strings.Cut(rest, "/")
+		if !ok {
+			t.Fatalf("unexpected shipped workflow path shape: %s", repoRelPath)
+		}
+		return ".github/workflows/" + profile + "-" + base
+	default:
+		t.Fatalf("unexpected shipped workflow path shape: %s", repoRelPath)
+		return ""
+	}
+}
+
+// TestUnshippedNotCurrentlyShipped is half of the guard described on
+// Unshipped: a destination cannot be BOTH permanently retired and something a
+// profile still produces. Catches a name wrongly left on the list after a
+// workflow of the same name is reintroduced, and — if a future removal reuses
+// an already-retired destination — the collision that would create.
+func TestUnshippedNotCurrentlyShipped(t *testing.T) {
+	shipped := shippedWorkflows(t)
+	produced := map[string]bool{}
+	for rel := range shipped {
+		produced[workflowDest(t, rel)] = true
+	}
+	for _, dest := range Unshipped {
+		if produced[dest] {
+			t.Errorf("%s is on the Unshipped list but a profile still ships it — "+
+				"either the workflow came back (remove it from Unshipped) or this "+
+				"is a naming collision with a live workflow", dest)
+		}
+	}
+}
+
+// TestUnshippedNotReferenced is the guard that actually matters (see the
+// Unshipped doc comment). issue #354's root cause was not a missing list entry
+// in isolation — PR #325 already removed the three sources — it was that
+// nothing checked whether some OTHER shipped file still named them.
+// ios-cleanup-ci.yml did, until the same PR happened to also fix it by hand;
+// this test is what would have made that fix mandatory rather than lucky, and
+// what catches the next one.
+//
+// Scans every file this repo ships (core/ and profiles/, not just workflows —
+// a stale reference could just as easily sit in a skill or a CLAUDE.*.md) for
+// each retired destination's basename.
+func TestUnshippedNotReferenced(t *testing.T) {
+	names := make([]string, 0, len(Unshipped))
+	for _, dest := range Unshipped {
+		names = append(names, path.Base(dest))
+	}
+	roots := []string{"../../core", "../../profiles"}
+	found := false
+	for _, root := range roots {
+		if _, err := os.Stat(root); err != nil {
+			continue
+		}
+		found = true
+		err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", p, err)
+			}
+			body := string(data)
+			for _, name := range names {
+				if strings.Contains(body, name) {
+					t.Errorf("%s references %q, a workflow the lacquer no longer ships "+
+						"(see Unshipped in internal/retire/retire.go) — remove or update "+
+						"the reference in the same change that retires the workflow", p, name)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+	if !found {
+		t.Skip("not running from a lacquer checkout: neither core/ nor profiles/ found")
 	}
 }
 

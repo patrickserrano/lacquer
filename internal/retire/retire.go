@@ -42,6 +42,37 @@ const Dependabot = ".github/dependabot.yml"
 // with a `schedule:` trigger anywhere else is not a workflow and is left alone.
 const workflowDir = ".github/workflows"
 
+// Unshipped is every workflow destination the lacquer has permanently stopped
+// shipping: the source under profiles/*/workflows was deleted outright, for
+// every project, not just a [project].retired one.
+//
+// This is a different question from Drops above. Drops classifies a workflow
+// the lacquer STILL ships, by reading its current `on:` block — there is no
+// content left to read once the source file itself is gone. Nothing else in
+// this repository notices that kind of removal on its own, which is exactly
+// how ios-claude.yml, ios-dependency-audit.yml and ios-quality-review.yml
+// became 38 undetected orphans across 13 projects (issue #354): commit
+// 989ca0c (PR #325, v1.26.1) deleted the three sources and fixed the one file
+// that referenced them by name (ios-cleanup-ci.yml's busy-check), but recorded
+// the removal nowhere a guard could check, so nothing failed.
+//
+// Listed here WITH the destination's dest-prefix ("ios-"), never the bare
+// source basename, because the prefixed name is the only spelling that can
+// appear anywhere downstream of Plan — in a project's own files, in this list,
+// in a human's audit report — the pre-prefix basename never leaves
+// profiles/ios/workflows.
+//
+// TestUnshippedNotCurrentlyShipped and TestUnshippedNotReferenced (retire_test.go)
+// are the guard: the first catches a name that is both retired here and still
+// produced by a profile (the two must never both be true), and the second —
+// the one that actually would have caught issue #354 — catches a name on this
+// list still appearing inside any file the lacquer currently ships.
+var Unshipped = []string{
+	".github/workflows/ios-claude.yml",
+	".github/workflows/ios-dependency-audit.yml",
+	".github/workflows/ios-quality-review.yml",
+}
+
 // Drops reports whether a retired project stops receiving this asset. src is the
 // asset's source path in the lacquer, dest its project-relative destination.
 //
