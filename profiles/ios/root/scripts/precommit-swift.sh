@@ -93,16 +93,63 @@ case "$TOOL" in
   swiftformat)
     # Formats in place; pre-commit fails the hook if files were modified,
     # leaving the formatted result in the working tree to re-stage.
+    #
+    # No --force-exclude equivalent needed here: unlike SwiftLint, SwiftFormat
+    # applies its `--exclude` config to explicitly-named paths the same way it
+    # does during a directory scan (verified against $CONFIG's own `--exclude
+    # DerivedData,DerivedData-*,.build,.swiftpm,**/Generated` line: an explicit
+    # path under an excluded directory is reported as "N file(s) skipped" and
+    # left untouched, exit 0). $CONFIG also excludes no test directories, so
+    # there is no analogue of the swiftlint-docs bypass below to close.
     "$BIN" --config "$CONFIG" "${REL[@]}"
+    echo "$TOOL: $# staged Swift file(s) passed to $BIN against $CONFIG (the tool's own --exclude config applies; see its output above for what was actually formatted)."
     ;;
   swiftlint|swiftlint-docs)
     # --strict, matching CI exactly: line_length, file_length, type_body_length
     # and function_body_length are all WARNING severity, so without it they
     # print, pass, and then fail the PR.
-    "$BIN" lint --strict --quiet --config "$CONFIG" "${REL[@]}"
+    #
+    # --force-exclude: SwiftLint applies a config's `excluded:` list only while
+    # walking a directory, NOT to paths named explicitly on the command line —
+    # and this hook always passes explicit staged paths. Without this flag,
+    # swiftlint-docs (whose config excludes **/Tests and **/*Tests on purpose,
+    # to avoid requiring filler doc comments on @Test methods) lints exactly
+    # the files the config says not to.
+    #
+    # With --force-exclude, excluding every given path changes SwiftLint's exit
+    # from "0 violations" to exit 1 with "No lintable files found at paths:
+    # ...". That specific case is treated as success below — matched on BOTH
+    # the exit code and the message text, so if SwiftLint ever reflows that
+    # wording the commit is blocked loudly rather than silently passed. Any
+    # other exit 1 (a real lint violation is also exit 1) must still fail with
+    # SwiftLint's own output shown.
+    #
+    # When only SOME of the given paths are excluded, SwiftLint gives no
+    # signal at all: it silently drops them and lints the rest, exit 0 — there
+    # is no message to key on and no reliable way to recover an "N excluded"
+    # count afterward. The closing line below does not invent one.
+    status=0
+    if out=$("$BIN" lint --strict --quiet --force-exclude --config "$CONFIG" "${REL[@]}" 2>&1); then
+      status=0
+    else
+      status=$?
+    fi
+    if [ "$status" -ne 0 ]; then
+      if [ "$status" -eq 1 ] && printf '%s\n' "$out" | grep -q "No lintable files found"; then
+        echo "$TOOL: all $# staged Swift file(s) are excluded by $CONFIG — nothing to lint (via $BIN)."
+        exit 0
+      fi
+      echo "$out" >&2
+      exit "$status"
+    fi
+    if [ -n "$out" ]; then
+      echo "$out"
+    fi
+    # Positive proof-of-run (the hook is `verbose: true`, so this line is shown
+    # on every commit). Deliberately NOT "$TOOL verified $# staged Swift
+    # file(s)": some of the $# paths handed to SwiftLint may have been
+    # silently excluded by $CONFIG (see above), so claiming all $# were
+    # verified would overclaim exactly the case this fix exists to close.
+    echo "$TOOL: $# staged Swift file(s) checked against $CONFIG (config exclusions applied) via $BIN"
     ;;
 esac
-
-# Positive proof-of-run (the hook is `verbose: true`, so this line is shown on
-# every commit): confirms the stage executed and how many files it verified.
-echo "$TOOL verified $# staged Swift file(s) via $BIN"
