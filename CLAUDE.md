@@ -35,7 +35,9 @@ reality. Three rules follow, in yield order.
 
 ## 1. A detector does not merge without a fleet dry-run in the pull request
 
-Run it against every managed repository, and paste the output into the PR.
+Run it against every managed repository, and paste the output into the PR
+under a `## Fleet dry-run` heading. CI rejects a pull request that changes a
+detector package without one.
 
 The warnings-as-errors gate had a green suite and two defects. Both surfaced the
 moment it ran against all fifteen iOS projects instead of against fixtures —
@@ -68,6 +70,8 @@ defect class in issue #333 wearing a test's clothes.
 ## 3. Anything infrastructural proves on one repository before the fleet
 
 Runner labels, workflow topology, anything that renders into every managed repo.
+A pull request that changes `profiles/*/workflows/` names the repository and
+run it was proven on under a `## Proven on` heading; CI rejects it otherwise.
 
 `blacksmith-2vcpu-ubuntu-2404-arm` shipped fleet-wide having been proven on zero
 repositories. No runner is ever assigned to it on the account that mattered, and

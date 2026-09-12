@@ -187,6 +187,46 @@ jobs:
           fi
           echo "Rule-file mirrors OK."
 
+      # CLAUDE.md rule 1, as a check rather than prose: a detector does not
+      # merge without a fleet dry-run in the pull request. Written only as a rule,
+      # nothing enforced it. Same job as the checks above, for the same
+      # one-minute-minimum billing reason.
+      - name: Detector changes carry a fleet dry-run
+        env:
+          # Untrusted input: read via env, never interpolated into the script.
+          BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Variables and here-strings, not `printf | grep -q`: under pipefail an
+          # early-exiting grep can SIGPIPE the writer and flip the result.
+          changed=$(git diff --name-only "$BASE...$HEAD")
+          detector=$(grep -E '^internal/(audit|baseline|detect|protection|testtargets)/[^/]+\.go$' <<<"$changed" | grep -vE '_test\.go$' || true)
+          if [ -n "$detector" ] && ! grep -qE '^#{2,3} Fleet dry-run' <<<"$BODY"; then
+            echo "::error::This PR changes a detector under internal/ ($(tr '\n' ' ' <<<"$detector")). CLAUDE.md rule 1: run it against every managed repository and paste the output under a '## Fleet dry-run' heading in the PR body."
+            exit 1
+          fi
+          echo "Fleet dry-run requirement OK."
+
+      # CLAUDE.md rule 3, as a check rather than prose: a workflow template renders
+      # into every managed repository, so it proves on one first.
+      - name: Workflow-template changes name where they were proven
+        env:
+          # Untrusted input: read via env, never interpolated into the script.
+          BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "$BASE...$HEAD")
+          workflows=$(grep -E '^profiles/[^/]+/workflows/' <<<"$changed" || true)
+          if [ -n "$workflows" ] && ! grep -qE '^#{2,3} Proven on' <<<"$BODY"; then
+            echo "::error::This PR changes a workflow that renders into every managed repository. CLAUDE.md rule 3: prove it on one repository first and name the repository and run under a '## Proven on' heading in the PR body."
+            exit 1
+          fi
+          echo "Proven-on requirement OK."
+
   test:
     # Stays on ubuntu-latest, NOT the self-hosted Synology runner. lacquer
     # itself is a PUBLIC repo: GitHub's own guidance is that self-hosted

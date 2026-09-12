@@ -326,24 +326,18 @@ is a restatement, that is a signal the name is doing its job and the *type* or
 
 ### Nothing publishes a docs site any more
 
-**There is no hosted API documentation, for any stack.** `gh-pages` used to be
-the composed site — each stack's nightly docs workflow wrote its own
-subdirectory and `scripts/publish-docs.sh` regenerated the root index from
-whatever was present. Those workflows were removed, so no branch is written and
-no site is served. `scripts/publish-docs.sh` has now been unshipped too.
+**There is no hosted API documentation, for any stack.** No workflow writes a
+`gh-pages` branch, no site is served, and `scripts/publish-docs.sh` is not
+shipped.
 
 **Unshipped means the lacquer stopped MANAGING it. It does not mean nothing
-calls it, and it is not an instruction to delete it.** This paragraph used to
-say the script had "outlived every caller" and that the audit listing was "the
-prompt to remove it". Both were wrong, and the second was wrong in the dangerous
-direction: in `dick-passport`, `flare`, `kit` and `skein`, `ios-docs.yml` runs
-`scripts/build-docs.sh` in CI and `.pre-commit-config.yaml` runs it on every
-commit. Three separate readers reached "retired, safe to remove" from that
-wording within a day, and acting on it would have broken working pipelines in
-eight repositories.
+calls it, and it is not an instruction to delete it.** `scripts/build-docs.sh` is the live
+example: in `dick-passport`, `flare`, `kit` and `skein`, `ios-docs.yml` runs it
+in CI and `.pre-commit-config.yaml` runs it on every commit, so deleting it
+breaks working pipelines.
 
 **Before removing any unshipped file, grep for its path and its basename.** The
-audit now annotates each entry with what still references it — a file marked
+audit annotates each entry with what still references it — a file marked
 `STILL REFERENCED by …` has a live caller, and one marked
 `referenced by nothing tracked` is the safe case, though a caller that builds
 the path dynamically will not be found by either check.
@@ -355,9 +349,9 @@ and the docs build still runs from the hook on web and Supabase.
 project.** A Pages site is served publicly even when its repository is private —
 that is the plan's behaviour, not a misconfiguration — so enabling it publishes
 the API documentation, and with it the internal type and module names, to anyone
-with the URL. Private Pages needs an Enterprise plan. A Cloudflare Workers
-deployer used to ship here and was removed for the same reason: its whole
-purpose was to copy an internal tree onto a public edge network.
+with the URL. Private Pages needs an Enterprise plan. The same goes for any deployer
+that copies the internal tree onto a public edge network, such as Cloudflare
+Workers.
 
 **A project that cannot comply yet relaxes it — time-boxed, never open-ended.**
 Same mechanism as every other baseline key, in the project's own `.lacquer.toml`:

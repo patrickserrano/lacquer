@@ -24,10 +24,8 @@ started](/lacquer/guides/getting-started/).
 - **Never add Swift Package Manager dependencies** without explicit user permission. To *bump* existing deps (no new deps added), use `flowdeck project packages update` — it re-resolves `Package.resolved` to the latest versions allowed by the existing `upToNextMajorVersion` constraints without touching the `.pbxproj`; build + test afterward.
 - **Never change the deployment target** without explicit user request.
 - **Never modify `.entitlements` files** without explicit user request.
-- **Never use `NavigationView`** — always `NavigationStack`.
-- **Never use `ObservableObject`** — always `@Observable`.
-- **Never use `@StateObject`** — always `@State` with `@Observable` objects.
-- **Never use `@Published`** — `@Observable` properties publish automatically.
+- **Model observable state with `@Observable`**, held in `@State` — not `ObservableObject`, `@StateObject`, or `@Published`; `@Observable` properties publish automatically.
+- **Navigate with `NavigationStack`**, not `NavigationView`.
 
 ## App Store requirements
 
@@ -65,7 +63,7 @@ silent upgrade becomes visible in the log instead of inferred from a failure.
 
 ## Release archives go to the archive volume, not the repository
 
-`.xcarchive` bundles are 60–100 MB each. They used to be written into the repository checkout, where every release left one behind on the runner and any tool that walked the working tree tripped over them. The release workflow now writes them to a dedicated volume, namespaced by repository and run id:
+`.xcarchive` bundles are 60–100 MB each. Written into the repository checkout, every release leaves one behind on the runner and trips any tool that walks the working tree, so the release workflow writes them to a dedicated volume, namespaced by repository and run id:
 
 ```
 /Volumes/Developer Archives/CI Archives/<repo>/<run-id>/<Product>.xcarchive
@@ -470,12 +468,10 @@ Measured 2026-09-09 against a purpose-built probe project on **flowdeck 1.26.5 /
 That is the *"never ran looks like passed"* failure sitting inside the test runner — the last place it can be caught by reading a result. Anything built on top of it inherits a silently smaller denominator: a green targeted run, a coverage figure, a report that says "N/N passed".
 :::
 
-:::danger[`flowdeck build`/`flowdeck test` exited 0 on failure through 2026-08-28 — FIXED in 1.26.5]
-The original bug (verified 2026-08-28): a genuine build/test failure (a real `Could not find test host` error, printed in red, "✗ Test run failed.") still exited **0**, as did a plain usage error.
+:::danger[Check `flowdeck --version` before trusting `$?` from `flowdeck build`/`flowdeck test`]
+Before 1.26.5, a genuine build or test failure — and a plain usage error — exited **0**. From 1.26.5 the exit code is correct: test failure, compile error, unknown scheme and missing required flag all exit `1`.
 
-Re-measured 2026-09-09 on **flowdeck 1.26.5 / Xcode 27.0**, and the exit code is now correct in every case tried — test failure `1`, compile error `1`, unknown scheme `1`, missing required flag `1`, clean build `0`.
-
-- **Run `flowdeck --version`.** On **1.26.5 or newer**, `$?` is trustworthy for build/test. On anything **older**, it is not: check the printed output for `✗`/`Error`/"failed", or parse `--json` and read its `success`/`failed` fields, because `flowdeck test && echo passed` will print "passed" after a real failure.
+- **On anything older than 1.26.5, do not use `$?`**: check the printed output for `✗`/`Error`/"failed", or parse `--json` and read its `success`/`failed` fields, because `flowdeck test && echo passed` prints "passed" after a real failure.
 - **The exit-code fix does not rescue the selector bugs above, and this is the part that still bites.** A `--only`/`--test-cases` run that skipped every parameterized case exits `0` *legitimately* — every test it chose to run did pass. A correct exit code on the wrong denominator still means nothing, so the selector rules stand on their own.
 - When measuring an exit code, capture it from the command itself (`out=$(flowdeck test ...); code=$?`). `flowdeck test ... | tail -20; echo $?` reports **`tail`'s** status and will read `0` no matter what flowdeck did — a mistake made while gathering exactly these numbers.
 - If you are the one writing a pre-commit hook, CI step, or any script that gates on a flowdeck command's result on an older flowdeck, gate on the parsed output, not the shell's `$?`.
@@ -651,10 +647,8 @@ change on its own, or pass `--no-verify` for that one commit, then let the
 following commit be gated normally. "I added the relaxation and it did not take"
 is the obvious first experience, and the cause is invisible from the error.
 
-Three settings decide whether a DocC build checks anything. `scripts/build-docs.sh`
-encoded all three and no longer ships; they're kept on record because each was
-found the expensive way, and a rebuilt docbuild that gets one of them wrong
-reports green while checking nothing:
+Three settings decide whether a DocC build checks anything; a docbuild that gets
+any of them wrong reports green while checking nothing:
 
 - `DOCC_MINIMUM_ACCESS_LEVEL=internal` — DocC extracts `public` and above by
   default, and an app target's code is `internal` by default. Without it an app

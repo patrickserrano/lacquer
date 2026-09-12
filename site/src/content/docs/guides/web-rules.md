@@ -106,9 +106,8 @@ both of them silent:
   which reads like the setting not working.
 
 Also **check `vercel.json`** (or whatever deploys the project) for a pinned
-`installCommand`. One site had `"installCommand": "npm ci"`, which would have
-kept passing CI and failed every production deploy on the lockfile that no longer
-exists.
+`installCommand`. `"installCommand": "npm ci"` keeps passing CI and fails every production deploy
+once the project no longer has an npm lockfile.
 
 **Name the local binary by its path — `./node_modules/.bin/<tool>` — and use no
 runner at all.** `npx <tool>` silently downloads a version when the project has
@@ -274,17 +273,7 @@ Both profiles ship a `lefthook.yml` to the repository root, so `lacquer sync` me
 :::caution[Git hooks in a mixed repo]
 If this repo also contains an iOS component, the iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a `lefthook.yml` — both write `.git/hooks`, and whichever `install`s last silently wins. Don't install both.
 
-:::danger[Which one should win depends on which stack has code on disk]
-This paragraph used to say "the iOS `pre-commit` framework should own `.git/hooks`" unconditionally. In a repo where the iOS component is declared but not yet created — the pre-code `.xcodeproj` gate is a normal state, not an anomaly — following that **trades working web gates for iOS gates that run on nothing**.
-
-multimeter is exactly that shape: lefthook won the race, and its web checks caught a Biome complexity violation, a `tsc` `exactOptionalPropertyTypes` error and a secrets-scan hit in one week, while pre-commit's Swift hooks would have had no Swift to look at.
-
-**Whichever manager guards code that actually exists should own `.git/hooks`.**
-:::
-
-Once both stacks have code, prefer `pre-commit` — its Swift hooks are the ones with no CI-side equivalent that runs per-commit — and add the web checks to it as `repo: local` hooks (e.g. an entry running `./node_modules/.bin/biome ci` scoped to the web component) rather than installing lefthook alongside it.
-
-**The composed setup is the intended end state, and it now ships.** The `lefthook.yml` this profile syncs carries an `ios-pre-commit` command that runs `pre-commit run --hook-stage pre-commit`, so lefthook owns `.git/hooks` and calls pre-commit from inside it — one installed hook, both rule sets. The command is byte-identical in the web and supabase fragments, so a repo with all three components bridges once rather than twice, and it no-ops in a repo with no `.pre-commit-config.yaml`. `commit-msg` needs no bridge: both sides already run the same `scripts/check-commit-msg.sh`.
+**lefthook owns `.git/hooks`, and it calls pre-commit.** The `lefthook.yml` this profile syncs carries an `ios-pre-commit` command that runs `pre-commit run --hook-stage pre-commit`, so one installed hook runs both rule sets. The command is byte-identical in the web and supabase fragments, so a repo with all three components bridges once rather than twice, and it no-ops in a repo with no `.pre-commit-config.yaml` — which is what keeps the web gates running while an iOS component is declared but not yet created. `commit-msg` needs no bridge: both sides already run the same `scripts/check-commit-msg.sh`.
 
 **In a mixed repo, run `lefthook install` — not `pre-commit install`.**
 
@@ -363,14 +352,11 @@ needs no `//#` entries and is the simpler layout to start from.
 ### Check what the task actually dispatches to
 
 Turbo runs the package script of the same name, so a task is only as strong as
-that script. Two are easy to get wrong because the single-app CI path did not
-use them:
+that script. Two are easy to get wrong:
 
 - `lint` must be the full `biome ci --error-on-warnings .`, not a narrower
-  convenience script like `biome lint src/` — the single-app path invoked Biome
-  directly, so a weak `lint` script was previously never on the gate.
-- `test` must carry coverage. The single-app path ran `test:coverage`; turbo
-  runs `test`.
+  convenience script like `biome lint src/`.
+- `test` must carry coverage: turbo runs `test`, not `test:coverage`.
 
 `turbo run <task> --dry=json` prints each task's `command`, which is the quickest
 way to see what is really being dispatched.
