@@ -682,7 +682,7 @@ jobs:
           NOTES_FILE: ${{ steps.whats_new.outputs.notes_file }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           if [ -z "${BUILD_NUMBER:-}" ]; then
             echo "::warning::No build number recorded, so the release notes were not applied."
             exit 0
@@ -802,7 +802,7 @@ jobs:
       - name: Restore keychain settings and lock
         if: always()
         run: |
-          set -uo pipefail
+          set -euo pipefail
           KEYCHAIN=~/Library/Keychains/login.keychain-db
 
           # Put back whatever this machine had before the job, rather than
