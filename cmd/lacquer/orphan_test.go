@@ -46,9 +46,21 @@ func plantOrphan(t *testing.T, dir, rel string) {
 }
 
 // The wiring, not the classification: audit must actually consult the orphan
-// check and print it. A function passing its own test says nothing about the
-// shape CI runs.
-func TestAuditReportsOrphansWithoutGating(t *testing.T) {
+// check, print it, AND gate on it. A function passing its own test says
+// nothing about the shape CI runs.
+//
+// This used to assert exit 0 — "an orphan is a leftover file, not a broken
+// project, and gating on something that endangers nothing teaches people
+// lacquer output is noise." That was true for the general case and wrong for
+// the one that actually happened: ios-claude.yml, ios-dependency-audit.yml and
+// ios-quality-review.yml were orphans this exact detector reported correctly,
+// with STILL REFERENCED annotations, on every run for ten releases across 13
+// of 14 fleet repos, while two of them kept running unattended on a
+// `schedule:` trigger the whole time (issue #354). A detector whose only
+// externally-visible effect is prose in a scrollback nobody reads for green CI
+// is an optional finding. See cmd/lacquer/main.go's exit-4 case for the
+// updated argument.
+func TestAuditExits4OnOrphanAndReportsIt(t *testing.T) {
 	lq := realLacquer(t)
 	dir := fixtureProject(t, lq)
 	chdir(t, dir)
@@ -65,11 +77,11 @@ func TestAuditReportsOrphansWithoutGating(t *testing.T) {
 	code := run([]string{"audit"}, env, &out, &errb)
 	all := out.String() + errb.String()
 
-	// An orphan is a leftover file, not a broken project. Gating on something
-	// that endangers nothing is the reliable way to teach people that lacquer
-	// output is noise to be worked around.
-	if code != 0 {
-		t.Errorf("audit exited %d over an orphan; reporting is not the same decision as gating\n%s", code, all)
+	// Exit 4, shared with a baseline violation, an expired exclusion, and an
+	// expired dependabot ignore: same tier of finding ("this project is out of
+	// standard, go read the output"), no diagnostic gain from a fifth number.
+	if code != 4 {
+		t.Errorf("audit exited %d over an orphan, want 4\n%s", code, all)
 	}
 	if !strings.Contains(all, ".github/workflows/web-legacy.yml") {
 		t.Errorf("audit does not report the orphan:\n%s", all)

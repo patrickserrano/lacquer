@@ -511,3 +511,69 @@ dependabot_ignore = [
 		t.Errorf("a healthy ignore was reported as needing attention:\n%s", out.String())
 	}
 }
+
+// An orphan — a file .lacquer.lock says the lacquer wrote, that no current
+// source produces any more, still sitting in the project — must fail `lacquer
+// audit` with exit 4, same as a baseline violation or an expired exclusion.
+//
+// This is issue #354's second half. The orphan detector (internal/audit.Orphans)
+// already found this correctly on every run; the finding printed under "no
+// longer managed by the lacquer, still in this project" and audit exited 0
+// anyway, which is how three orphaned workflows — two of them still on a
+// `schedule:` trigger — survived undetected in 13 of 14 fleet repos for ten
+// releases. A detector whose only externally-visible effect is prose is an
+// optional finding.
+func TestAuditExits4OnOrphan(t *testing.T) {
+	hr, pr := auditFixture(t, pbxCompliant, "")
+	chdir(t, pr)
+
+	// A lock recording a destination no current plan produces — the shape
+	// .lacquer.lock is left in by a lacquer version that shipped a workflow
+	// since removed from profiles/ios/workflows entirely (not excluded, not
+	// retired: gone). The file must still be on disk for Orphans to count it
+	// (see internal/audit.stillPresent); an already-deleted orphan is not
+	// reported.
+	orphanDir := filepath.Join(pr, ".github", "workflows")
+	if err := os.MkdirAll(orphanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphanDir, "ios-ghost.yml"), []byte("name: ghost\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lockBody := `{"version":"71.0.0","files":{".github/workflows/ios-ghost.yml":"deadbeef"}}`
+	if err := os.WriteFile(filepath.Join(pr, ".lacquer.lock"), []byte(lockBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 4 {
+		t.Fatalf("exit code = %d, want 4\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	for _, want := range []string{"no longer managed by the lacquer", "ios-ghost.yml"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report does not mention %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// The mirror image: a locked project whose lock holds nothing but currently-
+// shipped keys has no orphans, and must not fail on this exit path.
+func TestAuditExits0WithNoOrphans(t *testing.T) {
+	hr, pr := auditFixture(t, pbxCompliant, "")
+	chdir(t, pr)
+
+	lockBody := `{"version":"71.0.0","files":{}}`
+	if err := os.WriteFile(filepath.Join(pr, ".lacquer.lock"), []byte(lockBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	if strings.Contains(out.String(), "no longer managed by the lacquer") {
+		t.Errorf("an empty lock must not report an orphan:\n%s", out.String())
+	}
+}
