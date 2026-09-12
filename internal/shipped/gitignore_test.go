@@ -239,10 +239,61 @@ func TestGitignoreRegionIgnoresCredentials(t *testing.T) {
 	}
 }
 
+// TestGitignoreRegionIgnoresBuildOutputs covers the paths the lacquer's OWN ios
+// rules and CI create: profiles/ios/CLAUDE.ios.md tells agents to build with
+// `-d DerivedData-<feature>`, the ios CI workflow creates DerivedData and
+// WatchDerivedData of its own, and *.profraw is the LLVM coverage file the same
+// builds emit. Measured directly against a real project (multimeter) before
+// this existed: ios/DerivedData-menubar/x, DerivedData-menubar/x,
+// ios/WatchDerivedData/x, default.profraw and ios/default.profraw were all
+// genuinely untracked-but-unignored.
+//
+// Both directions, same reason as the credentials test above: an over-broad
+// pattern here would silently drop a real source file whose name merely
+// contains "DerivedData".
+func TestGitignoreRegionIgnoresBuildOutputs(t *testing.T) {
+	project := syncedProject(t, "")
+
+	for _, path := range []string{
+		"DerivedData/x",
+		"ios/DerivedData/x",
+		// Unanchored *and* the `-*` sibling: profiles/ios/CLAUDE.ios.md's own
+		// per-feature build directories.
+		"DerivedData-menubar/x",
+		"ios/DerivedData-menubar/x",
+		// The exact nested shape requested for this fix.
+		"ios/DerivedData-feature/file",
+		"WatchDerivedData/x",
+		"ios/WatchDerivedData/x",
+		"default.profraw",
+		"ios/default.profraw",
+	} {
+		if !ignored(t, project, path) {
+			t.Errorf("%s is NOT ignored — a `git add -A` would stage the lacquer's own build output", path)
+		}
+	}
+
+	// Both directions: a source file that merely CONTAINS "DerivedData" in its
+	// name must not be swallowed by an over-broad pattern.
+	for _, path := range []string{
+		"DerivedDataHelper.swift",
+		"ios/DerivedDataHelper.swift",
+	} {
+		if ignored(t, project, path) {
+			t.Errorf("%s IS ignored — that is real source, not the lacquer's build output", path)
+		}
+	}
+}
+
 // TestGitignoreRegionKeepsProjectOwnedEntries is why this is a region and not a
-// whole-file asset. A .gitignore is genuinely co-owned: DerivedData paths and
-// build outputs are the project's business. Replacing the file would delete them
-// and show up as permanent conflict in every audit.
+// whole-file asset. A .gitignore is genuinely co-owned: *.xcuserstate and
+// per-project junk in general are the project's business. Replacing the file
+// would delete them and show up as permanent conflict in every audit.
+//
+// The DerivedData/ line below is deliberately ALSO one of the patterns the
+// shipped buildOutputs block now carries (see TestGitignoreRegionIgnoresBuildOutputs)
+// — kept here to prove the region merges rather than replaces even where the
+// project's own rule and the shipped one happen to overlap.
 func TestGitignoreRegionKeepsProjectOwnedEntries(t *testing.T) {
 	preexisting := "# things only this project has\nDerivedData/\n*.xcuserstate\n!keep-me.xcuserstate\n"
 	project := syncedProject(t, preexisting)

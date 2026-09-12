@@ -12,10 +12,18 @@
 // to be ignored.
 //
 // This is a REGION, not a whole-file asset, because a .gitignore is genuinely
-// co-owned: DerivedData paths, build outputs and per-project junk are the
-// project's business and nobody else's. Replacing the file would delete those
-// and show up as permanent conflict in every audit. The region merges in and
-// leaves everything outside the markers alone.
+// co-owned: build outputs and per-project junk in general are the project's
+// business and nobody else's. Replacing the file would delete those and show
+// up as permanent conflict in every audit. The region merges in and leaves
+// everything outside the markers alone.
+//
+// The DerivedData family is the one carve-out from that "project's business"
+// line, and deliberately so: profiles/ios/CLAUDE.ios.md tells agents to build
+// with `-d DerivedData-<feature>`, and the iOS CI workflow creates DerivedData
+// and WatchDerivedData directories of its own. Those are not incidental build
+// output a project happens to produce — they are paths the lacquer's OWN rules
+// and CI commands into existence, which is the same argument buildOutputs below
+// makes for itself. See buildOutputs for the block.
 package gitignore
 
 import (
@@ -149,6 +157,66 @@ const agentArtifacts = `# Agent and browser-automation artifacts. Regenerated on
 playwright-report/
 test-results/`
 
+// buildOutputs covers directories and one file pattern that are not "the
+// project's business" in the sense the package comment draws that line at —
+// they are paths the LACQUER'S OWN ios rules and CI command into existence,
+// which is the same argument agentArtifacts makes one class up: nobody wrote
+// these by hand, an instruction this repository ships did.
+//
+// profiles/ios/CLAUDE.ios.md tells agents to build with `-d DerivedData-
+// <feature>` so a stale build of one feature branch cannot mask another's
+// warnings; the ios CI workflow creates DerivedData and WatchDerivedData of
+// its own for the same reason on a shared runner. default.profraw is the LLVM
+// coverage counter file the same builds emit when coverage is enabled.
+//
+// Measured before adding this: two of the DerivedData-family paths were
+// already covered, but only by luck — a project's OWN hand-written
+// `DerivedData/` line, sitting outside any managed region, so a project that
+// never wrote one (or wrote it without the `-*` sibling this pattern needs)
+// had `ios/DerivedData-menubar/x`, `DerivedData-menubar/x`,
+// `ios/WatchDerivedData/x`, `default.profraw` and `ios/default.profraw` all
+// genuinely untracked-but-unignored: one `git add -A` from landing a build
+// artifact in a commit and, worse, in a diff nobody would think to check.
+//
+// Both SwiftLint configs (.swiftlint.yml, .swiftlint-docs.yml) already
+// exclude `**/DerivedData-*` from linting — this block is the same judgment
+// applied to git, which had no equivalent rule at all.
+//
+// Ungated on profile, deliberately, for the same reason as agentArtifacts and
+// credentials above: the cost of shipping this to a repository with no ios
+// component is a few inert lines that never match anything real, while
+// gating it would mean a repository that GAINS an ios component stays
+// unprotected until its next sync — and these are Xcode-specific directory
+// names (DerivedData, WatchDerivedData) and an LLVM coverage extension
+// (.profraw) that nothing else plausibly creates, so there is no over-match
+// risk an ungated rule would introduce in a non-ios repository.
+//
+// Unanchored, for the fleet finding above: the paths this block exists to
+// cover were seen BOTH at the repository root and nested under a component
+// directory (ios/DerivedData-menubar vs. DerivedData-menubar), so an anchored
+// pattern would miss whichever layout it wasn't written for.
+//
+// Checked, not assumed, before shipping: no repository in the fleet roster
+// tracks a file matching any of these four patterns (see the PR description
+// for the sweep) — the same safety bar credentials and agentArtifacts were
+// held to, because an ignore rule that lands on a tracked file hides it from
+// `git status` forever.
+const buildOutputs = `# Build output the lacquer's own ios rules and CI create, not incidental
+# project build output in general (see this package's own doc comment) — an
+# agent following profiles/ios/CLAUDE.ios.md's build instructions or a run of
+# the ios CI workflow makes these, on every machine that follows either.
+
+# profiles/ios/CLAUDE.ios.md tells agents to build with
+# "-d DerivedData-<feature>"; the ios CI workflow creates DerivedData and
+# WatchDerivedData of its own. Unanchored: seen both at the repository root
+# and nested under a component directory.
+DerivedData/
+DerivedData-*/
+WatchDerivedData/
+# LLVM's coverage counter file, emitted by the same builds when coverage is
+# enabled.
+*.profraw`
+
 // Body renders the managed region body for cfg.
 //
 // plan is what assets.Plan returns for this project — the whole-file assets the
@@ -158,7 +226,7 @@ test-results/`
 // place: that project ignores .agents/skills/ wholesale, which quietly untracks
 // every skill the lacquer syncs alongside the third-party ones.
 func Body(cfg *config.Config, plan []assets.Asset) (string, error) {
-	sections := []string{credentials, agentArtifacts}
+	sections := []string{credentials, agentArtifacts, buildOutputs}
 
 	if s := productSecrets(cfg); s != "" {
 		sections = append(sections, s)
