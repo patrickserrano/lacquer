@@ -449,10 +449,19 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// The one finding nothing could see before: a file the lacquer WROTE and
 		// has stopped shipping. It is not drift (the lacquer would not write it
 		// now), not missing, and not an exclusion, so it fell through every
-		// report while sitting in the repository still running. It is reported
-		// and deliberately does not appear in the exit codes below — an orphan is
-		// a leftover file, not a broken project, and gating on something that
-		// endangers nothing teaches people that this output is noise.
+		// report while sitting in the repository still running.
+		//
+		// It USED to be reported and deliberately excluded from the exit codes
+		// below, on the theory that an orphan is a leftover file, not a broken
+		// project, and gating on something that endangers nothing teaches people
+		// this output is noise. That theory is why ios-claude.yml,
+		// ios-dependency-audit.yml and ios-quality-review.yml survived as orphans
+		// in 13 of 14 fleet repos for ten releases with a detector that saw them
+		// correctly every single run (issue #354) — two of the three keep a
+		// `schedule:` trigger, so they were not inert, they were running
+		// unattended CI on the fleet's dime while every `audit` exited 0. A
+		// detector whose only output is prose is an optional finding. See exit 4
+		// below.
 		orphans, err := audit.Orphans(lacquerRoot, projectRoot)
 		if err != nil {
 			return fail(stderr, fmt.Errorf("resolve orphans: %w", err))
@@ -503,7 +512,23 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// out — wearing a different spelling. A fourth number would mean teaching
 		// every project's CI one more exit code for no diagnostic gain, when the
 		// output above already says which one fired.
-		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0 || depignore.Blocking(ignores) > 0:
+		//
+		// An orphan shares it too, as of issue #354's second half. It is a
+		// different SHAPE of finding — nothing here is a time-boxed exemption —
+		// but the same argument applies to the exit code: this tool already has a
+		// number that means "this project is out of standard, go read the
+		// output", and an orphan is exactly that. Unlike the other three, an
+		// orphan cannot be cleared by fixing a manifest field; `sync` never
+		// deletes a project file (see internal/audit/orphan.go), so a repo that
+		// hits this exits 4 until a human removes the file by hand — which, for
+		// a project still stamped below the version that un-shipped it, is only
+		// safe to do AFTER `sync` has brought in whatever fixed the file that
+		// used to reference it by name (see internal/retire.Unshipped and PR
+		// #325 for why: an old ios-cleanup-ci.yml queries a retired workflow's
+		// filename directly, and deleting the file out from under it breaks that
+		// live job). This WILL fail every fleet repo carrying one of the three
+		// workflows issue #354 tracks until each syncs and then cleans up.
+		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0 || depignore.Blocking(ignores) > 0 || len(orphans) > 0:
 			return 4
 		// Exit 6 when the project runs a stack the lacquer manages but the manifest
 		// never declared. Distinct from 3/4 because the fix is different in kind:
@@ -890,8 +915,9 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  status                       show each region's stamped vs latest version")
 	fmt.Fprintln(w, "  audit                        classify project drift and check the project baseline")
 	fmt.Fprintln(w, "                               (exit 3 if sync would clobber a local change; exit 4 on a baseline")
-	fmt.Fprintln(w, "                               violation or an expired [project].exclude; exit 6 if a stack on")
-	fmt.Fprintln(w, "                               disk is undeclared — see `adopt`)")
+	fmt.Fprintln(w, "                               violation, an expired [project].exclude, or a file the lacquer")
+	fmt.Fprintln(w, "                               no longer ships still sitting in the project; exit 6 if a stack")
+	fmt.Fprintln(w, "                               on disk is undeclared — see `adopt`)")
 	fmt.Fprintln(w, "  fleet --roster F [--json]    audit every project in a roster (exit 4 if any would fail its own")
 	fmt.Fprintln(w, "                               audit); --json emits a snapshot for a later run to diff against")
 	fmt.Fprintln(w, "  fleet diff A.json B.json     what changed between two snapshots (exit 4 on a regression)")
