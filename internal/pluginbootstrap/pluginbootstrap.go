@@ -30,6 +30,9 @@ type Plugin struct {
 type Manifest struct {
 	Marketplaces []Marketplace `toml:"marketplace"`
 	Plugins      []Plugin      `toml:"plugin"`
+	// Provided are plugins a locally installed tool materializes rather than a
+	// marketplace serving them. See provided.go.
+	Provided []Provided `toml:"provided"`
 }
 
 // Values are passed to `claude` as separate argv elements, never
@@ -42,6 +45,10 @@ var (
 	marketplaceSrcVal  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	pluginNameVal      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
+
+// providedNameVal is the link name, which becomes a directory under the user's
+// tool skills directory — so it must not traverse or hide.
+var providedNameVal = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // Load reads, parses, and validates path.
 func Load(path string) (*Manifest, error) {
@@ -62,6 +69,19 @@ func Load(path string) (*Manifest, error) {
 			return nil, fmt.Errorf("invalid plugin name %q (expected \"<plugin>@<marketplace>\")", p.Name)
 		}
 	}
+	for _, pr := range m.Provided {
+		if !providedNameVal.MatchString(pr.Name) {
+			return nil, fmt.Errorf("provided plugin name %q is not a safe directory name", pr.Name)
+		}
+		prov, ok := providers[pr.Provider]
+		if !ok {
+			return nil, fmt.Errorf("provided plugin %q names unknown provider %q", pr.Name, pr.Provider)
+		}
+		if _, ok := prov.toolDir[pr.Format]; !ok {
+			return nil, fmt.Errorf("provided plugin %q: provider %q does not serve format %q", pr.Name, pr.Provider, pr.Format)
+		}
+	}
+
 	return &m, nil
 }
 

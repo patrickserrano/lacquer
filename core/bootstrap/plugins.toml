@@ -47,3 +47,32 @@ name = "security-guidance@claude-plugins-official"
 [[plugin]]
 # Session/usage analytics.
 name = "telemetrydeck-analytics@telemetrydeck-analytics"
+
+# Plugins a locally installed tool materializes, rather than a marketplace
+# serving them.
+#
+# Xcode 27 ships a real Claude Code plugin — manifest, fifteen skills and an
+# `xcode` MCP server declaration — but publishes it nowhere `claude plugin
+# install` can reach. It materializes it under a path carrying the Xcode BUILD:
+#
+#   ~/Library/Developer/Xcode/CodingAssistant/ExportedPlugins/<build>/<format>
+#
+# so every Xcode upgrade moves it and any existing link stops resolving. The
+# plugin then silently stops loading — fifteen skills and an MCP server quietly
+# absent from every session, with nothing red to notice. Re-running `lacquer
+# plugins` re-points it, which is why this is applied rather than done once.
+#
+# `xcrun mcpbridge run-agent skills export` is the other way in and is worse: it
+# produced TEN skills where the plugin has fifteen, silently missing three
+# accessibility specialists, translation and translation-coordinator — and an
+# exported copy carries no relationship to the Xcode that produced it, so
+# nothing can tell a current copy from a stale one.
+[[provided]]
+name = "xcode-integration"
+provider = "xcode"
+format = "claude"
+
+[[provided]]
+name = "xcode-integration"
+provider = "xcode"
+format = "codex"
