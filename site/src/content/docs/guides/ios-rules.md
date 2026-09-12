@@ -711,6 +711,37 @@ Validate every user-provided URL before it reaches `AVPlayer`, `URLSession`,
 or a `WKWebView` — see the `url-validation-security` skill for the
 positive-allowlist validator and where to apply it.
 
+### Spotlight must never index build output
+
+Every directory that receives build output carries an empty
+`.metadata_never_index` file, and it is created **before** the build that
+populates it — not after, or the tree is indexed once on the way in.
+
+That covers `DerivedData`, any `DerivedData-*` variant, `WatchDerivedData`,
+`~/Library/Developer/Xcode/DerivedData`, `~/Library/Developer/Xcode/Products`
+and `~/Library/Developer/CoreSimulator/Devices`.
+
+Measured on the dedicated runner, 2026-09-11: **~215GB of regenerable build
+output was being indexed** — 133G of simulator devices, 59G of shared
+DerivedData, 22G across ten per-project trees — with `mdbulkimport` running a
+full reindex and load average at **99**. Excluding it took `mds*` from 34% CPU
+across nine processes down to 12%.
+
+The managed CI workflow does this for the paths it owns. A script, skill or
+local build that points `-derivedDataPath` somewhere new owns the marker for
+that path:
+
+```sh
+mkdir -p "$DD" && : > "$DD/.metadata_never_index"
+```
+
+Two reasons this keeps coming back rather than staying fixed. The output is
+**regenerable**, so it gets deleted and recreated constantly and a one-time
+exclusion does not survive — the marker has to be created at the same moment
+the directory is. And the symptom does not name its cause: a machine at load 99
+looks like too many builds, not like a search index quietly walking a hundred
+gigabytes of object files.
+
 ## Verifying UI in the simulator
 
 Read the screen with `rocketsim elements --agent-mode nav` (or `act` when you

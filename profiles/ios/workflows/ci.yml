@@ -737,6 +737,30 @@ jobs:
             (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
           fi
 
+      # Keep Spotlight out of the build output, before anything creates it.
+      #
+      # `.metadata_never_index` in a directory tells Spotlight to skip the whole
+      # tree. Without it mds_stores indexes every object file, module cache and
+      # simulator container this build produces, on a machine where DerivedData
+      # DELIBERATELY PERSISTS between runs (see the SPM cache step below).
+      #
+      # Measured on the dedicated runner, 2026-09-11: ~215GB of regenerable build
+      # output was being indexed -- 133G of CoreSimulator devices, 59G of shared
+      # DerivedData, 22G across ten per-project trees -- with `mdbulkimport`
+      # running a full reindex and load average at 99. Excluding it took mds from
+      # 34% CPU across nine processes to 12%.
+      #
+      # Cheap and idempotent: an empty marker file, created before xcodebuild so
+      # the tree is never indexed even once. It deletes nothing, and removing the
+      # marker re-enables indexing.
+      - name: Keep Spotlight out of DerivedData
+        run: |
+          set -euo pipefail
+          for dd in {{COMPONENT_PREFIX}}DerivedData {{COMPONENT_PREFIX}}WatchDerivedData; do
+            mkdir -p "$dd"
+            : > "$dd/.metadata_never_index"
+          done
+
       - name: Check for a valid local SPM cache
         id: local-spm
         run: |
@@ -1017,6 +1041,30 @@ jobs:
           if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
             (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
           fi
+
+      # Keep Spotlight out of the build output, before anything creates it.
+      #
+      # `.metadata_never_index` in a directory tells Spotlight to skip the whole
+      # tree. Without it mds_stores indexes every object file, module cache and
+      # simulator container this build produces, on a machine where DerivedData
+      # DELIBERATELY PERSISTS between runs (see the SPM cache step below).
+      #
+      # Measured on the dedicated runner, 2026-09-11: ~215GB of regenerable build
+      # output was being indexed -- 133G of CoreSimulator devices, 59G of shared
+      # DerivedData, 22G across ten per-project trees -- with `mdbulkimport`
+      # running a full reindex and load average at 99. Excluding it took mds from
+      # 34% CPU across nine processes to 12%.
+      #
+      # Cheap and idempotent: an empty marker file, created before xcodebuild so
+      # the tree is never indexed even once. It deletes nothing, and removing the
+      # marker re-enables indexing.
+      - name: Keep Spotlight out of DerivedData
+        run: |
+          set -euo pipefail
+          for dd in {{COMPONENT_PREFIX}}DerivedData {{COMPONENT_PREFIX}}WatchDerivedData; do
+            mkdir -p "$dd"
+            : > "$dd/.metadata_never_index"
+          done
 
       - name: Check for a valid local SPM cache
         id: local-spm
