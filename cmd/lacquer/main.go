@@ -470,7 +470,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// between "delete it" and "that runs in your CI" — see
 		// audit.FormatOrphansWithRefs for why the unannotated report was worth
 		// changing.
-		refs := map[string][]string{}
+		refs := map[string][]audit.Reference{}
 		for _, o := range orphans {
 			if r := audit.References(projectRoot, o); len(r) > 0 {
 				refs[o.Key] = r
