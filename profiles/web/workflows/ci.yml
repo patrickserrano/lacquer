@@ -174,6 +174,13 @@ jobs:
         working-directory: "."
         if: steps.filter.outputs.lacquer == 'true'
         run: |
+          # GitHub's default shell for a `run:` step with no `shell:` key is
+          # `bash -e {0}`, and `set -uo pipefail` does not clear that `-e` --
+          # only `set +e` does. The malformed-lock branch below needs to keep
+          # running past a `grep` that finds no match (pipefail turns that
+          # into this assignment's own exit status) so it can fall through to
+          # the `::warning::` case instead of dying here with no message.
+          set +e
           set -uo pipefail
           # No lock means the project has never been synced, so there is no
           # baseline to attribute drift against. The audit step below says so and
@@ -231,10 +238,16 @@ jobs:
           # redirect target read off the network, and it ends up in a URL.
           LACQUER_TAG: ${{ steps.lacquerrel.outputs.tag }}
         run: |
-          # `-e` is deliberately absent: this step must never exit non-zero (see
-          # the block comment above). `result` starts at `fail` and the EXIT trap
-          # publishes whatever it holds, so every path that leaves this script
-          # early is reported as a failure rather than as a silent pass.
+          # GitHub's default shell for a `run:` step with no `shell:` key is
+          # `bash -e {0}`, and `set -uo pipefail` does NOT clear that `-e` --
+          # only `set +e` below actually does. Without it, `lacquer audit`
+          # further down dies on its own non-zero exit before `code=$?` ever
+          # runs, so the `case` that turns 3/4/6 into `::error::` annotations
+          # never executes. `result` starts at `fail` and the EXIT trap
+          # publishes whatever it holds, so every early exit -- including that
+          # one -- still fails the merge gate; `set +e` only restores the
+          # diagnostic, not the fail-safe.
+          set +e
           set -uo pipefail
           result=fail
           publish() { echo "result=$result" >> "$GITHUB_OUTPUT"; }
