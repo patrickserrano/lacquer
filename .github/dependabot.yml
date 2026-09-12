@@ -12,9 +12,16 @@ updates:
       interval: daily
     open-pull-requests-limit: 20
 
-  # The shipped workflows pin every action to a commit SHA, which is the right
-  # trade and also the one that rots silently: a pinned SHA never fails, it just
-  # stops being current.
+  # This repo's OWN workflows pin every action to a commit SHA, which is the
+  # right trade and also the one that rots silently: a pinned SHA never fails,
+  # it just stops being current.
+  #
+  # The SHIPPED workflows do not pin — 27 refs float at `v7`, plus v6, v5, v3,
+  # v2 — and this entry could not see them if they did: the github-actions
+  # ecosystem reads `.github/workflows` and a root `action.yml` in ONE
+  # repository, and `profiles/ios/workflows/ci.yml` is neither. That is what
+  # .github/workflows/action-pin-ledger.yml is for; it mirrors every shipped ref
+  # into a workflow this entry does watch. Read it before touching this block.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

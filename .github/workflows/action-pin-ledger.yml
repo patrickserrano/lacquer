@@ -1,0 +1,93 @@
+# The action pin ledger. Nothing here runs. Every `uses:` below is a ref the
+# PROFILES ship into project repositories, mirrored here so that Dependabot can
+# see it at all.
+#
+# WHY THIS FILE EXISTS
+#
+# Dependabot's `github-actions` ecosystem is scoped to one repository and, within
+# it, to `.github/workflows/*.y[a]ml` plus a root `action.yml` — it selects files
+# by that path and that filename pattern and by nothing else. `profiles/ios/
+# workflows/ci.yml` is not `.github/workflows` in ANY repository, this one
+# included, so the refs the profiles ship were watched by nothing upstream.
+# Measured on 2026-09-11 (issue #331, PR #335): six actions the profiles ship
+# appeared nowhere in this repo's own workflows —
+#
+#   actions/cache  actions/upload-artifact  actions/dependency-review-action
+#   supabase/setup-cli  softprops/action-gh-release  denoland/setup-deno
+#
+# — and the only things watching them were the project repos receiving them,
+# where a bump is churn against a managed file that the next sync overwrites. A
+# stale action ref never fails. It just stops being current, which is why this
+# needed closing rather than noticing.
+#
+# The list below is nine refs, not six, because a ledger that mirrors only the
+# unwatched ones would need somebody to decide, each time, which half a new ref
+# belongs to. It mirrors everything; the test then has one rule to enforce.
+# Note pnpm/action-setup: it is not in `profiles/` at all — it is emitted from
+# Go, by tokens.WebPMSetupBlock — so a ledger built by grepping `profiles/`
+# would have been incomplete on the day it landed. Bump that one in
+# internal/tokens, not in a profile.
+#
+# WHAT TO DO WITH A DEPENDABOT PR AGAINST THIS FILE
+#
+# Make the same bump in `profiles/` (and in `internal/tokens` for
+# pnpm/action-setup), in that same pull request. That is the whole point of the
+# ledger: Dependabot's PR is the notification that a shipped ref went stale, and
+# the edit it opens is a copy of the edit the profiles need.
+#
+# You cannot merge the ledger bump on its own. `internal/shipped/
+# action_ledger_test.go` asserts this list and the refs the profiles render are
+# the same set, in both directions, and `.github/workflows/ci.yml` runs
+# `go test ./... -race` on every `pull_request`. A ledger that moved alone is a
+# red check; a profile ref that moved alone is the same red check. That failure
+# is the mechanism, not a side effect of it — a ledger nothing verified would be
+# a second unwatched copy of the problem it was built to fix.
+#
+# WHY FLOATING TAGS AND NOT SHAS
+#
+# Because the profiles use floating tags, and the ledger's only job is to mirror
+# them. This repo's own workflows DO pin SHAs (16 of them); the shipped profiles
+# do not (27 refs at `v7`, plus v6, v5, v3, v2 — zero SHAs). Pinning the ledger
+# would mean Dependabot bumping a SHA the profiles do not contain, and the test
+# below could no longer compare the two sets at all.
+#
+# One action appears here once, and the test enforces that the profiles agree:
+# mixed precision for one action across a repo is what made Dependabot rewrite a
+# lacquer-managed workflow in darndest-api-proxy #45. So a bump is one line here
+# and one edit upstream, never a hunt for the other spelling.
+#
+# WHY IT NEVER RUNS
+#
+# `workflow_dispatch` is the only trigger, so nothing fires it on a push or a
+# pull request, and the single job is `if: false`, so even a deliberate manual
+# dispatch skips every step and spends no runner minutes. Dependabot does not
+# care: its file fetcher selects workflow files by filename, and its parser
+# (`workflow_file/uses_collector.rb`) starts at the top-level `jobs` key and
+# walks `steps` for `uses`. Neither reads `on:`, and neither checks whether a job
+# could run — dependabot-core's own `composite_action.yml` fixture has no `on:`
+# key at all, and `multiple_sources.yml` has jobs with no `runs-on:`. What DOES
+# matter is the top-level `jobs` key: without it the collector returns nothing
+# and this file silently watches nothing. The test asserts it.
+name: Action pin ledger
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ledger:
+    # Never runs. See "WHY IT NEVER RUNS" above; the steps below exist to be
+    # read by Dependabot, not executed.
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@v6
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5
+      - uses: actions/setup-node@v7
+      - uses: actions/upload-artifact@v7
+      - uses: denoland/setup-deno@v2
+      - uses: pnpm/action-setup@v6
+      - uses: softprops/action-gh-release@v3
+      - uses: supabase/setup-cli@v3
