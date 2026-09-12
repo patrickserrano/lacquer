@@ -548,6 +548,8 @@ var credentialCases = []struct {
 	{"AuthKey_ABCDE12345.p8", true, "an App Store Connect API private key grants build upload and app-data access for every app on the account, and cannot be re-downloaded"},
 	{"certificate.p12", true, "an exported signing identity carries the certificate AND its private key"},
 	{"profile.mobileprovision", true, "a provisioning profile carries the team identity it was issued to"},
+	{"server.pem", true, "a .pem holds a certificate, a private key, or both concatenated — the extension does not say which"},
+	{"certificates/localhost-key.pem", true, "unanchored on purpose: the pair that turned up in the fleet sits in a certificates/ subdirectory, and an anchored rule would miss it"},
 	{"Secrets.xcconfig", true, "the real service keys; the committed artifact is the .example beside it"},
 	{"nested/deeper/Secrets.xcconfig", true, "the rule is unanchored on purpose — one project keeps a Secrets.xcconfig at two different depths"},
 	{".env", true, "environment files hold real values"},

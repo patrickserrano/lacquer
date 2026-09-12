@@ -60,6 +60,17 @@ const credentials = `# Credentials. Every pattern here matches a file that grant
 *.p12
 # A provisioning profile carries the team identity it was issued to.
 *.mobileprovision
+# PEM. The extension does not say what is inside: a .pem holds a certificate, a
+# private key, or both concatenated. Six projects had already hand-written this
+# rule independently (kit, flare, pixelfoxstudio.com, rail-web, patrickserrano,
+# white-whales) and the repository actually holding PEM keys on disk is not one
+# of them, which is the same signal the *.p8 block was built on.
+#
+# The whole extension rather than a guess at which half is secret: ignoring a
+# dev certificate costs nothing, since the script that made it remakes it.
+#
+# Unanchored, and safe to be: no repository in the fleet tracks a *.pem.
+*.pem
 
 # Real service keys for the app (RevenueCat, Aptabase, Sentry). The committed
 # artifact is the template beside it, Secrets.xcconfig.example, which the ios
