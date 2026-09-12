@@ -938,6 +938,70 @@ Validate every user-provided URL before it reaches `AVPlayer`, `URLSession`,
 or a `WKWebView` — see the `url-validation-security` skill for the
 positive-allowlist validator and where to apply it.
 
+## Verifying UI in the Simulator
+
+Read the screen with `rocketsim elements --agent-mode nav` (or `act` when you
+need values and enabled-state) and act on it by element id. Measured on a real
+screen: **738 bytes, about 184 tokens, for a fourteen-element snapshot.** That is
+cheap enough to take one before and after every step, which is what makes
+batching several interactions into one round trip practical — and it is a much
+better default than a screenshot-and-read loop, which costs orders of magnitude
+more for a less precise answer.
+
+Element ids are ephemeral: they are stable **within one snapshot** and not across
+them. Re-snapshot before acting on an id you did not just read.
+
+### `element_disabled` does not mean the element is disabled
+
+```
+$ rocketsim interact tap --id 23        # "Sync with iCloud"
+error: element_disabled
+        "The matched element did not change state after tapping."
+```
+
+That element was reported `enabled` in the snapshot immediately before, and it is
+not broken. It is a control that deliberately never changes state: tapping it
+presents a sheet. The error CODE is a misnomer; the MESSAGE is accurate, and the
+message is the part to read.
+
+This matters because the obvious recoveries are both wrong. Waiting for it to
+become enabled waits forever, and looking for "a valid target" sends you hunting
+an element that does not exist.
+
+**The recovery is `interact activate`**, which performs an accessibility press
+rather than a HID touch:
+
+```
+$ rocketsim interact activate --id 23
+ok: true   screen_changed: true     # the sheet appears; the toggle stays at 0
+```
+
+Verified against Shelf Life's iCloud sync toggle on 2026-09-11 with RocketSim
+16.4.6: `tap` returns `element_disabled`, `activate` presents the sheet, and the
+checkbox value is unchanged at `0` throughout because changing it was never what
+the control did.
+
+Reach for `activate` whenever a tap reports no state change on an element the
+snapshot says is enabled. Reach for `tap` when you specifically need a real touch
+— hit-testing behaviour, gesture recognisers, anything where the accessibility
+press would bypass what you are testing.
+
+### The snapshot reports accessibility defects, and they are findings
+
+A snapshot can carry a `!perception` row:
+
+```
+!perception|zero_size_elements_omitted|12 omitted|Elements with accessibility
+content but zero-size frames were omitted.
+```
+
+Twelve elements carrying accessibility content that VoiceOver can reach and
+nothing can hit-test. That is a real accessibility defect in the app, surfaced
+for free by a tool you were using for something else — treat it as a finding
+rather than as snapshot noise. `!ambiguous` rows are the same shape: two elements
+a selector cannot tell apart, which is usually a missing accessibility
+identifier.
+
 ## Accessibility & Design-Token Contrast (WCAG 1.4.11)
 
 Audit **non-text** contrast, not just text. Ship two distinct boundary tokens and use them for their intended roles:
