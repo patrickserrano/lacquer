@@ -228,7 +228,24 @@ jobs:
           fi
       - run: go vet ./...
       - run: go build ./...
-      - run: go test ./... -race
+      # -timeout, not Go's 600s default. internal/shipped is the e2e suite: it
+      # runs full syncs against fixture projects, and under -race it lands at
+      # ~600s -- measured 600.045s and 600.048s on two consecutive runs of one
+      # PR, while three PRs opened the same hour passed at 11m1s, 11m5s and
+      # 11m9s of job time. The suite straddles the limit.
+      #
+      # A timeout there is the worst kind of red check, because it is
+      # attributed to whichever change happens to trip it. The PR that failed
+      # had added only a build-tag-gated package -- `go list ./...` returns
+      # zero packages for it, so it cannot touch this job -- and its stack at
+      # the timeout was entirely pre-existing code (TestFixtureProjectsSyncClean
+      # -> tokens.Surviving -> regexp). Three siblings were green. The obvious
+      # reading, "that PR broke the tests", was wrong, and checking it cost a
+      # real investigation.
+      #
+      # 30m is headroom rather than a new limit to creep toward; if this suite
+      # ever approaches it, split it rather than raising this again.
+      - run: go test ./... -race -timeout 30m
 
   # The docs site was built by NOTHING on a pull request. `docs.yml` builds it,
   # but only on `push: branches: [main]` — so a change that breaks the build was
