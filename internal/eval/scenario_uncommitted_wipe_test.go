@@ -34,6 +34,7 @@ import (
 //     principle asks for — proof the scenario is checking something real,
 //     not a tautology that would pass no matter what gitguard reported.
 func TestScenarioUncommittedWipe(t *testing.T) {
+	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
 	dir := t.TempDir()
 	target := filepath.Join(dir, "feature.go")
 	writeFile(t, target, "package x\n\n// v1: baseline\n")

@@ -54,6 +54,7 @@ import (
 // lacquer's own instruments agree with themselves end to end, not whether a
 // second, parallel implementation happens to concur.
 func TestContentWorkedExample_WarningsAsErrors(t *testing.T) {
+	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
 	bin := buildLacquer(t)
 	root := repoRoot(t)
 

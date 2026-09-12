@@ -38,6 +38,7 @@ import (
 // of exit code, which a consumer relying on exit code alone would miss
 // entirely.
 func TestScenarioUnretiredOrphan(t *testing.T) {
+	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
 	bin := buildLacquer(t)
 	root := repoRoot(t)
 	project := webSupabaseFixtureProject(t)
@@ -54,20 +55,24 @@ func TestScenarioUnretiredOrphan(t *testing.T) {
 	auditRes := runLacquer(t, bin, project, env, "audit")
 	all := auditRes.Combined()
 
-	// The naive check this scenario exists to disprove: exit code alone reads
-	// this project as clean.
-	naiveVerdictHealthy := auditRes.Code == 0
-	if !naiveVerdictHealthy {
-		t.Fatalf("setup failed: `lacquer audit` exited %d over an orphan; this scenario's whole "+
-			"premise is that orphans do NOT affect the exit code (see internal/audit/orphan.go's "+
-			"doc comment) — the premise does not hold in this build:\n%s", auditRes.Code, all)
-	}
-
+	// This scenario was written to disprove the naive "exit code alone" check
+	// against the state issue #354 first reported. That fix (cmd/lacquer/
+	// main.go's audit case, "An orphan shares [exit 4] too, as of issue #354's
+	// second half") had already landed by the time this scenario was authored,
+	// so `lacquer audit` now exits non-zero here too (currently 4) — exit code
+	// alone would no longer misread this project as healthy. That does not
+	// make the checks below redundant: the known-correct verdict this
+	// scenario grades is that the escalation signal is present in the REPORT
+	// BODY, independent of exit code, for any consumer that only surfaces
+	// exit codes or a summary rather than reading the finding by name — which
+	// is exactly the gap that let three orphaned workflows run unattended CI
+	// in 13 of 14 fleet repos for ten releases before #354 was fixed. So this
+	// intentionally does NOT assert on auditRes.Code either way.
 	if !strings.Contains(all, orphanRel) {
 		t.Errorf("verdict not reached: `lacquer audit` does not name %s anywhere in its output. "+
-			"exit 0 alone reads as \"nothing to escalate\" (the naive, wrong verdict); the correct "+
-			"verdict — this file is a live problem despite the zero exit — depends entirely on the "+
-			"report body actually naming it, and it does not.\nfull output:\n%s", orphanRel, all)
+			"a consumer relying on a summary or exit code alone would still miss WHICH file is the "+
+			"problem; the correct verdict depends on the report body actually naming it, and it "+
+			"does not.\nfull output:\n%s", orphanRel, all)
 	}
 	if !strings.Contains(all, "no longer managed") {
 		t.Errorf("verdict not reached: %s appears in the output but not under an orphan-specific "+
@@ -126,6 +131,7 @@ func plantOrphanLockEntry(t *testing.T, dir, rel string) {
 // and is exactly the false-positive shape CLAUDE.md's "Three defects" warns
 // against.
 func TestScenarioUnretiredOrphanRetiredProjectIsQuiet(t *testing.T) {
+	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
 	bin := buildLacquer(t)
 	root := repoRoot(t)
 	project := webSupabaseFixtureProject(t)

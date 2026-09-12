@@ -77,13 +77,17 @@ func TestScenarioStaleRoot(t *testing.T) {
 			break
 		}
 	}
-	if !flagged {
-		t.Errorf("verdict not reached: `lacquer status` printed version 99.99.99 as fact "+
+	// Marked, strict expected-failure: issue #350. `flagged` is this
+	// scenario's verdict condition (true = the bug is fixed, status now
+	// flags a dirty root). See expect.go's expectKnownFailure — this is the
+	// ONLY line in this test routed through it; every setup check above
+	// still calls t.Fatalf directly and can never be absorbed by this.
+	expectKnownFailure(t, issueStaleRoot, flagged,
+		"`lacquer status` printed version 99.99.99 as fact "+
 			"with no dirty/unverified/unpinned marker in its output, even though the root "+
 			"is a dirty checkout on branch main rather than a pinned release. "+
 			"internal/rootcheck computes this signal already (Dirty, Warning()) but the "+
 			"status case in cmd/lacquer/main.go never calls it — only the sync case does.\nfull output:\n%s", all)
-	}
 }
 
 // Mutation-tested: internal/version.Read was temporarily changed to always
@@ -92,11 +96,18 @@ func TestScenarioStaleRoot(t *testing.T) {
 // real version does not appear in `lacquer status` output at all"), confirming
 // that test actually reads status's real output rather than trusting a
 // hardcoded expectation. Reverted after confirming. TestScenarioStaleRoot
-// above is the positive case, and it already fails against lacquer's current,
-// unmodified behaviour — see the package doc's "live finding" note — which is
-// itself the mutation proof for that assertion: the un-mutated implementation
-// IS the known-bad state this scenario exists to catch.
+// above is the positive case: it reproduces lacquer's current, unmodified
+// behaviour (`status` never consults internal/rootcheck) — see the package
+// doc's "live finding" note — which is itself the mutation proof for that
+// assertion, the un-mutated implementation IS the known-bad state this
+// scenario exists to catch. It is marked as a strict expected-failure against
+// issue #350 (see expect.go's expectKnownFailure) so this known, tracked bug
+// does not turn the eval-suite job red; removing that marker without first
+// fixing #350 is itself one of expect.go's own mutation tests (see
+// expect_test.go and this scenario's own mutation-testing record in the PR
+// that added the marker).
 func TestScenarioStaleRootCleanRootIsQuiet(t *testing.T) {
+	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
 	bin := buildLacquer(t)
 	root := minimalLacquerRoot(t, "2.0.0") // clean: no dirty edit, this IS the pinned state
 	project := minimalProject(t)

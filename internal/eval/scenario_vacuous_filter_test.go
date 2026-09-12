@@ -26,6 +26,7 @@ import (
 // task's own brief specifies) distinguishes a real pass (count > 0) from a
 // vacuous one (count == 0, exit 0) — and the two must be told apart.
 func TestScenarioVacuousFilter(t *testing.T) {
+	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
 	mod := t.TempDir()
 	writeFile(t, filepath.Join(mod, "go.mod"), "module vacuousfixture\n\ngo 1.23\n")
 	writeFile(t, filepath.Join(mod, "probe_test.go"),
