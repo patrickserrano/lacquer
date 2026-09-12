@@ -18,10 +18,8 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 - **NEVER add Swift Package Manager dependencies** without explicit user permission. To *bump* existing deps (no new deps added), use `flowdeck project packages update` — it re-resolves `Package.resolved` to the latest versions allowed by the existing `upToNextMajorVersion` constraints **without touching the `.pbxproj`**; build + test afterward.
 - **NEVER change the deployment target** without explicit user request.
 - **NEVER modify `.entitlements` files** without explicit user request.
-- **NEVER use `NavigationView`** — always `NavigationStack`.
-- **NEVER use `ObservableObject`** — always `@Observable`.
-- **NEVER use `@StateObject`** — always `@State` with `@Observable` objects.
-- **NEVER use `@Published`** — `@Observable` properties publish automatically.
+- **Model observable state with `@Observable`**, held in `@State` — not `ObservableObject`, `@StateObject`, or `@Published`; `@Observable` properties publish automatically.
+- **Navigate with `NavigationStack`**, not `NavigationView`.
 
 ## App Store Requirements
 
@@ -64,10 +62,9 @@ silent upgrade becomes visible in the log instead of inferred from a failure.
 
 ## Release archives go to the archive volume, not the repository
 
-`.xcarchive` bundles are 60-100 MB each. They used to be written into the
-repository checkout, where every release left one behind on the runner and any
-tool that walked the working tree tripped over them. The release workflow now
-writes them to a dedicated volume, namespaced by repository and run id:
+`.xcarchive` bundles are 60-100 MB each. Written into the repository checkout,
+every release leaves one behind on the runner and trips any tool that walks the
+working tree, so the release workflow writes them to a dedicated volume, namespaced by repository and run id:
 
 ```
 /Volumes/Developer Archives/CI Archives/<repo>/<run-id>/<Product>.xcarchive
@@ -474,10 +471,10 @@ defect.
 **The release job borrows your login keychain, so it must give it back.** It
 unlocks the login keychain to sign, and sets an auto-lock timeout to keep it open
 across a 45-minute job. That timeout is a change to a keychain the job does not
-own, and it used to be permanent: a runner Mac that is also somebody's personal
-machine was left with `lock-on-sleep timeout=3600s` — macOS defaults to neither —
-so it locked hourly and on every sleep, and Messages signed itself out days
-later, with nothing in any run saying why.
+own. Left in place on a runner Mac that is also somebody's personal machine,
+`lock-on-sleep timeout=3600s` — macOS defaults to neither — locks it hourly and
+on every sleep, and Messages signs itself out days later, with nothing in any
+run saying why.
 
 The final `always()` step now captures the prior settings and restores them.
 Note which way the harm runs: with no timeout by default, *setting* one makes the
@@ -632,21 +629,15 @@ runner, which is the last place it can be caught by reading a result. Anything
 built on top of it inherits a silently smaller denominator — a green targeted
 run, a coverage figure, a report that says "N/N passed".
 
-**`flowdeck build`/`flowdeck test` exited 0 on failure through 2026-08-28 —
-FIXED in 1.26.5. Check your version before trusting `$?`.**
-The original bug (verified 2026-08-28): a genuine build/test failure (a real
-`Could not find test host` error, printed in red, "✗ Test run failed.") still
-exited `0`, as did a plain usage error.
+**Check `flowdeck --version` before trusting `$?` from `flowdeck build` or
+`flowdeck test`.** Before 1.26.5, a genuine build or test failure — and a plain
+usage error — exited `0`. From 1.26.5 the exit code is correct: test failure,
+compile error, unknown scheme and missing required flag all exit `1`.
 
-Re-measured 2026-09-09 on **flowdeck 1.26.5 / Xcode 27.0**, and the exit code is
-now correct in every case tried — test failure `1`, compile error `1`, unknown
-scheme `1`, missing required flag `1`, clean build `0`.
-
-- **Run `flowdeck --version`.** On **1.26.5 or newer**, `$?` is trustworthy for
-  build/test. On anything **older**, it is not: check the printed output for
-  `✗`/`Error`/"failed", or parse `--json` and read its `success`/`failed`
-  fields, because `flowdeck test && echo passed` will print "passed" after a
-  real failure.
+- **On anything older than 1.26.5, do not use `$?`**: check the printed output
+  for `✗`/`Error`/"failed", or parse `--json` and read its `success`/`failed`
+  fields, because `flowdeck test && echo passed` prints "passed" after a real
+  failure.
 - **The exit-code fix does not rescue the selector bugs above, and this is the
   part that still bites.** A `--only`/`--test-cases` run that skipped every
   parameterized case exits `0` *legitimately* — every test it chose to run did
@@ -877,9 +868,8 @@ is the obvious first experience, and the cause is invisible from the error.
 
 ### Three settings, if the DocC build is ever reinstated
 
-`scripts/build-docs.sh` encoded all three and no longer ships. They are kept
-here because each was found the expensive way, and a rebuilt docbuild that gets
-one of them wrong reports green while checking nothing.
+A DocC build that gets any of these three wrong reports green while checking
+nothing.
 
 - **`DOCC_MINIMUM_ACCESS_LEVEL=internal`.** DocC extracts `public` and above by
   default, and an app target's code is `internal` by default — so without this

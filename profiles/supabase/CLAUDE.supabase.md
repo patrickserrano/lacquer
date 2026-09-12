@@ -225,12 +225,10 @@ rewrites it, and `lacquer audit` reports the edit as drift.
 **Git hooks in a mixed repo.** If this repo ALSO contains an iOS component, the
 iOS profile syncs a `.pre-commit-config.yaml` and this profile syncs a
 `lefthook.yml` — both write `.git/hooks`, and whichever `install`s last silently
-wins. Don't install both. The iOS `pre-commit` framework should own `.git/hooks`;
-the Supabase checks always run in CI regardless, so rely on that. To keep them
-running locally too, add them as `repo: local` hooks in the iOS
-`.pre-commit-config.yaml` (e.g. an entry that runs `deno fmt --check`/`deno lint`
-scoped to the supabase component) rather than installing lefthook alongside
-pre-commit.
+wins. Don't install both. lefthook owns `.git/hooks`: the `lefthook.yml`
+this profile syncs carries an `ios-pre-commit` command that runs `pre-commit
+run --hook-stage pre-commit`, so one installed hook runs the Supabase and iOS
+checks together, and it no-ops in a repo with no `.pre-commit-config.yaml`.
 
 ## Testing & CI
 
