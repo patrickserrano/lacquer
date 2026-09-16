@@ -30,8 +30,23 @@ permissions:
   contents: read
 
 concurrency:
+  # The group is keyed on github.ref, which means a PR run and a push-to-main
+  # run never share a group with each other, but every run of the SAME kind
+  # does. On a PR the ref is that PR's own, so cancelling in progress only
+  # ever kills that PR's own earlier, superseded run — pure churn saving. On a
+  # push, every commit to main shares ONE group
+  # (supabase-ci-Supabase CI-refs/heads/main), so an unconditional
+  # cancel-in-progress makes merges cancel each other's verification: two
+  # pushes close together and the first has its `check`/`lint-database`/
+  # `test-database` run killed before it finishes. GitHub then reports that
+  # run as `cancelled`, not `failure`, so no required check, branch
+  # protection rule or notification treats it as a problem — the commit sits
+  # on main verified by nothing, and `deploy-database` (which needs those
+  # jobs) never even reaches its own separate `supabase-db-push` concurrency
+  # group to protect. Cancel only on pull_request; let a push to main run to
+  # completion.
   group: supabase-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:

@@ -23,8 +23,22 @@ permissions:
   contents: read
 
 concurrency:
+  # The group is keyed on github.ref, which means a PR run and a push-to-main
+  # run never share a group with each other, but every run of the SAME kind
+  # does. On a PR the ref is that PR's own, so cancelling in progress only
+  # ever kills that PR's own earlier, superseded run — pure churn saving. On a
+  # push, every commit to main shares ONE group (ci-CI-refs/heads/main), so an
+  # unconditional cancel-in-progress makes merges cancel each other's
+  # verification: two pushes close together and the first has its `test`
+  # job (gofmt, go vet, go build, go test -race) killed before it finishes.
+  # GitHub then reports that run as `cancelled`, not `failure`, so no
+  # required check, branch protection rule or notification treats it as a
+  # problem — main sits verified by nothing while looking healthy. This repo
+  # ships that exact failure shape to every managed project (see CLAUDE.md);
+  # it should not carry it in its own CI. Cancel only on pull_request; let a
+  # push to main run to completion.
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # VERSION is machine-assigned (see .github/workflows/version.yml). Rejecting
