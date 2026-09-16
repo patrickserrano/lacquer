@@ -746,6 +746,25 @@ batching several interactions into one round trip practical — and it is a much
 better default than a screenshot-and-read loop, which costs orders of magnitude
 more for a less precise answer.
 
+This isn't RocketSim beating FlowDeck — FlowDeck is still required for build,
+run, test, logs and simulator management, and it can hand back the same kind
+of text: `flowdeck ui simulator screen --tree --json` returns the
+accessibility tree without capturing an image. What matters is the shape of
+the loop, not which tool wins: **verify UI by reading the accessibility tree
+as text, and reach for a screenshot only when the question is genuinely
+visual** — layout and spacing, contrast, comparing against a design mockup, or
+anything else the tree can't express. A skill whose deliverable is an actual
+image (App Store screenshots, a recorded animation) still captures one — it
+just doesn't read a screenshot to answer a question the tree already answers.
+
+:::note
+The simulator itself is worth watching — just not by the agent. `rocketsim
+preview` streams it to a local browser page so a human can follow along live.
+That's for the person, not the model: it costs the agent no tokens, and it's
+why the agent never needs to relay screenshots just so someone else can watch
+progress.
+:::
+
 Element ids are ephemeral: they are stable **within one snapshot** and not across
 them. Re-snapshot before acting on an id you did not just read.
 
