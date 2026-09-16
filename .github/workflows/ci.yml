@@ -285,7 +285,49 @@ jobs:
       #
       # 30m is headroom rather than a new limit to creep toward; if this suite
       # ever approaches it, split it rather than raising this again.
-      - run: go test ./... -race -timeout 30m
+      # -race on every package EXCEPT internal/shipped, and the split is worth
+      # the two steps. Measured on an M-series Mac: internal/shipped takes
+      # 376s with -race and 58s without -- 6.5x, and 92% of the whole suite's
+      # 409s. On this 2-vCPU ubuntu-latest runner that is the difference
+      # between an ~11-minute check and a short one.
+      #
+      # It buys nothing there. internal/shipped is a TEST-ONLY package (zero
+      # non-test .go files) that orchestrates git and bash subprocesses and
+      # renders templates: grepped, it contains no `go func(`, no `make(chan`
+      # and no sync.Mutex/WaitGroup -- its only `sync.` references are calls
+      # into the internal/sync PACKAGE. The race detector has no concurrent Go
+      # to inspect, so it spends 318 seconds instrumenting subprocess spawning.
+      # `sys` time exceeds `user` time in that package, which is the same fact
+      # from the kernel's side.
+      #
+      # The whole repo's real concurrency is three files -- internal/console
+      # (8 sites), internal/tokens, internal/eval -- and they stay under -race
+      # below, where they cost seconds. TestShippedSuiteStaysFreeOfConcurrency
+      # fails if internal/shipped ever grows a goroutine, so this exclusion
+      # cannot silently stop covering something.
+      - name: Test with the race detector (all but the e2e suite)
+        run: |
+          set -euo pipefail
+          pkgs="$(go list ./... | grep -vx 'github.com/patrickserrano/lacquer/internal/shipped')"
+          # Fail closed on an empty or over-filtered set: a `go list` that
+          # returns nothing, or a rename that makes the -v match everything,
+          # would otherwise run zero tests and report success -- the
+          # "matched nothing, exited 0" shape this repo keeps finding.
+          if [ -z "$pkgs" ]; then
+            echo "::error::go list produced no packages to race-test."
+            exit 1
+          fi
+          if ! printf '%s\n' "$pkgs" | grep -q 'internal/console$'; then
+            echo "::error::internal/console is missing from the race set -- it holds most of this repo's concurrency, so a run without it proves nothing."
+            exit 1
+          fi
+          # Unquoted on purpose: word-splitting the newline-separated list into
+          # arguments is the intent, and this runs under bash, not zsh.
+          # shellcheck disable=SC2086
+          go test $pkgs -race -timeout 15m
+
+      - name: Test the e2e suite (no race detector -- see above)
+        run: go test ./internal/shipped/ -timeout 20m
 
   # Behaviour eval suite: does an agent following core/CLAUDE.core.md and this
   # repo's own CLAUDE.md reach the right VERDICT on a real repo state, not just
