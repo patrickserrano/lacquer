@@ -56,7 +56,17 @@ jobs:
     # The supabase profile is deliberately left on 4vcpu-x64: its jobs drive
     # Postgres, pgTAP and the Supabase CLI, and the saving is not worth
     # revalidating that stack on a different architecture.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    #
+    # This label reverted once already: #339 templated this job's ARM label and
+    # release.yml's deliberately-x64 jobs into the SAME templated `LINUX_RUNNER`
+    # value,
+    # which cannot hold two different intended values, and #340 then collapsed
+    # that token to one hardcoded x64 label for all 14 Blacksmith jobs -- silently
+    # undoing this decision along with four others. It is hardcoded again here,
+    # per job, specifically so a future refactor cannot repeat that merge.
+    # internal/shipped/blacksmith_runner_labels_test.go pins this value against a
+    # per-job table so drift like #340 fails a named Go test instead of shipping.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.

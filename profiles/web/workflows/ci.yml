@@ -1,9 +1,14 @@
 name: Web CI
 
-# Web work has no Apple toolchain, so it runs on Blacksmith
-# (`blacksmith-4vcpu-ubuntu-2404`), billed outside the GitHub Actions
-# allowance; the `ci-ok` gate alone is self-hosted and free. Assumes the
-# component's package.json defines: typecheck, test:coverage, build.
+# Web work has no Apple toolchain, so it runs on Blacksmith, billed outside the
+# GitHub Actions allowance; the `ci-ok` gate alone is self-hosted and free.
+# Assumes the component's package.json defines: typecheck, test:coverage, build.
+#
+# Two different Blacksmith shapes are used deliberately, per job — see the
+# `changes` job below for why one of them is ARM. #339/#340 once collapsed
+# both into a single templated runner value and silently lost that
+# distinction; internal/shipped/blacksmith_runner_labels_test.go now pins each
+# job's label so that cannot happen again unnoticed.
 
 on:
   workflow_dispatch:
@@ -32,7 +37,19 @@ jobs:
     # Always runs — a diff, plus (only when the `lacquer` filter fires) the drift
     # audit folded in at the end — so CI OK still reports on docs-only PRs where
     # the heavy check is skipped.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    #
+    # 2vcpu-arm, not 4vcpu-x64, and the reason is billing rather than speed.
+    # Blacksmith bills vCPU-weighted minutes with a ONE-MINUTE MINIMUM per job,
+    # so a job doing nothing but `git diff` and `grep` still bills as if it used
+    # the full 4 vCPUs for the whole minute. Halving the vCPUs halves that
+    # weighting, and ARM carries a x0.625 rate multiplier on top of that.
+    # Measured over 30 days: 687 billing minutes across 199 runs of this job
+    # alone. Mirrors profiles/ios/workflows/ci.yml's `changes` job -- see its
+    # comment for the ARM-safety caveat (binary architecture) and for the
+    # #339/#340 incident where templating this value together with a
+    # deliberately-x64 job into one templated `LINUX_RUNNER` value lost the
+    # distinction and silently reverted it back to x64 fleet-wide.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
