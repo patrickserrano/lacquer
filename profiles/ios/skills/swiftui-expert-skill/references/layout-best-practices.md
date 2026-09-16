@@ -68,9 +68,49 @@ struct ProfileCard: View {
         }
     }
 }
+
+// Good - measure the space you're actually given
+struct ProfileCard: View {
+    let user: User
+
+    var body: some View {
+        GeometryReader { proxy in
+            VStack {
+                Image(user.avatar)
+                    .frame(width: proxy.size.width)
+                Text(user.name)
+            }
+        }
+    }
+}
+
+// Good - adapt layout by size class instead of a screen constant
+struct ProfileCard: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    let user: User
+
+    var body: some View {
+        if horizontalSizeClass == .compact {
+            VStack { content }
+        } else {
+            HStack { content }
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        Image(user.avatar)
+        Text(user.name)
+    }
+}
+
+// Good - let the system choose the layout that fits
+ViewThatFits {
+    HStack { ProfileCard(user: user) }
+    VStack { ProfileCard(user: user) }
+}
 ```
 
-**Why**: Views should work as full screens, modals, sheets, popovers, or embedded content.
+**Why**: Views should work as full screens, modals, sheets, popovers, or embedded content. Never reach for `UIScreen.main.bounds` — it describes the device, not the space the view was actually given. Use `GeometryReader` when you need a real measurement of the available space, size classes (`@Environment(\.horizontalSizeClass)`) or `ViewThatFits`/`AnyLayout` when the layout itself should adapt to context.
 
 ## Own Your Container
 
