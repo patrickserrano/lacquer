@@ -22,7 +22,7 @@ Aspect ratios differ <0.4%, so downscaling 6.9"→6.7"/6.5" is visually lossless
 1. **Boot the largest Pro Max sim** and build/install: `flowdeck simulator boot <udid>`; `flowdeck run -S <udid> -d ios/DerivedData-shots`. Find the UDID with `flowdeck simulator list` (pick an iPhone 17/16 Pro Max).
 2. **Clean status bar:** `flowdeck simulator status-bar override -S <udid> --time "9:41" --data-network 5g --wifi-mode active --wifi-bars 3 --cellular-mode active --cellular-bars 4 --battery-state charged --battery-level 100`. Re-assert it before each capture (navigation can reset it).
 3. **Capture at NATIVE resolution** — use `flowdeck simulator frames --images -S <udid> -t 1s --fps 2 -o <dir>`, then take `frame-000-*.png` (1320×2868). ⚠️ Do NOT use `flowdeck ui simulator screen --screenshot` for the deliverable — it returns POINT resolution (440×956 @1x), which ASC rejects. `frames --images` is the native-res path.
-4. **Navigate** with `flowdeck ui simulator screen --json` (read the a11y tree) + `flowdeck ui simulator tap "<label>"` or `tap --point x,y` (point coords from the tree). Re-assert status bar, capture each screen.
+4. **Navigate** by reading the tree as text — `rocketsim elements --agent-mode nav` or `flowdeck ui simulator screen --tree --json` — then `flowdeck ui simulator tap "<label>"` or `tap --point x,y` (point coords from the tree). Re-assert status bar, then capture each screen with step 3's native-resolution command — the tree read is for finding what to tap, not for the deliverable.
 5. **Downscale** to the other sizes: `sips -z 2796 1290 6.7/NN.png` and `sips -z 2688 1242 6.5/NN.png` (note `sips -z` is height-then-width).
 
 ## Upload via helm-asc

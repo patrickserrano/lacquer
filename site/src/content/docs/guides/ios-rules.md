@@ -746,6 +746,32 @@ batching several interactions into one round trip practical — and it is a much
 better default than a screenshot-and-read loop, which costs orders of magnitude
 more for a less precise answer.
 
+**The agent view is the default; a screenshot is the fallback, not a co-equal
+option.** In order:
+
+1. **Read the tree** — `rocketsim elements --agent-mode`, above. Reach for this
+   first, every time.
+2. **Where RocketSim isn't installed**, `flowdeck ui simulator screen --tree
+   --json` hands back the same kind of text without capturing an image. An
+   alternative, not a second default.
+3. **Fall back to a screenshot** when the question is genuinely visual — layout
+   and spacing, contrast, comparing against a design mockup — or when the tree
+   can't express the answer.
+
+This isn't RocketSim beating FlowDeck: FlowDeck is still required for build,
+run, test, logs and simulator management, and this rule governs only how an
+agent reads and drives the UI. A skill whose deliverable is an actual image
+(App Store screenshots, a recorded animation) still captures one — it just
+doesn't read a screenshot to answer a question the tree already answers.
+
+:::note
+The simulator itself is worth watching — just not by the agent. `rocketsim
+preview` streams it to a local browser page so a human can follow along live.
+That's for the person, not the model: it costs the agent no tokens, and it's
+why the agent never needs to relay screenshots just so someone else can watch
+progress.
+:::
+
 Element ids are ephemeral: they are stable **within one snapshot** and not across
 them. Re-snapshot before acting on an id you did not just read.
 

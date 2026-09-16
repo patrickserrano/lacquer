@@ -85,9 +85,29 @@ Never use `xcrun simctl spawn … log`, `log show`, or `log stream` — FlowDeck
 
 ## UI Interaction
 
+### Read and act on the UI
+
+Verify what's on screen and drive the UI by reading the accessibility tree as
+text, not by capturing and reading an image — it is orders of magnitude
+cheaper and more precise for the same question ("what's on screen", "did that
+tap land", "what can I tap next"):
+
+```bash
+rocketsim elements --agent-mode nav             # or --agent-mode act for values/enabled-state
+# or, if RocketSim isn't available:
+flowdeck ui simulator screen -S "<sim>" --tree --json
+```
+
+Act on the result by element id or label — `rocketsim interact tap --id <id>`,
+or `flowdeck ui simulator tap "<label>"` / `tap --point x,y`. Re-snapshot the
+tree after any action that changes the screen rather than reusing stale ids.
+
 ### Take a screenshot
 
-Screenshots are primarily session-based, not one-off:
+Reach for an actual screenshot only when the question is genuinely visual —
+layout and spacing, contrast, comparing against a design mockup, or anything
+else the tree can't express. Screenshots are primarily session-based, not
+one-off:
 
 ```bash
 flowdeck ui simulator session start -S "<sim>" --json
@@ -99,6 +119,10 @@ For a single one-off capture when no session is running:
 ```bash
 flowdeck ui simulator screen -S "<sim>" --output /tmp/screenshot.png
 ```
+
+To let a human watch the simulator live instead of relaying screenshots,
+surface `rocketsim preview` — it streams the simulator to a local browser page
+and costs the agent no tokens.
 
 ### Record video
 
