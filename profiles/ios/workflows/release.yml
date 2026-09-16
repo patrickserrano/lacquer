@@ -70,7 +70,22 @@ jobs:
   # repositories do not have.
   verify-ci-provenance:
     name: Verify release provenance
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # 2vcpu-arm, not 4vcpu-x64: this job is `gh api` + `jq` + one ancestry check,
+    # no Xcode and no architecture-sensitive binary, so there is nothing here
+    # that behaves differently on ARM. Blacksmith bills vCPU-weighted minutes
+    # with a one-minute-per-job minimum, so halving the vCPUs halves that
+    # weighting and ARM's x0.625 rate multiplier discounts it further. This job
+    # plus select-products and notify-on-failure measured 128 billing minutes
+    # across 32 runs in 30 days on the wrong (x64) label.
+    #
+    # #339 templated this alongside the deliberately-x64 build-and-deploy runner
+    # decision into a single templated `LINUX_RUNNER` value; #340 then hardcoded that
+    # token to one x64 value everywhere, silently reverting this job (and
+    # select-products, notify-on-failure, and both `changes` jobs) back to
+    # 4vcpu-x64. internal/shipped/blacksmith_runner_labels_test.go pins each
+    # job's expected label individually so a token merge like that cannot do
+    # this again without failing a named test.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 5
     permissions:
       # A job-level block REPLACES the workflow default, so `contents` has to be
@@ -146,9 +161,17 @@ jobs:
   #
   # Runs on ubuntu because it is jq over a JSON literal: no Xcode, and it must
   # not occupy the dedicated Mac.
+  #
+  # 2vcpu-arm, not 4vcpu-x64, for the same billing reason as verify-ci-provenance
+  # above: a jq one-liner bills the Blacksmith one-minute-per-job minimum
+  # regardless of vCPU count, so the smaller ARM shape is strictly cheaper with
+  # no behavioural difference. See verify-ci-provenance's comment for the
+  # #339/#340 incident that silently reverted this job to x64 once already,
+  # and internal/shipped/blacksmith_runner_labels_test.go for the test that now
+  # pins it.
   select-products:
     name: Select products
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 2
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
@@ -829,7 +852,11 @@ jobs:
 
   notify-on-failure:
     name: Notify on Failure
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # 2vcpu-arm, not 4vcpu-x64: one `echo`, gated to run at most once per
+    # release. Same billing rationale as verify-ci-provenance above, and the
+    # same #339/#340 incident silently reverted it to x64; see that job's
+    # comment and internal/shipped/blacksmith_runner_labels_test.go.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     needs: [verify-ci-provenance, select-products, build-and-deploy]
     # `always()` rather than `failure()`, because a failed selection SKIPS
     # build-and-deploy rather than failing it, and a job whose need was skipped
