@@ -969,14 +969,21 @@ batching several interactions into one round trip practical — and it is a much
 better default than a screenshot-and-read loop, which costs orders of magnitude
 more for a less precise answer.
 
-This is not RocketSim over FlowDeck — FlowDeck stays mandatory for build, run,
-test, logs and simulator management, and it reads the same kind of text:
-`flowdeck ui simulator screen --tree --json` returns the accessibility tree
-without capturing an image. The rule is about the shape of the loop, not which
-tool wins: **verify UI by reading the accessibility tree as text; reach for a
-screenshot only when the question is genuinely visual** — layout and spacing,
-contrast, comparing against a design mockup, or anything else the tree cannot
-express. A skill that needs the deliverable to be an actual image (App Store
+**The agent view is the default; a screenshot is the fallback, not a co-equal
+option.** In order:
+
+1. **Read the tree** — `rocketsim elements --agent-mode`, above. Reach for this
+   first, every time.
+2. **Where RocketSim is not installed**, `flowdeck ui simulator screen --tree
+   --json` returns the same kind of text without capturing an image. An
+   alternative, not a second default.
+3. **Fall back to a screenshot** when the question is genuinely visual — layout
+   and spacing, contrast, comparing against a design mockup — or when the tree
+   cannot express the answer.
+
+This is not RocketSim over FlowDeck: FlowDeck stays mandatory for build, run,
+test, logs and simulator management, and this rule governs only how an agent
+reads and drives the UI. A skill whose deliverable is an actual image (App Store
 screenshots, a recorded animation) still captures one — it just does not read
 a screenshot to answer a question the tree already answers.
 

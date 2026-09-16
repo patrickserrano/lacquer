@@ -746,16 +746,23 @@ batching several interactions into one round trip practical — and it is a much
 better default than a screenshot-and-read loop, which costs orders of magnitude
 more for a less precise answer.
 
-This isn't RocketSim beating FlowDeck — FlowDeck is still required for build,
-run, test, logs and simulator management, and it can hand back the same kind
-of text: `flowdeck ui simulator screen --tree --json` returns the
-accessibility tree without capturing an image. What matters is the shape of
-the loop, not which tool wins: **verify UI by reading the accessibility tree
-as text, and reach for a screenshot only when the question is genuinely
-visual** — layout and spacing, contrast, comparing against a design mockup, or
-anything else the tree can't express. A skill whose deliverable is an actual
-image (App Store screenshots, a recorded animation) still captures one — it
-just doesn't read a screenshot to answer a question the tree already answers.
+**The agent view is the default; a screenshot is the fallback, not a co-equal
+option.** In order:
+
+1. **Read the tree** — `rocketsim elements --agent-mode`, above. Reach for this
+   first, every time.
+2. **Where RocketSim isn't installed**, `flowdeck ui simulator screen --tree
+   --json` hands back the same kind of text without capturing an image. An
+   alternative, not a second default.
+3. **Fall back to a screenshot** when the question is genuinely visual — layout
+   and spacing, contrast, comparing against a design mockup — or when the tree
+   can't express the answer.
+
+This isn't RocketSim beating FlowDeck: FlowDeck is still required for build,
+run, test, logs and simulator management, and this rule governs only how an
+agent reads and drives the UI. A skill whose deliverable is an actual image
+(App Store screenshots, a recorded animation) still captures one — it just
+doesn't read a screenshot to answer a question the tree already answers.
 
 :::note
 The simulator itself is worth watching — just not by the agent. `rocketsim
