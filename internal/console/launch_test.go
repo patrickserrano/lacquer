@@ -769,3 +769,86 @@ func TestKillNeverRemovesTheRecordedWorktree(t *testing.T) {
 		})
 	}
 }
+
+// Defence in depth for the 1.37.3 regression: the loaders now resolve paths to
+// absolute, but a Roster or Role built any other way can still carry a
+// relative dir. A bg dispatch given one must still make its worktree (not fail
+// taking filepath.Rel of git's absolute toplevel against it) and record
+// absolute paths, which `watch --relaunch` later uses from another cwd.
+func TestBackgroundDispatchWithARelativeDir(t *testing.T) {
+	for _, c := range dispatchCallers {
+		t.Run(c.name, func(t *testing.T) {
+			calls := fakeClaude(t)
+			parent := realPath(t, t.TempDir())
+			repo := filepath.Join(parent, "proj")
+			fleetOps := filepath.Join(parent, "fleet-ops")
+			for _, d := range []string{repo, fleetOps} {
+				if err := os.MkdirAll(d, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			initGitRepo(t, repo)
+			orig, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chdir(fleetOps); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chdir(orig) })
+
+			launch, err := c.run(t, "alpha", filepath.Join("..", "proj"), "the task", Background)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, launch.Output)
+			}
+			rec := launch.Record
+			if rec == nil {
+				t.Fatal("no record")
+			}
+			if rec.Dir != repo {
+				t.Errorf("record dir = %q, want the absolute checkout %q", rec.Dir, repo)
+			}
+			if !strings.HasPrefix(rec.Worktree, filepath.Join(repo, ".claude", "worktrees")+string(filepath.Separator)) {
+				t.Errorf("record worktree = %q, want an absolute directory under %s/.claude/worktrees/", rec.Worktree, repo)
+			}
+			got := claudeCalls(t, calls)
+			if len(got) != 1 {
+				t.Fatalf("claude called %d times, want 1", len(got))
+			}
+			if got[0].cwd != realPath(t, rec.Worktree) {
+				t.Errorf("claude ran in %s, want its worktree %s", got[0].cwd, rec.Worktree)
+			}
+		})
+	}
+}
+
+// The other path comparisons in this package resolve a relative input
+// against the cwd before comparing it with an absolute one, rather than
+// silently answering "no": a session's cwd, a recorded worktree and git's
+// worktree list are all absolute.
+func TestPathComparisonsResolveRelativeInputs(t *testing.T) {
+	parent := realPath(t, t.TempDir())
+	repo := filepath.Join(parent, "proj")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepo(t, repo)
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(parent); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	if !under(filepath.Join(repo, ".claude", "worktrees", "x"), "proj") {
+		t.Error("under: a session in the project's worktree does not belong to the project named relatively")
+	}
+	if !within(filepath.Join("proj", "sub"), repo) {
+		t.Error("within: proj/sub is not within the project")
+	}
+	if !registeredWorktree(repo, "proj") {
+		t.Error("registeredWorktree: the checkout itself, named relatively, is not a registered worktree")
+	}
+}

@@ -63,22 +63,38 @@ func gitOutput(dir string, args ...string) (string, error) {
 // repoRoot returns the root of the git repository dir is in, and dir's path
 // relative to it, so a session dispatched to a subdirectory starts in the
 // same subdirectory of its worktree.
+//
+// dir is made absolute first. git's toplevel always is, and filepath.Rel of
+// an absolute root against a relative dir fails ("can't make ../proj
+// relative to /.../proj") -- which refused every bg dispatch from a relative
+// --roster in 1.37.3 through 1.37.9. The loaders now resolve their paths to
+// absolute; this does not rely on every caller having done so.
 func repoRoot(dir string) (root, rel string, err error) {
+	dir = absPath(dir)
 	root, err = gitOutput(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("%s is not in a git repository: %w", dir, err)
 	}
 	// --show-toplevel resolves symlinks (/var -> /private/var on macOS), so
 	// dir must be resolved the same way before taking the difference.
 	realDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("resolve %s: %w", dir, err)
 	}
 	rel, err = filepath.Rel(root, realDir)
 	if err != nil {
 		return "", "", err
 	}
 	return root, rel, nil
+}
+
+// absPath is p made absolute against the process's cwd, or p unchanged if
+// that cannot be done (only when the cwd itself is unreadable).
+func absPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 // worktreeBase picks the commit a new worktree branches from: the remote's
@@ -141,7 +157,7 @@ func excludeWorktrees(root string) error {
 func planWorktree(dir string, fetch bool) (root, rel, path, branch, base, note string, err error) {
 	root, rel, err = repoRoot(dir)
 	if err != nil {
-		return "", "", "", "", "", "", fmt.Errorf("%s is not in a git repository, so there is no worktree to isolate a bg session in; refusing rather than running it in the checkout: %w", dir, err)
+		return "", "", "", "", "", "", fmt.Errorf("no worktree to isolate a bg session in; refusing rather than running it in the checkout: %w", err)
 	}
 	id, err := newWorktreeID()
 	if err != nil {
@@ -187,7 +203,7 @@ func registeredWorktree(dir, path string) bool {
 	if err != nil {
 		return false
 	}
-	want, err := filepath.EvalSymlinks(path)
+	want, err := filepath.EvalSymlinks(absPath(path))
 	if err != nil {
 		return false
 	}
@@ -236,7 +252,7 @@ func resumeWorktree(dir, recorded string) (dispatchWorktree, error) {
 // where they exist.
 func within(path, dir string) bool {
 	resolve := func(p string) string {
-		p = filepath.Clean(p)
+		p = absPath(p)
 		if r, err := filepath.EvalSymlinks(p); err == nil {
 			return r
 		}

@@ -33,7 +33,8 @@ type Role struct {
 	// Task is the role's starting prompt.
 	Task string `toml:"task"`
 	// Dir is where the role's session runs. Relative paths resolve against
-	// the roles file's own directory, matching fleet.Entry.Path. Empty means
+	// the roles file's own directory, matching fleet.Entry.Path, and after
+	// LoadRoleRoster it is always absolute. Empty means
 	// the roles file's own directory -- the natural default, since that's
 	// where the project roster and `lacquer console`/`fleet` commands expect
 	// to be run from.
@@ -75,7 +76,12 @@ func LoadRoleRoster(path string) (RoleRoster, error) {
 	if len(r.Role) == 0 {
 		return r, fmt.Errorf("roles file %s declares no roles", path)
 	}
-	base := filepath.Dir(path)
+	// Absolute, as fleet.LoadRoster's entry paths are: a relative Dir means
+	// something different to every consumer whose cwd is not this one's.
+	base, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return r, fmt.Errorf("roles file %s: resolve its directory: %w", path, err)
+	}
 	seen := map[string]bool{}
 	for i := range r.Role {
 		role := &r.Role[i]

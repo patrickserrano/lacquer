@@ -176,6 +176,7 @@ func Gather(lacquerRoot string, roster fleet.Roster, now time.Time, inboxPath st
 // (.claude/worktrees/<id>), so an equality check would show every backgrounded
 // agent as belonging to nothing — the sessions most in need of a home.
 func under(cwd, root string) bool {
+	cwd, root = absPath(cwd), absPath(root)
 	return cwd == root || strings.HasPrefix(cwd, strings.TrimSuffix(root, "/")+"/")
 }
 
