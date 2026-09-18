@@ -821,3 +821,34 @@ func TestBackgroundDispatchWithARelativeDir(t *testing.T) {
 		})
 	}
 }
+
+// The other path comparisons in this package resolve a relative input
+// against the cwd before comparing it with an absolute one, rather than
+// silently answering "no": a session's cwd, a recorded worktree and git's
+// worktree list are all absolute.
+func TestPathComparisonsResolveRelativeInputs(t *testing.T) {
+	parent := realPath(t, t.TempDir())
+	repo := filepath.Join(parent, "proj")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepo(t, repo)
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(parent); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	if !under(filepath.Join(repo, ".claude", "worktrees", "x"), "proj") {
+		t.Error("under: a session in the project's worktree does not belong to the project named relatively")
+	}
+	if !within(filepath.Join("proj", "sub"), repo) {
+		t.Error("within: proj/sub is not within the project")
+	}
+	if !registeredWorktree(repo, "proj") {
+		t.Error("registeredWorktree: the checkout itself, named relatively, is not a registered worktree")
+	}
+}
