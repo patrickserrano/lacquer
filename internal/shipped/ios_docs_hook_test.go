@@ -2,6 +2,7 @@ package shipped
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -173,6 +174,38 @@ func TestIOSDocsHookBrokenScriptFailsLoudly(t *testing.T) {
 	}
 	if !strings.Contains(out, "docs-relaxation.sh failed") {
 		t.Errorf("the failure does not say the relaxation script failed:\n%s", out)
+	}
+	if strings.Contains(out, toolRan) {
+		t.Errorf("SwiftLint ran although the relaxation could not be read:\n%s", out)
+	}
+}
+
+// TestIOSDocsHookOutsideARepositoryFailsLoudly: with no repository there is no
+// root to read the relaxation from. That is a failure with a reason, not a
+// fallback to the current directory.
+func TestIOSDocsHookOutsideARepositoryFailsLoudly(t *testing.T) {
+	t.Parallel()
+	p, hook, stub := iosDocsHook(t)
+	appendManifest(t, p, relaxedDocs)
+
+	// A plain directory holding every input the hook reads, so the only thing
+	// missing is the repository. GIT_CEILING_DIRECTORIES stops git finding one
+	// above it.
+	dir := t.TempDir()
+	for _, rel := range []string{hook, "scripts/docs-relaxation.sh", ".lacquer.toml"} {
+		writeExe(t, filepath.Join(dir, filepath.FromSlash(rel)), p.read(rel))
+	}
+	cmd := exec.Command("sh", "-c", hook+" "+stub)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+filepath.Dir(dir))
+	b, err := cmd.CombinedOutput()
+	out := string(b)
+
+	if err == nil {
+		t.Errorf("%s exited 0 outside a git repository:\n%s", hook, out)
+	}
+	if !strings.Contains(out, "not inside a git repository") {
+		t.Errorf("the failure does not say there is no repository:\n%s", out)
 	}
 	if strings.Contains(out, toolRan) {
 		t.Errorf("SwiftLint ran although the relaxation could not be read:\n%s", out)
