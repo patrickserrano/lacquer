@@ -447,3 +447,53 @@ func TestStaleDependabotIgnoreIsReportedNotBlocked(t *testing.T) {
 		t.Errorf("the sweep does not surface the stale ignore: %s", got)
 	}
 }
+
+// projectWithNotRun builds a project carrying one [[project.not_run_in_ci]]
+// declaration dated until.
+func projectWithNotRun(t *testing.T, name, until string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
+	write(t, filepath.Join(dir, ".lacquer.toml"),
+		"[project]\nname = \""+name+"\"\nxcodeproj = \"ios/App.xcodeproj\"\n\n"+
+			"[[project.not_run_in_ci]]\ntarget = \"AppCoreTests\"\n"+
+			"reason = \"needs on-device models\"\nuntil = \""+until+"\"\n")
+	return dir
+}
+
+// An expired not_run_in_ci blocks the sweep, because it fails `lacquer audit`
+// (exit 4). Without this the two commands disagree about the same project —
+// the drift lacquer#358 tracks for orphans, which this must not add to.
+func TestExpiredNotRunInCIBlocks(t *testing.T) {
+	lq := lacquerRoot(t)
+	p := projectWithNotRun(t, "p", "2026-08-08")
+	r := find(t, Run(lq, rosterFor(t, map[string]string{"p": p}), day("2026-08-09")), "p")
+	if len(r.NotRunInCI) != 1 || r.NotRunInCI[0].Status != "expired" || r.NotRunInCI[0].Target != "AppCoreTests" {
+		t.Fatalf("not_run_in_ci = %+v", r.NotRunInCI)
+	}
+	if !r.Blocking() {
+		t.Error("an expired not_run_in_ci must block, exactly as `lacquer audit` gates on it")
+	}
+	if !strings.Contains(strings.Join(Notes(r), "\n"), "AppCoreTests") {
+		t.Errorf("the sweep does not name the expired declaration: %v", Notes(r))
+	}
+}
+
+// In term (the until day itself included) it neither blocks nor nags, and it
+// is on the horizon so its expiry is seen coming.
+func TestInTermNotRunInCIDoesNotBlock(t *testing.T) {
+	lq := lacquerRoot(t)
+	p := projectWithNotRun(t, "p", "2026-08-09")
+	r := find(t, Run(lq, rosterFor(t, map[string]string{"p": p}), day("2026-08-09")), "p")
+	if len(r.NotRunInCI) != 1 || r.NotRunInCI[0].Status != "dated" {
+		t.Fatalf("not_run_in_ci = %+v", r.NotRunInCI)
+	}
+	if r.Blocking() {
+		t.Errorf("an in-term declaration must not block: %+v", r)
+	}
+	if got := strings.Join(Notes(r), "\n"); strings.Contains(got, "AppCoreTests") {
+		t.Errorf("an in-term declaration was reported as needing attention: %s", got)
+	}
+	if got := strings.Join(horizon([]Report{r}), "\n"); !strings.Contains(got, "AppCoreTests") {
+		t.Errorf("the horizon omits a dated declaration: %s", got)
+	}
+}

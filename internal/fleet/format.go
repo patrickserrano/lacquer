@@ -146,6 +146,11 @@ func Notes(r Report) []string {
 			out = append(out, fmt.Sprintf("stale dependabot ignore (withholds nothing): %s in %s", d.Dependency, d.Component))
 		}
 	}
+	for _, n := range r.NotRunInCI {
+		if n.Status == "expired" {
+			out = append(out, fmt.Sprintf("EXPIRED not_run_in_ci %s (%s)", n.Target, n.Until))
+		}
+	}
 	// Only the two facts that need a decision. A project with attributed,
 	// line-scoped suppressions has done the right thing and should not be nagged
 	// — the count alone would make this line permanent noise in every project.
@@ -197,6 +202,13 @@ func horizon(reports []Report) []string {
 				state = "  ** EXPIRED **"
 			}
 			items = append(items, item{d.Until, fmt.Sprintf("%s  %s  dependabot ignore %s in %s%s", d.Until, r.Name, d.Dependency, d.Component, state)})
+		}
+		for _, n := range r.NotRunInCI {
+			state := ""
+			if n.Status == "expired" {
+				state = "  ** EXPIRED **"
+			}
+			items = append(items, item{n.Until, fmt.Sprintf("%s  %s  not_run_in_ci %s%s", n.Until, r.Name, n.Target, state)})
 		}
 	}
 	sort.Slice(items, func(i, j int) bool {

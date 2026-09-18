@@ -45,6 +45,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/exclusion"
 	"github.com/patrickserrano/lacquer/internal/suppress"
+	"github.com/patrickserrano/lacquer/internal/testtargets"
 )
 
 // Entry is one project in the roster.
@@ -184,6 +185,20 @@ type DependabotIgnore struct {
 	Stale      bool   `json:"stale"`
 }
 
+// NotRunInCI is one [[project.not_run_in_ci]] declaration, with its term read.
+//
+// Only the date is evaluated here. Whether the declaration is stale (its target
+// gone, or covered now) needs the Xcode project and the workflows read, which is
+// `lacquer audit`'s job; staleness never gates there, so leaving it out cannot
+// make the two disagree about whether a project blocks. Expiry can, which is why
+// it is here.
+type NotRunInCI struct {
+	Target string `json:"target"`
+	Status string `json:"status"` // "expired" or "dated"
+	Reason string `json:"reason,omitempty"`
+	Until  string `json:"until,omitempty"`
+}
+
 // Report is one project's result. A project that could not be read carries Error
 // and nothing else — a broken checkout must not abort the sweep or, worse, be
 // omitted from it and read as healthy.
@@ -201,6 +216,9 @@ type Report struct {
 	// DepIgnores are the project's reviewed Dependabot ignores. An expired one
 	// blocks, exactly as an expired exclusion does.
 	DepIgnores []DependabotIgnore `json:"dependabot_ignores,omitempty"`
+	// NotRunInCI are the project's test suites declared deliberately not run in
+	// CI. An expired one blocks, exactly as `lacquer audit` exits 4 on it.
+	NotRunInCI []NotRunInCI `json:"not_run_in_ci,omitempty"`
 	// Suppress rolls up inline lint suppressions found in project source. It is
 	// a summary, not a list: the snapshot is diffed between runs, and dozens of
 	// individual entries would bury the two numbers that matter — how many are
@@ -221,7 +239,9 @@ func (r Report) IsRetired() bool { return r.Retired != nil }
 
 // Blocking reports whether this project would fail its own `lacquer audit`.
 // Mirrors that command's exit codes exactly: a clobbered unit, a baseline
-// violation, an expired exclusion, or an adoptable undeclared stack.
+// violation, an expired exclusion, dependabot ignore or not_run_in_ci
+// declaration, or an adoptable undeclared stack. (Orphans are not mirrored yet:
+// lacquer#358.)
 func (r Report) Blocking() bool {
 	if r.Error != "" || len(r.Clobbered) > 0 {
 		return true
@@ -238,6 +258,11 @@ func (r Report) Blocking() bool {
 	}
 	for _, d := range r.DepIgnores {
 		if d.Status == string(depignore.StatusExpired) {
+			return true
+		}
+	}
+	for _, n := range r.NotRunInCI {
+		if n.Status == "expired" {
 			return true
 		}
 	}
@@ -344,6 +369,18 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		r.DepIgnores = append(r.DepIgnores, DependabotIgnore{
 			Component: f.Component, Dependency: f.Dependency, Status: string(f.Status),
 			Reason: f.Reason, Until: f.Until, Stale: f.Stale,
+		})
+	}
+
+	// The same expiry function `lacquer audit` uses, so the two cannot disagree
+	// about which day a declaration lapses.
+	for _, n := range cfg.Project.NotRunInCI {
+		status := "dated"
+		if testtargets.Expired(n.Until, now) {
+			status = "expired"
+		}
+		r.NotRunInCI = append(r.NotRunInCI, NotRunInCI{
+			Target: n.Target, Status: status, Reason: strings.TrimSpace(n.Reason), Until: n.Until,
 		})
 	}
 	return r

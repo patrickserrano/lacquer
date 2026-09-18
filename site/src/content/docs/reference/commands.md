@@ -14,7 +14,7 @@ description: Every lacquer CLI subcommand.
 | `lacquer doctor [--profile P]` | Prove each check can actually fail; exit 5 if one cannot. `--profile` limits it to one stack's checks, for a runner that has only that toolchain. |
 | `lacquer fix` | Run the profiles' autofixers (formatters, `lint --fix`) over the project. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
-| `lacquer audit` | Classify project drift and check the project baseline. Exit 3 if a sync would clobber a local change, 4 on a baseline violation or an expired `[project].exclude`, 6 if a stack on disk is undeclared (usable as a CI gate). |
+| `lacquer audit` | Classify project drift and check the project baseline. Exit 3 if a sync would clobber a local change, 4 on a baseline violation or an expired `[project].exclude`, `dependabot_ignore` or `[[project.not_run_in_ci]]`, 6 if a stack on disk is undeclared (usable as a CI gate). |
 | `lacquer fleet --roster F [--json]` | Audit every project in a roster; exit 4 if any would fail its own audit. `--json` emits a snapshot. |
 | `lacquer fleet diff A.json B.json` | What changed between two snapshots; exit 4 on a regression. |
 | `lacquer protection [--repo O/N] [--branch B] [--roster F]` | Compare what branch protection **requires** against what CI can **post**. GitHub counts a skipped check as satisfying a required one, so a repo passes only if it requires the always-running `CI OK` aggregate — or some other context posted by a job nothing can skip. Reaches the GitHub API through `gh`, so it is opt-in and separate from `audit`. Exit 4 on a finding; **exit 7 if a repository could not be checked** — never reported as a pass. |
@@ -204,7 +204,8 @@ that selects the suite or runs a scheme testing it (including the scheme Xcode
 generates for a package), and the same commands inside a script in the
 repository that the step runs. It does not recognise `swift build
 --build-tests`, which compiles the suite and runs none of it. A suite run some
-other way can be declared in `[[project.covered_elsewhere]]`, below. If the
+other way can be declared in `[[project.covered_elsewhere]]`, and a suite
+deliberately run in no CI job in `[[project.not_run_in_ci]]`, both below. If the
 package can't be read, or a workflow that might run the suite can't be (a
 `${{ matrix }}` directory, a scheme that isn't committed), the suite is
 reported as *could not check* rather than as running nowhere.
@@ -244,6 +245,45 @@ Anything short of that and the target is reported again with the failed check
 printed beside it. There is no `until` — the declaration expires by ceasing to
 verify, not on a date, and a declaration naming a target the project no longer
 has is reported as stale.
+
+### A suite deliberately not run in CI
+
+Some suites are run on purpose somewhere CI can't reach. momfriend's
+`MomFriendCoreTests` needs on-device models and is written to fail, not skip,
+without them, so CI builds it and never runs it. The audit is right that nothing
+in CI runs it, and none of its suggested fixes applies. Say so, with a reason and
+a date:
+
+```toml
+[[project.not_run_in_ci]]
+target = "MomFriendCoreTests"
+reason = "needs on-device models; built in CI, run on device before release"
+until  = "2026-12-31"
+```
+
+All three fields are required. `until` is `YYYY-MM-DD` and covers the whole of
+that day. It works for native targets and local-package suites alike, and it
+needs `[project].xcodeproj`, because that is where the audit reads test targets
+from. A target can't be declared in both this and `covered_elsewhere`, since only
+one of them can be true.
+
+While the declaration is in term, the suite leaves the "no selector covers" list
+and is printed on a line of its own, so it stays visible:
+
+```
+deliberately not run in CI: MomFriendCoreTests — needs on-device models; built in CI, run on device before release (until 2026-12-31)
+```
+
+**Past `until`, it expires.** The suite goes back in the report, the expiry is
+named, and `audit` exits 4, the same as an expired `dependabot_ignore`. This is
+the divergence from `covered_elsewhere`, which has no date because the project
+holds no remedy for it. Here the project does hold the remedies: make the suite
+runnable in CI, delete it, or review the reason and set a new date.
+
+A declaration is reported as **stale** when it no longer describes a gap: the
+target doesn't exist, or something now runs it (a selector, a verified
+`covered_elsewhere`, or a workflow the audit sees running the suite). Stale
+declarations are reported but don't gate. Remove them.
 
 ### Release-time secrets
 
