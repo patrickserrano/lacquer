@@ -375,11 +375,12 @@ each product instead, because a paid app's key written into the free app's
 build is a bad release, not a failed one. Setting them under `[project]` as well
 is rejected: which product they belong to would have to be guessed. **If your
 app reads keys from `Secrets.xcconfig` and none of this is declared, the release
-archives with the committed placeholders** — declare them.
+archives with the committed placeholders** — and the archive check below stops
+it before upload. Declare them.
 
 `release.yml` then runs `scripts/write-release-config.sh`, which seeds the
 committed `<secrets_file>.example` and substitutes the declared keys into it.
-Four things it does that a hand-written `sed` step does not:
+What it does that a hand-written `sed` step does not:
 
 - **Fails closed on an unset OR empty secret.** An unset GitHub secret expands
   to the empty string, and an empty xcconfig value is not an error to
@@ -394,6 +395,15 @@ Four things it does that a hand-written `sed` step does not:
 - **Seeds from the example first**, so keys the project references but does not
   hold in secrets are still defined. The xcconfig is the target's base
   configuration file; writing only the declared keys leaves the rest undefined.
+- **Refuses a placeholder** — the example's own value for that key,
+  `REPLACE_ME…`, `your_…`/`your-…`, `appl_xxxx…`, `A-DEV-0000000000`, the
+  all-zero Sentry DSN, or a scheme-only URL husk like `https://`. Each is
+  non-empty, so the presence check cannot see it. The rules live in
+  `scripts/secret-placeholders.sh`, shared with the archive check below so the
+  two cannot disagree.
+- **Escapes `$` as `$$`**, because xcconfig substitutes a bare `$NAME` that
+  names a build setting. A value containing `$(` or `${` is refused outright:
+  once built it is indistinguishable from a reference Xcode failed to expand.
 
 > **Why this is a script and not a step body.** The step it replaces was dropped
 > by an onboarding sync in one repo, and the next four releases archived with
@@ -403,6 +413,65 @@ Four things it does that a hand-written `sed` step does not:
 > green throughout. A script can be RUN against known-bad input; a program
 > pasted into a YAML string can only be read. `lacquer doctor` runs this one
 > with a required secret missing and requires it to fail.
+
+#### After the archive, the release reads what actually shipped
+
+The writer checks a secret's VALUE. It cannot see whether that value reached
+the app: a wrong `secrets_file`, a missing `#include? "Secrets.xcconfig"`, or a
+committed xcconfig that assigns the key again after the written one, and the
+archive bakes in the placeholder or nothing at all while every gate is green.
+
+So every release, **declared secrets or not**, runs
+`scripts/verify-archive-info-plist.sh` between the archive and the IPA export.
+It reads the archived app's `Info.plist` — and that of every widget, app
+extension and watch app the archive embeds, each against the source plist of
+the target that built it — and, for every entry whose SOURCE value was a
+`$(KEY)` build-setting reference (Xcode's own settings excepted), fails the
+release if the value arrived empty, still a literal `$(KEY)`, as a placeholder,
+or — for a declared key — not matching `secret_formats`.
+
+- **Undeclared keys are held to the same rules.** The projects most at risk
+  are the ones that declare nothing, because no writer step runs for them. The
+  failure names the key and the rule, never the value, and says to declare it
+  under `[project].secrets` (single app) or `[[product]].secrets`.
+- **A flag meant to be off is written `NO` or `0`, never left empty.** There is
+  no way to mark an empty key as intended; a fleet-wide sweep found no case
+  that needed one.
+- **References with nothing between them** (`$(SCHEME)$(HOST)`) cannot be told
+  apart once built, so such a run is checked as one value.
+- **A declared key no `Info.plist` entry references** is printed as
+  `NOT COVERED` rather than failed — some keys reach the code another way, and
+  the log must not imply the check saw them.
+- **It fails closed.** An archive, a plist, a bundle it cannot map to a source,
+  or a build-settings query it cannot read stops the release.
+
+##### Adopting the check in your own release workflow
+
+A project that excludes `ios-release.yml` still receives both scripts —
+`scripts/verify-archive-info-plist.sh` and `scripts/secret-placeholders.sh` —
+because an exclusion covers only the path it names. Call the check after your
+archive step and before export or upload, with your archive, your project and
+release scheme (each bundle's source `Info.plist` is resolved from the Release
+build settings of the target that built it), your `Secrets.xcconfig.example`,
+and your declared keys with their shapes. It fails closed.
+
+```yaml
+      - name: Verify build-time keys reached the archive
+        run: |
+          scripts/verify-archive-info-plist.sh \
+            --archive "$ARCHIVE_PATH" \
+            --project "MyApp.xcodeproj" \
+            --scheme "MyApp" \
+            --example "Secrets.xcconfig.example" \
+            "REVENUECAT_API_KEY=appl_*" \
+            "SENTRY_DSN=https://*@*/*"
+```
+
+`--info-plist <path>` names the app's source plist directly instead of
+`--project`/`--scheme`; then name each embedded bundle's source too, with
+`--embedded-plist MyWidgets.appex=Widgets/Info.plist`, or the check fails on
+the bundle it cannot map. A macOS app needs nothing different: the check reads
+`Contents/Info.plist` inside a macOS `.app` itself.
 
 **`lacquer sync` now refuses to drop a secret.** If the workflow a project has
 today reads a `${{ secrets.NAME }}` the incoming lacquer version does not, the
