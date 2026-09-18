@@ -88,10 +88,10 @@ func packageTargets(projectDir, pbxproj string) []Target {
 		}
 		names, problem := testTargetNames(filepath.Join(dir, "Package.swift"), rel)
 		for _, n := range names {
-			out = append(out, Target{Name: n, Package: rel})
+			out = append(out, Target{Name: n, Package: rel, dir: dir})
 		}
 		if problem != "" {
-			out = append(out, Target{Package: rel, Unread: problem})
+			out = append(out, Target{Package: rel, Unread: problem, dir: dir})
 		}
 	}
 	return out

@@ -193,8 +193,21 @@ selector found in neither place is reported as naming a target that does not
 exist. If a referenced package can't be read, the selector is reported as
 *could not check*, not as missing, and the report gives the reason. That happens
 when the manifest is absent or declares a test target whose name is computed
-rather than written as a string. Package suites are not part of the
-"no selector covers it" report.
+rather than written as a string.
+
+Package suites are part of the "no selector covers it" report too, with one
+difference: a package suite can also be run by `swift test` in its package, so
+it is reported only if no workflow a pull request starts runs it either. The
+audit recognises `swift test` in the package (by `--package-path`, a step's or a
+job's `working-directory`, or a `cd`), an `xcodebuild test` or `flowdeck test`
+that selects the suite or runs a scheme testing it (including the scheme Xcode
+generates for a package), and the same commands inside a script in the
+repository that the step runs. It does not recognise `swift build
+--build-tests`, which compiles the suite and runs none of it. A suite run some
+other way can be declared in `[[project.covered_elsewhere]]`, below. If the
+package can't be read, or a workflow that might run the suite can't be (a
+`${{ matrix }}` directory, a scheme that isn't committed), the suite is
+reported as *could not check* rather than as running nowhere.
 
 `app_target` is declared, not derived: a scheme and the product it builds
 genuinely differ in real projects, and a wrong target selects no coverage row at
