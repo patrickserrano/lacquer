@@ -150,7 +150,10 @@ func TestWatchJobCreatesAndAssertsAnUnpairedDevice(t *testing.T) {
 			t.Errorf("the watch job polls for SpringBoard, which a watchOS simulator does not run: %s", line)
 		}
 	}
-	if !strings.Contains(body, `grep -q "$WATCH_READY_SERVICE"`) {
+	// The poll lives in the shared simulator library (sim_boot_and_wait, which
+	// the iOS job uses with springboard); what this job controls is which
+	// service it hands it.
+	if !strings.Contains(body, `sim_boot_and_wait "$DEVICE_ID" "$WATCH_READY_SERVICE"`) {
 		t.Error("the watch job does not poll for the platform's readiness service")
 	}
 	// And it cleans up only what it made.
