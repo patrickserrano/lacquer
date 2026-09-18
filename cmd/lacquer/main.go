@@ -721,15 +721,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				}
 			}
 			if *live {
-				// A live loop re-checks the same records over and over, so it
-				// must never also relaunch: Watch has no way to update a
-				// record's DaemonID in place, so a relaunched session would
-				// still read as Failed on the very next tick (its old
-				// DaemonID's state file, now dead) and get relaunched again
-				// every --interval, forever. --relaunch stays a one-shot,
-				// deliberate action; --live stays a read-only dashboard.
+				// A live loop is a read-only dashboard: it redraws every
+				// --interval (2s by default), and starting sessions and
+				// rewriting the sessions file on that cadence is not what
+				// anyone watching a screen asked for. Watch does now replace a
+				// relaunched record, so the old every-tick relaunch loop is
+				// gone, but --relaunch stays a one-shot, deliberate action.
 				if *relaunch {
-					fmt.Fprintln(stderr, "note: --relaunch is ignored with --live (a live loop would relaunch the same failed record every tick)")
+					fmt.Fprintln(stderr, "note: --relaunch is ignored with --live (a live dashboard only reads; run `watch --relaunch` once to relaunch)")
 				}
 				return watchLive(stdout, *sessionsPath, roster, roles, *interval)
 			}
@@ -954,7 +953,9 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               check every recorded dispatch's liveness; --relaunch re-dispatches")
 	fmt.Fprintln(w, "                               each one found dead, a failed launch included (Blocked and Missing")
 	fmt.Fprintln(w, "                               are reported, not auto-relaunched); a bg session resumes in its")
-	fmt.Fprintln(w, "                               recorded worktree. --live keeps redrawing every --interval (default")
+	fmt.Fprintln(w, "                               recorded worktree, and the relaunched session's record replaces the")
+	fmt.Fprintf(w, "                               dead one. After %d failed launches in a row a record is held for you,\n", console.MaxFailedLaunches)
+	fmt.Fprintln(w, "                               not relaunched again. --live keeps redrawing every --interval (default")
 	fmt.Fprintln(w, "                               2s) instead of checking once, until Ctrl-C; ignores --relaunch.")
 	fmt.Fprintln(w, "                               --sessions on dispatch/dispatch-role records every launch attempt,")
 	fmt.Fprintln(w, "                               a failed one included; nothing is tracked unless you pass it")

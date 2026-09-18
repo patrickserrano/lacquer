@@ -62,8 +62,14 @@ type Record struct {
 	TmuxSession string `json:"tmuxSession,omitempty"`
 	// LaunchError is set when the launch attempt itself failed -- no worktree,
 	// or tmux/claude would not start. Check reports such a record Failed.
-	LaunchError string    `json:"launchError,omitempty"`
-	StartedAt   time.Time `json:"startedAt"`
+	LaunchError string `json:"launchError,omitempty"`
+	// FailedLaunches counts consecutive failed launch attempts for this
+	// session, this one included: 1 for a first dispatch that failed, one
+	// more for each relaunch that failed too, and 0 once a launch succeeds.
+	// Watch stops relaunching at MaxFailedLaunches, so a launch that fails
+	// every time is not retried on every pass forever.
+	FailedLaunches int       `json:"failedLaunches,omitempty"`
+	StartedAt      time.Time `json:"startedAt"`
 }
 
 // AppendRecord adds one line to the sessions file, creating it (and its

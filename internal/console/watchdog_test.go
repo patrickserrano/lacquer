@@ -75,7 +75,8 @@ func TestBuildRelaunchTaskToleratesNonGitDir(t *testing.T) {
 func TestRelaunchDispatchesAProjectRecordViaDispatch(t *testing.T) {
 	roster := rosterOf("alpha")
 	r := Record{Kind: ProjectKind, Name: "alpha", Mode: Tmux, Dir: "/w/alpha", Task: "original"}
-	out, err := Relaunch(r, roster, RoleRoster{}, nil, true)
+	outLaunch, err := Relaunch(r, roster, RoleRoster{}, nil, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,8 @@ func TestRelaunchDispatchesAProjectRecordViaDispatch(t *testing.T) {
 func TestRelaunchDispatchesARoleRecordViaDispatchRole(t *testing.T) {
 	roles := roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "original", Dir: "/fleet-ops"})
 	r := Record{Kind: RoleKind, Name: "lead", Mode: Tmux, Dir: "/fleet-ops", Task: "original"}
-	out, err := Relaunch(r, fleet.Roster{}, roles, nil, true)
+	outLaunch, err := Relaunch(r, fleet.Roster{}, roles, nil, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -115,10 +115,24 @@ func removeWorktree(mainDir, path string) error {
 
 // RemoveRecord drops the first record in the sessions file that exactly
 // matches target, rewriting the file without it. Record has no fields beyond
-// plain strings/time.Time, so struct equality is a reliable enough identity
-// check -- two independent dispatches never share every field (StartedAt
-// alone already distinguishes them).
+// plain strings, ints and time.Time, so struct equality is a reliable enough
+// identity check -- two independent dispatches never share every field
+// (StartedAt alone already distinguishes them).
 func RemoveRecord(path string, target Record) error {
+	return rewriteRecord(path, target, nil)
+}
+
+// ReplaceRecord swaps the first record that exactly matches target for
+// replacement, in place, so the file's order (its history) is kept. Watch
+// uses it to put a relaunched session where the dead one was.
+func ReplaceRecord(path string, target, replacement Record) error {
+	return rewriteRecord(path, target, &replacement)
+}
+
+// rewriteRecord rewrites the sessions file with target removed, or replaced
+// when replacement is non-nil. Atomic: written to a temp file, then renamed
+// over the original, so an interrupted rewrite never truncates the history.
+func rewriteRecord(path string, target Record, replacement *Record) error {
 	records, err := ReadRecords(path)
 	if err != nil {
 		return err
@@ -128,6 +142,9 @@ func RemoveRecord(path string, target Record) error {
 	for _, r := range records {
 		if !found && r == target {
 			found = true
+			if replacement != nil {
+				out = append(out, *replacement)
+			}
 			continue
 		}
 		out = append(out, r)

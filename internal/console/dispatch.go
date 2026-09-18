@@ -201,6 +201,7 @@ func launchFailed(sp launchSpec, output string, rec *Record, err error) (Launch,
 		rec = sp.record()
 	}
 	rec.LaunchError = err.Error()
+	rec.FailedLaunches = 1 // Watch adds the attempts before it (relaunched)
 	return Launch{Output: output, Record: rec}, fmt.Errorf("%s failed: %w", sp.verb, err)
 }
 

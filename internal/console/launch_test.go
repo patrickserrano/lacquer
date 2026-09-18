@@ -87,7 +87,7 @@ func fakeClaude(t *testing.T) (callsDir string) {
 	script := `#!/bin/sh
 f="` + callsDir + `/$$"
 { pwd -P; for a in "$@"; do printf '%s\0' "$a"; done; } > "$f.tmp" && mv "$f.tmp" "$f"
-echo "backgrounded · 1234abcd"
+echo "backgrounded · ${FAKE_DAEMON_ID:-1234abcd}"
 case " $* " in *" --bg "*) exit 0 ;; esac
 sleep 300
 `
@@ -380,10 +380,12 @@ func TestKillTmuxDoesNotKillAPrefixMatch(t *testing.T) {
 // fakeTmux puts a `tmux` on PATH that reports no server and fails every
 // new-session the way the pre-fix launch did with no terminal. Needs no real
 // tmux, so this test runs everywhere.
-func fakeTmux(t *testing.T) {
+func fakeTmux(t *testing.T) (callLog string) {
 	t.Helper()
 	bin := t.TempDir()
+	callLog = filepath.Join(bin, "calls")
 	script := `#!/bin/sh
+echo "$1" >> "` + callLog + `"
 case "$1" in
   new-session) echo "open terminal failed: not a terminal" >&2; exit 1 ;;
   *) echo "no server running on /tmp/tmux-0/default" >&2; exit 1 ;;
@@ -393,6 +395,7 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return callLog
 }
 
 // D2's other half: the failed launch left nothing in the sessions file, so
@@ -671,7 +674,8 @@ func TestRelaunchResumesInTheRecordedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := Relaunch(rec, roster, RoleRoster{}, nil, false)
+	outLaunch, err := Relaunch(rec, roster, RoleRoster{}, nil, false)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -697,7 +701,8 @@ func TestRelaunchMakesAFreshWorktreeWhenTheRecordedOneIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := Relaunch(rec, roster, RoleRoster{}, nil, false)
+	outLaunch, err := Relaunch(rec, roster, RoleRoster{}, nil, false)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
