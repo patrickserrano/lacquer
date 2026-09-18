@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -701,29 +703,36 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		force := fs.Bool("force", false, "with kill: kill even a session Check reports Alive")
 		worktree := fs.String("worktree", "", "with dispatch/dispatch-role: run in this existing, registered worktree of the project's repository instead of creating one (bg) or using the checkout (tmux) -- for a worktree a PM assigned")
 		branch := fs.String("branch", "", "with bg dispatch/dispatch-role: name the branch of the worktree bg creates (directory derived from it) instead of dispatch/<id>; refused if it exists, and in tmux mode")
-		if err := fs.Parse(args[1:]); err != nil {
+		entryType := fs.String("type", "", `with inbox add: "action" (needs a human decision) or "unread" (finished, unacknowledged)`)
+		entryTitle := fs.String("title", "", "with inbox add: one-line summary (required)")
+		entryBody := fs.String("body", "", "with inbox add: optional detail")
+		entryRef := fs.String("ref", "", `with inbox add: optional reference, e.g. "#374" or a URL`)
+		entryProject := fs.String("project", "", "with inbox add: optional project/roster name")
+		all := fs.Bool("all", false, "with inbox list: include resolved entries")
+		rest, err := parseConsoleArgs(fs, args[1:])
+		if err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				fs.Usage()
+				return 2
+			}
+			// A task word that looks like a flag is the one case with a
+			// remedy worth naming at the point of failure.
+			if len(rest) > 0 && (rest[0] == "dispatch" || rest[0] == "dispatch-role") {
+				err = fmt.Errorf("%w; a word of the task that starts with - goes after --, which ends the flags: lacquer console ... %s <name> -- <task>", err, rest[0])
+			}
+			fmt.Fprintln(stderr, "error:", err)
 			return 2
 		}
-		rest := fs.Args()
+		sub, err := consoleSubcommand(rest)
+		if err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
+		if err := checkConsoleFlagScope(fs, sub); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
 		place := console.Placement{Worktree: *worktree, Branch: *branch}
-		// Flag parsing stops at the subcommand, so a flag after it is not a
-		// flag: `dispatch proj --worktree P "task"` would run in a worktree of
-		// lacquer's own with "--worktree P task" as the task, and a trailing
-		// --dry-run would launch for real.
-		if len(rest) > 0 && (rest[0] == "dispatch" || rest[0] == "dispatch-role") {
-			if a := trailingFlag(fs, rest[1:]); a != "" {
-				return fail(stderr, fmt.Errorf("%s after %s is not read as a flag; put console flags before the subcommand (lacquer console %s ... %s ...)", a, rest[0], a, rest[0]))
-			}
-		}
-		// Only a dispatch has somewhere to run. Accepted and ignored anywhere
-		// else, a PM's --worktree would read as honoured when nothing was.
-		if len(rest) == 0 || (rest[0] != "dispatch" && rest[0] != "dispatch-role") {
-			for flagName, v := range map[string]string{"--worktree": *worktree, "--branch": *branch} {
-				if v != "" {
-					return fail(stderr, fmt.Errorf("%s applies only to dispatch and dispatch-role", flagName))
-				}
-			}
-		}
 		// watch and dispatch-role both need neither --mode nor a project
 		// roster's own gate below, so both are checked first: a watch-only or
 		// dispatch-role-only invocation should never have to set up config it
@@ -834,13 +843,11 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			}
 			switch rest[1] {
 			case "add":
-				return runInboxAdd(*inboxPath, rest[2:], stdout, stderr)
+				return runInboxAdd(*inboxPath, *entryType, inbox.Entry{Title: *entryTitle, Body: *entryBody, Ref: *entryRef, Project: *entryProject}, stdout, stderr)
 			case "resolve":
 				return runInboxResolve(*inboxPath, rest[2:], stdout, stderr)
-			case "list":
-				return runInboxList(*inboxPath, rest[2:], stdout, stderr)
-			default:
-				return fail(stderr, fmt.Errorf("unknown inbox subcommand %q (want add, resolve, or list)", rest[1]))
+			default: // list; consoleSubcommand refused anything else
+				return runInboxList(*inboxPath, *all, stdout, stderr)
 			}
 		}
 		if *rosterPath == "" {
@@ -966,7 +973,12 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  console --roster F [--inbox F]")
 	fmt.Fprintln(w, "                               one screen: fleet truth + live sessions + open PRs + inbox")
 	fmt.Fprintln(w, "                               (decisions awaiting the operator, finished work awaiting")
-	fmt.Fprintln(w, "                               acknowledgement) shown first, as ACTION/UNREAD, when --inbox is set")
+	fmt.Fprintln(w, "                               acknowledgement) shown first, as ACTION/UNREAD, when --inbox is set.")
+	fmt.Fprintln(w, "                               Every console flag works on either side of the subcommand, with the")
+	fmt.Fprintln(w, "                               same meaning: `watch --relaunch` == `--relaunch watch`. An unknown")
+	fmt.Fprintln(w, "                               flag, or one the subcommand has no use for, is an error. --roster,")
+	fmt.Fprintln(w, "                               --roles, --sessions and --inbox are accepted by every subcommand;")
+	fmt.Fprintln(w, "                               -- ends the flags")
 	fmt.Fprintln(w, "  console ... --mode bg|tmux [--worktree P | --branch B] dispatch <project> \"<task>\"")
 	fmt.Fprintln(w, "                               start work on one project. bg = `claude --bg` in a new git worktree")
 	fmt.Fprintln(w, "                               and branch under <repo>/.claude/worktrees/ (nothing is launched if")
@@ -980,7 +992,9 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               names the branch bg creates instead of dispatch/<id>, in a directory")
 	fmt.Fprintln(w, "                               named B with / as - under .claude/worktrees/, for a branch a PM")
 	fmt.Fprintln(w, "                               chose; refused if either exists. An unusable --worktree or --branch")
-	fmt.Fprintln(w, "                               launches nothing. Console flags go before the subcommand")
+	fmt.Fprintln(w, "                               launches nothing. Flags are read anywhere, among the task's words")
+	fmt.Fprintln(w, "                               too, so a trailing --dry-run is a dry run; a task word that starts")
+	fmt.Fprintln(w, "                               with - goes after --: dispatch <project> -- <task>")
 	fmt.Fprintln(w, "  console --roles R [--worktree P | --branch B] dispatch-role <name> [\"<task override>\"]")
 	fmt.Fprintln(w, "                               start a named role — a lead/PM supervising many projects, not")
 	fmt.Fprintln(w, "                               editing one; mode and task come from the roles file, modes and")
@@ -1118,19 +1132,154 @@ func watchLive(w io.Writer, sessionsPath string, roster fleet.Roster, roles cons
 	}
 }
 
-// trailingFlag returns the first of args that names one of fs's flags
-// (-name, --name or --name=value), or "".
-func trailingFlag(fs *flag.FlagSet, args []string) string {
-	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
+// parseConsoleArgs parses console's flags wherever they appear -- before the
+// subcommand, after it, or among its arguments -- and returns the arguments
+// that are not flags, in order. "--" ends the flags: everything after it is
+// an argument, which is how a dispatch task carries a word starting with -.
+//
+// Go's flag package stops at the first argument that is not a flag, and every
+// console subcommand is one. So a flag after the subcommand was never parsed:
+// `watch --relaunch`, the form fleet-ops documents, printed the status and
+// relaunched nothing; `kill x --force` refused as if --force were absent; and
+// #399 had to refuse a flag after dispatch, or `dispatch p "task" --dry-run`
+// would have launched for real with the flag as task text. Nothing reported
+// the first two. The syntax is the flag package's own (-name or --name, a
+// value after = or as the next argument, none for a bool unless after =), so
+// a flag means the same on either side of the subcommand.
+//
+// A word that is not a flag of this set is an error, never an argument: a
+// typo'd flag, or one a task needed and did not put after --, would otherwise
+// be folded silently into the task.
+func parseConsoleArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return append(positional, args[i+1:]...), nil
+		}
+		if len(a) < 2 || a[0] != '-' {
+			positional = append(positional, a)
 			continue
 		}
-		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
-		if name != "" && fs.Lookup(name) != nil {
-			return a
+		name, value, hasValue := strings.Cut(strings.TrimPrefix(a[1:], "-"), "=")
+		if name == "" || name[0] == '-' {
+			return positional, fmt.Errorf("bad flag syntax: %s", a)
+		}
+		f := fs.Lookup(name)
+		if f == nil {
+			if name == "h" || name == "help" {
+				return positional, flag.ErrHelp
+			}
+			typed, _, _ := strings.Cut(a, "=")
+			return positional, fmt.Errorf("unknown flag %s", typed)
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			if !hasValue {
+				value = "true"
+			}
+		} else if !hasValue {
+			if i+1 == len(args) {
+				return positional, fmt.Errorf("--%s needs a value", name)
+			}
+			i++
+			value = args[i]
+		}
+		if err := fs.Set(name, value); err != nil {
+			return positional, fmt.Errorf("invalid value %q for --%s: %v", value, name, err)
 		}
 	}
-	return ""
+	return positional, nil
+}
+
+// consoleSubcommand names the subcommand args select ("" for the dashboard,
+// "inbox add" for an inbox one), refusing one that does not exist and
+// arguments it would not read. Too few arguments are left to each
+// subcommand's own usage message.
+func consoleSubcommand(args []string) (string, error) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	sub, max := args[0], 0
+	switch sub {
+	case "watch":
+		max = 1
+	case "kill":
+		max = 2
+	case "dispatch", "dispatch-role":
+		return sub, nil // the rest is the target and the task
+	case "inbox":
+		if len(args) < 2 {
+			return sub, nil
+		}
+		switch args[1] {
+		case "add", "list":
+			sub, max = "inbox "+args[1], 2
+		case "resolve":
+			sub, max = "inbox resolve", 3
+		default:
+			return "", fmt.Errorf("unknown inbox subcommand %q (want add, resolve, or list)", args[1])
+		}
+	default:
+		return "", fmt.Errorf("unknown console subcommand %q (want watch, kill, dispatch, dispatch-role or inbox; none for the dashboard)", sub)
+	}
+	if len(args) > max {
+		return "", fmt.Errorf("unexpected argument %q to %s", args[max], sub)
+	}
+	return sub, nil
+}
+
+// consoleFlagScope is the subcommands each console flag applies to ("" is the
+// dashboard). A flag set for a subcommand it does not apply to is refused
+// rather than ignored: ignored, it reads as honoured, and `--dry-run kill`
+// would kill for real. A flag missing from this table is refused everywhere,
+// so a new one cannot pass unscoped.
+//
+// The file flags apply everywhere, because fleet-ops' console.sh passes
+// --roster, --roles and --sessions on every invocation, whatever follows.
+var consoleFlagScope = map[string][]string{
+	"roster":   nil,
+	"roles":    nil,
+	"sessions": nil,
+	"inbox":    nil,
+	"mode":     {"dispatch"},
+	"dry-run":  {"dispatch", "dispatch-role", "watch"},
+	"worktree": {"dispatch", "dispatch-role"},
+	"branch":   {"dispatch", "dispatch-role"},
+	"relaunch": {"watch"},
+	"live":     {"watch"},
+	"interval": {"watch"},
+	"force":    {"kill"},
+	"type":     {"inbox add"},
+	"title":    {"inbox add"},
+	"body":     {"inbox add"},
+	"ref":      {"inbox add"},
+	"project":  {"inbox add"},
+	"all":      {"inbox list"},
+}
+
+// checkConsoleFlagScope refuses the first flag set on fs that sub has no use
+// for (see consoleFlagScope).
+func checkConsoleFlagScope(fs *flag.FlagSet, sub string) error {
+	var err error
+	fs.Visit(func(f *flag.Flag) {
+		if err != nil {
+			return
+		}
+		scope, known := consoleFlagScope[f.Name]
+		if known && (scope == nil || slices.Contains(scope, sub)) {
+			return
+		}
+		if !known {
+			err = fmt.Errorf("--%s has no declared scope; this is a lacquer bug", f.Name)
+			return
+		}
+		where := sub
+		if where == "" {
+			where = "the dashboard (no subcommand)"
+		}
+		err = fmt.Errorf("--%s applies only to %s, not to %s", f.Name, strings.Join(scope, " and "), where)
+	})
+	return err
 }
 
 // finishDispatch prints a dispatch's output, records it when a sessions file
@@ -1157,34 +1306,18 @@ func finishDispatch(stdout, stderr io.Writer, sessionsPath string, launch consol
 // runInboxAdd is `lacquer console --inbox F inbox add`. Must be usable
 // non-interactively by an agent in one shell line, so the ONLY thing it prints
 // on success is the assigned id — a script capturing stdout gets exactly the
-// id and nothing else to strip.
-func runInboxAdd(path string, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("console inbox add", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	typ := fs.String("type", "", `"action" (needs a human decision) or "unread" (finished, unacknowledged)`)
-	title := fs.String("title", "", "one-line summary (required)")
-	body := fs.String("body", "", "optional detail")
-	ref := fs.String("ref", "", `optional reference, e.g. "#374" or a URL`)
-	project := fs.String("project", "", "optional project/roster name")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	var t inbox.Type
-	switch *typ {
+// id and nothing else to strip. Its flags (--type, --title, --body, --ref,
+// --project) are console's, parsed on either side of the subcommand.
+func runInboxAdd(path, typ string, e inbox.Entry, stdout, stderr io.Writer) int {
+	switch typ {
 	case string(inbox.Action):
-		t = inbox.Action
+		e.Type = inbox.Action
 	case string(inbox.Unread):
-		t = inbox.Unread
+		e.Type = inbox.Unread
 	default:
-		return fail(stderr, fmt.Errorf("inbox add needs --type action or --type unread, got %q", *typ))
+		return fail(stderr, fmt.Errorf("inbox add needs --type action or --type unread, got %q", typ))
 	}
-	e, err := inbox.Add(path, inbox.Entry{
-		Type:    t,
-		Title:   *title,
-		Body:    *body,
-		Ref:     *ref,
-		Project: *project,
-	})
+	e, err := inbox.Add(path, e)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -1209,13 +1342,7 @@ func runInboxResolve(path string, args []string, stdout, stderr io.Writer) int {
 // open entries only, matching what the console dashboard itself shows;
 // --all also lists resolved ones, for an operator auditing what has already
 // been handled.
-func runInboxList(path string, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("console inbox list", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	all := fs.Bool("all", false, "include resolved entries")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
+func runInboxList(path string, all bool, stdout, stderr io.Writer) int {
 	entries, malformed, err := inbox.ReadAll(path)
 	if err != nil {
 		return fail(stderr, err)
@@ -1225,7 +1352,7 @@ func runInboxList(path string, args []string, stdout, stderr io.Writer) int {
 	}
 	var shown int
 	for _, e := range entries {
-		if !*all && !e.Open() {
+		if !all && !e.Open() {
 			continue
 		}
 		shown++
