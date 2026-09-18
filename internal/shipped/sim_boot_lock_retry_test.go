@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -276,7 +278,7 @@ func TestSimTimeoutsAccountForTheLockAndTheRetry(t *testing.T) {
 		// lock wait before the lock existed; attemptBudget is one test attempt.
 		bootBudget, attemptBudget int
 	}{
-		{soloConfig(), iosSimTarget, 6, 10},
+		{soloConfig(), iosSimTarget, 6, 13},
 		{watchProject(), watchSimTarget, 6, 15},
 	} {
 		t.Run(tc.tg.job, func(t *testing.T) {
@@ -302,6 +304,19 @@ func TestSimTimeoutsAccountForTheLockAndTheRetry(t *testing.T) {
 			if run.TimeoutMinutes*60 < needRun {
 				t.Errorf("%s timeout-minutes=%d cannot cover two %d-minute attempts plus a %ds lock wait",
 					tc.tg.run, run.TimeoutMinutes, tc.attemptBudget, wait)
+			}
+			// The pre-connection window must outlast xcodebuild's own give-up
+			// (421.5s measured on flare), or the one retryable failure is
+			// killed as a stall before it can report itself.
+			connect := libSeconds(t, lib, "SIM_TEST_CONNECT_SECONDS")
+			if connect < 480 || connect <= stall {
+				t.Errorf("SIM_TEST_CONNECT_SECONDS=%d must exceed xcodebuild's measured 421.5s pre-connection give-up with margin, and SIM_TEST_STALL_SECONDS=%d", connect, stall)
+			}
+			if connect%60 != 0 {
+				t.Errorf("SIM_TEST_CONNECT_SECONDS=%d is not whole minutes; the ::error reports it in minutes", connect)
+			}
+			if connect+180 > tc.attemptBudget*60 {
+				t.Errorf("an attempt that builds for ~3 minutes and then waits SIM_TEST_CONNECT_SECONDS=%d does not fit the %d-minute attempt budget", connect, tc.attemptBudget)
 			}
 			if stall >= tc.attemptBudget*60 {
 				t.Errorf("SIM_TEST_STALL_SECONDS=%d is not under one attempt's %d minutes; the step timeout would fire first and the diagnostics would never be captured",
@@ -346,6 +361,7 @@ func testLib(t *testing.T, lib, lock string) string {
 		"SIM_BOOT_LOCK_WAIT_SECONDS": "4",
 		"SIM_BOOT_LOCK_POLL_SECONDS": "1",
 		"SIM_TEST_STALL_SECONDS":     "3",
+		"SIM_TEST_CONNECT_SECONDS":   "8",
 		"SIM_TEST_HEARTBEAT_SECONDS": "1",
 	} {
 		re := regexp.MustCompile(`(?m)^` + name + `=.*$`)
@@ -408,43 +424,72 @@ func (h *simHarness) writeFakes() {
 n=$(( $(cat "$FAKE_STATE/xcodebuild.count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" >"$FAKE_STATE/xcodebuild.count"
 mode=$(printf '%s' "$FAKE_XCODEBUILD_MODES" | cut -d, -f"$n")
+if [ ! -e "$FAKE_LOCK" ]; then
+  echo free >>"$FAKE_STATE/lock-during-test" # no lock file: nobody has ever taken it
+else
+  exec 8<"$FAKE_LOCK"
+  if lockf -s -t 0 8; then echo free >>"$FAKE_STATE/lock-during-test"; else echo held >>"$FAKE_STATE/lock-during-test"; fi
+  exec 8<&-
+fi
 bundle=""; prev=""
 for a in "$@"; do [ "$prev" = "-resultBundlePath" ] && bundle=$a; prev=$a; done
-result() { mkdir -p "$bundle"; printf '%s' "$1" >"$bundle/fake-summary.json"; }
+# result <summary-json> <tests-json>: the bundle a real run leaves behind.
+result() { mkdir -p "$bundle"; printf '%s' "$1" >"$bundle/fake-summary.json"; printf '%s' "$2" >"$bundle/fake-tests.json"; }
+REAL_PASS='{"testNodes":[{"nodeType":"Test Plan","name":"Demo","result":"Passed","children":[{"nodeType":"Unit test bundle","name":"DemoTests","result":"Passed","children":[{"nodeType":"Test Suite","name":"DemoTests","result":"Passed","children":[{"nodeType":"Test Case","name":"test()","result":"Passed"}]}]}]}]}'
+REAL_FAIL='{"testNodes":[{"nodeType":"Test Plan","name":"Demo","result":"Failed","children":[{"nodeType":"Unit test bundle","name":"DemoTests","result":"Failed","children":[{"nodeType":"Test Suite","name":"DemoTests","result":"Failed","children":[{"nodeType":"Test Case","name":"test()","result":"Failed"}]}]}]}]}'
+# Verbatim shape of flare's real pre-connection failure (run 35303586062):
+# ONE failed "Test Case", under the "System Failures" suite.
+SYSFAIL='{"devices":[{"deviceName":"CI-iPhone-35303586062","platform":"iOS Simulator"}],"testNodes":[{"children":[{"children":[{"children":[{"children":[{"name":"The test runner hung before establishing connection.","nodeType":"Failure Message"}],"name":"Flare (42625) encountered an error","nodeIdentifier":"Flare (42625) encountered an error","nodeType":"Test Case","result":"Failed"}],"name":"System Failures","nodeType":"Test Suite","result":"Failed"}],"name":"FlareTests","nodeIdentifierURL":"test://com.apple.xcode/Flare/FlareTests","nodeType":"Unit test bundle","result":"Failed"}],"name":"Flare","nodeType":"Test Plan","result":"Failed"}],"testPlanConfigurations":[{"configurationId":"1","configurationName":"Test Scheme Action"}]}'
+SOME_THEN_SYSFAIL='{"testNodes":[{"nodeType":"Test Plan","name":"Demo","result":"Failed","children":[{"nodeType":"Unit test bundle","name":"DemoTests","result":"Failed","children":[{"nodeType":"Test Suite","name":"DemoTests","result":"Passed","children":[{"nodeType":"Test Case","name":"first()","result":"Passed"}]},{"nodeType":"Test Suite","name":"System Failures","result":"Failed","children":[{"nodeType":"Test Case","name":"Demo (4243) encountered an error","result":"Failed"}]}]}]}]}'
+SUM_PASS='{"result":"Passed","totalTestCount":1,"passedTests":1,"failedTests":0,"skippedTests":0,"expectedFailures":0}'
+SUM_FAIL1='{"result":"Failed","totalTestCount":1,"passedTests":0,"failedTests":1,"skippedTests":0,"expectedFailures":0,"testFailures":[]}'
+connected() { echo "Test Suite 'All tests' started at 2026-09-18 02:38:18.597."; echo "◇ Test run started."; }
 case "$mode" in
   pass)
-    echo "Test Suite 'All tests' started"; echo "Test case 'DemoTests.test()' passed"; echo "** TEST SUCCEEDED **"
-    result '{"result":"Passed","totalTestCount":1,"passedTests":1,"failedTests":0,"skippedTests":0,"expectedFailures":0}'
-    exit 0 ;;
+    connected; echo "✔ Test test() passed after 0.001 seconds."; echo "** TEST SUCCEEDED **"
+    result "$SUM_PASS" "$REAL_PASS"; exit 0 ;;
   fail)
-    echo "Test case 'DemoTests.test()' failed"; echo "** TEST FAILED **"
-    result '{"result":"Failed","totalTestCount":1,"passedTests":0,"failedTests":1,"skippedTests":0,"expectedFailures":0,"testFailures":[]}'
-    exit 65 ;;
+    connected; echo "✘ Test test() failed after 0.001 seconds."; echo "** TEST FAILED **"
+    result "$SUM_FAIL1" "$REAL_FAIL"; exit 65 ;;
   preconnect)
-    echo "Demo (4242) encountered an error (Early unexpected exit, operation never finished bootstrapping - no restart will be attempted. (Underlying Error: Test crashed with signal trap before establishing connection.))"
+    echo "Testing started"
+    echo "	Flare (42625) encountered an error (Early unexpected exit, operation never finished bootstrapping - no restart will be attempted. (Underlying Error: Test crashed with signal term before establishing connection.))"
     echo "** TEST FAILED **"
-    result '{"result":"Failed","totalTestCount":0,"passedTests":0,"failedTests":0,"skippedTests":0,"expectedFailures":0,"testFailures":[]}'
-    exit 65 ;;
+    result "$SUM_FAIL1" "$SYSFAIL"; exit 65 ;;
+  preconnect-hang)
+    # flare's attempt: silent for longer than the MID-SUITE window, then
+    # xcodebuild gives up on its own with the signature.
+    echo "Testing started"; sleep 5
+    echo "	Flare (42625) encountered an error (The test runner hung before establishing connection.)"
+    echo "** TEST FAILED **"
+    result "$SUM_FAIL1" "$SYSFAIL"; exit 65 ;;
   preconnect-some)
-    echo "Test case 'DemoTests.first()' passed"
-    echo "The test runner crashed before establishing connection"
+    connected; echo "✔ Test first() passed after 0.001 seconds."
+    echo "	Demo (4243) encountered an error (The test runner crashed before establishing connection)"
     echo "** TEST FAILED **"
-    result '{"result":"Failed","totalTestCount":3,"passedTests":1,"failedTests":0,"skippedTests":0,"expectedFailures":0,"testFailures":[]}'
-    exit 65 ;;
+    result '{"result":"Failed","totalTestCount":2,"passedTests":1,"failedTests":1,"skippedTests":0,"expectedFailures":0}' "$SOME_THEN_SYSFAIL"; exit 65 ;;
   preconnect-nobundle)
     echo "Early unexpected exit, operation never finished bootstrapping"
     exit 65 ;;
   silent)
-    echo "Test Suite 'All tests' started"; printf "Test case 'DemoTests.slow()' pass"
+    # A helper that inherited xcodebuild's output pipe, as xcodebuild's own
+    # children do: the pipeline cannot reach EOF while it lives, so killing
+    # xcodebuild alone would leave the step hanging on tee.
+    ( sleep 45 ) &
+    connected; printf "✔ Test slow() pass"
     while :; do sleep 1; done ;;
-  preconnect-silent)
+  never-connects)
+    ( sleep 45 ) &
+    echo "Testing started"
+    while :; do sleep 1; done ;;
+  signature-then-silence)
     echo "The test runner crashed before establishing connection"
-    result '{"result":"Failed","totalTestCount":0,"passedTests":0,"failedTests":0,"skippedTests":0,"expectedFailures":0,"testFailures":[]}'
+    result "$SUM_FAIL1" "$SYSFAIL"
     while :; do sleep 1; done ;;
   steady)
-    for i in 1 2 3 4 5 6 7; do echo "Test case 'DemoTests.t$i()' passed"; sleep 1; done
-    result '{"result":"Passed","totalTestCount":7,"passedTests":7,"failedTests":0,"skippedTests":0,"expectedFailures":0}'
-    exit 0 ;;
+    connected
+    for i in 1 2 3 4 5 6 7; do echo "✔ Test t$i() passed after 1.000 seconds."; sleep 1; done
+    result "$SUM_PASS" "$REAL_PASS"; exit 0 ;;
   *) echo "fake xcodebuild: no mode for invocation $n" >&2; exit 99 ;;
 esac
 `)
@@ -456,8 +501,12 @@ echo "$*" >>"$FAKE_STATE/xcrun.calls"
 if [ "$1" = "--sdk" ]; then echo 27.0; exit 0; fi
 if [ "$1" = "xcresulttool" ]; then
   prev=""; for a in "$@"; do [ "$prev" = "--path" ] && p=$a; prev=$a; done
-  [ -f "$p/fake-summary.json" ] || exit 1
-  cat "$p/fake-summary.json"; exit 0
+  case "$*" in
+    *"test-results tests"*) f="$p/fake-tests.json" ;;
+    *) f="$p/fake-summary.json" ;;
+  esac
+  [ -f "$f" ] || exit 1
+  cat "$f"; exit 0
 fi
 [ "$1" = "simctl" ] || exit 0
 case "$2" in
@@ -543,6 +592,10 @@ func (h *simHarness) env(extra ...string) []string {
 // runScript runs a script the way Actions does (`bash -e`), from the
 // workspace, with the script file OUTSIDE the workspace so the step's own
 // `pkill -f "$GITHUB_WORKSPACE"` cannot match its own shell.
+//
+// Each script runs in its own process group, and cleanup kills that whole
+// group, so a fake the shipped shell failed to stop cannot outlive the test.
+// That is the backstop; assertNoSurvivors is the check.
 func (h *simHarness) runScript(name, script string, timeout time.Duration, extra ...string) (string, error) {
 	h.t.Helper()
 	path := filepath.Join(h.dir, name+".sh")
@@ -554,11 +607,65 @@ func (h *simHarness) runScript(name, script string, timeout time.Duration, extra
 	cmd := exec.CommandContext(ctx, "bash", "-e", path)
 	cmd.Dir = h.ws
 	cmd.Env = h.env(extra...)
+	h.inOwnGroup(cmd)
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		h.t.Fatalf("%s did not finish within %s (the script hung):\n%s", name, timeout, out)
 	}
 	return string(out), err
+}
+
+// inOwnGroup starts cmd as the leader of a new process group and registers a
+// cleanup that
+// terminates whatever is left of the group and waits for it to be empty.
+func (h *simHarness) inOwnGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	h.t.Cleanup(func() {
+		if cmd.Process == nil {
+			return
+		}
+		pgid := cmd.Process.Pid
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		time.Sleep(200 * time.Millisecond)
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		for i := 0; i < 50 && syscall.Kill(-pgid, 0) == nil; i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+	})
+}
+
+// start runs a script in the background, in its own process group.
+func (h *simHarness) start(script string) (*exec.Cmd, io.ReadCloser) {
+	h.t.Helper()
+	cmd := exec.Command("bash", "-e", "-c", script)
+	cmd.Env = h.env()
+	h.inOwnGroup(cmd)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		h.t.Fatal(err)
+	}
+	return cmd, stdout
+}
+
+// assertNoSurvivors fails if any process from this fixture outlived the step:
+// every fake runs from h.dir, so its argv carries that path. A pipeline member
+// the shipped kill missed would survive the same way on a real runner.
+func (h *simHarness) assertNoSurvivors() {
+	h.t.Helper()
+	var left string
+	for i := 0; i < 30; i++ {
+		out, _ := exec.Command("pgrep", "-fl", regexp.QuoteMeta(h.dir)).Output()
+		left = strings.TrimSpace(string(out))
+		if left == "" {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	h.t.Errorf("processes from this fixture outlived the step:\n%s", left)
 }
 
 func (h *simHarness) read(name string) string {
@@ -578,10 +685,12 @@ func (h *simHarness) runStep(script string, modes string) (string, error) {
 	if strings.Contains(script, "${{") {
 		h.t.Fatalf("unsubstituted Actions expression in the run step:\n%s", script)
 	}
-	return h.runScript("run-step", script, 60*time.Second, "FAKE_XCODEBUILD_MODES="+modes)
+	out, err := h.runScript("run-step", script, 60*time.Second, "FAKE_XCODEBUILD_MODES="+modes)
+	h.assertNoSurvivors()
+	return out, err
 }
 
-var stallError = regexp.MustCompile(`::error::no test output for \d+ min — stalled mid-suite; diagnostics uploaded as (\S+)`)
+var stallError = regexp.MustCompile(`::error::no test output for \d+ min — stalled (mid-suite|before the test runner connected); diagnostics uploaded as (\S+)`)
 
 // TestSimTestStallDetector drives the shipped run steps against a fake
 // xcodebuild that goes silent, one that is slow but steady, and one that
@@ -608,15 +717,18 @@ func TestSimTestStallDetector(t *testing.T) {
 			if m == nil {
 				t.Fatalf("no stall ::error annotation:\n%s", out)
 			}
+			if m[1] != "mid-suite" {
+				t.Errorf("a runner that connected and then went silent was reported %q, want mid-suite", m[1])
+			}
 			wantArtifact := strings.ReplaceAll(tc.tg.artifact, "${{ matrix.watch.slug }}", "demo")
-			if m[1] != wantArtifact {
-				t.Errorf("the ::error names artifact %q, want %q", m[1], wantArtifact)
+			if m[2] != wantArtifact {
+				t.Errorf("the ::error names artifact %q, want %q", m[2], wantArtifact)
 			}
 			// Diagnostics FIRST: the log tail, the processes, a sample, and
 			// this device's log.
 			diag := filepath.Join(h.ws, "simulator-stall-diagnostics")
 			tail, _ := os.ReadFile(filepath.Join(diag, "xcodebuild-tail.log"))
-			if !strings.Contains(string(tail), "DemoTests.slow()") {
+			if !strings.Contains(string(tail), "slow() pass") {
 				t.Errorf("the diagnostics carry no tail of the xcodebuild log (got %q)", tail)
 			}
 			if _, err := os.Stat(filepath.Join(diag, "summary.txt")); err != nil {
@@ -636,16 +748,36 @@ func TestSimTestStallDetector(t *testing.T) {
 		})
 
 		// The two paths meet here: the pre-connection signature, zero tests
-		// executed, and then silence. The stall must win and must not retry.
+		// executed, and then silence that never ends. xcodebuild never exits,
+		// so there is no failure to retry: it is a stall, and a stall never
+		// enters the retry.
 		t.Run(tc.tg.job+"/signature then silence", func(t *testing.T) {
 			t.Parallel()
 			h := newSimHarness(t, tc.tg, tc.cfg)
-			out, err := h.runStep(run, "preconnect-silent,pass")
+			out, err := h.runStep(run, "signature-then-silence,pass")
 			if err == nil || stallError.FindString(out) == "" {
 				t.Fatalf("a silent run carrying the pre-connection signature did not fail as a stall:\n%s", out)
 			}
 			if n := h.count("xcodebuild.count"); n != 1 || strings.Contains(h.read("xcrun.calls"), "simctl erase") {
 				t.Errorf("the stall path entered the retry: xcodebuild ran %d times\n%s", n, h.read("xcrun.calls"))
+			}
+		})
+
+		// Silent from the start and never connecting: bounded by the longer,
+		// pre-connection window, and reported as that, not as mid-suite.
+		t.Run(tc.tg.job+"/never connects", func(t *testing.T) {
+			t.Parallel()
+			h := newSimHarness(t, tc.tg, tc.cfg)
+			out, err := h.runStep(run, "never-connects,pass")
+			m := stallError.FindStringSubmatch(out)
+			if err == nil || m == nil || m[1] != "before the test runner connected" {
+				t.Fatalf("a runner that never connected was not failed as a pre-connection stall:\n%s", out)
+			}
+			if h.count("xcodebuild.count") != 1 {
+				t.Error("a pre-connection stall was retried")
+			}
+			if _, err := os.Stat(filepath.Join(h.ws, "simulator-stall-diagnostics", "summary.txt")); err != nil {
+				t.Errorf("no diagnostics for a pre-connection stall: %v", err)
 			}
 		})
 
@@ -716,6 +848,10 @@ func TestSimTestRetriesOnlyTheNeverConnectedFailure(t *testing.T) {
 			wantPass    bool
 		}{
 			{"signature, zero tests: retries and passes", "preconnect,pass", 2, true},
+			// flare's real shape: silent for longer than the MID-SUITE window
+			// before the runner connected, then xcodebuild's own give-up. The
+			// retry must win over the stall detector.
+			{"silent past the stall window before connecting, then the signature: retries", "preconnect-hang,pass", 2, true},
 			{"signature, zero tests twice: fails after ONE retry", "preconnect,preconnect,pass", 2, false},
 			{"signature, some tests executed: no retry", "preconnect-some,pass", 1, false},
 			{"signature, no result bundle: no retry", "preconnect-nobundle,pass", 1, false},
@@ -740,6 +876,11 @@ func TestSimTestRetriesOnlyTheNeverConnectedFailure(t *testing.T) {
 					}
 					if !strings.Contains(h.read("lock-during-boot"), "held") {
 						t.Error("the retry's cold boot did not take the host-wide boot lock")
+					}
+					// Only the BOOT is serialised: the retried suite must run with
+					// the lock released, or every other job's boot queues behind it.
+					if strings.Contains(h.read("lock-during-test"), "held") {
+						t.Errorf("a test attempt ran while the boot lock was held: %q", h.read("lock-during-test"))
 					}
 					if _, err := os.Stat(filepath.Join(h.ws, strings.TrimSuffix(tc.tg.log, ".log")+"-attempt1.log")); err != nil {
 						t.Errorf("the first attempt's log was not kept: %v", err)
@@ -778,15 +919,7 @@ func TestSimBootLock(t *testing.T) {
 	t.Run("serialises, heartbeats, and hands over", func(t *testing.T) {
 		t.Parallel()
 		h := newSimHarness(t, iosSimTarget, soloConfig())
-		holder := exec.Command("bash", "-e", "-c", h.lockScript("sim_boot_lock_acquire\necho HELD\nsleep 3\n"))
-		holder.Env = h.env()
-		stdout, err := holder.StdoutPipe()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := holder.Start(); err != nil {
-			t.Fatal(err)
-		}
+		holder, stdout := h.start(h.lockScript("sim_boot_lock_acquire\necho HELD\nsleep 3\n"))
 		waitForLine(t, stdout, "HELD")
 		out, err := h.runScript("contender", h.lockScript("sim_boot_lock_acquire\necho \"held=$SIM_BOOT_LOCK_HELD\"\n"), 30*time.Second)
 		_ = holder.Wait()
@@ -807,12 +940,7 @@ func TestSimBootLock(t *testing.T) {
 	t.Run("bounded: proceeds without it, and says so", func(t *testing.T) {
 		t.Parallel()
 		h := newSimHarness(t, iosSimTarget, soloConfig())
-		holder := exec.Command("bash", "-e", "-c", h.lockScript("sim_boot_lock_acquire\necho HELD\nsleep 20\n"))
-		holder.Env = h.env()
-		stdout, _ := holder.StdoutPipe()
-		if err := holder.Start(); err != nil {
-			t.Fatal(err)
-		}
+		holder, stdout := h.start(h.lockScript("sim_boot_lock_acquire\necho HELD\nsleep 20\n"))
 		defer func() { _ = holder.Process.Kill(); _ = holder.Wait() }()
 		waitForLine(t, stdout, "HELD")
 		start := time.Now()
@@ -831,12 +959,7 @@ func TestSimBootLock(t *testing.T) {
 	t.Run("a killed holder never blocks the fleet", func(t *testing.T) {
 		t.Parallel()
 		h := newSimHarness(t, iosSimTarget, soloConfig())
-		holder := exec.Command("bash", "-e", "-c", h.lockScript("sim_boot_lock_acquire\necho HELD\nsleep 60\n"))
-		holder.Env = h.env()
-		stdout, _ := holder.StdoutPipe()
-		if err := holder.Start(); err != nil {
-			t.Fatal(err)
-		}
+		holder, stdout := h.start(h.lockScript("sim_boot_lock_acquire\necho HELD\nsleep 60\n"))
 		waitForLine(t, stdout, "HELD")
 		_ = holder.Process.Kill() // SIGKILL: no trap, no cleanup
 		_ = holder.Wait()
@@ -866,6 +989,7 @@ func TestSimBootLock(t *testing.T) {
 		}
 		cmd := exec.Command(realTool(t, "bash"), "-e", "-c", h.lockScript("sim_boot_lock_acquire\necho \"held=$SIM_BOOT_LOCK_HELD\"\n"))
 		cmd.Env = append(h.env(), "PATH="+bin)
+		h.inOwnGroup(cmd)
 		out, err := cmd.CombinedOutput()
 		if err != nil || !strings.Contains(string(out), "::warning::lockf(1) is not on this runner") || !strings.Contains(string(out), "held=0") {
 			t.Fatalf("a runner without lockf did not proceed with a warning: %v\n%s", err, out)

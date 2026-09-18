@@ -406,7 +406,23 @@ const watchJobBody = `
           # measured on the log's size, never on the heartbeat lines this watchdog prints
           # itself. A stall is diagnosed and FAILED, never retried: a retry could hide a
           # real hang in the app under test.
-          SIM_TEST_STALL_SECONDS=300
+          #
+          # MID-SUITE, once the test runner has connected: 3 minutes. Measured over 31
+          # green Test jobs in 5 repositories, the longest gap between two test results
+          # was 15s, and the longest gap of any kind was 54s (xcodebuild starting up,
+          # before the runner connects). rail's two mid-suite stalls went silent for 8
+          # minutes and more, until the step timed out.
+          SIM_TEST_STALL_SECONDS=180
+          # BEFORE the runner connects, silence is allowed for longer, because that is
+          # where xcodebuild waits out a runner that never connects and then reports it
+          # itself, with the signature the retry below needs. It was measured waiting
+          # 421.5s (flare, "The test runner hung before establishing connection").
+          # Firing sooner would turn the one retryable failure into a non-retryable stall.
+          SIM_TEST_CONNECT_SECONDS=600
+          # "The runner connected": the first line either test framework prints once the
+          # runner is up. XCTest: "Test Suite 'All tests' started at ...". Swift
+          # Testing: "Test run started." Neither appears before a pre-connection failure.
+          SIM_TEST_CONNECTED_RE="Test Suite '.*' started|Test run started"
           SIM_TEST_HEARTBEAT_SECONDS=60
           SIM_TEST_DIAG_DIR=simulator-stall-diagnostics
           # The only failure that retries: the test runner never connected. The exact
@@ -491,20 +507,31 @@ const watchJobBody = `
           }
 
           # xcodebuild's own argv carries no workspace path (-project is relative), so it
-          # is matched by this run's device id in its -destination instead.
+          # is matched by this run's device id in its -destination instead. Then the rest
+          # of the pipeline (tee, xcbeautify): the step shell's other children, which is
+          # exactly that pipeline and this watchdog. Without that, a stalled pipeline
+          # only ends when every process holding its pipes does.
           sim_test_kill_this_run() {
+            local self p
             if [ -n "${GITHUB_WORKSPACE:-}" ]; then
               pkill -9 -f "$GITHUB_WORKSPACE" 2>/dev/null || true
             fi
             if [ -n "${SIM_TEST_DEVICE_ID:-}" ]; then
               pkill -9 -f "id=$SIM_TEST_DEVICE_ID" 2>/dev/null || true
             fi
+            self=$(exec sh -c 'echo "$PPID"')
+            for p in $(pgrep -P "$SIM_TEST_STEP_PID" 2>/dev/null || true); do
+              if [ "$p" != "$self" ]; then
+                kill -9 "$p" 2>/dev/null || true
+              fi
+            done
           }
 
           # Ticks once a second so it notices the end of the run promptly and leaves no
           # stray sleep behind; prints its heartbeat every SIM_TEST_HEARTBEAT_SECONDS.
+          # Writes "<log>.stalled" (mid-suite or pre-connect) before it kills anything.
           sim_test_watchdog() {
-            local log=$1 size last=0 changed now silent beat=0
+            local log=$1 size last=0 changed now silent beat=0 connected=0 grepped=-1 kind
             changed=$(date +%s)
             while [ ! -e "$log.done" ]; do
               sleep 1
@@ -520,9 +547,25 @@ const watchJobBody = `
                 beat=0
                 echo "[watchdog $(date -u +%H:%M:%S)] xcodebuild still running (last output ${silent}s ago)"
               fi
-              if [ "$silent" -ge "$SIM_TEST_STALL_SECONDS" ]; then
-                : >"$log.stalled"
-                echo "[watchdog] No xcodebuild output for ${silent}s. Capturing diagnostics, then stopping this run's test processes."
+              if [ "$silent" -lt "$SIM_TEST_STALL_SECONDS" ]; then
+                continue
+              fi
+              # Read the log once per silence: it cannot change while it is silent.
+              if [ "$connected" = 0 ] && [ "$grepped" != "$last" ]; then
+                grepped=$last
+                if grep -qE "$SIM_TEST_CONNECTED_RE" "$log" 2>/dev/null; then
+                  connected=1
+                fi
+              fi
+              kind=""
+              if [ "$connected" = 1 ]; then
+                kind=mid-suite
+              elif [ "$silent" -ge "$SIM_TEST_CONNECT_SECONDS" ]; then
+                kind=pre-connect
+              fi
+              if [ -n "$kind" ]; then
+                echo "$kind $silent" >"$log.stalled"
+                echo "[watchdog] No xcodebuild output for ${silent}s ($kind). Capturing diagnostics, then stopping this run's test processes."
                 sim_test_capture_diagnostics "$log" || true
                 sim_test_kill_this_run
                 return 0
@@ -544,19 +587,32 @@ const watchJobBody = `
             rm -f "$log.done"
             # Checked BEFORE any retry decision, and it exits: a stall never retries.
             if [ -e "$log.stalled" ]; then
-              echo "::error::no test output for $((SIM_TEST_STALL_SECONDS / 60)) min — stalled mid-suite; diagnostics uploaded as $artifact"
+              case $(cat "$log.stalled") in
+                pre-connect*) echo "::error::no test output for $((SIM_TEST_CONNECT_SECONDS / 60)) min — stalled before the test runner connected; diagnostics uploaded as $artifact" ;;
+                *) echo "::error::no test output for $((SIM_TEST_STALL_SECONDS / 60)) min — stalled mid-suite; diagnostics uploaded as $artifact" ;;
+              esac
               echo "test_result=stalled" >>"$GITHUB_OUTPUT"
               exit 1
             fi
             SIM_TEST_EXIT_CODE=$rc
           }
 
-          # How many tests ran, from the result bundle. Prints nothing when that cannot
-          # be read, and "nothing" never counts as zero.
+          # How many REAL tests ran, from the result bundle: every "Test Case" node except
+          # those under the "System Failures" suite. A runner that never connected is
+          # recorded as ONE failed test there, named "<App> (<pid>) encountered an error",
+          # so totalTestCount reads 1 and the summary's counts cannot tell it apart from
+          # one real failure. Measured on flare's three pre-connection failures (0 real
+          # test cases each) and two green bundles (911 and 204). Prints nothing when the
+          # bundle cannot be read, and nothing never counts as zero.
           sim_test_executed_count() {
-            local summary
-            summary=$(xcrun xcresulttool get test-results summary --path "$1" 2>/dev/null) || return 0
-            printf '%s' "$summary" | jq -r '[.passedTests, .failedTests, .skippedTests, .expectedFailures] | map(numbers) | if length == 0 then empty else add end' 2>/dev/null || true
+            local tree
+            tree=$(xcrun xcresulttool get test-results tests --path "$1" 2>/dev/null) || return 0
+            printf '%s' "$tree" | jq -r '
+              def cases: if .nodeType == "Test Suite" and .name == "System Failures" then empty
+                elif .nodeType == "Test Case" then .
+                else (.children // [])[] | cases end;
+              if (.testNodes | type) == "array" then [.testNodes[] | cases] | length else empty end
+            ' 2>/dev/null || true
           }
 
           # sim_test_should_retry <log> <xcresult>: succeeds only for the pre-connection
@@ -583,6 +639,7 @@ const watchJobBody = `
           sim_test_run() {
             local svc=$2 log=$3 xcr=$4 artifact=$5
             SIM_TEST_DEVICE_ID=$1
+            SIM_TEST_STEP_PID=$$
             shift 5
             if [ "${1:-}" = "--" ]; then
               shift
