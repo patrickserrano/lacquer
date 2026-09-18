@@ -13,8 +13,12 @@ import (
 // and how it gets fixed. Do not add to this list to make an unrelated
 // scenario quiet — see expectKnownFailure's doc comment.
 const (
-	issueStaleRoot    = "https://github.com/patrickserrano/lacquer/issues/350"
-	issueCommentMatch = "https://github.com/patrickserrano/lacquer/issues/363"
+	issueStaleRoot = "https://github.com/patrickserrano/lacquer/issues/350"
+	// issueCommentMatch (issue #363) tracked InertSecretDeclarations treating a
+	// `#` comment naming the declared secrets file as proof it was written.
+	// Fixed and removed from this list: TestScenarioCommentMatch in
+	// scenario_comment_match_test.go is now an ordinary, unmarked pin of the
+	// fixed behavior rather than a strict expected-failure.
 )
 
 // summary tallies scenario-level outcomes for one run of
