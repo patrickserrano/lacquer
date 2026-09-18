@@ -2,10 +2,13 @@ package console
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patrickserrano/lacquer/internal/fleet"
+	"github.com/patrickserrano/lacquer/internal/inbox"
 )
 
 // A background session runs in a git worktree BENEATH the project, so equality
@@ -210,5 +213,141 @@ func TestLiveRowStillReadsAsClear(t *testing.T) {
 	got := summary(Row{Name: "kit"})
 	if len(got) != 1 || got[0] != "clear" {
 		t.Errorf("a live project with nothing to report should still read clear, got %v", got)
+	}
+}
+
+// MUTATION 3: make a missing inbox file a hard error instead of Unavailable,
+// and this fails. Gather must degrade exactly the way it already does for
+// `gh` and `claude agents` -- see console.go's package doc, "A MISSING TOOL
+// DEGRADES, IT DOES NOT FAIL" -- rather than propagating a Go error out of a
+// function whose whole contract is that it never returns one.
+func TestGatherDegradesOnAnUnreadableInbox(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist.jsonl")
+	res := Gather("", fleet.Roster{}, time.Now(), missing)
+	var found bool
+	for _, u := range res.Unavailable {
+		if strings.Contains(u, "inbox") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an inbox entry in Unavailable, got: %v", res.Unavailable)
+	}
+	if len(res.Actions) != 0 || len(res.Unread) != 0 {
+		t.Errorf("an unreadable inbox must yield no entries, got actions=%v unread=%v", res.Actions, res.Unread)
+	}
+}
+
+// An inbox path that is simply never configured (--inbox unset) is a
+// different case from one that is configured but unreadable: it must NOT
+// appear in Unavailable at all, matching how an unset --sessions/--roles
+// simply means that feature is off, not broken.
+func TestGatherWithNoInboxConfiguredIsSilentAboutIt(t *testing.T) {
+	res := Gather("", fleet.Roster{}, time.Now(), "")
+	for _, u := range res.Unavailable {
+		if strings.Contains(u, "inbox") {
+			t.Fatalf("an unconfigured --inbox must not be reported as unavailable, got: %v", res.Unavailable)
+		}
+	}
+}
+
+// Gather must actually surface open inbox entries, split by type, and leave
+// resolved ones out.
+func TestGatherPopulatesActionsAndUnreadFromTheInboxFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "inbox.jsonl")
+	if _, err := inbox.Add(p, inbox.Entry{Type: inbox.Action, Title: "decide the eval gate"}); err != nil {
+		t.Fatal(err)
+	}
+	unread, err := inbox.Add(p, inbox.Entry{Type: inbox.Unread, Title: "cost analysis done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := inbox.Add(p, inbox.Entry{Type: inbox.Unread, Title: "already handled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inbox.Resolve(p, resolved.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	res := Gather("", fleet.Roster{}, time.Now(), p)
+	if len(res.Actions) != 1 || res.Actions[0].Title != "decide the eval gate" {
+		t.Fatalf("Actions = %+v, want exactly the one open action entry", res.Actions)
+	}
+	if len(res.Unread) != 1 || res.Unread[0].ID != unread.ID {
+		t.Fatalf("Unread = %+v, want exactly the one open unread entry (the resolved one must be excluded)", res.Unread)
+	}
+}
+
+// MUTATION 4: remove the ACTION-before-projects ordering in render, and this
+// fails. A blocked decision outranks every project row, so it must render
+// first — burying it below a page of project rows is how it gets scrolled
+// past.
+func TestActionSectionRendersBeforeProjectRows(t *testing.T) {
+	var buf bytes.Buffer
+	Text(&buf, Result{
+		Rows: []Row{{Name: "zzz-last-project"}},
+		Actions: []inbox.Entry{
+			{ID: "abc123", Type: inbox.Action, Title: "decide the eval gate"},
+		},
+	})
+	s := buf.String()
+	actionIdx := strings.Index(s, "ACTION")
+	projectIdx := strings.Index(s, "zzz-last-project")
+	if actionIdx == -1 {
+		t.Fatalf("ACTION section did not render at all:\n%s", s)
+	}
+	if projectIdx == -1 {
+		t.Fatalf("the project row did not render at all:\n%s", s)
+	}
+	if actionIdx > projectIdx {
+		t.Fatalf("ACTION section must render before project rows, got:\n%s", s)
+	}
+	if !strings.Contains(s, "decide the eval gate") {
+		t.Errorf("the action's title is missing from the rendered output:\n%s", s)
+	}
+}
+
+// UNREAD must render too (not just ACTION), and a screen with neither must
+// print no inbox sections at all -- an empty "ACTION"/"UNREAD" header with
+// nothing under it is the exact "looks like it ran, actually found nothing to
+// check" shape this repo's CLAUDE.md warns about.
+func TestUnreadSectionRendersAndEmptySectionsStaySilent(t *testing.T) {
+	var buf bytes.Buffer
+	Text(&buf, Result{
+		Rows:   []Row{{Name: "p"}},
+		Unread: []inbox.Entry{{ID: "def456", Type: inbox.Unread, Title: "cost analysis done"}},
+	})
+	s := buf.String()
+	if !strings.Contains(s, "UNREAD") || !strings.Contains(s, "cost analysis done") {
+		t.Fatalf("UNREAD section is missing its entry:\n%s", s)
+	}
+	if strings.Contains(s, "ACTION") {
+		t.Fatalf("no ACTION entries were given; the header must not appear:\n%s", s)
+	}
+
+	buf.Reset()
+	Text(&buf, Result{Rows: []Row{{Name: "p"}}})
+	s = buf.String()
+	if strings.Contains(s, "ACTION") || strings.Contains(s, "UNREAD") {
+		t.Fatalf("neither section has entries; no header should print at all:\n%s", s)
+	}
+}
+
+// The bottom summary line must count actions/unread too, not just leave the
+// reader to count rendered entries by hand.
+func TestSummaryLineCountsActionsAndUnread(t *testing.T) {
+	var buf bytes.Buffer
+	Text(&buf, Result{
+		Rows:    []Row{{Name: "p"}},
+		Actions: []inbox.Entry{{ID: "a1", Type: inbox.Action, Title: "x"}},
+		Unread:  []inbox.Entry{{ID: "u1", Type: inbox.Unread, Title: "y"}, {ID: "u2", Type: inbox.Unread, Title: "z"}},
+	})
+	s := buf.String()
+	if !strings.Contains(s, "1 action(s)") {
+		t.Errorf("summary line is missing the action count:\n%s", s)
+	}
+	if !strings.Contains(s, "2 unread") {
+		t.Errorf("summary line is missing the unread count:\n%s", s)
 	}
 }
