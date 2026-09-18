@@ -43,10 +43,15 @@ type Target struct {
 	// reach Compare as that, rather than as an absence it would read as "it is
 	// not there". Such an entry has no Name.
 	Unread string
+	// PackageDir is the package's directory relative to the project root, for
+	// the report. Package cannot serve: it is relative to the .xcodeproj's
+	// directory, so flare's is `../FlareCore`. Set by Apply, which is the first
+	// step that knows the project root; "" before it runs.
+	PackageDir string
+	// dir is the package's directory as Parse resolved it (from the pbxproj's
+	// path), which Verify needs to find the workflows that run the package.
+	dir string
 }
-
-// native reports whether t is a test target declared by project.pbxproj itself.
-func (t Target) native() bool { return t.Package == "" && t.Unread == "" }
 
 var (
 	nativeTarget = regexp.MustCompile(`isa = PBXNativeTarget;`)
@@ -128,8 +133,17 @@ func Parse(pbxprojPath string) ([]Target, bool, error) {
 type Report struct {
 	// Uncovered are test targets the project has that no selector names. Their
 	// tests are run by nothing, and xcodebuild says nothing about a target it was
-	// never asked to run.
+	// never asked to run. A local package's suite is here only once Apply has
+	// also found no workflow running it (see runs.go).
 	Uncovered []Target
+	// Ran are local-package suites no selector names that a workflow was seen
+	// running (`swift test` in the package, or an xcodebuild test that selects
+	// them). Not in Uncovered, and printed with the command. Set by Apply.
+	Ran []Claim
+	// Unchecked are local-package suites whose coverage the audit could not
+	// decide: the package could not be read, or a workflow that might run it
+	// could not be. Not in Uncovered — "could not look" is not "runs nowhere".
+	Unchecked []Unchecked
 	// Missing are selectors naming a target the project does not have. Each one
 	// renders a `-only-testing:` that matches nothing and exits 0.
 	Missing []string
@@ -156,6 +170,17 @@ type Report struct {
 	Stale []Claim
 }
 
+// Unchecked is a local package, or one suite of it, whose coverage the audit
+// could not decide, and why.
+type Unchecked struct {
+	// Package is the package's directory: repo-relative when known, else as the
+	// pbxproj spells it.
+	Package string
+	// Suite is the suite's name, "" when the package itself could not be read.
+	Suite  string
+	Reason string
+}
+
 // Compare reports both directions.
 //
 // Selectors are compared case-sensitively and exactly, because that is how
@@ -179,12 +204,17 @@ func Compare(project []Target, selectors []string) Report {
 
 	var r Report
 	for _, t := range project {
-		// Native targets only. A package's test suite may be run by `swift
-		// test` in a workflow of its own, and `-only-testing:` can reach it at
-		// all only once the scheme lists it — so no selector naming it is not
-		// the evidence that it runs nowhere that it is for a native target.
-		if t.native() && !named[t.Name] {
+		// Native targets and local-package suites alike. For a package suite no
+		// selector naming it is weaker evidence than for a native target — it may
+		// be run by `swift test` in a workflow of its own — so Apply takes it back
+		// out when Verify saw a workflow run it (lacquer#382).
+		if t.Unread == "" && !named[t.Name] {
 			r.Uncovered = append(r.Uncovered, t)
+		}
+		// A package that could not be read has suites nobody can name, so nobody
+		// can say they run nowhere either.
+		if t.Unread != "" {
+			r.Unchecked = append(r.Unchecked, Unchecked{Package: t.Package, Reason: t.Unread})
 		}
 	}
 	for s := range named {
@@ -208,7 +238,8 @@ func Compare(project []Target, selectors []string) Report {
 // say so the caller can print it unconditionally.
 func Format(r Report) string {
 	if len(r.Uncovered) == 0 && len(r.Missing) == 0 && len(r.Unverified) == 0 &&
-		len(r.Elsewhere) == 0 && len(r.Unconfirmed) == 0 && len(r.Stale) == 0 {
+		len(r.Elsewhere) == 0 && len(r.Unconfirmed) == 0 && len(r.Stale) == 0 &&
+		len(r.Ran) == 0 && len(r.Unchecked) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -244,12 +275,18 @@ func Format(r Report) string {
 			unconfirmed[c.Target] = c
 		}
 		b.WriteString("\ntest targets no selector covers:\n")
+		packages := false
 		for _, t := range r.Uncovered {
 			kind := "unit"
 			if t.UI {
 				kind = "UI"
 			}
-			b.WriteString("  " + t.Name + "  (" + kind + " tests)\n")
+			where := ""
+			if t.Package != "" {
+				packages = true
+				where = ", local package " + firstNonEmpty(t.PackageDir, t.Package)
+			}
+			b.WriteString("  " + t.Name + "  (" + kind + " tests" + where + ")\n")
 			// The declaration does not get to be silent about failing. It is
 			// printed on the target's own line, with the check that failed,
 			// because the author of that entry believes this finding is gone.
@@ -269,12 +306,52 @@ func Format(r Report) string {
 		b.WriteString("    test_target / ui_test_target) — OR DELETE IT. Removing a target that should\n")
 		b.WriteString("    not exist is a correct resolution, not a failure to act; a suite nothing has\n")
 		b.WriteString("    run in months is as likely to be testing an app that changed under it.\n")
+		if packages {
+			// A package suite has a way to run that a native target does not, and
+			// a way to be wired that fails silently, so both go next to it.
+			b.WriteString("    A local-package suite is also run by `swift test` in its package, and no\n")
+			b.WriteString("    workflow here that a pull request starts does that either. Name it in\n")
+			b.WriteString("    extra_test_targets (the scheme's TestAction must list it, or its selector\n")
+			b.WriteString("    matches nothing and exits 0), add a step that runs\n")
+			b.WriteString("    `swift test --package-path <package>` to a workflow a pull request starts,\n")
+			b.WriteString("    or declare [[project.covered_elsewhere]] for the workflow that does run it\n")
+			b.WriteString("    (checked against that file, not believed).\n")
+		}
 		if len(r.Unconfirmed) > 0 {
 			b.WriteString("    A [[project.covered_elsewhere]] entry does not remove a target from this list\n")
 			b.WriteString("    by being written; it removes it by checking out against the repository. Fix\n")
 			b.WriteString("    the entry or the workflow — the declaration is currently claiming something\n")
 			b.WriteString("    the files do not show.\n")
 		}
+	}
+
+	if len(r.Unchecked) > 0 {
+		b.WriteString("\nlocal-package test suites this audit could not check whether anything runs:\n")
+		for _, u := range r.Unchecked {
+			who := u.Package
+			if u.Suite != "" {
+				who = u.Suite + " (" + u.Package + ")"
+			}
+			if who == "" {
+				who = "a referenced package"
+			}
+			b.WriteString("  " + who + " — " + u.Reason + "\n")
+		}
+		b.WriteString("    This is not a finding that they run nowhere, and not evidence that they run.\n")
+		b.WriteString("    Make the package or the workflow readable here and re-run the audit.\n")
+	}
+
+	if len(r.Ran) > 0 {
+		b.WriteString("\nlocal-package test suites a workflow runs (no selector names them):\n")
+		for _, c := range r.Ran {
+			b.WriteString("  " + c.Target + "  <- " + c.Workflow + "\n")
+			b.WriteString("    " + c.Reason + "\n")
+		}
+		b.WriteString("    Checked: the workflow is started by a code change, and a step runs (itself,\n")
+		b.WriteString("    or through a script in this repository) `swift test` in the suite's package,\n")
+		b.WriteString("    or an xcodebuild / flowdeck test that selects it or runs a scheme testing it.\n")
+		b.WriteString("    NOT checked, and not claimed: that the step's job runs (an `if:` can skip\n")
+		b.WriteString("    it), that the tests pass, or that the workflow's result is required to merge.\n")
 	}
 
 	if len(r.Elsewhere) > 0 {
