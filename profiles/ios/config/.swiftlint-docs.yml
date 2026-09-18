@@ -67,9 +67,25 @@ missing_docs:
   # gets documented, and they are checked on their own merits.
   excludes_extensions: true
 
-  # A conformance inherits the protocol's documentation; restating it at each
-  # conformance produces copy-paste that goes stale.
-  excludes_inherited_types: true
+  # FALSE, explicitly, and the explicit value is the point: SwiftLint's default
+  # is TRUE.
+  #
+  # This used to be true, under a comment saying a conformance inherits the
+  # protocol's documentation. That describes MEMBERS implementing a requirement
+  # (`body`, `id`, `encode(to:)`). The option does something much broader: any
+  # struct, class, enum, actor, protocol or extension with an inheritance clause
+  # is skipped along with EVERY member inside it (MissingDocsRule.swift returns
+  # .skipChildren). `struct SettingsView: View`, `struct Order: Codable`,
+  # `enum Tab: String` and everything declared in them went unchecked, which in
+  # an app is most of the code. Measured across the iOS fleet: 2,219 violations
+  # with it on, 10,218 with it off, and one project that reported zero owed 584.
+  # That is the silent pass the `internal` entry above guards against.
+  #
+  # The cost: SwiftLint cannot tell which members implement a protocol
+  # requirement (only `override` is exempt), so `body`, `id` and friends need a
+  # doc comment too. About 15% of the new violations are those. Write what the
+  # member is for in THIS type, e.g. what the view shows, not "The body."
+  excludes_inherited_types: false
 
   # `init()` with no parameters and no body has nothing to say that the type's
   # own doc comment does not already say.
