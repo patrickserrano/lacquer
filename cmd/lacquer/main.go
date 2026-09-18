@@ -361,6 +361,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// Workflow steps that kill or wipe simulators for every job on a shared
 		// runner. See internal/audit/machinewide.go.
 		fmt.Fprint(stdout, audit.FormatMachineWide(audit.MachineWideSteps(projectRoot)))
+		// A committed Package.resolved that the declared package requirements
+		// contradict: the build re-resolves and ships the requirement, so the
+		// lockfile lies. See internal/audit/packagepins.go.
+		fmt.Fprint(stdout, audit.FormatPackagePins(audit.PackagePinFindings(projectRoot)))
 
 		// Both directions of the test-selector comparison. Reported, not gated,
 		// for the same reason as the hooks check: a project whose widget suite
