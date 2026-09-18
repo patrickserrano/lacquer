@@ -63,6 +63,7 @@ type Entry struct {
 	Repo string `toml:"repo"`
 	// Path is the local checkout. Relative paths resolve against the roster
 	// file's own directory, so a roster can live beside the projects it lists.
+	// After LoadRoster it is always absolute.
 	Path string `toml:"path"`
 }
 
@@ -96,7 +97,17 @@ func LoadRoster(path string) (Roster, error) {
 	if len(r.Project) == 0 {
 		return r, fmt.Errorf("roster %s lists no projects", path)
 	}
-	base := filepath.Dir(path)
+	// Absolute, so no consumer ever sees a relative project path. Joined
+	// against a relative roster's directory ("fleet.toml" -> "."), an entry
+	// like "../proj" stayed relative, and meant something else to anything
+	// that compared it with an absolute path (git's toplevel, a session's
+	// cwd) or handed it to a process with a different cwd (tmux's server).
+	// A bg dispatch from fleet-ops with --roster fleet.toml failed on exactly
+	// that from 1.37.3 until this.
+	base, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return r, fmt.Errorf("roster %s: resolve its directory: %w", path, err)
+	}
 	seen := map[string]bool{}
 	for i := range r.Project {
 		e := &r.Project[i]
