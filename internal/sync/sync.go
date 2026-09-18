@@ -161,8 +161,8 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	}
 	missing = append(missing, assetMissing...)
 	if len(missing) > 0 {
-		return Result{}, fmt.Errorf("missing [project] values for placeholders (add them to .lacquer.toml [project], then re-run):\n  %s",
-			strings.Join(missing, "\n  "))
+		return Result{}, fmt.Errorf("missing [project] values for placeholders (%s):\n  %s",
+			tokens.MissingProjectHint(cfg), strings.Join(missing, "\n  "))
 	}
 
 	// Surviving-placeholder preflight — the guard that closes the class.
