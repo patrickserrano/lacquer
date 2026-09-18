@@ -125,10 +125,18 @@ pre-push:
       # ignored and TypeDoc blocked the push. A missing script or manifest is a
       # broken install, so it now fails and names the file, rather than being
       # indistinguishable from "read the manifest, found nothing".
+      #
+      # The root is found with git's environment cleared. In a linked worktree
+      # git exports GIT_DIR to its hooks, and with GIT_DIR set and no
+      # GIT_WORK_TREE `--show-toplevel` answers the CURRENT directory — the
+      # component, since `root:` cd'd there — so the script was reported missing
+      # from ".../admin" and every push from a worktree was refused. Without
+      # GIT_DIR git rediscovers the repository from the current directory, which
+      # is right in a main checkout and a worktree alike.
     docs:
       root: "{{COMPONENT_PREFIX}}"
       run: |
-        top=$(git rev-parse --show-toplevel) || exit 1
+        top=$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --show-toplevel) || exit 1
         for f in scripts/docs-relaxation.sh .lacquer.toml; do
           if [ ! -f "$top/$f" ]; then
             echo "docs: $f is missing from the repository root ($top), so [baseline.relax] cannot be read." >&2
