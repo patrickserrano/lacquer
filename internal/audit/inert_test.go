@@ -135,3 +135,129 @@ func TestAHandRolledWriterInAnotherWorkflowCounts(t *testing.T) {
 		t.Fatalf("a project whose own workflow writes the declared file was flagged as inert: %+v", fs)
 	}
 }
+
+// TestHasNonCommentMention is the table-driven pin for issue #363's fix: a
+// `#` comment naming the declared secrets file must not count as writing it,
+// while every real write shape found in profiles/*/workflows and
+// profiles/ios/root/scripts/write-release-config.sh — a quoted script
+// argument, a shell redirection, a `cp` target, a heredoc — must still count,
+// including when it sits inside a heredoc body or a quoted string.
+func TestHasNonCommentMention(t *testing.T) {
+	const path = "Secrets.xcconfig"
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "whole_line_comment_only",
+			body: "jobs:\n  release:\n    steps:\n      # Secrets.xcconfig is copied by CI\n      - run: xcodebuild archive\n",
+			want: false,
+		},
+		{
+			name: "indented_comment_only",
+			body: "      #   Secrets.xcconfig used to be written here\n      - run: xcodebuild archive\n",
+			want: false,
+		},
+		{
+			name: "no_mention_at_all",
+			body: "      - run: xcodebuild archive\n",
+			want: false,
+		},
+		{
+			// The hand-rolled writer in TestAHandRolledWriterInAnotherWorkflowCounts
+			// above, restated as a redirection shape.
+			name: "redirection_write",
+			body: "      - run: |\n" +
+				"          : \"${API_KEY:?Missing API_KEY}\"\n" +
+				"          printf 'API_KEY = %s\\n' \"$API_KEY\" > \"Secrets.xcconfig\"\n",
+			want: true,
+		},
+		{
+			name: "heredoc_opening_line_write",
+			body: "      - run: |\n" +
+				"          cat > \"Secrets.xcconfig\" <<EOF\n" +
+				"          API_KEY = ${API_KEY}\n" +
+				"          EOF\n",
+			want: true,
+		},
+		{
+			name: "cp_write",
+			body: "      - run: cp Secrets.xcconfig.example Secrets.xcconfig\n",
+			want: true,
+		},
+		{
+			// The shape internal/tokens.ReleaseSecretsSteps actually renders
+			// (internal/tokens/tokens.go, ~line 1102): the path as a quoted
+			// argument to the shipped writer, not a redirection at all.
+			name: "quoted_script_argument_write",
+			body: "      - name: Write release configuration (Free)\n" +
+				"        run: |\n" +
+				"          scripts/write-release-config.sh \"Secrets.xcconfig\" \\\n" +
+				"            \"API_KEY\"\n",
+			want: true,
+		},
+		{
+			// A write line that happens to sit INSIDE a heredoc body must
+			// still count — "skip everything inside a heredoc" would be the
+			// blunt mistake, not the fix.
+			name: "write_inside_heredoc_body",
+			body: "      - run: |\n" +
+				"          cat > setup.sh <<'EOF'\n" +
+				"          cp template.xcconfig \"Secrets.xcconfig\"\n" +
+				"          EOF\n",
+			want: true,
+		},
+		{
+			// The historical false positive this check exists to avoid
+			// (CLAUDE.md, "Three defects"): a correct hand-rolled step under a
+			// name that is NOT "Write release configuration" must still be
+			// recognized as a writer.
+			name: "hand_rolled_step_unexpected_name",
+			body: "jobs:\n" +
+				"  build:\n" +
+				"    steps:\n" +
+				"      - name: Create protected runtime configuration\n" +
+				"        run: |\n" +
+				"          : \"${REVENUECAT_API_KEY:?Missing REVENUECAT_API_KEY}\"\n" +
+				"          printf 'REVENUECAT_API_KEY = %s\\n' \"$REVENUECAT_API_KEY\" > \"Secrets.xcconfig\"\n",
+			want: true,
+		},
+		{
+			// A comment above a genuine write must not suppress the write:
+			// only lines that are THEMSELVES entirely comments are excluded.
+			name: "comment_alongside_real_write",
+			body: "      # Secrets.xcconfig is written below by the shipped script.\n" +
+				"      - run: scripts/write-release-config.sh \"Secrets.xcconfig\"\n",
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasNonCommentMention(tt.body, path); got != tt.want {
+				t.Errorf("hasNonCommentMention(body, %q) = %v, want %v\nbody:\n%s", path, got, tt.want, tt.body)
+			}
+		})
+	}
+}
+
+// TestCommentOnlyMentionIsReportedAsInert is the end-to-end pin for issue
+// #363, wired through InertSecretDeclarations rather than the bare helper: a
+// release workflow whose ONLY mention of the declared secrets file is inside
+// a `#` comment, with no step that actually writes it, must be reported as
+// inert. This is the same fixture shape as
+// internal/eval/scenario_comment_match_test.go's TestScenarioCommentMatch,
+// which tracked this as a known, expected failure against this issue; that
+// scenario is updated alongside this fix.
+func TestCommentOnlyMentionIsReportedAsInert(t *testing.T) {
+	dir := inertRepo(t, "jobs:\n"+
+		"  release:\n"+
+		"    steps:\n"+
+		"      # TODO: this step used to write Secrets.xcconfig here before the\n"+
+		"      # release script was migrated; restore it before shipping secrets again.\n"+
+		"      - run: xcodebuild archive\n")
+	fs := InertSecretDeclarations(dir, cfgWithSecrets(false))
+	if len(fs) != 1 {
+		t.Fatalf("a comment-only mention of the declared secrets file was treated as a write: %+v", fs)
+	}
+}

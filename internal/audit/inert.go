@@ -52,6 +52,43 @@ type InertSecrets struct {
 // [[product]].secrets. Only the iOS profile has one today.
 const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 
+// hasNonCommentMention reports whether path appears anywhere in body outside
+// a whole-line `#` comment — i.e. on a line that is not, once leading
+// whitespace is stripped, itself a comment.
+//
+// Issue #363: a plain strings.Contains(body, path) treats a leftover `#
+// TODO: this used to write Secrets.xcconfig` the same as a step that actually
+// writes it. A `#` comment is prose; it never executes, so it can never write
+// anything, and that is the one class of mention this function can rule out
+// with certainty.
+//
+// It deliberately does NOT try to go further and distinguish "code" from
+// "documentation" inside a run: block, a heredoc body, or a quoted string —
+// every real writer surveyed in profiles/*/workflows and
+// profiles/ios/root/scripts/write-release-config.sh names the file as a
+// quoted script argument ( scripts/write-release-config.sh "Secrets.xcconfig" ),
+// inside a shell redirection ( … > "Config/Monetization.xcconfig" ), or as the
+// target of `cp` — all of which are code, not comments, but none of which is
+// reliably distinguishable from a documentation string by shape alone. A
+// heredoc body or quoted string can legitimately contain the path as part of
+// a real write, so skipping "non-code-looking" text wholesale would silently
+// stop recognizing those and reintroduce the false-positive class CLAUDE.md's
+// "Three defects" describes (a detector keyed on a shape rather than on
+// whether the thing actually happened). Only the one case that is provably
+// inert — a whole comment line — is excluded.
+func hasNonCommentMention(body, path string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		if !strings.Contains(line, path) {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue // the ENTIRE line is a comment: it cannot write anything.
+		}
+		return true
+	}
+	return false
+}
+
 // InertSecretDeclarations returns every product declaring secrets that nothing
 // in this project will write.
 func InertSecretDeclarations(projectRoot string, cfg *config.Config) []InertSecrets {
@@ -110,13 +147,22 @@ func InertSecretDeclarations(projectRoot string, cfg *config.Config) []InertSecr
 			continue
 		}
 		// Anything that names the declared file is a writer as far as this check
-		// is concerned. Over-accepting on purpose: telling a project its
-		// working setup is broken is far more expensive than staying quiet about
-		// a file merely mentioned somewhere, because the first teaches people
-		// the finding is noise.
+		// is concerned, with one carve-out (issue #363): a line whose only
+		// content is a `#` comment cannot write anything, so a mention confined
+		// to comment lines does not count. That is the one case where "does the
+		// text provably execute" has a clean, cheap answer — a comment cannot
+		// run. Everything else keeps the original over-accepting bias on
+		// purpose: telling a project its working setup is broken is far more
+		// expensive than staying quiet about a file mentioned somewhere in
+		// running text, because the first teaches people the finding is noise.
+		// In particular this does NOT try to tell code from prose inside a
+		// run: block, a heredoc body, or a quoted string — see
+		// hasNonCommentMention's doc comment for why guessing there is exactly
+		// the kind of keyed-on-shape detector this repo's CLAUDE.md ("Three
+		// defects") warns against.
 		written := false
 		for _, body := range workflows {
-			if strings.Contains(body, p.SecretsPath()) {
+			if hasNonCommentMention(body, p.SecretsPath()) {
 				written = true
 				break
 			}
