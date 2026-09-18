@@ -11,6 +11,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/sync"
 	"gopkg.in/yaml.v3"
@@ -47,7 +48,8 @@ func initProject(t *testing.T, stack string, marker string) (lacquerRoot, projec
 
 	// sync refuses a non-repository on purpose — it will not overwrite work git
 	// cannot recover. A real new project is a repository, so the test must be one.
-	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"},
+	gittest.Init(t, projectRoot, "-q")
+	for _, args := range [][]string{{"add", "-A"},
 		{"-c", "user.email=t@e", "-c", "user.name=T", "commit", "-qm", "init"}} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = projectRoot

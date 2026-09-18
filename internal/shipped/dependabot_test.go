@@ -9,6 +9,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/tokens"
 	"gopkg.in/yaml.v3"
 )
@@ -100,7 +101,7 @@ func swiftProject(t *testing.T, tracked, untracked []string) string {
 			t.Fatal(err)
 		}
 	}
-	git("init", "-q")
+	gittest.Init(t, repo, "-q")
 	for _, f := range tracked {
 		write(f)
 	}

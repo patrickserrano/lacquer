@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // writeFile is a test helper that creates parent dirs and writes content.
@@ -181,11 +183,7 @@ func TestSyncCopiesAssets(t *testing.T) {
 	writeFile(t, filepath.Join(lacquer, "core", "skills", "git.md"), "GIT SKILL")
 
 	// init project as a git repo (gitguard needs one)
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = project
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
+	gittest.Init(t, project, "-q")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"x\"\n")
 
 	if _, err := Run(lacquer, project, false); err != nil {
@@ -206,11 +204,7 @@ func TestRunReportsCounts(t *testing.T) {
 	writeFile(t, filepath.Join(lacquer, "VERSION"), "1\n")
 	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
 	writeFile(t, filepath.Join(lacquer, "core", "skills", "git.md"), "S")
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = project
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
+	gittest.Init(t, project, "-q")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"x\"\n")
 
 	res, err := Run(lacquer, project, false)
@@ -241,11 +235,7 @@ func TestSyncSubstitutesTokens(t *testing.T) {
 	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
 	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "CLAUDE.ios.md"), "IOS")
 	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "root", ".x.yml"), "scheme: {{SCHEME}}\n")
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = project
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
+	gittest.Init(t, project, "-q")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"),
 		"[project]\nname=\"x\"\nscheme=\"Acme\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 
@@ -265,11 +255,7 @@ func TestSyncFailsClosedOnMissingToken(t *testing.T) {
 	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
 	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "CLAUDE.ios.md"), "IOS")
 	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "root", ".x.yml"), "scheme: {{SCHEME}}\n")
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = project
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
+	gittest.Init(t, project, "-q")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"),
 		"[project]\nname=\"x\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 
@@ -292,11 +278,7 @@ func TestSyncRootLayoutEmptyPrefix(t *testing.T) {
 	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
 	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "CLAUDE.ios.md"), "IOS")
 	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "workflows", "ci.yml"), "lint: {{COMPONENT_PREFIX}}.swiftlint.yml\nf: '{{COMPONENT_PREFIX}}**'\n")
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = project
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
+	gittest.Init(t, project, "-q")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"),
 		"[project]\nname=\"x\"\nproject_name=\"Acme\"\nscheme=\"Acme\"\nbundle_id=\"com.me.acme\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
 
@@ -327,8 +309,9 @@ func TestSyncWritesNoRegionWhenTheAssetPhaseRefuses(t *testing.T) {
 	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"acme\"\n")
 	writeFile(t, filepath.Join(project, "CLAUDE.md"), "# acme\n\nlocal note\n")
 
+	gittest.Init(t, project)
 	for _, args := range [][]string{
-		{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
+		{"config", "user.email", "t@t"}, {"config", "user.name", "t"},
 		{"add", "-A"}, {"commit", "-m", "base"},
 	} {
 		cmd := exec.Command("git", args...)

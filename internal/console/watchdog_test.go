@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/fleet"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 func initGitRepo(t *testing.T, dir string) {
@@ -22,7 +23,7 @@ func initGitRepo(t *testing.T, dir string) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run("init", "-q")
+	gittest.Init(t, dir, "-q")
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // stubGH replaces the `gh` transport for the duration of one test. Keyed on the
@@ -245,7 +247,8 @@ func TestFetchRefusesAnUnsafeRepoOrBranch(t *testing.T) {
 
 func gitInit(t *testing.T, dir, origin string) {
 	t.Helper()
-	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", origin}} {
+	gittest.Init(t, dir, "-q")
+	for _, args := range [][]string{{"remote", "add", "origin", origin}} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {

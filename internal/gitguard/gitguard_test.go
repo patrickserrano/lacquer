@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 func git(t *testing.T, dir string, args ...string) {
@@ -56,7 +58,7 @@ func dirtyIn(t *testing.T, repo string) map[string]bool {
 
 func TestDirtyPaths(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 
 	// Committed + unmodified => clean.
 	write(t, filepath.Join(repo, "a.txt"), "v1\n")
@@ -101,7 +103,7 @@ func TestDirtyPaths(t *testing.T) {
 // package exists to prevent, so it gets a test of its own.
 func TestDirtyPathsSeesInsideAnUntrackedDirectory(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 	write(t, filepath.Join(repo, "seed.txt"), "x\n")
 	git(t, repo, "add", "seed.txt")
 	git(t, repo, "commit", "-qm", "seed")
@@ -128,7 +130,7 @@ func TestDirtyPathsSeesInsideAnUntrackedDirectory(t *testing.T) {
 // work.
 func TestDirtyPathsIgnoresAWorktreeDeletion(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 	write(t, filepath.Join(repo, "gone.txt"), "x\n")
 	write(t, filepath.Join(repo, "staged-gone.txt"), "x\n")
 	git(t, repo, "add", ".")
@@ -165,7 +167,7 @@ func TestDirtyPathsIgnoresAWorktreeDeletion(t *testing.T) {
 // mis-sliced path usually fails the existence check and disappears quietly.
 func TestDirtyPathsParsesRenames(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 	write(t, filepath.Join(repo, "ab", "clean-file.txt"), "content substantial enough for rename detection\n")
 	write(t, filepath.Join(repo, "clean-file.txt"), "an innocent bystander\n")
 	git(t, repo, "add", ".")
@@ -207,7 +209,7 @@ func TestDirtyPathsParsesRenames(t *testing.T) {
 // names are hardest to eyeball.
 func TestDirtyPathsHandlesAwkwardFilenames(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 
 	names := []string{
 		"a file with spaces.md",
@@ -238,7 +240,7 @@ func TestDirtyPathsHandlesAwkwardFilenames(t *testing.T) {
 // mechanism.
 func TestDirtyPathsReportsAFlagLikeFilename(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 	write(t, filepath.Join(repo, "-rf"), "x\n")
 	if !dirtyIn(t, repo)["-rf"] {
 		t.Error("flag-like filename reported clean")
@@ -262,7 +264,7 @@ func TestDirtyPathsErrorsOnNonGitDir(t *testing.T) {
 // leak into a caller's decision, which membership testing gives for free.
 func TestDirtyPathsIsScopedToTheWholeRepo(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 	write(t, filepath.Join(repo, "unrelated", "notes.txt"), "scratch\n")
 	set := dirtyIn(t, repo)
 	if !set["unrelated/notes.txt"] {
@@ -281,7 +283,7 @@ func TestDirtyPathsIsScopedToTheWholeRepo(t *testing.T) {
 // guard silently protects nothing while still reporting success.
 func TestDirtyPathsInASubdirectoryOfARepo(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 	write(t, filepath.Join(repo, "README.md"), "seed\n")
 	git(t, repo, "add", ".")
 	git(t, repo, "commit", "-qm", "seed")
@@ -312,7 +314,7 @@ func TestDirtyPathsInASubdirectoryOfARepo(t *testing.T) {
 // it, because it only ever asked about paths under the directory it was given.
 func TestDirtyPathsIgnoresDirtOutsideTheGivenDirectory(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 	write(t, filepath.Join(repo, "README.md"), "seed\n")
 	git(t, repo, "add", ".")
 	git(t, repo, "commit", "-qm", "seed")
@@ -337,7 +339,7 @@ func TestDirtyPathsIgnoresDirtOutsideTheGivenDirectory(t *testing.T) {
 
 func TestInWorkTree(t *testing.T) {
 	repo := t.TempDir()
-	git(t, repo, "init", "-q")
+	gittest.Init(t, repo, "-q")
 	if in, err := InWorkTree(repo); err != nil || !in {
 		t.Errorf("git repo: in=%v err=%v, want true,nil", in, err)
 	}

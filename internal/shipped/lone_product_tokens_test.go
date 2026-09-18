@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/sync"
 )
 
@@ -14,7 +15,7 @@ import (
 func syncManifest(t *testing.T, manifest string) (string, error) {
 	t.Helper()
 	project := t.TempDir()
-	git(t, project, "init", "-q")
+	gittest.Init(t, project, "-q")
 	git(t, project, "config", "user.email", "test@example.com")
 	git(t, project, "config", "user.name", "Test")
 	if err := os.WriteFile(filepath.Join(project, ".lacquer.toml"), []byte(manifest), 0o644); err != nil {
