@@ -179,6 +179,27 @@ type Project struct {
 	// for the same reason as extra_test_targets: which product the watch bundle
 	// belongs to would have to be guessed.
 	WatchTests *WatchTests `toml:"watch_tests"`
+	// Secrets, SecretsFile and SecretFormats are the single-product spelling of
+	// [[product]].secrets, .secrets_file and .secret_formats, folded into the
+	// product Products() synthesises when a manifest declares no [[product]]
+	// block — exactly as ExtraTestTargets and WatchTests are. See Product.Secrets
+	// for what each one means; nothing about them differs here.
+	//
+	// They were the one release-shaped field [project] could not spell, and the
+	// cost was not restatement but silence. flare, kit, port-of-entry and
+	// multimeter all read build-time keys — a RevenueCat appl_ key, Aptabase, a
+	// Sentry DSN, an API key — from a gitignored Secrets.xcconfig and declare no
+	// [[product]]. With no way to name those keys, the release never wrote the
+	// file, and each of them was one tag away from shipping placeholders: a dead
+	// paywall, no analytics, no crash reports, all behind a green run.
+	//
+	// Declaring any of them here AND a [[product]] block is rejected rather than
+	// merged: which product the keys belong to would have to be guessed, and a
+	// paid app's key written into the free app's build is a bad release, not a
+	// failed one.
+	Secrets       map[string]string `toml:"secrets"`
+	SecretsFile   string            `toml:"secrets_file"`
+	SecretFormats map[string]string `toml:"secret_formats"`
 }
 
 // Retirement is the [project].retired entry: a project the fleet keeps but stops
@@ -556,7 +577,16 @@ var (
 	// globPatternVal is the charset allowed in a secret_formats glob. It is
 	// rendered unquoted into a shell `case`, so (, ), |, & and every quoting or
 	// substitution character are excluded.
-	globPatternVal = regexp.MustCompile(`^[A-Za-z0-9_~.:/*?-]+$`)
+	//
+	// `@` is allowed because a Sentry DSN cannot be shaped without it
+	// ("https://*@*/*"). It is inert in a `case` pattern: its only meaning is
+	// extglob's `@(...)`, which needs the parentheses excluded above.
+	//
+	// scripts/write-release-config.sh re-checks every pattern against its own
+	// copy of this set and refuses anything outside it, so the two must stay
+	// IDENTICAL. A character allowed here but not there loads cleanly and then
+	// fails every release. TestSecretFormatCharsetIsExactly pins this side.
+	globPatternVal = regexp.MustCompile(`^[A-Za-z0-9_~.:/*?@-]+$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -912,7 +942,8 @@ type Product struct {
 	// file and .gitignore already assume.
 	SecretsFile string `toml:"secrets_file"`
 	// SecretFormats optionally constrains the SHAPE of a secret's value, as a
-	// shell glob checked at release time: "appl_*", "ca-app-pub-*~*".
+	// shell glob checked at release time: "appl_*", "ca-app-pub-*~*", or
+	// "https://*@*/*" for a Sentry DSN.
 	//
 	// Non-empty is not the same as correct. The keys these guard are copied
 	// between dashboards by hand, and the two ways they go wrong — pasting the
@@ -1552,6 +1583,12 @@ func (c *Config) Products() []Product {
 		// folding it here is what lets every renderer and the audit read one
 		// field instead of branching on where it was written.
 		WatchTests: c.Project.WatchTests,
+		// And the release secrets, for the same reason. Validated in Load
+		// against the synthesised product by the same validateSecrets a declared
+		// product goes through, so the [project] route skips none of its guards.
+		Secrets:       c.Project.Secrets,
+		SecretsFile:   c.Project.SecretsFile,
+		SecretFormats: c.Project.SecretFormats,
 	}}
 }
 
@@ -1860,48 +1897,8 @@ func Load(path string) (*Config, error) {
 		if p.TagPrefix != "" && !tagPrefixVal.MatchString(p.TagPrefix) {
 			return nil, fmt.Errorf("[[product]] %q: invalid tag_prefix %q (letters, digits, - and _ only)", p.Name, p.TagPrefix)
 		}
-		for key, secret := range p.Secrets {
-			// The xcconfig key. Written to the left of `=` in a generated
-			// Secrets.xcconfig, so it stays on the identifier charset.
-			if !envNameVal.MatchString(key) {
-				return nil, fmt.Errorf("[[product]] %q: invalid secrets key %q", p.Name, key)
-			}
-			if !secretNameVal.MatchString(secret) {
-				return nil, fmt.Errorf("[[product]] %q: secrets.%s must be the NAME of a GitHub secret, not a value (got %q)", p.Name, key, secret)
-			}
-			// The whole point is that the value lives in GitHub and the name
-			// lives here. A manifest is committed; a pasted key is a leaked key,
-			// and these prefixes are what the real ones actually look like.
-			for _, prefix := range []string{"appl_", "goog_", "sk_", "sk-", "ca-app-pub-", "https://"} {
-				if strings.HasPrefix(secret, prefix) {
-					return nil, fmt.Errorf("[[product]] %q: secrets.%s looks like a real credential, not a secret name — this file is committed", p.Name, key)
-				}
-			}
-			if strings.HasPrefix(secret, "GITHUB_") {
-				return nil, fmt.Errorf("[[product]] %q: secrets.%s = %q — GitHub refuses secret names starting with GITHUB_", p.Name, key, secret)
-			}
-		}
-		for key, pattern := range p.SecretFormats {
-			if _, ok := p.Secrets[key]; !ok {
-				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s has no matching entry in secrets", p.Name, key)
-			}
-			if pattern == "" {
-				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s is empty", p.Name, key)
-			}
-			// Rendered UNQUOTED as a `case` pattern, where (, ), | and & change
-			// the parse. Restricting the charset is what keeps a manifest from
-			// injecting shell into a release.
-			if !globPatternVal.MatchString(pattern) {
-				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s = %q has characters that are unsafe in a shell pattern", p.Name, key, pattern)
-			}
-		}
-		if p.SecretsFile != "" {
-			if filepath.IsAbs(p.SecretsFile) || !filepath.IsLocal(p.SecretsFile) {
-				return nil, fmt.Errorf("[[product]] %q: secrets_file %q must be a relative path inside the project", p.Name, p.SecretsFile)
-			}
-			if len(p.Secrets) == 0 {
-				return nil, fmt.Errorf("[[product]] %q: secrets_file set but no secrets declared", p.Name)
-			}
+		if err := validateSecrets(fmt.Sprintf("[[product]] %q", p.Name), p); err != nil {
+			return nil, err
 		}
 		if err := validateWatchTests(fmt.Sprintf("[[product]] %q", p.Name), p.WatchTests, seenTarget); err != nil {
 			return nil, err
@@ -1961,6 +1958,31 @@ func Load(path string) (*Config, error) {
 			seen[t] = true
 		}
 		if err := validateWatchTests("[project]", cfg.Project.WatchTests, seen); err != nil {
+			return nil, err
+		}
+	}
+
+	// [project].secrets, .secrets_file and .secret_formats: the same story
+	// again. The product loop only sees DECLARED products, so without this the
+	// [project] route would skip the pasted-credential check and the shell-
+	// pattern charset — the one thing keeping manifest text out of an unquoted
+	// `case` in the release. Each field is refused on its own alongside a
+	// [[product]] block, so a stray secret_formats cannot slip through merely
+	// because secrets was written on the product.
+	for _, f := range []struct {
+		field string
+		set   bool
+	}{
+		{"secrets", len(cfg.Project.Secrets) > 0},
+		{"secrets_file", cfg.Project.SecretsFile != ""},
+		{"secret_formats", len(cfg.Project.SecretFormats) > 0},
+	} {
+		if f.set && len(cfg.Product) > 0 {
+			return nil, fmt.Errorf("[project].%s is set alongside %d [[product]] block(s) — it is the single-product spelling of [[product]].%s, and which product these belong to would have to be guessed. Declare them on the product instead", f.field, len(cfg.Product), f.field)
+		}
+	}
+	if len(cfg.Product) == 0 {
+		if err := validateSecrets("[project]", cfg.Products()[0]); err != nil {
 			return nil, err
 		}
 	}
@@ -2037,6 +2059,58 @@ func componentOwns(component, path string) bool {
 		return true
 	}
 	return strings.HasPrefix(path, component+"/")
+}
+
+// validateSecrets checks one product's release secrets, from either spelling.
+// label is how the containing table is written in a manifest ("[[product]]
+// \"Free\"" or "[project]"), so the error names the line the reader has to go and
+// fix. One function for both routes is what makes the guards impossible to
+// diverge: a check added here reaches [project] without anyone remembering to.
+func validateSecrets(label string, p Product) error {
+	for key, secret := range p.Secrets {
+		// The xcconfig key. Written to the left of `=` in a generated
+		// Secrets.xcconfig, so it stays on the identifier charset.
+		if !envNameVal.MatchString(key) {
+			return fmt.Errorf("%s: invalid secrets key %q", label, key)
+		}
+		if !secretNameVal.MatchString(secret) {
+			return fmt.Errorf("%s: secrets.%s must be the NAME of a GitHub secret, not a value (got %q)", label, key, secret)
+		}
+		// The whole point is that the value lives in GitHub and the name
+		// lives here. A manifest is committed; a pasted key is a leaked key,
+		// and these prefixes are what the real ones actually look like.
+		for _, prefix := range []string{"appl_", "goog_", "sk_", "sk-", "ca-app-pub-", "https://"} {
+			if strings.HasPrefix(secret, prefix) {
+				return fmt.Errorf("%s: secrets.%s looks like a real credential, not a secret name — this file is committed", label, key)
+			}
+		}
+		if strings.HasPrefix(secret, "GITHUB_") {
+			return fmt.Errorf("%s: secrets.%s = %q — GitHub refuses secret names starting with GITHUB_", label, key, secret)
+		}
+	}
+	for key, pattern := range p.SecretFormats {
+		if _, ok := p.Secrets[key]; !ok {
+			return fmt.Errorf("%s: secret_formats.%s has no matching entry in secrets", label, key)
+		}
+		if pattern == "" {
+			return fmt.Errorf("%s: secret_formats.%s is empty", label, key)
+		}
+		// Rendered UNQUOTED as a `case` pattern, where (, ), | and & change
+		// the parse. Restricting the charset is what keeps a manifest from
+		// injecting shell into a release.
+		if !globPatternVal.MatchString(pattern) {
+			return fmt.Errorf("%s: secret_formats.%s = %q has characters that are unsafe in a shell pattern", label, key, pattern)
+		}
+	}
+	if p.SecretsFile != "" {
+		if filepath.IsAbs(p.SecretsFile) || !filepath.IsLocal(p.SecretsFile) {
+			return fmt.Errorf("%s: secrets_file %q must be a relative path inside the project", label, p.SecretsFile)
+		}
+		if len(p.Secrets) == 0 {
+			return fmt.Errorf("%s: secrets_file set but no secrets declared", label)
+		}
+	}
+	return nil
 }
 
 // validateWatchTests checks one watch_tests table, from either spelling. label

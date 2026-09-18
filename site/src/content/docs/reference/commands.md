@@ -234,8 +234,27 @@ has is reported as stale.
 
 ### Release-time secrets
 
-A product that needs real values at release — monetization SDK keys, ad unit
-IDs — maps each xcconfig key to the GitHub secret holding it:
+A project that needs real values at release — monetization SDK keys, ad unit
+IDs, an analytics key, a crash-reporting DSN — maps each xcconfig key to the
+GitHub secret holding it. A single-app project (no `[[product]]` block) declares
+them under `[project]`, where they fold into the product the manifest
+synthesises — the same fallback `scheme`, `bundle_id`, `asc_app_id` and
+`extra_test_targets` have:
+
+```toml
+[project]
+name = "MyApp"
+scheme = "MyApp"
+bundle_id = "com.example.myapp"
+asc_app_id = "1111111110"
+secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
+secret_formats = { REVENUECAT_API_KEY = "appl_*", SENTRY_DSN = "https://*@*/*" }
+```
+
+A project with several products declares them per product, since each app's
+keys are its own. Setting `secrets`, `secrets_file` or `secret_formats` under
+`[project]` alongside any `[[product]]` block is rejected rather than merged,
+because which product they belong to would have to be guessed:
 
 ```toml
 [[product]]
@@ -254,7 +273,10 @@ checked at release time. Non-empty is not the same as correct: the two ways
 these keys actually go wrong — pasting another app's key, or leaving Google's
 public test AdMob ID in place — both produce a perfectly non-empty value that
 builds, signs, uploads and passes review, then serves the wrong ads to real
-users. A mismatch fails the release without echoing the value.
+users. A mismatch fails the release without echoing the value. A pattern may
+use letters, digits and `_ ~ . : / * ? @ -`; anything else (quotes, `|`, `(`,
+`&`, spaces) is rejected at load, because the pattern is used unquoted in a
+shell `case`.
 
 The manifest holds the secret's **name**; the value stays in GitHub. `lacquer`
 rejects a value that looks like a real credential, because this file is

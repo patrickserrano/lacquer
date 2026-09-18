@@ -323,18 +323,15 @@ grants full account access — it must never go in `Secrets.xcconfig` or the
 binary. It is a CI/server secret (`REVENUECAT_REST_API_KEY`, below).
 :::
 
-#### At release time, the real values come from `[[product]].secrets`
+#### At release time, the real values come from `[project].secrets`
 
 CI seeds `Secrets.xcconfig` from the committed example, because tests must run without production keys. A release must not: an archive built from the example ships wired to `appl_xxxxxxxx`, and nothing looks wrong until the revenue doesn't arrive — or until App Review opens the paywall.
 
-Declare the keys the release needs and the shared workflow writes them:
+Declare the keys the release needs and the shared workflow writes them. A single-app project (no `[[product]]` block) declares them under `[project]`:
 
 ```toml
-[[product]]
-name = "Rail"
-scheme = "Rail"
-bundle_id = "com.pixelfoxstudio.rail"
-asc_app_id = "6772891700"
+[project]
+# ...name, scheme, bundle_id, asc_app_id as usual...
 # Where the values are written, relative to the component root. Defaults to
 # Secrets.xcconfig, which is what the example file and .gitignore assume.
 secrets_file = "xcconfig/Secrets.xcconfig"
@@ -342,8 +339,10 @@ secrets_file = "xcconfig/Secrets.xcconfig"
 # Never the value: this file is committed.
 secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
 # Optional shape check. Non-empty is not the same as correct.
-secret_formats = { REVENUECAT_API_KEY = "appl_*" }
+secret_formats = { REVENUECAT_API_KEY = "appl_*", SENTRY_DSN = "https://*@*/*" }
 ```
+
+A project with several `[[product]]` blocks declares the same three keys on each product instead, because a paid app's key written into the free app's build is a bad release, not a failed one. Setting them under `[project]` as well is rejected: which product they belong to would have to be guessed. **If your app reads keys from `Secrets.xcconfig` and none of this is declared, the release archives with the committed placeholders.** Declare them.
 
 `release.yml` then runs `scripts/write-release-config.sh`, which seeds the committed `<secrets_file>.example` and substitutes the declared keys into it. It fails closed on an unset **or empty** secret (an unset secret expands to the empty string, and an empty xcconfig value is not an error to `xcodebuild`); fails closed on a value that doesn't match its `secret_formats` shape; escapes `//` as `/$()/`, because xcconfig treats `//` as a comment and a bare `https://host` truncates to `https:`; and seeds from the example first, so keys the project references but doesn't hold in secrets stay defined.
 
