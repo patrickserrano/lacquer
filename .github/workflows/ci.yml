@@ -319,7 +319,15 @@ jobs:
       # below, where they cost seconds. TestShippedSuiteStaysFreeOfConcurrency
       # fails if internal/shipped ever grows a goroutine, so this exclusion
       # cannot silently stop covering something.
+      # tmux is not on ubuntu-latest, and internal/console's dispatch tests
+      # need a real one: every tmux defect they cover was in how tmux started
+      # a process. They skip without it locally; LACQUER_TEST_REQUIRE_TMUX
+      # makes them fail here instead, so a missing tmux cannot pass as green.
+      - name: Install tmux
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux
       - name: Test with the race detector (all but the e2e suite)
+        env:
+          LACQUER_TEST_REQUIRE_TMUX: "1"
         run: |
           set -euo pipefail
           pkgs="$(go list ./... | grep -vx 'github.com/patrickserrano/lacquer/internal/shipped')"

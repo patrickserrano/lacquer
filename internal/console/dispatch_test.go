@@ -47,7 +47,8 @@ func TestDispatchProceedsWhenRepoNotArchived(t *testing.T) {
 		return []byte(`{"isArchived":false}`), nil
 	}
 
-	out, err := Dispatch(rosterWithRepo("alpha", "acme/alpha"), nil, "alpha", "do a thing", Background, true)
+	outLaunch, err := Dispatch(rosterWithRepo("alpha", "acme/alpha"), nil, "alpha", "do a thing", Tmux, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatalf("a live repo must not be refused: %v", err)
 	}
@@ -67,7 +68,8 @@ func TestDispatchProceedsWhenArchivedCheckIsInconclusive(t *testing.T) {
 		return nil, errors.New("gh: command not found")
 	}
 
-	out, err := Dispatch(rosterWithRepo("alpha", "acme/alpha"), nil, "alpha", "do a thing", Background, true)
+	outLaunch, err := Dispatch(rosterWithRepo("alpha", "acme/alpha"), nil, "alpha", "do a thing", Tmux, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatalf("an inconclusive check must not block dispatch: %v", err)
 	}
@@ -86,7 +88,7 @@ func TestDispatchSkipsArchivedCheckWithNoRepoConfigured(t *testing.T) {
 		return nil, nil
 	}
 
-	if _, err := Dispatch(rosterOf("alpha"), nil, "alpha", "do a thing", Background, true); err != nil {
+	if _, err := Dispatch(rosterOf("alpha"), nil, "alpha", "do a thing", Tmux, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
