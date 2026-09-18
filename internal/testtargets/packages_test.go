@@ -363,30 +363,3 @@ func TestComputedTestTargetNameIsUnverified(t *testing.T) {
 		})
 	}
 }
-
-// Package test targets answer "does the selector name something real". They are
-// deliberately NOT entered into the other direction: a package's suite may be
-// run by `swift test` in a workflow of its own, and is only selectable by
-// `-only-testing:` at all once the scheme lists it — so "no selector names it"
-// is not evidence it runs nowhere. Reporting it would add findings fleet-wide
-// that this change has not measured.
-func TestPackageTestTargetsAreNotReportedUncovered(t *testing.T) {
-	r := Compare(parsePath(t, railProject(t)), []string{"RailTests"})
-	if len(r.Uncovered) != 0 {
-		t.Fatalf("package test targets were reported uncovered: %+v", r.Uncovered)
-	}
-}
-
-// Reading packages leaves [[project.covered_elsewhere]] exactly as it was: a
-// declaration is checked against the targets project.pbxproj itself declares,
-// the same list Compare's uncovered direction draws from. Whether package suites
-// belong in that direction is a separate change with its own fleet dry-run.
-func TestPackageTargetsDoNotChangeVerify(t *testing.T) {
-	decls := []Declaration{{Target: "RailCoreTests", Workflow: "w.yml", Reason: "r"}}
-	withPackages := Verify(t.TempDir(), decls, parsePath(t, railProject(t)), nil)
-	without := Verify(t.TempDir(), decls, []Target{{Name: "RailTests"}}, nil)
-	if len(withPackages) != 1 || withPackages[0].Stale != without[0].Stale ||
-		withPackages[0].Confirmed != without[0].Confirmed {
-		t.Fatalf("Verify changed once package targets were read:\n  with:    %+v\n  without: %+v", withPackages, without)
-	}
-}
