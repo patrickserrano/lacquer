@@ -372,6 +372,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// for the same reason as the hooks check: a project whose widget suite
 		// nobody wired is not DRIFTED -- every managed file is exactly right,
 		// which is why this went unnoticed three times in one repo.
+		// [[project.not_run_in_ci]]: suites deliberately run in no CI job. An
+		// expired one gates below, with the other expired exemptions.
+		var notRun []testtargets.NotRun
+		for _, n := range cfg.Project.NotRunInCI {
+			notRun = append(notRun, testtargets.NotRun{Target: n.Target, Reason: n.Reason, Until: n.Until})
+		}
+		notRunExpired := 0
 		if cfg.Project.Xcodeproj != "" {
 			pbx := filepath.Join(projectRoot, cfg.Project.Xcodeproj, "project.pbxproj")
 			declared, read, err := testtargets.Parse(pbx)
@@ -420,7 +427,20 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				}
 				claims := testtargets.Verify(projectRoot, decls, declared, managed)
 				report := testtargets.Apply(testtargets.Compare(declared, selectors), claims)
+				report = testtargets.Deliberate(report, declared, notRun, time.Now())
 				fmt.Fprint(stdout, testtargets.Format(report))
+				notRunExpired = testtargets.Blocking(report)
+			} else if len(notRun) > 0 {
+				// [[project.not_run_in_ci]] carries a date, and a date must not
+				// stop being enforced because the project could not be read:
+				// that would be an expiry that silently never fires. Nothing is
+				// compared (see above), so every declaration is read against an
+				// unreadable project -- never stale, never applied to anything,
+				// but expired if its term ran out.
+				unread := []testtargets.Target{{Unread: cfg.Project.Xcodeproj + " could not be read"}}
+				report := testtargets.Deliberate(testtargets.Report{}, unread, notRun, time.Now())
+				fmt.Fprint(stdout, testtargets.Format(report))
+				notRunExpired = testtargets.Blocking(report)
 			}
 		}
 
@@ -538,7 +558,11 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// filename directly, and deleting the file out from under it breaks that
 		// live job). This WILL fail every fleet repo carrying one of the three
 		// workflows issue #354 tracks until each syncs and then cleans up.
-		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0 || depignore.Blocking(ignores) > 0 || len(orphans) > 0:
+		//
+		// An expired [[project.not_run_in_ci]] shares it for the same reason the
+		// expired exclusion and dependabot ignore do: a time-boxed exemption whose
+		// term ran out. The suite it excused is back in the report above.
+		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0 || depignore.Blocking(ignores) > 0 || len(orphans) > 0 || notRunExpired > 0:
 			return 4
 		// Exit 6 when the project runs a stack the lacquer manages but the manifest
 		// never declared. Distinct from 3/4 because the fix is different in kind:
