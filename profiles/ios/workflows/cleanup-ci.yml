@@ -60,13 +60,26 @@ jobs:
           # what the victims see ("Test crashed with signal trap before
           # establishing connection") and why its own host-wide kills were scoped.
           #
+          # It runs only in a quiet window: when no OTHER GitHub Actions job is
+          # executing anywhere on the host, i.e. no Runner.Worker, of any runner
+          # or OS user, except the one this shell runs under. The cron time says
+          # nothing about that: on 2026-09-18 GitHub fired the 07:00 UTC schedule
+          # five hours late, at peak CI. A pass that finds another job running,
+          # or cannot find its own worker up its parent chain, skips without
+          # stamping, so the next scheduled run tries again.
+          #
           # Everything below acts only on what provably belongs to THIS runner:
           #
           #   processes  orphaned (parent PID 1), owned by this OS user, carrying
           #              this runner's work directory in argv or as their working
           #              directory, and older than CLEANUP_MIN_AGE_SECONDS. Killed
           #              by PID: TERM, a grace, then KILL. Never CoreSimulatorService,
-          #              the Simulator app or the runner itself.
+          #              the Simulator app or the runner itself. Shared Xcode
+          #              services are never killed: nothing executing from
+          #              /Applications/Xcode*.app/ (SWBBuildService, XCBBuildService,
+          #              SourceKit, XPC helpers), which may be mid-build for another
+          #              job. The xcodebuild client is, when orphaned under this
+          #              runner's work directory: that is the hung job this is for.
           #   devices    named CI-iPhone-* or CI-Watch-* (what ios-ci.yml creates),
           #              shut down, and unchanged for CLEANUP_MIN_AGE_SECONDS; plus
           #              `simctl delete unavailable`. Deleted by UDID.
@@ -87,6 +100,10 @@ jobs:
           #     .github/workflows/ios-cleanup-ci.yml >/tmp/lacquer-cleanup-lib.sh
           #   RUNNER_WORKSPACE=<runner>/_work/x RUNNER_NAME=<runner-name> \
           #     bash -c '. /tmp/lacquer-cleanup-lib.sh; cleanup_main standard true schedule'
+          #
+          # Outside a job there is no Runner.Worker above your shell, so a local
+          # dry run always reports that a real run would skip, then shows the
+          # selection anyway.
           #
           # The paths and the kill command are overridable only so the lacquer's
           # tests can point them at a fake host; nothing in CI sets them.
@@ -171,11 +188,99 @@ jobs:
             echo "$root"
           }
 
+          # Every process on the host, every OS user's: pid ppid uid etime command.
+          cleanup_ps() {
+            ps -A -ww -o pid= -o ppid= -o uid= -o etime= -o command=
+          }
+
+          # cleanup_quiet_window <dry-run>: succeeds (0) when no other job is
+          # running on this host, fails (1), saying why, when one is or when this
+          # job's own worker cannot be identified, and returns 2 if ps fails.
+          #
+          # Each runner runs one job at a time in one Runner.Worker, so a worker
+          # is a running job. This job's own is found by walking up the parent
+          # chain from this shell; every other one, whoever owns it, is another
+          # job. One ps snapshot answers both, so the walk cannot race the count.
+          cleanup_quiet_window() {
+            local dry=$1 listing own n dirs verb=skipped quiet=0
+            if ! listing=$(cleanup_ps); then
+              echo "::error::ps failed, so the other jobs on this host cannot be counted." >&2
+              return 2
+            fi
+            {
+              read -r own
+              read -r n
+              read -r dirs
+            } < <(printf '%s\n' "$listing" | CLEANUP_SELF="$$" awk '
+              # The executable (the first word of the command) is Runner.Worker;
+              # a command that only mentions it, like a grep, is not a job.
+              function is_worker(c) { sub(/[ \t].*/, "", c); return c ~ /(^|\/)Runner\.Worker$/ }
+              NF >= 5 {
+                cmd = $0
+                sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+[^ \t]+[ \t]+/, "", cmd)
+                parent[$1 + 0] = $2 + 0
+                command[$1 + 0] = cmd
+              }
+              END {
+                own = 0
+                p = ENVIRON["CLEANUP_SELF"] + 0
+                for (i = 0; i < 64 && p > 1 && (p in parent); i++) {
+                  if (is_worker(command[p])) { own = p; break }
+                  p = parent[p]
+                }
+                n = 0
+                for (p in command) {
+                  if (p + 0 != own && is_worker(command[p])) pids[++n] = p + 0
+                }
+                # Ascending pid, so the log reads the same for the same host.
+                for (i = 2; i <= n; i++) {
+                  v = pids[i]
+                  for (j = i - 1; j >= 1 && pids[j] > v; j--) pids[j + 1] = pids[j]
+                  pids[j + 1] = v
+                }
+                dirs = ""
+                for (i = 1; i <= n; i++) {
+                  d = command[pids[i]]
+                  sub(/[ \t].*/, "", d)
+                  # <runner>/bin/Runner.Worker, or bin.<version> once updated.
+                  sub(/\/bin[^\/]*\/Runner\.Worker$/, "", d)
+                  dirs = dirs (i > 1 ? ", " : "") d
+                }
+                print (own ? own : "-")
+                print n
+                print (n ? dirs : "-")
+              }')
+            # Anything unreadable is a count of nothing, which must not read as
+            # "no other job".
+            case "${own:-}" in
+              - | [1-9] | [1-9]*[0-9]) ;;
+              *) own=x ;;
+            esac
+            case "${n:-}:$own" in
+              *:x | :* | *[!0-9]*:*)
+                echo "::error::Could not count the jobs on this host from ps (own worker '${own}', others '${n:-}'); not proceeding." >&2
+                return 2
+                ;;
+            esac
+            if [ "$dry" = true ]; then
+              verb="would be skipped"
+            fi
+            if [ "$own" = - ]; then
+              echo "::warning::This shell (pid $$) has no Runner.Worker in its parent chain, so this job cannot be told apart from another job on the host; $verb rather than guess."
+              quiet=1
+            fi
+            if [ "$n" -gt 0 ]; then
+              echo "$verb: $n other job(s) running on this host ($dirs)."
+              quiet=1
+            fi
+            return "$quiet"
+          }
+
           # cleanup_select_orphans <work-root> <min-age-seconds>
           # Prints pid<TAB>age-seconds<TAB>command for each process to kill.
           cleanup_select_orphans() {
             local root=$1 min_age=$2 listing candidates pid age inargv cmd cwd
-            if ! listing=$(ps -A -ww -o pid= -o ppid= -o uid= -o etime= -o command=); then
+            if ! listing=$(cleanup_ps); then
               echo "::error::ps failed, so orphans cannot be identified." >&2
               return 1
             fi
@@ -198,6 +303,11 @@ jobs:
                   # The host-wide simulator services and the runner itself, even
                   # if a work path appears in their arguments.
                   if (cmd ~ /(^|\/)(com\.apple\.CoreSimulator\.CoreSimulatorService|Simulator|launchd_sim|Runner\.Listener|Runner\.Worker)( |$)/) next
+                  # Shared Xcode services: anything executing from an Xcode
+                  # bundle, matched on the executable at the start of the
+                  # command, never on an argument. The xcodebuild client is the
+                  # one exception: its orphan is a hung job, not a service.
+                  if (cmd ~ /^\/Applications\/Xcode[^\/]*\.app\// && cmd !~ /^\/Applications\/Xcode[^\/]*\.app\/Contents\/Developer\/usr\/bin\/xcodebuild( |$)/) next
                   printf "%s\t%d\t%d\t%s\n", $1, age, (index(cmd, ENVIRON["CLEANUP_ROOT"]) > 0), cmd
                 }')
             while IFS="$CLEANUP_TAB" read -r pid age inargv cmd; do
@@ -471,6 +581,20 @@ jobs:
                   return 0
                 fi
                 echo "A real scheduled run would skip: this runner already cleaned $(cleanup_fmt_age "$stamp_age") ago ($stamp). Showing the selection anyway."
+              fi
+            fi
+
+            rc=0
+            cleanup_quiet_window "$dry" || rc=$?
+            if [ "$rc" -eq 2 ]; then
+              return 1
+            fi
+            if [ "$rc" -ne 0 ]; then
+              if [ "$dry" = true ]; then
+                echo "A real run would skip (above). Showing the selection anyway."
+              else
+                echo "Not stamping, so the next scheduled run tries again."
+                return 0
               fi
             fi
 

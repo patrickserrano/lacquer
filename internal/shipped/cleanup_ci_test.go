@@ -254,27 +254,40 @@ func cleanupLib(t *testing.T) string {
 // cleanupHost is a fake Mac: fixtures for ps, lsof and simctl, a lockf whose
 // answer per descriptor the test chooses, and a kill that only logs.
 type cleanupHost struct {
-	t                                   *testing.T
-	dir, bin, work, devices, stamps     string
-	ps, lsof, simctl, simctlUnavailable []string
+	t                                       *testing.T
+	dir, bin, runner, work, devices, stamps string
+	ps, lsof, simctl, simctlUnavailable     []string
+	// selfParent is the parent of the shell that runs cleanup_main, and
+	// ownWorker whether the fixture holds this runner's Runner.Worker at
+	// ownWorkerPID. By default the shell is a run: step's bash, a direct child
+	// of that worker, which is what the quiet-window gate walks up to.
+	selfParent int
+	ownWorker  bool
 }
 
 const (
 	// The library's threshold is three hours; these sit either side of it.
 	oldEtime   = "05:00:00"
 	youngEtime = "00:10:00"
+
+	// This job's own Runner.Worker, and its Runner.Listener (not in the fixture).
+	ownWorkerPID   = 900
+	ownListenerPID = 890
 )
 
 func newCleanupHost(t *testing.T) *cleanupHost {
 	t.Helper()
 	dir := t.TempDir()
 	h := &cleanupHost{
-		t:       t,
-		dir:     dir,
-		bin:     filepath.Join(dir, "bin"),
-		work:    filepath.Join(dir, "runner", "_work"),
-		devices: filepath.Join(dir, "devices"),
-		stamps:  filepath.Join(dir, "stamps"),
+		t:          t,
+		dir:        dir,
+		bin:        filepath.Join(dir, "bin"),
+		runner:     filepath.Join(dir, "runner"),
+		work:       filepath.Join(dir, "runner", "_work"),
+		devices:    filepath.Join(dir, "devices"),
+		stamps:     filepath.Join(dir, "stamps"),
+		selfParent: ownWorkerPID,
+		ownWorker:  true,
 	}
 	for _, d := range []string{h.bin, filepath.Join(h.work, "repo", "repo"), h.devices, h.stamps, filepath.Join(dir, "home")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -282,7 +295,9 @@ func newCleanupHost(t *testing.T) *cleanupHost {
 		}
 	}
 	shims := map[string]string{
-		"ps": `cat "$FAKE_DIR/ps.txt"`,
+		// @SELF@ is the pid of the shell running cleanup_main ($$), which the
+		// test cannot know before it starts.
+		"ps": `sed "s/@SELF@/$(cat "$FAKE_DIR/self.pid")/" "$FAKE_DIR/ps.txt"`,
 		"lsof": `pid=""
 while [ $# -gt 0 ]; do [ "$1" = -p ] && pid=$2; shift; done
 awk -v p="$pid" '$1==p {print "p" p; print "n" $2}' "$FAKE_DIR/lsof.txt"`,
@@ -312,6 +327,11 @@ exit 0`,
 // proc adds a ps row owned by the current user.
 func (h *cleanupHost) proc(pid, ppid int, etime, cmd string) {
 	h.ps = append(h.ps, fmt.Sprintf("%6d %6d %5d %11s %s", pid, ppid, os.Getuid(), etime, cmd))
+}
+
+// procAs adds a ps row owned by another OS user (the github-user runners).
+func (h *cleanupHost) procAs(uid, pid, ppid int, etime, cmd string) {
+	h.ps = append(h.ps, fmt.Sprintf("%6d %6d %5d %11s %s", pid, ppid, uid, etime, cmd))
 }
 
 // cwd records a process's working directory for the lsof shim.
@@ -380,7 +400,13 @@ func (r cleanupRun) destructive() bool {
 // the same `bash -e` GitHub uses for a run: step.
 func (h *cleanupHost) run(level, dry, event string, extraEnv ...string) cleanupRun {
 	h.t.Helper()
-	h.write("ps.txt", strings.Join(h.ps, "\n")+"\n")
+	ps := []string{fmt.Sprintf("%6s %6d %5d %11s %s", "@SELF@", h.selfParent, os.Getuid(), "00:00:05",
+		"/bin/bash --noprofile --norc -e -o pipefail "+h.work+"/_temp/step.sh")}
+	if h.ownWorker {
+		ps = append(ps, fmt.Sprintf("%6d %6d %5d %11s %s", ownWorkerPID, ownListenerPID, os.Getuid(), "00:00:30",
+			h.runner+"/bin/Runner.Worker spawnclient 105 108"))
+	}
+	h.write("ps.txt", strings.Join(append(ps, h.ps...), "\n")+"\n")
 	h.write("lsof.txt", strings.Join(h.lsof, "\n")+"\n")
 	h.write("simctl.txt", "== Devices ==\n-- iOS 27.0 --\n"+strings.Join(h.simctl, "\n")+"\n")
 	h.write("simctl-unavailable.txt", strings.Join(h.simctlUnavailable, "\n")+"\n")
@@ -390,7 +416,7 @@ func (h *cleanupHost) run(level, dry, event string, extraEnv ...string) cleanupR
 		h.t.Fatal(err)
 	}
 
-	cmd := exec.Command("bash", "-e", "-c", `set -uo pipefail; . "$LIB"; cleanup_main "$@"`, "_", level, dry, event)
+	cmd := exec.Command("bash", "-e", "-c", `echo $$ >"$FAKE_DIR/self.pid"; set -uo pipefail; . "$LIB"; cleanup_main "$@"`, "_", level, dry, event)
 	cmd.Env = append([]string{
 		"PATH=" + h.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"HOME=" + filepath.Join(h.dir, "home"),
@@ -816,5 +842,210 @@ func TestCleanupCIRefusesAnUnprovableWorkRoot(t *testing.T) {
 				t.Errorf("acted without a work directory\n%s", r.calls)
 			}
 		})
+	}
+}
+
+// TestCleanupCIQuietWindow: GitHub fires the 07:00Z schedule when it likes (on
+// 2026-09-18 it was five hours late and landed at peak CI), so the cron time
+// says nothing about whether the host is idle. The pass therefore runs only
+// when no OTHER job is executing anywhere on the host: any Runner.Worker, of
+// any runner and any OS user, other than the one this shell runs under.
+func TestCleanupCIQuietWindow(t *testing.T) {
+	seed := func(h *cleanupHost) {
+		h.proc(1001, 1, oldEtime, h.work+"/repo/repo/DerivedData/X.xctest")
+		h.device("CI-iPhone-1", "11111111-1111-1111-1111-111111111111", "Shutdown", 5*time.Hour)
+	}
+	githubUID := os.Getuid() + 1
+	theirRunner := "/Users/github/actions-runner-2"
+
+	t.Run("another Runner.Worker skips the pass", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		other := filepath.Join(h.dir, "pixelfox-2")
+		h.procAs(githubUID, 2001, 2000, "00:04:00", theirRunner+"/bin/Runner.Worker spawnclient 164 167")
+		// A runner that has self-updated runs its worker from bin.<version>.
+		h.proc(2011, 2010, "00:03:00", other+"/bin.2.335.1/Runner.Worker spawnclient 160 163")
+		r := h.mustRun("standard", "false", "schedule")
+		if r.destructive() {
+			t.Errorf("killed or deleted while two other jobs were running on the host\n%s", r.calls)
+		}
+		if strings.Contains(r.calls, "simctl") {
+			t.Errorf("a skipped pass still listed or touched simulators\n%s", r.calls)
+		}
+		want := "skipped: 2 other job(s) running on this host (" + theirRunner + ", " + other + ")"
+		if !strings.Contains(r.out, want) {
+			t.Errorf("the skip is not logged as %q\n%s", want, r.out)
+		}
+		if _, err := os.Stat(h.stampPath()); err == nil {
+			t.Errorf("a skipped pass wrote the stamp, suppressing the retry")
+		}
+	})
+	t.Run("another OS user's worker alone skips the pass", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		h.procAs(githubUID, 2001, 2000, "00:04:00", theirRunner+"/bin/Runner.Worker spawnclient 164 167")
+		r := h.mustRun("standard", "false", "schedule")
+		if r.destructive() {
+			t.Errorf("a job under another OS user did not hold the pass back\n%s", r.calls)
+		}
+		if !strings.Contains(r.out, "skipped: 1 other job(s) running on this host ("+theirRunner+")") {
+			t.Errorf("the skip is not logged\n%s", r.out)
+		}
+	})
+	t.Run("a manual aggressive run is held back too", func(t *testing.T) {
+		// aggressive deletes BOOTED CI devices, and this OS user's other runners
+		// boot theirs under the same names: the gate matters most here.
+		h := newCleanupHost(t)
+		seed(h)
+		h.device("CI-iPhone-2", "22222222-2222-2222-2222-222222222222", "Booted", 5*time.Minute)
+		h.proc(2011, 2010, "00:03:00", filepath.Join(h.dir, "pixelfox-2")+"/bin/Runner.Worker spawnclient 160 163")
+		r := h.mustRun("aggressive", "false", "workflow_dispatch")
+		if r.destructive() {
+			t.Errorf("an aggressive run acted while another job was running\n%s", r.calls)
+		}
+	})
+	t.Run("a dry run reports the skip and changes nothing", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		h.procAs(githubUID, 2001, 2000, "00:04:00", theirRunner+"/bin/Runner.Worker spawnclient 164 167")
+		r := h.mustRun("standard", "true", "schedule")
+		if r.destructive() {
+			t.Errorf("dry run killed or deleted\n%s", r.calls)
+		}
+		if !strings.Contains(r.out, "would be skipped: 1 other job(s) running on this host ("+theirRunner+")") {
+			t.Errorf("the dry run does not say a real run would skip\n%s", r.out)
+		}
+		if !strings.Contains(r.out, "would kill pid=1001") {
+			t.Errorf("the dry run hid the selection it exists to show\n%s", r.out)
+		}
+	})
+	t.Run("only its own worker, up the parent chain, proceeds", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		// Two hops: the step's bash under a wrapper under this job's worker.
+		h.selfParent = 950
+		h.proc(950, ownWorkerPID, "00:00:20", "/bin/sh -c "+h.work+"/_temp/wrapper.sh")
+		// Neither is a Runner.Worker: one names it only as an argument, the
+		// other is the runner's diagnostics.
+		h.proc(2101, 2100, "00:00:01", "grep Runner.Worker")
+		h.proc(2102, 2100, "01:00:00", "tail -f "+h.runner+"/_diag/Runner.Worker_20260918.log")
+		r := h.mustRun("standard", "false", "schedule")
+		if !r.killed(1001) || !r.deleted("11111111-1111-1111-1111-111111111111") {
+			t.Errorf("the pass was held back by its own job, or by a process that merely names Runner.Worker\n%s\n%s", r.out, r.calls)
+		}
+		if strings.Contains(r.out, "skipped") {
+			t.Errorf("reported a skip with no other job running\n%s", r.out)
+		}
+	})
+	t.Run("no worker in the parent chain skips with a warning", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		h.ownWorker = false
+		h.selfParent = 950
+		h.proc(950, 1, "00:00:20", "/bin/zsh -l")
+		r := h.mustRun("standard", "false", "schedule")
+		if r.destructive() {
+			t.Errorf("proceeded without finding its own Runner.Worker\n%s", r.calls)
+		}
+		if !strings.Contains(r.out, "::warning::") || !strings.Contains(r.out, "no Runner.Worker in its parent chain") {
+			t.Errorf("the fail-safe skip carries no warning\n%s", r.out)
+		}
+		if _, err := os.Stat(h.stampPath()); err == nil {
+			t.Errorf("a skipped pass wrote the stamp")
+		}
+	})
+	t.Run("a worker that is not in the chain is not its own", func(t *testing.T) {
+		// This runner's worker exists, but the shell is not under it: it is
+		// another job's worker as far as this shell can prove.
+		h := newCleanupHost(t)
+		seed(h)
+		h.selfParent = 950
+		h.proc(950, 1, "00:00:20", "/bin/zsh -l")
+		r := h.mustRun("standard", "false", "schedule")
+		if r.destructive() {
+			t.Errorf("claimed a worker outside its parent chain as its own\n%s", r.calls)
+		}
+		if !strings.Contains(r.out, "skipped: 1 other job(s) running on this host ("+h.runner+")") {
+			t.Errorf("the unclaimed worker was not counted as another job\n%s", r.out)
+		}
+	})
+	t.Run("ps failing fails the run without acting", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		h.write("bin/ps", "#!/bin/sh\nexit 1\n")
+		if err := os.Chmod(filepath.Join(h.bin, "ps"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r := h.run("standard", "false", "schedule")
+		if r.code == 0 {
+			t.Errorf("exited 0 without being able to count the jobs on the host\n%s", r.out)
+		}
+		if r.destructive() {
+			t.Errorf("acted without a process listing\n%s", r.calls)
+		}
+	})
+	t.Run("an unreadable count fails safe", func(t *testing.T) {
+		// awk dies before printing, as the gate's own awk (the only one given
+		// CLEANUP_SELF before the orphan selection) would on a bad program. An
+		// empty count must not read as "no other job".
+		h := newCleanupHost(t)
+		seed(h)
+		h.write("bin/awk", "#!/bin/sh\nif [ -n \"${CLEANUP_SELF:-}\" ]; then exit 2; fi\nPATH=${PATH#*:} exec awk \"$@\"\n")
+		if err := os.Chmod(filepath.Join(h.bin, "awk"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r := h.run("standard", "false", "schedule")
+		if r.code == 0 {
+			t.Errorf("exited 0 on an unreadable job count\n%s", r.out)
+		}
+		if r.destructive() {
+			t.Errorf("acted on an unreadable job count\n%s", r.calls)
+		}
+	})
+}
+
+// TestCleanupCINeverKillsSharedXcodeServices: an Xcode build service, SourceKit
+// or XPC helper can be orphaned under this runner's work directory and still be
+// serving another build; killing it mid-build is the one way an orphan kill
+// hurts another job. Anything executing from /Applications/Xcode*.app/ is
+// therefore never selected, except the xcodebuild client itself, whose orphan
+// is the hung job the cleanup exists for. The match is on the executable, not
+// on the command line.
+func TestCleanupCINeverKillsSharedXcodeServices(t *testing.T) {
+	h := newCleanupHost(t)
+	w := h.work + "/repo/repo"
+	shared := map[int]string{
+		1101: "/Applications/Xcode.app/Contents/SharedFrameworks/SwiftBuild.framework/Versions/A/PlugIns/SWBBuildService.bundle/Contents/MacOS/SWBBuildService",
+		1102: "/Applications/Xcode.app/Contents/SharedFrameworks/XCBuild.framework/Versions/A/PlugIns/XCBBuildService.bundle/Contents/MacOS/XCBBuildService " + w,
+		1103: "/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/sourcekitd.framework/Versions/A/XPCServices/SourceKitService.xpc/Contents/MacOS/SourceKitService",
+		1104: "/Applications/Xcode.app/Contents/Developer/Library/Xcode/Agents/Xcode Service.app/Contents/MacOS/Xcode Service",
+		1105: "/Applications/Xcode_26.1.app/Contents/SharedFrameworks/SourceKit.framework/Versions/A/XPCServices/com.apple.dt.SKAgent.xpc/Contents/MacOS/com.apple.dt.SKAgent",
+		// Names the xcodebuild client only as an argument: still a service.
+		1106: "/Applications/Xcode.app/Contents/SharedFrameworks/XCBuild.framework/Versions/A/PlugIns/XCBBuildService.bundle/Contents/MacOS/XCBBuildService --client /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild",
+	}
+	for pid, cmd := range shared {
+		h.proc(pid, 1, oldEtime, cmd)
+		h.cwd(pid, w)
+	}
+	// Controls, orphaned under the work directory in exactly the same way.
+	h.proc(1111, 1, oldEtime, "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -scheme Demo")
+	h.cwd(1111, w)
+	h.proc(1112, 1, oldEtime, "/Applications/Xcode-beta.app/Contents/Developer/usr/bin/xcodebuild build")
+	h.cwd(1112, w)
+	h.proc(1113, 1, oldEtime, `/usr/bin/log stream --predicate process contains "altool"`)
+	h.cwd(1113, w)
+	// Names Xcode only as an argument: the executable is not Xcode's.
+	h.proc(1114, 1, oldEtime, "/usr/bin/env /Applications/Xcode.app/Contents/Developer/usr/bin/actool "+w+"/Assets.xcassets")
+
+	r := h.mustRun("standard", "false", "schedule")
+	for pid, cmd := range shared {
+		if strings.Contains(r.calls, fmt.Sprintf(" %d\n", pid)) {
+			t.Errorf("pid %d was signalled but executes from Xcode's bundle: %s\n%s", pid, cmd, r.calls)
+		}
+	}
+	for _, pid := range []int{1111, 1112, 1113, 1114} {
+		if !r.killed(pid) {
+			t.Errorf("pid %d is an old orphan under this runner's work directory and not a shared Xcode service, and was not killed\n%s", pid, r.out)
+		}
 	}
 }
