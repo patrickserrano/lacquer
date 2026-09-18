@@ -142,7 +142,8 @@ func TestDispatchRejectsUnknownMode(t *testing.T) {
 // knows about is not. Warn, do not refuse.
 func TestDispatchWarnsAboutExistingSessionsButProceeds(t *testing.T) {
 	sessions := []Session{{Name: "alpha-1", Status: "working", CWD: "/w/alpha"}}
-	out, err := Dispatch(rosterOf("alpha"), sessions, "alpha", "task", Background, true)
+	outLaunch, err := Dispatch(rosterOf("alpha"), sessions, "alpha", "task", Tmux, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatalf("an existing session must not block dispatch: %v", err)
 	}
@@ -157,12 +158,17 @@ func TestDispatchWarnsAboutExistingSessionsButProceeds(t *testing.T) {
 // The mode decides whether edits land in an isolated worktree or the real
 // checkout, so the command must differ accordingly.
 func TestDispatchModesTargetDifferentPlaces(t *testing.T) {
-	bg, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Background, true)
+	repo := realPath(t, t.TempDir())
+	initGitRepo(t, repo)
+	roster := fleet.Roster{Project: []fleet.Entry{{Name: "alpha", Path: repo}}}
+	bgLaunch, err := Dispatch(roster, nil, "alpha", "task", Background, true)
+	bg := bgLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
 	// claude has no --cwd flag; the working directory is set via exec.Cmd.Dir,
-	// not an argument, so the display line shows it as a `cd` prefix instead.
+	// not an argument, so the display line shows it as a `cd` prefix instead
+	// -- into a worktree of its own, never the checkout.
 	//
 	// --dangerously-skip-permissions bypasses the permission-PROMPT layer only
 	// -- it has nothing to do with the sandbox, a separate execution-level
@@ -171,21 +177,30 @@ func TestDispatchModesTargetDifferentPlaces(t *testing.T) {
 	// needs, and git add/commit/push/checkout -b/worktree remove all get
 	// silently denied -- indistinguishable from success until the operator
 	// reads the job's own transcript.
-	if !strings.Contains(bg, `cd /w/alpha && claude --bg --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task`) {
-		t.Errorf("bg mode must launch a background agent in the project directory with the sandbox disabled, not just permission prompts skipped:\n%s", bg)
+	if !strings.Contains(bg, "(cd "+filepath.Join(repo, ".claude", "worktrees", "dispatch-")) ||
+		!strings.Contains(bg, ` && claude --bg --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task)`) {
+		t.Errorf("bg mode must launch a background agent in a worktree of its own with the sandbox disabled, not just permission prompts skipped:\n%s", bg)
 	}
-	tm, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Tmux, true)
+	if strings.Contains(bg, "(cd "+repo+" &&") {
+		t.Errorf("bg mode must not run in the checkout:\n%s", bg)
+	}
+	tmLaunch, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Tmux, true)
+	tm := tmLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(tm, "tmux new-session -A -s alpha -c /w/alpha") {
-		t.Errorf("tmux mode must attach-or-create the project session:\n%s", tm)
+	if !strings.Contains(tm, `tmux new-session -d -s alpha -c /w/alpha claude --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task`) {
+		t.Errorf("tmux mode must start a detached session in the checkout, with bypass permissions:\n%s", tm)
+	}
+	if strings.Contains(tm, " -A ") {
+		t.Errorf("-A attaches an existing session, which fails with no terminal even alongside -d:\n%s", tm)
 	}
 }
 
 // Dry run is the guard that makes the two modes safe to explore.
 func TestDryRunStartsNothing(t *testing.T) {
-	out, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Background, true)
+	outLaunch, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Tmux, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}

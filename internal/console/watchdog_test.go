@@ -75,11 +75,12 @@ func TestBuildRelaunchTaskToleratesNonGitDir(t *testing.T) {
 func TestRelaunchDispatchesAProjectRecordViaDispatch(t *testing.T) {
 	roster := rosterOf("alpha")
 	r := Record{Kind: ProjectKind, Name: "alpha", Mode: Tmux, Dir: "/w/alpha", Task: "original"}
-	out, err := Relaunch(r, roster, RoleRoster{}, nil, true)
+	outLaunch, err := Relaunch(r, roster, RoleRoster{}, nil, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "tmux new-session -A -s alpha") {
+	if !strings.Contains(out, "tmux new-session -d -s alpha") {
 		t.Errorf("expected a project relaunch to go through Dispatch:\n%s", out)
 	}
 	if !strings.Contains(out, "died and is being relaunched") {
@@ -90,11 +91,12 @@ func TestRelaunchDispatchesAProjectRecordViaDispatch(t *testing.T) {
 func TestRelaunchDispatchesARoleRecordViaDispatchRole(t *testing.T) {
 	roles := roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "original", Dir: "/fleet-ops"})
 	r := Record{Kind: RoleKind, Name: "lead", Mode: Tmux, Dir: "/fleet-ops", Task: "original"}
-	out, err := Relaunch(r, fleet.Roster{}, roles, nil, true)
+	outLaunch, err := Relaunch(r, fleet.Roster{}, roles, nil, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "tmux new-session -A -s lead") {
+	if !strings.Contains(out, "tmux new-session -d -s lead") {
 		t.Errorf("expected a role relaunch to go through DispatchRole:\n%s", out)
 	}
 }

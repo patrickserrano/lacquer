@@ -8,7 +8,9 @@ import (
 	"strings"
 )
 
-// Kill stops one recorded session and removes it from the sessions file.
+// Kill stops one recorded session and removes it from the sessions file. A
+// bg record's own worktree (Record.Worktree) is never removed; its path is
+// returned in the note instead.
 //
 // Refuses on an Alive record unless force is set: this exists because a batch
 // of bg dispatches sat Blocked with no live process at all (a bg daemon holds
@@ -26,8 +28,18 @@ func Kill(sessionsPath string, r Record, force bool) (string, error) {
 	var note string
 	switch r.Mode {
 	case Tmux:
-		if err := exec.Command("tmux", "kill-session", "-t", r.Name).Run(); err != nil {
-			note = fmt.Sprintf("tmux kill-session reported: %v (session may already be gone)", err)
+		// By the session's own id, resolved from its exact name: `-t <name>`
+		// prefix-matches, and killed probe-long when asked to kill probe.
+		id, name, found, err := findTmuxSession(r.tmuxNames())
+		switch {
+		case err != nil:
+			note = fmt.Sprintf("could not look up the tmux session: %v", err)
+		case !found:
+			note = "no tmux session named " + strings.Join(r.tmuxNames(), " or ") + " (already gone)"
+		default:
+			if err := exec.Command("tmux", "kill-session", "-t", id).Run(); err != nil {
+				note = fmt.Sprintf("tmux kill-session %s (%s) reported: %v", name, id, err)
+			}
 		}
 	case Background:
 		if r.DaemonID != "" {
@@ -36,11 +48,8 @@ func Kill(sessionsPath string, r Record, force bool) (string, error) {
 			if err == nil {
 				jobDir := filepath.Join(dir, r.DaemonID)
 				// worktreePath comes from the job's OWN state file, read
-				// before removing that file -- it is the only authoritative
-				// source of this path (Claude Code's bg dispatch machinery
-				// names the worktree, not lacquer), and not every dispatch
-				// even has one: one observed dispatch this session ran
-				// directly in the project's main checkout.
+				// before removing that file -- the only record of a worktree
+				// Claude Code's bg machinery made and named itself.
 				//
 				// This is the fix for a real incident: an earlier version of
 				// Kill removed only the job directory, leaving the git
@@ -49,7 +58,16 @@ func Kill(sessionsPath string, r Record, force bool) (string, error) {
 				// lock and got stuck asking how to proceed -- 7 of 7
 				// redispatched sessions, all blocked on the exact thing this
 				// function was supposed to have cleaned up.
-				if st, jsErr := readJobState(filepath.Join(jobDir, "state.json")); jsErr == nil && st.WorktreePath != "" {
+				//
+				// Never when that path is lacquer's own recorded worktree or
+				// inside it: a bg session now runs in the worktree dispatch
+				// made, so its state file can name that very directory, and
+				// force-removing it would delete the uncommitted work that
+				// lacquer never removes (see worktree.go). Kept for records
+				// that predate lacquer-made worktrees (no r.Worktree), which
+				// are the ones that incident was about.
+				if st, jsErr := readJobState(filepath.Join(jobDir, "state.json")); jsErr == nil && st.WorktreePath != "" &&
+					(r.Worktree == "" || !within(st.WorktreePath, r.Worktree)) {
 					if wtErr := removeWorktree(r.Dir, st.WorktreePath); wtErr != nil {
 						notes = append(notes, fmt.Sprintf("could not remove worktree %s: %v", st.WorktreePath, wtErr))
 					}
@@ -62,6 +80,13 @@ func Kill(sessionsPath string, r Record, force bool) (string, error) {
 				}
 			}
 			note = strings.Join(notes, "; ")
+		}
+		if r.Worktree != "" {
+			kept := fmt.Sprintf("kept worktree %s (branch %s): remove it with `git -C %s worktree remove %s` once nothing in it is needed", r.Worktree, r.Branch, r.Dir, r.Worktree)
+			if note != "" {
+				note += "; "
+			}
+			note += kept
 		}
 	}
 
@@ -90,10 +115,24 @@ func removeWorktree(mainDir, path string) error {
 
 // RemoveRecord drops the first record in the sessions file that exactly
 // matches target, rewriting the file without it. Record has no fields beyond
-// plain strings/time.Time, so struct equality is a reliable enough identity
-// check -- two independent dispatches never share every field (StartedAt
-// alone already distinguishes them).
+// plain strings, ints and time.Time, so struct equality is a reliable enough
+// identity check -- two independent dispatches never share every field
+// (StartedAt alone already distinguishes them).
 func RemoveRecord(path string, target Record) error {
+	return rewriteRecord(path, target, nil)
+}
+
+// ReplaceRecord swaps the first record that exactly matches target for
+// replacement, in place, so the file's order (its history) is kept. Watch
+// uses it to put a relaunched session where the dead one was.
+func ReplaceRecord(path string, target, replacement Record) error {
+	return rewriteRecord(path, target, &replacement)
+}
+
+// rewriteRecord rewrites the sessions file with target removed, or replaced
+// when replacement is non-nil. Atomic: written to a temp file, then renamed
+// over the original, so an interrupted rewrite never truncates the history.
+func rewriteRecord(path string, target Record, replacement *Record) error {
 	records, err := ReadRecords(path)
 	if err != nil {
 		return err
@@ -103,6 +142,9 @@ func RemoveRecord(path string, target Record) error {
 	for _, r := range records {
 		if !found && r == target {
 			found = true
+			if replacement != nil {
+				out = append(out, *replacement)
+			}
 			continue
 		}
 		out = append(out, r)

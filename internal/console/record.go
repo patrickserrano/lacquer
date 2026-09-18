@@ -3,10 +3,8 @@ package console
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -23,8 +21,8 @@ const (
 	RoleKind    Kind = "role"
 )
 
-// Record is what a successful (non-dry-run) Dispatch or DispatchRole call
-// appends, so a later pass (Check, Relaunch) can find the session again
+// Record is what a Dispatch or DispatchRole launch attempt appends (see
+// runDispatch for exactly which calls produce one), so a later pass (Check, Relaunch) can find the session again
 // without re-deriving anything from the roster/roles file, which may have
 // changed since dispatch time.
 //
@@ -50,8 +48,28 @@ type Record struct {
 	// in the dispatch command's own stdout (DaemonID in dispatch.go). Empty
 	// for Tmux mode, where Name is itself the addressable handle via
 	// `tmux has-session`.
-	DaemonID  string    `json:"daemonId,omitempty"`
-	StartedAt time.Time `json:"startedAt"`
+	DaemonID string `json:"daemonId,omitempty"`
+	// Worktree and Branch are the git worktree and branch a bg dispatch made
+	// for this session (worktree.go). Dir stays the project's checkout.
+	// Relaunch resumes in Worktree while it is still a registered worktree;
+	// Kill never removes it. Empty for Tmux mode, and for bg records written
+	// before bg dispatch made worktrees.
+	Worktree string `json:"worktree,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	// TmuxSession is the tmux session name lacquer created (tmuxSessionName),
+	// which differs from Name when Name has a '.' or ':'. Empty for records
+	// written before it was recorded; see Record.tmuxNames.
+	TmuxSession string `json:"tmuxSession,omitempty"`
+	// LaunchError is set when the launch attempt itself failed -- no worktree,
+	// or tmux/claude would not start. Check reports such a record Failed.
+	LaunchError string `json:"launchError,omitempty"`
+	// FailedLaunches counts consecutive failed launch attempts for this
+	// session, this one included: 1 for a first dispatch that failed, one
+	// more for each relaunch that failed too, and 0 once a launch succeeds.
+	// Watch stops relaunching at MaxFailedLaunches, so a launch that fails
+	// every time is not retried on every pass forever.
+	FailedLaunches int       `json:"failedLaunches,omitempty"`
+	StartedAt      time.Time `json:"startedAt"`
 }
 
 // AppendRecord adds one line to the sessions file, creating it (and its
@@ -168,6 +186,11 @@ const (
 // Status in that case is Alive: something this cannot verify must not be
 // silently reported as a confirmed failure.
 func (r Record) Check() (Status, string, error) {
+	// The launch never got a session started, so there is nothing to look
+	// for: it is confirmed not running, and the record says why.
+	if r.LaunchError != "" {
+		return Failed, "launch failed: " + r.LaunchError, nil
+	}
 	switch r.Mode {
 	case Tmux:
 		return r.checkTmux()
@@ -179,28 +202,28 @@ func (r Record) Check() (Status, string, error) {
 }
 
 func (r Record) checkTmux() (Status, string, error) {
-	err := exec.Command("tmux", "has-session", "-t", r.Name).Run()
-	if err == nil {
-		return Alive, "", nil
+	_, _, found, err := findTmuxSession(r.tmuxNames())
+	if err != nil {
+		// tmux itself could not be run (not installed, PATH issue, ...): this
+		// cannot tell alive from dead, so it must not claim either.
+		return Alive, "", fmt.Errorf("check tmux session %s: %w", r.Name, err)
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		// tmux ran fine and reported no such session -- a confident answer.
-		return Missing, "no tmux session named " + r.Name, nil
+	if !found {
+		// tmux ran fine and listed no session by that exact name.
+		return Missing, "no tmux session named " + strings.Join(r.tmuxNames(), " or "), nil
 	}
-	// tmux itself could not be run (not installed, PATH issue, ...): this
-	// cannot tell alive from dead, so it must not claim either.
-	return Alive, "", fmt.Errorf("check tmux session %s: %w", r.Name, err)
+	return Alive, "", nil
 }
 
 // jobState is the subset of ~/.claude/jobs/<id>/state.json this reads.
 //
-// WorktreePath is only present when the bg daemon actually created an
-// isolated git worktree (not every dispatch does -- one observed dispatch
-// this session ran directly in the project's main checkout instead). It is
-// the ONLY authoritative source of that path: lacquer's own Record has no
-// way to predict it, because the worktree's directory name is decided by
-// Claude Code's own bg dispatch machinery, not by lacquer.
+// WorktreePath is only present when Claude Code's own bg machinery created a
+// git worktree, which it names itself. Before bg dispatch made its own
+// worktree (Record.Worktree), this was the only record of where a session
+// worked -- and not every session had one: one observed dispatch ran
+// directly in the project's main checkout, which is the defect that change
+// fixed. Now that the session runs inside lacquer's worktree, this path can
+// be that worktree itself; Kill checks for exactly that.
 type jobState struct {
 	State        string `json:"state"`
 	Detail       string `json:"detail"`

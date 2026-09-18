@@ -122,7 +122,8 @@ func TestDispatchRoleRejectsUnknownRole(t *testing.T) {
 // where you left off") without editing the roles file — the override must
 // win over the declared one.
 func TestDispatchRoleTaskOverrideWinsOverDeclared(t *testing.T) {
-	out, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "original brief", Dir: "/w"}), nil, "lead", "resume after crash", true)
+	outLaunch, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "original brief", Dir: "/w"}), nil, "lead", "resume after crash", true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +135,8 @@ func TestDispatchRoleTaskOverrideWinsOverDeclared(t *testing.T) {
 // No override means the role's own declared task runs — the whole point of
 // a roles file is not retyping a substantial prompt by hand each restart.
 func TestDispatchRoleUsesDeclaredTaskWhenNoOverride(t *testing.T) {
-	out, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "original brief", Dir: "/w"}), nil, "lead", "", true)
+	outLaunch, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "original brief", Dir: "/w"}), nil, "lead", "", true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +147,8 @@ func TestDispatchRoleUsesDeclaredTaskWhenNoOverride(t *testing.T) {
 
 func TestDispatchRoleWarnsAboutExistingSessionButProceeds(t *testing.T) {
 	sessions := []Session{{Name: "lead", Status: "busy"}}
-	out, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "t", Dir: "/w"}), sessions, "lead", "", true)
+	outLaunch, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "t", Dir: "/w"}), sessions, "lead", "", true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatalf("an existing session must not block dispatch: %v", err)
 	}
@@ -158,11 +161,12 @@ func TestDispatchRoleWarnsAboutExistingSessionButProceeds(t *testing.T) {
 }
 
 func TestDispatchRoleTmuxTargetsTheRolesDirNotAProjectPath(t *testing.T) {
-	out, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "t", Dir: "/fleet-ops"}), nil, "lead", "", true)
+	outLaunch, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "t", Dir: "/fleet-ops"}), nil, "lead", "", true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "tmux new-session -A -s lead -c /fleet-ops") {
+	if !strings.Contains(out, "tmux new-session -d -s lead -c /fleet-ops") {
 		t.Errorf("a role's tmux session must run from its declared dir, not any single project's worktree:\n%s", out)
 	}
 }
