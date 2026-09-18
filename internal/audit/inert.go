@@ -46,6 +46,11 @@ type InertSecrets struct {
 	// is simply absent. The distinction is the whole remedy: an exclusion is a
 	// decision to revisit, an absence is a sync away.
 	Excluded bool
+	// FromProject is true when the declaration is [project].secrets — the
+	// single-product spelling, carried by the product Products() synthesises —
+	// rather than a [[product]] block. The report names the table the reader
+	// has to open, and a single-app manifest has no [[product]] to open.
+	FromProject bool
 }
 
 // releaseWorkflowFor names the workflow whose rendered step consumes
@@ -181,6 +186,7 @@ func InertSecretDeclarations(projectRoot string, cfg *config.Config) []InertSecr
 			Workflow:    releaseWorkflowFor,
 			SecretsFile: p.SecretsPath(),
 			Excluded:    excluded,
+			FromProject: len(cfg.Product) == 0,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Product < out[j].Product })
@@ -195,7 +201,11 @@ func FormatInertSecrets(fs []InertSecrets) string {
 	var b strings.Builder
 	b.WriteString("\ndeclared secrets that nothing will write:\n")
 	for _, f := range fs {
-		fmt.Fprintf(&b, "  [[product]] %s declares %d secret(s): %s\n", f.Product, len(f.Keys), strings.Join(f.Keys, ", "))
+		if f.FromProject {
+			fmt.Fprintf(&b, "  [project] declares %d secret(s): %s\n", len(f.Keys), strings.Join(f.Keys, ", "))
+		} else {
+			fmt.Fprintf(&b, "  [[product]] %s declares %d secret(s): %s\n", f.Product, len(f.Keys), strings.Join(f.Keys, ", "))
+		}
 		fmt.Fprintf(&b, "    Nothing in .github/workflows writes %s.\n", f.SecretsFile)
 		if f.Excluded {
 			fmt.Fprintf(&b, "    %s is EXCLUDED in .lacquer.toml, so the managed step that would write it is never rendered.\n", f.Workflow)

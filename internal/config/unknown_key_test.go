@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -196,5 +197,34 @@ func TestShippedFixtureManifestsStillLoad(t *testing.T) {
 		if _, err := Load(p); err != nil {
 			t.Errorf("%s no longer loads: %v", p, err)
 		}
+	}
+}
+
+// [project].secrets, .secrets_file and .secret_formats are the single-product
+// spelling of the [[product]] fields. They can only appear on a manifest with
+// no [[product]] block, so TestLoadAcceptsEveryDeclaredKey, which declares one,
+// cannot carry them. The strict check must accept them, keys inside the two
+// maps included, and must still name a near-miss spelling.
+func TestLoadAcceptsProjectSecretKeys(t *testing.T) {
+	for _, key := range []string{"secrets", "secrets_file", "secret_formats"} {
+		if !slices.Contains(manifestTables["project"].keys, key) {
+			t.Errorf("[project] does not list %q among its accepted keys: %v", key, manifestTables["project"].keys)
+		}
+	}
+	body := `
+[project]
+name = "Flare"
+project_name = "Flare"
+scheme = "Flare"
+secrets_file = "Secrets.xcconfig"
+secrets = { REVENUECAT_API_KEY = "FLARE_REVENUECAT_API_KEY" }
+secret_formats = { REVENUECAT_API_KEY = "appl_*" }
+`
+	if _, err := loadString(t, body); err != nil {
+		t.Fatalf("a single-app manifest using [project]'s secret keys must load: %v", err)
+	}
+	_, err := loadString(t, strings.Replace(body, "secret_formats", "secret_format", 1))
+	if err == nil || !strings.Contains(err.Error(), "project.secret_format") {
+		t.Errorf("a misspelled [project].secret_format was not named as unknown: %v", err)
 	}
 }
