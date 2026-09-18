@@ -33,8 +33,9 @@ import (
 //
 // FIXED (issue #363, closed): InertSecretDeclarations now excludes a mention
 // confined to a whole-line `#` comment (internal/audit/inert.go's
-// hasNonCommentMention) while keeping the original over-accepting bias for
-// everything else — a run: line, a heredoc body, a quoted script argument.
+// hasNonCommentMention, since replaced by writesPath, which recognises writes
+// rather than mentions and keeps excluding comments) while accepting every
+// real write — a redirection, a heredoc body, a quoted script argument.
 // This scenario is now an ordinary, unmarked pin of that fixed behavior
 // rather than a strict expected-failure: a workflow whose ONLY mention of the
 // declared secrets file is inside a `#` comment, with no step that actually
@@ -80,13 +81,13 @@ func TestScenarioCommentMatch(t *testing.T) {
 	// release workflow is inside a `#` comment — with the writing step
 	// deleted — must be reported as inert. InertSecretDeclarations
 	// (internal/audit/inert.go) now excludes a mention confined to a
-	// whole-line comment via hasNonCommentMention instead of a bare
+	// whole-line comment via writesPath instead of a bare
 	// strings.Contains(body, p.SecretsPath()) over the WHOLE workflow text.
 	if len(findings) == 0 {
 		t.Errorf("a declared secret whose only mention anywhere in " +
 			"the release workflow is inside a `#` comment — with the writing step deleted — " +
 			"was NOT reported as inert. InertSecretDeclarations (internal/audit/inert.go) " +
-			"should exclude a mention confined to a whole-line comment (hasNonCommentMention) " +
+			"should exclude a mention confined to a whole-line comment (writesPath) " +
 			"while still catching a real write anywhere else in the text.")
 	}
 }
