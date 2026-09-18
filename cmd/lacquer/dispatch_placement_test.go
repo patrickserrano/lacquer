@@ -164,15 +164,35 @@ func TestConsoleBgDispatchRunsInTheAssignedWorktree(t *testing.T) {
 		// args follow the global flags; "W" is replaced by the worktree.
 		args []string
 		sub  string // the project's subdirectory the session starts in
+		// viaLink moves the worktree's parent directory after registering it
+		// and leaves a symlink at the old path, so git's list still names it
+		// through the symlink while --worktree names it by its real path:
+		// the two disagree textually and must still match.
+		viaLink bool
 	}{
 		{name: "project", args: []string{"--mode", "bg", "--worktree", "W", "dispatch", "proj", "do the unit"}},
 		{name: "project in a subdirectory", args: []string{"--mode", "bg", "--worktree", "W", "dispatch", "sub", "do the unit"}, sub: "sub"},
 		{name: "bg role", args: []string{"--worktree", "W", "dispatch-role", "pm-bg"}},
+		{name: "worktree registered through a symlink", args: []string{"--mode", "bg", "--worktree", "W", "dispatch", "proj", "do the unit"}, viaLink: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newPlaceFleet(t)
 			wt := filepath.Join(f.root, "worktrees", "unit")
-			addWorktree(t, f.proj, wt, "pm/unit")
+			if tt.viaLink {
+				listed := filepath.Join(f.root, "old-worktrees", "unit")
+				addWorktree(t, f.proj, listed, "pm/unit")
+				if err := os.Rename(filepath.Dir(listed), filepath.Dir(wt)); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Dir(wt), filepath.Dir(listed)); err != nil {
+					t.Fatal(err)
+				}
+				if l := worktreeList(t, f.proj); !strings.Contains(l, "worktree "+listed+"\n") {
+					t.Fatalf("fixture: git does not list the worktree through the symlink, so this case tests nothing:\n%s", l)
+				}
+			} else {
+				addWorktree(t, f.proj, wt, "pm/unit")
+			}
 			before := worktreeList(t, f.proj)
 			args := func(extra ...string) []string {
 				a := append([]string{"--roster", f.roster, "--roles", f.roles, "--sessions", f.sessions}, extra...)
