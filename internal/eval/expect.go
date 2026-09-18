@@ -13,7 +13,9 @@ import (
 // and how it gets fixed. Do not add to this list to make an unrelated
 // scenario quiet — see expectKnownFailure's doc comment.
 const (
-	issueStaleRoot    = "https://github.com/patrickserrano/lacquer/issues/350"
+	// issue #350 (stale/unverified root) was tracked here and is now fixed —
+	// scenario_stale_root_test.go no longer marks its scenario with
+	// expectKnownFailure, so its constant is removed rather than left dangling.
 	issueCommentMatch = "https://github.com/patrickserrano/lacquer/issues/363"
 )
 

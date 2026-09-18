@@ -29,9 +29,31 @@ func chdir(t *testing.T, dir string) {
 // LACQUER_ROOT to ".".
 func noEnv(string) string { return "" }
 
-// envMap returns a getenv backed by m.
+// envMap returns a getenv backed by m, with LACQUER_ALLOW_UNVERIFIED_ROOT
+// defaulted to "1" unless m sets it explicitly.
+//
+// Why: stampAndVerifyRoot (main.go) now refuses to run any lacquerRoot-reading
+// command unless LACQUER_ROOT is a checkout detached at a tag matching
+// VERSION — and nearly every fixture in this package (a synthetic t.TempDir(),
+// or realLacquer(t), this very checkout, on a feature branch) is neither. Every
+// test in this file EXCEPT the ones that exist specifically to test the
+// pinned-root gate itself is testing something else (sync/audit/status/plugins
+// logic) and needs the override to reach it, exactly the way a developer
+// building from a feature worktree needs it locally. The gate's own behavior
+// is tested directly against internal/rootcheck.State.Verify
+// (internal/rootcheck/rootcheck_test.go) and against the CLI wiring in
+// TestStatusRefusesAnUnverifiedRoot and its neighbors below, which build a
+// getenv that deliberately does NOT go through this default.
 func envMap(m map[string]string) func(string) string {
-	return func(k string) string { return m[k] }
+	return func(k string) string {
+		if v, ok := m[k]; ok {
+			return v
+		}
+		if k == "LACQUER_ALLOW_UNVERIFIED_ROOT" {
+			return "1"
+		}
+		return ""
+	}
 }
 
 func TestRunDispatch(t *testing.T) {
@@ -93,9 +115,13 @@ func TestVersionPrints(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errb.String())
 	}
-	// A legacy bare VERSION renders in canonical semver form: 31 -> 0.31.0.
-	if strings.TrimSpace(out.String()) != "0.31.0" {
-		t.Errorf("version output = %q, want 0.31.0", out.String())
+	// `version` now also stamps its resolved root (issue #350), so the last
+	// line — not the whole of stdout — is the actual version. A legacy bare
+	// VERSION renders in canonical semver form: 31 -> 0.31.0.
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	last := lines[len(lines)-1]
+	if last != "0.31.0" {
+		t.Errorf("last line of version output = %q, want 0.31.0\nfull stdout:\n%s", last, out.String())
 	}
 }
 

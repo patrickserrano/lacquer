@@ -222,3 +222,179 @@ func TestStaleBinaryIsSilentWhenUnknown(t *testing.T) {
 		t.Error("StaleBinary() = true with no embedded version — that is an unknown, not a mismatch")
 	}
 }
+
+// pinnedClone builds an origin repo, tags its sole commit v<version>, and
+// returns a clone checked out DETACHED at that tag — the shape a real release
+// install (~/.local/share/lacquer/content) is in: no branch, no upstream to
+// track, HEAD sitting exactly on the release tag.
+func pinnedClone(t *testing.T, version string) string {
+	t.Helper()
+	origin, clone := upstreamAndClone(t)
+	write(t, filepath.Join(origin, "VERSION"), version+"\n")
+	run(t, origin, "git", "add", "-A")
+	run(t, origin, "git", "commit", "--quiet", "-m", "release "+version)
+	run(t, origin, "git", "tag", "v"+version)
+	run(t, clone, "git", "fetch", "--quiet", "origin", "--tags")
+	run(t, clone, "git", "checkout", "--quiet", "v"+version)
+	return clone
+}
+
+// Issue #350's central requirement: a checkout detached at a tag matching
+// VERSION, with a clean tree, is the ONLY state Verify accepts.
+func TestVerifyAcceptsAPinnedRelease(t *testing.T) {
+	root := pinnedClone(t, "3.0.0")
+	s := Inspect(root, false)
+
+	if err := s.Verify(); err != nil {
+		t.Errorf("Verify() = %v, want nil for a checkout detached exactly at v3.0.0 matching VERSION", err)
+	}
+	if s.Tag != "v3.0.0" {
+		t.Errorf("Tag = %q, want v3.0.0", s.Tag)
+	}
+}
+
+// A branch checkout is the exact shape of the original incident (LACQUER_ROOT
+// pointed at ~/Developer/harness on a feature branch) — Verify must refuse it
+// even when the tree is perfectly clean.
+func TestVerifyRefusesABranchEvenWhenClean(t *testing.T) {
+	_, clone := upstreamAndClone(t)
+	s := Inspect(clone, false)
+
+	err := s.Verify()
+	if err == nil {
+		t.Fatal("Verify() = nil for a checkout on branch main, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "branch") {
+		t.Errorf("Verify() = %v, want it to name the branch as the reason", err)
+	}
+}
+
+func TestVerifyRefusesADirtyPinnedRoot(t *testing.T) {
+	root := pinnedClone(t, "3.0.0")
+	write(t, filepath.Join(root, "VERSION"), "3.0.0-local\n")
+	s := Inspect(root, false)
+
+	err := s.Verify()
+	if err == nil {
+		t.Fatal("Verify() = nil for a dirty tree, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "uncommitted") {
+		t.Errorf("Verify() = %v, want it to name the dirty tree as the reason", err)
+	}
+}
+
+// The case issue #350 calls out by name: "detached at an unknown commit" must
+// refuse exactly like a confirmed-bad state, not pass because nothing bad was
+// detected. A commit with no tag at all is unverifiable, not fine.
+func TestVerifyRefusesDetachedAtAnUntaggedCommit(t *testing.T) {
+	origin, clone := upstreamAndClone(t)
+	write(t, filepath.Join(origin, "VERSION"), "3.1.0\n")
+	run(t, origin, "git", "add", "-A")
+	run(t, origin, "git", "commit", "--quiet", "-m", "untagged")
+	run(t, clone, "git", "fetch", "--quiet", "origin")
+	sha := strings.TrimSpace(run(t, origin, "git", "rev-parse", "HEAD"))
+	run(t, clone, "git", "checkout", "--quiet", sha)
+
+	s := Inspect(clone, false)
+	if s.Tag != "" {
+		t.Fatalf("setup failed: Tag = %q, want empty for an untagged commit", s.Tag)
+	}
+	err := s.Verify()
+	if err == nil {
+		t.Fatal("Verify() = nil for a detached checkout with no tag at HEAD, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "not exactly any tag") {
+		t.Errorf("Verify() = %v, want it to say HEAD is not exactly any tag", err)
+	}
+}
+
+// A tag exists exactly at HEAD, but its name disagrees with the VERSION
+// content committed alongside it — a tampered or inconsistent checkout. This
+// must refuse too, distinctly from "no tag at all".
+func TestVerifyRefusesATagVersionMismatch(t *testing.T) {
+	origin, clone := upstreamAndClone(t)
+	write(t, filepath.Join(origin, "VERSION"), "9.9.9\n")
+	run(t, origin, "git", "add", "-A")
+	run(t, origin, "git", "commit", "--quiet", "-m", "release 9.9.9, mistagged")
+	// The tag name deliberately does not match the VERSION content it points
+	// at — the exact inconsistency Verify must catch.
+	run(t, origin, "git", "tag", "v3.0.0")
+	run(t, clone, "git", "fetch", "--quiet", "origin", "--tags")
+	run(t, clone, "git", "checkout", "--quiet", "v3.0.0")
+
+	s := Inspect(clone, false)
+	if s.Dirty {
+		t.Fatal("setup failed: unexpected dirty tree")
+	}
+	if s.Tag != "v3.0.0" {
+		t.Fatalf("setup failed: Tag = %q, want v3.0.0", s.Tag)
+	}
+	err := s.Verify()
+	if err == nil {
+		t.Fatal("Verify() = nil for a tag/VERSION mismatch, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "v3.0.0") || !strings.Contains(err.Error(), "9.9.9") {
+		t.Errorf("Verify() = %v, want it to name both the tag and VERSION", err)
+	}
+}
+
+// The other half of "unverifiable must refuse like bad, not like fine": not a
+// git checkout at all.
+func TestVerifyRefusesANonGitRoot(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "VERSION"), "1.0.0\n")
+	s := Inspect(dir, false)
+
+	err := s.Verify()
+	if err == nil {
+		t.Fatal("Verify() = nil for a non-git directory, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "not a git checkout") {
+		t.Errorf("Verify() = %v, want it to say this is not a git checkout", err)
+	}
+}
+
+// Mutation target: dropping the root path from Describe()'s output (main.go's
+// stamped-provenance requirement, issue #350) must fail this test.
+func TestDescribeAlwaysIncludesTheRootPath(t *testing.T) {
+	root := pinnedClone(t, "3.0.0")
+	s := Inspect(root, false)
+
+	if d := s.Describe(); !strings.Contains(d, root) {
+		t.Errorf("Describe() = %q, want it to contain the root path %q", d, root)
+	}
+
+	// Also true for the states that short-circuit before computing a ref.
+	notGit := State{Root: "/some/dir", NotGit: true}
+	if d := notGit.Describe(); !strings.Contains(d, "/some/dir") {
+		t.Errorf("Describe() = %q, want the root path even for a non-git root", d)
+	}
+}
+
+// A detached, correctly PINNED checkout must never render as the bare literal
+// "HEAD" — that string carries no information and is exactly the safe
+// configuration a reader most needs to identify at a glance (issue #350,
+// comment 2). It must show the tag instead.
+func TestDescribeResolvesADetachedTagInsteadOfHEAD(t *testing.T) {
+	root := pinnedClone(t, "3.0.0")
+	s := Inspect(root, false)
+
+	d := s.Describe()
+	if !strings.Contains(d, "v3.0.0") {
+		t.Errorf("Describe() = %q, want it to name the resolved tag v3.0.0", d)
+	}
+	if strings.Contains(d, " HEAD ") || strings.HasSuffix(d, " HEAD") {
+		t.Errorf("Describe() = %q, still renders the uninformative literal \"HEAD\" for a pinned checkout", d)
+	}
+}
+
+// A branch checkout still needs its branch name printed — only a detached,
+// TAGGED ref resolves to something else.
+func TestDescribeStillNamesAnOrdinaryBranch(t *testing.T) {
+	_, clone := upstreamAndClone(t)
+	s := Inspect(clone, false)
+
+	if d := s.Describe(); !strings.Contains(d, "main") {
+		t.Errorf("Describe() = %q, want the branch name main", d)
+	}
+}

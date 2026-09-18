@@ -355,27 +355,30 @@ jobs:
   # `continue-on-error: true` makes this job non-blocking: it reports (and is
   # visible on the PR) but cannot fail a required check.
   #
-  # Two scenarios reproduce known, tracked bugs against lacquer's actual
-  # current behaviour — stale-root: `lacquer status` never consults
-  # internal/rootcheck (issue #350); comment-match: internal/audit.
+  # One scenario reproduces a known, tracked bug against lacquer's actual
+  # current behaviour — comment-match: internal/audit.
   # InertSecretDeclarations keys on substring text that a `#` comment
   # satisfies, a documented, deliberate trade-off whose resolution is an open
-  # maintainer decision (issue #363). Each is marked with a strict
+  # maintainer decision (issue #363). It is marked with a strict
   # expected-failure (internal/eval/expect.go's expectKnownFailure): the
   # scenario's own verdict assertion is allowed to keep failing as expected —
   # logged and counted, not silently skipped — but its SETUP is not, and if
-  # either bug gets fixed the marked scenario turns this job red again,
+  # the bug gets fixed the marked scenario turns this job red again,
   # instructing whoever sees it to remove the marker. That is what keeps this
   # `go test` exit 0 here: `-v` output ends with a one-line summary ("N pass,
-  # 2 expected-fail, 0 fail") plus the two issues by name, so a green run
-  # still surfaces both known bugs in its log rather than looking identical to
-  # "nothing is wrong" (see expect.go and this repo's own CLAUDE.md). Making
-  # this job REQUIRED by branch protection would additionally need: fixing or
-  # re-litigating #350 and #363 (a required job cannot carry permanent
-  # expected-failures without them becoming unremovable), a fleet dry-run of
-  # any behavioural change those fixes make (this repo's CLAUDE.md rule 1),
-  # and switching this job off continue-on-error once it has run green for a
-  # while — none of that is done here.
+  # 1 expected-fail, 0 fail") plus the issue by name, so a green run still
+  # surfaces the known bug in its log rather than looking identical to
+  # "nothing is wrong" (see expect.go and this repo's own CLAUDE.md).
+  # (Issue #350 — `lacquer status`/`audit`/`doctor` never consulting
+  # internal/rootcheck — was the other marked scenario here; it is fixed, and
+  # scenario_stale_root_test.go now asserts the fixed behaviour directly
+  # instead of carrying a marker.) Making this job REQUIRED by branch
+  # protection would additionally need: fixing or re-litigating #363 (a
+  # required job cannot carry a permanent expected-failure without it
+  # becoming unremovable), a fleet dry-run of any behavioural change that fix
+  # makes (this repo's CLAUDE.md rule 1), and switching this job off
+  # continue-on-error once it has run green for a while — none of that is
+  # done here.
   eval-suite:
     name: Behaviour eval suite (non-blocking)
     runs-on: ubuntu-latest
