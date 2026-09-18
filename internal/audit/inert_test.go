@@ -136,19 +136,30 @@ func TestAHandRolledWriterInAnotherWorkflowCounts(t *testing.T) {
 	}
 }
 
-// TestHasNonCommentMention is the table-driven pin for issue #363's fix: a
-// `#` comment naming the declared secrets file must not count as writing it,
-// while every real write shape found in profiles/*/workflows and
-// profiles/ios/root/scripts/write-release-config.sh — a quoted script
-// argument, a shell redirection, a `cp` target, a heredoc — must still count,
-// including when it sits inside a heredoc body or a quoted string.
-func TestHasNonCommentMention(t *testing.T) {
+// TestWritesPath pins what counts as writing the declared secrets file.
+//
+// Issue #363 (PR #378) established the first half: a `#` comment naming the
+// file never executes, so it cannot write it, while every real write shape —
+// a quoted argument to the managed writer, a redirection, a `cp` target, a
+// write inside a heredoc body — must still count.
+//
+// The second half is what that version could not see. It asked whether the
+// NAME appeared on a non-comment line, and the managed ios-ci.yml names
+// Secrets.xcconfig on dozens: in its step name, in `find -name
+// 'Secrets.xcconfig.example'`, in an existence test, and in the placeholder
+// seed itself. Any one of them satisfied the check, on every iOS repository in
+// the fleet, so the audit could never fire where the default path was in use.
+// A mention is not a write, a file that merely contains the name is not the
+// file, and copying the committed example into place is a placeholder seed,
+// not the release writing values.
+func TestWritesPath(t *testing.T) {
 	const path = "Secrets.xcconfig"
 	tests := []struct {
 		name string
 		body string
 		want bool
 	}{
+		// --- not a write ---
 		{
 			name: "whole_line_comment_only",
 			body: "jobs:\n  release:\n    steps:\n      # Secrets.xcconfig is copied by CI\n      - run: xcodebuild archive\n",
@@ -165,12 +176,92 @@ func TestHasNonCommentMention(t *testing.T) {
 			want: false,
 		},
 		{
-			// The hand-rolled writer in TestAHandRolledWriterInAnotherWorkflowCounts
-			// above, restated as a redirection shape.
+			// Issue #363 under the new rule: a commented-out writer is still a
+			// comment. The #363 fixtures name the file in prose, which is not a
+			// write shape at all; this one is, and must still not count.
+			name: "commented_out_writer",
+			body: "          # scripts/write-release-config.sh \"Secrets.xcconfig\" \"API_KEY\"\n" +
+				"          #cp template.xcconfig Secrets.xcconfig\n",
+			want: false,
+		},
+		{
+			// A trailing shell comment is as inert as a whole-line one.
+			name: "write_inside_a_trailing_comment",
+			body: "      - run: xcodebuild archive # then cp template.xcconfig Secrets.xcconfig\n",
+			want: false,
+		},
+		{
+			name: "step_name_only",
+			body: "      - name: Create Secrets.xcconfig (build-time placeholder)\n        run: xcodebuild build\n",
+			want: false,
+		},
+		{
+			name: "the_example_is_named",
+			body: "          find . -name 'Secrets.xcconfig.example' -print0\n",
+			want: false,
+		},
+		{
+			name: "existence_test_only",
+			body: "          if [ ! -f \"$scheme_dir/Secrets.xcconfig\" ]; then echo missing; fi\n",
+			want: false,
+		},
+		{
+			name: "read_back_only",
+			body: "          grep -nE 'your[-_]' xcconfig/Secrets.xcconfig\n",
+			want: false,
+		},
+		{
+			// PR #378 listed this shape as a write, citing CI's seed. It is the
+			// defect: CI seeding placeholders is not the release writing values.
+			name: "cp_from_the_example_is_a_seed",
+			body: "      - run: cp Secrets.xcconfig.example Secrets.xcconfig\n",
+			want: false,
+		},
+		{
+			// Byte-for-byte the managed ci.yml seed, with a component prefix.
+			name: "ci_placeholder_seed",
+			body: "            cp \"Flare/Secrets.xcconfig.example\" \"$scheme_dir/Secrets.xcconfig\"\n",
+			want: false,
+		},
+		{
+			name: "mv_from_the_example_is_a_seed",
+			body: "          mv -f Secrets.xcconfig.example Secrets.xcconfig\n",
+			want: false,
+		},
+		{
+			name: "the_file_is_only_a_cp_source",
+			body: "          cp Secrets.xcconfig backup.xcconfig\n",
+			want: false,
+		},
+		{
+			name: "redirect_into_a_tmp_sibling",
+			body: "          awk '{ print }' \"Secrets.xcconfig\" > \"Secrets.xcconfig.tmp\"\n",
+			want: false,
+		},
+		{
+			name: "redirect_into_a_name_that_contains_it",
+			body: "          printf 'A = %s\\n' \"$A\" > OldSecrets.xcconfig\n" +
+				"          printf 'A = %s\\n' \"$A\" > Secrets.xcconfig.bak\n",
+			want: false,
+		},
+
+		// --- a write ---
+		{
+			// The hand-written redirection in TestAHandRolledWriterInAnotherWorkflowCounts.
 			name: "redirection_write",
 			body: "      - run: |\n" +
 				"          : \"${API_KEY:?Missing API_KEY}\"\n" +
 				"          printf 'API_KEY = %s\\n' \"$API_KEY\" > \"Secrets.xcconfig\"\n",
+			want: true,
+		},
+		{
+			name: "append_redirection_write",
+			body: "          echo \"API_KEY = $API_KEY\" >> Secrets.xcconfig\n",
+			want: true,
+		},
+		{
+			name: "unspaced_redirection_write",
+			body: "          echo \"API_KEY = $API_KEY\" >\"Secrets.xcconfig\"\n",
 			want: true,
 		},
 		{
@@ -182,14 +273,36 @@ func TestHasNonCommentMention(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "cp_write",
-			body: "      - run: cp Secrets.xcconfig.example Secrets.xcconfig\n",
+			// The 2 in 2>/dev/null is a file descriptor, not cp's destination.
+			name: "cp_with_stderr_redirected",
+			body: "          cp template.xcconfig Secrets.xcconfig 2>/dev/null\n",
 			want: true,
 		},
 		{
-			// The shape internal/tokens.ReleaseSecretsSteps actually renders
-			// (internal/tokens/tokens.go, ~line 1102): the path as a quoted
-			// argument to the shipped writer, not a redirection at all.
+			// The destination is the last operand of cp, not of the line.
+			name: "cp_followed_by_another_command",
+			body: "          cp template.xcconfig Secrets.xcconfig && echo seeded\n",
+			want: true,
+		},
+		{
+			name: "single_quoted_destination",
+			body: "          cp template.xcconfig 'Secrets.xcconfig'\n",
+			want: true,
+		},
+		{
+			// A # inside a word is parameter expansion, not a comment.
+			name: "hash_inside_a_word_is_not_a_comment",
+			body: "          cp ${TEMPLATE#./} Secrets.xcconfig\n",
+			want: true,
+		},
+		{
+			name: "cp_from_something_other_than_the_example",
+			body: "      - run: cp template.xcconfig Secrets.xcconfig\n",
+			want: true,
+		},
+		{
+			// The shape internal/tokens.ProductSecrets renders: the path as the
+			// managed writer's first, quoted argument.
 			name: "quoted_script_argument_write",
 			body: "      - name: Write release configuration (Free)\n" +
 				"        run: |\n" +
@@ -198,9 +311,14 @@ func TestHasNonCommentMention(t *testing.T) {
 			want: true,
 		},
 		{
-			// A write line that happens to sit INSIDE a heredoc body must
-			// still count — "skip everything inside a heredoc" would be the
-			// blunt mistake, not the fix.
+			// The declared path is relative to the component; the workflow runs
+			// from the repository root, so the writer names it with a prefix.
+			name: "component_prefixed_script_argument_write",
+			body: "          scripts/write-release-config.sh \"Flare/Secrets.xcconfig\" \\\n" +
+				"            \"REVENUECAT_PUBLIC_SDK_KEY=appl_*\"\n",
+			want: true,
+		},
+		{
 			name: "write_inside_heredoc_body",
 			body: "      - run: |\n" +
 				"          cat > setup.sh <<'EOF'\n" +
@@ -209,10 +327,8 @@ func TestHasNonCommentMention(t *testing.T) {
 			want: true,
 		},
 		{
-			// The historical false positive this check exists to avoid
-			// (CLAUDE.md, "Three defects"): a correct hand-rolled step under a
-			// name that is NOT "Write release configuration" must still be
-			// recognized as a writer.
+			// CLAUDE.md, "Three defects": a correct hand-rolled step under a
+			// name that is NOT "Write release configuration" is a writer.
 			name: "hand_rolled_step_unexpected_name",
 			body: "jobs:\n" +
 				"  build:\n" +
@@ -224,18 +340,79 @@ func TestHasNonCommentMention(t *testing.T) {
 			want: true,
 		},
 		{
-			// A comment above a genuine write must not suppress the write:
-			// only lines that are THEMSELVES entirely comments are excluded.
 			name: "comment_alongside_real_write",
 			body: "      # Secrets.xcconfig is written below by the shipped script.\n" +
 				"      - run: scripts/write-release-config.sh \"Secrets.xcconfig\"\n",
 			want: true,
 		},
+		{
+			// rail: a sed over the example, continued across lines, redirected
+			// into place. Sourced from the example, but substituted — a write.
+			name: "continued_sed_redirected_into_place",
+			body: "          sed \\\n" +
+				"            -e \"s|your_api_key_here|${API_KEY}|g\" \\\n" +
+				"            -e \"s|https:/\\$()/your_dsn_here|${DSN_ESC}|g\" \\\n" +
+				"            xcconfig/Secrets.xcconfig.example > xcconfig/Secrets.xcconfig\n",
+			want: true,
+		},
+		{
+			// momfriend: seed, rewrite into a .tmp, mv the .tmp into place.
+			name: "seed_then_rewrite_then_mv",
+			body: "          cp \"ios/Secrets.xcconfig.example\" \"ios/MomFriend/Secrets.xcconfig\"\n" +
+				"          awk -v k=\"$KEY\" '\n" +
+				"            /^KEY = / { print \"KEY = \" k; next }\n" +
+				"            { print }\n" +
+				"          ' \"ios/MomFriend/Secrets.xcconfig\" > \"ios/MomFriend/Secrets.xcconfig.tmp\"\n" +
+				"          mv \"ios/MomFriend/Secrets.xcconfig.tmp\" \"ios/MomFriend/Secrets.xcconfig\"\n",
+			want: true,
+		},
+		{
+			name: "cp_continued_across_lines",
+			body: "          cp \\\n" +
+				"            \"template.xcconfig\" \\\n" +
+				"            \"Secrets.xcconfig\"\n",
+			want: true,
+		},
+		{
+			name: "tee_write",
+			body: "          printf 'KEY = %s\\n' \"$KEY\" | tee -a \"Secrets.xcconfig\" >/dev/null\n",
+			want: true,
+		},
+		{
+			// Seed, then substitute in place: the sed -i is the write.
+			name: "seed_then_sed_in_place",
+			body: "          cp Secrets.xcconfig.example Secrets.xcconfig\n" +
+				"          sed -i '' -e \"s|REPLACE_ME|${KEY}|\" Secrets.xcconfig\n",
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := hasNonCommentMention(tt.body, path); got != tt.want {
-				t.Errorf("hasNonCommentMention(body, %q) = %v, want %v\nbody:\n%s", path, got, tt.want, tt.body)
+			if got := writesPath(tt.body, path); got != tt.want {
+				t.Errorf("writesPath(body, %q) = %v, want %v\nbody:\n%s", path, got, tt.want, tt.body)
+			}
+		})
+	}
+}
+
+// A non-default secrets_file is matched as a whole path: the example beside
+// it is a seed, and the same basename in another directory is another file.
+func TestWritesPathForADeclaredSecretsFile(t *testing.T) {
+	const path = "Config/Monetization.xcconfig"
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"redirection_write", "            } > \"Config/Monetization.xcconfig\"\n", true},
+		{"example_seed", "            cp \"Config/Monetization.xcconfig.example\" \"Config/Monetization.xcconfig\"\n", false},
+		{"another_directory", "            } > \"Other/Monetization.xcconfig\"\n", false},
+		{"dot_slash_prefix", "            } > ./Config/Monetization.xcconfig\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := writesPath(tt.body, path); got != tt.want {
+				t.Errorf("writesPath(body, %q) = %v, want %v\nbody:\n%s", path, got, tt.want, tt.body)
 			}
 		})
 	}
