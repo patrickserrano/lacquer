@@ -50,10 +50,12 @@ type Record struct {
 	// `tmux has-session`.
 	DaemonID string `json:"daemonId,omitempty"`
 	// Worktree and Branch are the git worktree and branch a bg dispatch made
-	// for this session (worktree.go). Dir stays the project's checkout.
-	// Relaunch resumes in Worktree while it is still a registered worktree;
-	// Kill never removes it. Empty for Tmux mode, and for bg records written
-	// before bg dispatch made worktrees.
+	// for this session (worktree.go), or the existing worktree its dispatcher
+	// assigned (Placement.Worktree, either mode) and the branch that had
+	// checked out. Dir stays the project's checkout. Relaunch resumes in
+	// Worktree while it is still a registered worktree; Kill never removes
+	// it. Empty for a tmux session in the checkout, and for bg records
+	// written before bg dispatch made worktrees.
 	Worktree string `json:"worktree,omitempty"`
 	Branch   string `json:"branch,omitempty"`
 	// TmuxSession is the tmux session name lacquer created (tmuxSessionName),

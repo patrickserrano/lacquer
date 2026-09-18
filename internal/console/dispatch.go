@@ -44,12 +44,51 @@ const (
 // directly. Choosing wrong silently changes where the work lands, which is
 // why there is no default.
 func Dispatch(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool) (Launch, error) {
-	return dispatchProject(roster, sessions, name, task, mode, dryRun, "")
+	return DispatchPlaced(roster, sessions, name, task, mode, dryRun, Placement{})
 }
 
-// dispatchProject is Dispatch, plus the recorded worktree a bg relaunch
-// resumes in (Relaunch, watchdog.go).
-func dispatchProject(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool, resume string) (Launch, error) {
+// DispatchPlaced is Dispatch into the worktree, or onto the branch, that its
+// dispatcher chose (Placement).
+func DispatchPlaced(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool, place Placement) (Launch, error) {
+	return dispatchProject(roster, sessions, name, task, mode, dryRun, place, "")
+}
+
+// Placement is where a session runs when its dispatcher decides that rather
+// than lacquer. A fleet PM decides each IC's branch and worktree, creates
+// them, and names them in the brief (fleet-ops personas/pm.md); without this
+// a bg dispatch ran in a dispatch-<id> worktree of lacquer's own, leaving the
+// PM's unused and an extra one behind to clean up.
+//
+// The zero value is lacquer's default: a new dispatch/<id> worktree in bg
+// mode, the checkout in tmux mode. Setting both fields is refused as
+// ambiguous.
+type Placement struct {
+	// Worktree is an existing, registered worktree of the project's
+	// repository to run in, in either mode. lacquer never creates, changes or
+	// removes it, and records it like one it made, so a relaunch resumes in
+	// it and kill keeps it.
+	Worktree string
+	// Branch names the branch of the worktree a bg dispatch creates, whose
+	// directory under .claude/worktrees/ is derived from it, instead of
+	// dispatch/<id>. A branch or directory that already exists is refused,
+	// not reused. Refused in tmux mode, which never creates a worktree.
+	Branch string
+}
+
+// check refuses a placement that cannot mean one thing in mode.
+func (p Placement) check(mode Mode) error {
+	if p.Worktree != "" && p.Branch != "" {
+		return fmt.Errorf("--worktree and --branch together are ambiguous: --worktree runs in an existing worktree, --branch names the one bg dispatch creates; pass one")
+	}
+	if p.Branch != "" && mode == Tmux {
+		return fmt.Errorf("--branch is refused in tmux mode: tmux never creates a worktree, so there is no branch for it to name; pass --worktree to run in an existing one")
+	}
+	return nil
+}
+
+// dispatchProject is DispatchPlaced, plus the recorded worktree a bg
+// relaunch resumes in (Relaunch, watchdog.go).
+func dispatchProject(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool, place Placement, resume string) (Launch, error) {
 	var entry *fleet.Entry
 	for i := range roster.Project {
 		if roster.Project[i].Name == name {
@@ -98,7 +137,7 @@ func dispatchProject(roster fleet.Roster, sessions []Session, name, task string,
 			entry.Name, len(live), strings.Join(live, ", "))
 	}
 
-	return runDispatch(launchSpec{verb: "dispatch", kind: ProjectKind, name: entry.Name, dir: entry.Path, task: task, mode: mode, warning: warning, dryRun: dryRun, resume: resume})
+	return runDispatch(launchSpec{verb: "dispatch", kind: ProjectKind, name: entry.Name, dir: entry.Path, task: task, mode: mode, warning: warning, dryRun: dryRun, place: place, resume: resume})
 }
 
 // Launch is what one Dispatch or DispatchRole call did.
@@ -121,6 +160,7 @@ type launchSpec struct {
 	mode    Mode
 	warning string
 	dryRun  bool
+	place   Placement
 	// resume is a bg relaunch's recorded worktree, to run in again if it is
 	// still a registered worktree. Empty for a first dispatch.
 	resume string
@@ -180,10 +220,15 @@ var bypassFlags = []string{"--dangerously-skip-permissions", "--settings", `{"sa
 //   - a tmux session already running under that name: nothing started, so
 //     nothing recorded. A second claude is never started inside it.
 //   - a dry run, or a refusal before any launch was attempted (unknown name,
-//     empty task, unknown mode, archived repo, tmux name collision): nothing
+//     empty task, unknown mode, archived repo, tmux name collision, a
+//     Placement refused -- an unusable --worktree, or a --branch that is
+//     invalid or already exists): nothing
 //     recorded. There is no session to watch, and relaunching an input error
 //     could never succeed.
 func runDispatch(sp launchSpec) (Launch, error) {
+	if err := sp.place.check(sp.mode); err != nil {
+		return Launch{}, err
+	}
 	switch sp.mode {
 	case Background:
 		return runBackground(sp)
@@ -206,7 +251,8 @@ func launchFailed(sp launchSpec, output string, rec *Record, err error) (Launch,
 }
 
 // runBackground starts `claude --bg` inside a git worktree made for this
-// session (worktree.go), never in the checkout itself.
+// session (worktree.go), or the one its dispatcher assigned
+// (Placement.Worktree), never in the checkout itself.
 //
 // The working directory is set via exec.Cmd.Dir, not a CLI flag. `claude`
 // has no `--cwd` option; an earlier version passed `--cwd <dir>` anyway,
@@ -218,22 +264,44 @@ func runBackground(sp launchSpec) (Launch, error) {
 	claudeLine := strings.Join(argv, " ")
 	prefix := sp.warning + sp.verb + ": "
 
+	// An assigned worktree is checked the same way whether or not this is a
+	// dry run, and a refusal is an input error: nothing is launched or
+	// recorded.
+	var wt dispatchWorktree
+	var err error
+	if sp.place.Worktree != "" {
+		if wt, err = assignedWorktree(sp.dir, sp.place.Worktree, Background); err != nil {
+			return Launch{Output: prefix + "(not the assigned worktree, so nothing was launched)\n"}, err
+		}
+	}
+
 	if sp.dryRun {
-		root, rel, path, branch, base, note, err := planWorktree(sp.dir, false)
+		if wt.path != "" {
+			return Launch{Output: prefix + wt.setup + prefix + "(cd " + wt.runDir + " && " + claudeLine + ")\n" +
+				"(dry run — nothing started)\n"}, nil
+		}
+		p, err := planWorktree(sp.dir, sp.place.Branch, false)
 		if err != nil {
 			return Launch{Output: prefix + "(no worktree possible)\n"}, err
 		}
-		return Launch{Output: prefix + strings.Join(worktreeAddArgs(root, path, branch, base), " ") + "\n  (" + note + ")\n" +
-			prefix + "(cd " + filepath.Join(path, rel) + " && " + claudeLine + ")\n" +
+		return Launch{Output: prefix + strings.Join(p.addArgs(), " ") + "\n  (" + p.note + ")\n" +
+			prefix + "(cd " + filepath.Join(p.path, p.rel) + " && " + claudeLine + ")\n" +
 			"(dry run — nothing started)\n"}, nil
 	}
 
-	var wt dispatchWorktree
-	var err error
-	if sp.resume != "" {
+	switch {
+	case wt.path != "":
+	case sp.resume != "":
 		wt, err = resumeWorktree(sp.dir, sp.resume)
-	} else {
-		wt, err = createWorktree(sp.dir)
+	case sp.place.Branch != "":
+		// Validated before anything is made, so a bad or taken name is an
+		// input error (not recorded), unlike a `git worktree add` that fails.
+		if _, err := planWorktree(sp.dir, sp.place.Branch, false); err != nil {
+			return Launch{Output: prefix + "(no worktree on that branch, so nothing was launched)\n"}, err
+		}
+		wt, err = createWorktree(sp.dir, sp.place.Branch)
+	default:
+		wt, err = createWorktree(sp.dir, "")
 	}
 	if err != nil {
 		return launchFailed(sp, prefix+"no worktree, so nothing was launched\n", nil, err)
@@ -264,7 +332,8 @@ func runBackground(sp launchSpec) (Launch, error) {
 }
 
 // runTmux starts claude in a new, detached tmux session running in the
-// checkout itself.
+// checkout itself, or in the worktree its dispatcher assigned
+// (Placement.Worktree).
 //
 // Detached (-d), always. Without it, `tmux new-session` attaches the
 // caller's terminal, and an agent's shell has none: every dispatch an agent
@@ -274,24 +343,42 @@ func runBackground(sp launchSpec) (Launch, error) {
 // up explicitly instead, and left alone.
 func runTmux(sp launchSpec) (Launch, error) {
 	session := tmuxSessionName(sp.name)
-	argv := append(append([]string{"tmux", "new-session", "-d", "-s", session, "-c", sp.dir, "claude"}, bypassFlags...), sp.task)
-	line := sp.warning + sp.verb + ": " + strings.Join(argv, " ") + "\n"
+	dir := sp.dir
+	var wt dispatchWorktree
+	if sp.place.Worktree != "" {
+		var err error
+		if wt, err = assignedWorktree(sp.dir, sp.place.Worktree, Tmux); err != nil {
+			return Launch{Output: sp.warning + sp.verb + ": (not the assigned worktree, so nothing was launched)\n"}, err
+		}
+		dir = wt.runDir
+	}
+	argv := append(append([]string{"tmux", "new-session", "-d", "-s", session, "-c", dir, "claude"}, bypassFlags...), sp.task)
+	line := sp.warning
+	if wt.path != "" {
+		line += sp.verb + ": " + wt.setup
+	}
+	line += sp.verb + ": " + strings.Join(argv, " ") + "\n"
 	if sp.dryRun {
 		return Launch{Output: line + "(dry run — nothing started)\n"}, nil
 	}
+
+	// Recorded like a bg session's, so a relaunch returns to it rather than
+	// to the checkout.
+	rec := sp.record()
+	rec.TmuxSession = session
+	rec.Worktree = wt.path
+	rec.Branch = wt.branch
 
 	// The raw name too: a session an older lacquer started under a dotted
 	// name on tmux 3.7c is this same project's, and must not get a twin.
 	_, running, found, err := findTmuxSession(Record{Name: sp.name}.tmuxNames())
 	if err != nil {
-		return launchFailed(sp, line, nil, err)
+		return launchFailed(sp, line, rec, err)
 	}
 	if found {
 		return Launch{Output: sp.warning + sp.verb + ": tmux session " + running + " is already running; not starting a second claude in it (attach: tmux attach -t '" + running + "')\n"}, nil
 	}
 
-	rec := sp.record()
-	rec.TmuxSession = session
 	// tmux runs its command directly (no shell) when given several
 	// arguments, so the task and the settings JSON arrive verbatim.
 	out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput() // #nosec G204 -- argv is built from the roster/roles file and an operator-supplied task, never a shell string

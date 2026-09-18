@@ -852,3 +852,71 @@ func TestPathComparisonsResolveRelativeInputs(t *testing.T) {
 		t.Error("registeredWorktree: the checkout itself, named relatively, is not a registered worktree")
 	}
 }
+
+// A tmux session given an assigned worktree (Placement.Worktree) really
+// starts there, not in the checkout, and is recorded with it so a relaunch
+// returns to it.
+func TestTmuxDispatchStartsInTheAssignedWorktree(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		run  func(repo, wt string) (Launch, error)
+	}{
+		{"project", func(repo, wt string) (Launch, error) {
+			return DispatchPlaced(fleet.Roster{Project: []fleet.Entry{{Name: "lead", Path: repo}}}, nil, "lead", "the task", Tmux, false, Placement{Worktree: wt})
+		}},
+		{"role", func(repo, wt string) (Launch, error) {
+			return DispatchRolePlaced(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "declared", Dir: repo}), nil, "lead", "the task", false, Placement{Worktree: wt})
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			isolatedTmux(t)
+			noTerminal(t)
+			calls := fakeClaude(t)
+			repo := realPath(t, t.TempDir())
+			initGitRepo(t, repo)
+			wt := filepath.Join(realPath(t, t.TempDir()), "unit")
+			git(t, repo, "worktree", "add", "-q", "-b", "pm/unit", wt)
+
+			launch, err := c.run(repo, wt)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, launch.Output)
+			}
+			got := waitForClaude(t, calls, 1)[0]
+			if got.cwd != wt {
+				t.Errorf("claude ran in %s, want the assigned worktree %s", got.cwd, wt)
+			}
+			if launch.Record == nil || launch.Record.Worktree != wt || launch.Record.Branch != "pm/unit" {
+				t.Errorf("record = %+v, want worktree %s on pm/unit", launch.Record, wt)
+			}
+		})
+	}
+}
+
+// A tmux relaunch returns to its recorded assigned worktree while it is still
+// registered, and is refused once it is not -- never quietly moved into the
+// checkout, which tmux would then edit.
+func TestTmuxRelaunchReturnsToTheAssignedWorktree(t *testing.T) {
+	repo := realPath(t, t.TempDir())
+	initGitRepo(t, repo)
+	wt := filepath.Join(realPath(t, t.TempDir()), "unit")
+	git(t, repo, "worktree", "add", "-q", "-b", "pm/unit", wt)
+	roster := fleet.Roster{Project: []fleet.Entry{{Name: "alpha", Path: repo}}}
+	rec := Record{Kind: ProjectKind, Name: "alpha", Mode: Tmux, Dir: repo, Task: "t", Worktree: wt, Branch: "pm/unit", LaunchError: "boom"}
+
+	launch, err := Relaunch(rec, roster, RoleRoster{}, nil, true)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, launch.Output)
+	}
+	if !strings.Contains(launch.Output, "-c "+wt+" claude") {
+		t.Errorf("the relaunch does not start in %s:\n%s", wt, launch.Output)
+	}
+
+	git(t, repo, "worktree", "remove", wt)
+	launch, err = Relaunch(rec, roster, RoleRoster{}, nil, true)
+	if err == nil || !strings.Contains(err.Error(), "refusing --worktree "+wt) {
+		t.Errorf("a relaunch into a worktree no longer registered must be refused, got %v\n%s", err, launch.Output)
+	}
+	if strings.Contains(launch.Output, "-c "+repo) {
+		t.Errorf("the relaunch fell back to the checkout:\n%s", launch.Output)
+	}
+}

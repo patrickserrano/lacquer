@@ -108,16 +108,23 @@ func Relaunch(r Record, roster fleet.Roster, roles RoleRoster, sessions []Sessio
 	task := buildRelaunchTask(r)
 	// A bg session resumes in the worktree it was recorded in, where its own
 	// commits and uncommitted work are, while that is still a registered
-	// worktree (resumeWorktree, worktree.go).
+	// worktree (resumeWorktree, worktree.go). A tmux session only ever has a
+	// recorded worktree if its dispatcher assigned one (Placement.Worktree),
+	// and returns to it the same way -- checked again, and refused if it is
+	// no longer registered, rather than falling back to editing the checkout.
 	var resume string
-	if r.Mode == Background {
+	var place Placement
+	switch r.Mode {
+	case Background:
 		resume = r.Worktree
+	case Tmux:
+		place.Worktree = r.Worktree
 	}
 	switch r.Kind {
 	case ProjectKind:
-		return dispatchProject(roster, sessions, r.Name, task, r.Mode, dryRun, resume)
+		return dispatchProject(roster, sessions, r.Name, task, r.Mode, dryRun, place, resume)
 	case RoleKind:
-		return dispatchRole(roles, sessions, r.Name, task, dryRun, resume)
+		return dispatchRole(roles, sessions, r.Name, task, dryRun, place, resume)
 	default:
 		return Launch{}, fmt.Errorf("record %q has unknown kind %q", r.Name, r.Kind)
 	}
