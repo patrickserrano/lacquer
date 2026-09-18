@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
 	"github.com/patrickserrano/lacquer/internal/version"
 )
@@ -69,7 +70,7 @@ func setup(t *testing.T) (lacquer, project string) {
 	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE RULES")
 	writeFile(t, filepath.Join(lacquer, "core", "skills", "git.md"), "GIT SKILL")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"x\"\n")
-	git(t, project, "init", "-q")
+	gittest.Init(t, project, "-q")
 	git(t, project, "add", "-A")
 	git(t, project, "commit", "-q", "-m", "init")
 

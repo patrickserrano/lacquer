@@ -240,16 +240,21 @@ func Body(cfg *config.Config, plan []assets.Asset) (string, error) {
 	return strings.Join(sections, "\n\n"), nil
 }
 
-// productSecrets renders a rule for every [[product]] that redirects its
+// productSecrets renders a rule for every product that redirects its
 // release-time keys somewhere other than the default Secrets.xcconfig — one
 // project writes Config/Monetization.xcconfig, which the block above does not
 // cover. The release workflow creates this file on a runner, but a developer
 // reproducing a release locally creates it in their working tree, which is
 // where it gets committed from.
+//
+// Products(), not cfg.Product: a single-app project declares its file as
+// [project].secrets_file, which only the synthesised product carries. Reading
+// the declared list alone rendered no rule for it, while the release went on
+// writing real keys to that path.
 func productSecrets(cfg *config.Config) string {
 	seen := map[string]bool{}
 	var lines []string
-	for _, p := range cfg.Product {
+	for _, p := range cfg.Products() {
 		rel := filepath.ToSlash(p.SecretsPath())
 		// The default is already covered by the unanchored Secrets.xcconfig rule.
 		if rel == "Secrets.xcconfig" || seen[rel] {

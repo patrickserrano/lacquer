@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/lock"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
 )
@@ -36,7 +37,7 @@ func orphanSetup(t *testing.T) (lacquer, project string) {
 	writeFile(t, filepath.Join(lacquer, "profiles", "web", "workflows", "nightly.yml"), scheduledWorkflow)
 	writeFile(t, filepath.Join(lacquer, "profiles", "web", "workflows", "docs.yml"), pushWorkflow)
 	writeFile(t, filepath.Join(project, ".lacquer.toml"), orphanManifest)
-	git(t, project, "init", "-q")
+	gittest.Init(t, project, "-q")
 	git(t, project, "add", "-A")
 	git(t, project, "commit", "-q", "-m", "init")
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // refProject builds a plain git repository with the given tracked files and
@@ -19,7 +20,7 @@ func refProject(t *testing.T, files map[string]string) string {
 	for rel, content := range files {
 		writeFile(t, filepath.Join(dir, rel), content)
 	}
-	git(t, dir, "init", "-q")
+	gittest.Init(t, dir, "-q")
 	git(t, dir, "add", "-A")
 	git(t, dir, "commit", "-q", "-m", "init")
 	return dir

@@ -5,12 +5,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 func gitInit(t *testing.T, dir string, extra ...[]string) {
 	t.Helper()
-	cmds := append([][]string{{"init", "-q"}}, extra...)
-	for _, a := range cmds {
+	gittest.Init(t, dir, "-q")
+	for _, a := range extra {
 		cmd := exec.Command("git", a...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {

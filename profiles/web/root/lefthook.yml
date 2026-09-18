@@ -115,10 +115,31 @@ pre-push:
       # an exemption. Only `relaxed` skips: an expired or malformed entry runs
       # TypeDoc as normal, because the point of a time-boxed exemption is that
       # time runs out.
+      #
+      # The script and the manifest are resolved from the REPOSITORY root, not
+      # the component. `root:` has already cd'd into e.g. admin/, where neither
+      # scripts/docs-relaxation.sh (synced to the repo root by core) nor
+      # .lacquer.toml exists. It used to read both relative to the component,
+      # and `2>/dev/null || echo none` turned "script not found" into "not
+      # relaxed" — so in every nested component a valid relaxation was silently
+      # ignored and TypeDoc blocked the push. A missing script or manifest is a
+      # broken install, so it now fails and names the file, rather than being
+      # indistinguishable from "read the manifest, found nothing".
     docs:
       root: "{{COMPONENT_PREFIX}}"
       run: |
-        state=$(scripts/docs-relaxation.sh .lacquer.toml 2>/dev/null || echo none)
+        top=$(git rev-parse --show-toplevel) || exit 1
+        for f in scripts/docs-relaxation.sh .lacquer.toml; do
+          if [ ! -f "$top/$f" ]; then
+            echo "docs: $f is missing from the repository root ($top), so [baseline.relax] cannot be read." >&2
+            echo "      Every lacquer-managed repository has it; restore it (lacquer sync writes the script)." >&2
+            exit 1
+          fi
+        done
+        if ! state=$(cd "$top" && scripts/docs-relaxation.sh .lacquer.toml); then
+          echo "docs: scripts/docs-relaxation.sh failed, so [baseline.relax] cannot be read." >&2
+          exit 1
+        fi
         if [ "$state" = "relaxed" ]; then
           echo "docs: relaxed by [baseline.relax] in .lacquer.toml — skipping"
         else

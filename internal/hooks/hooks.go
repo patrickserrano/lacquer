@@ -81,6 +81,17 @@ type Finding struct {
 	// broken, which is the worst possible outcome: it trains people to ignore
 	// the finding on precisely the repos that got it right.
 	Bridged bool
+	// BridgesRival is the opposite direction: THIS manager's config invokes the
+	// installed rival, so installing this one keeps both rule sets running. It
+	// is what turns the collision from a judgement call into one command.
+	//
+	// Measured on rail and momfriend: pre-commit installed the hooks before the
+	// lefthook bridge (#317) existed, so lefthook.yml -- which calls `pre-commit
+	// run` -- reported as a collision with no remedy, and an operator had to ask
+	// what to run. Detected rather than assumed, because a lefthook.yml WITHOUT
+	// the bridge is the case where `lefthook install` silently drops the iOS
+	// gates.
+	BridgesRival bool
 }
 
 // Check reports hook managers the project has configured whose hooks are not
@@ -119,6 +130,7 @@ func Check(projectRoot string) []Finding {
 			ForeignHook:  foreignHook(hooksDir),
 			Rival:        rival,
 			Bridged:      rival != "" && bridges(projectRoot, rival, m.Name),
+			BridgesRival: rival != "" && bridges(projectRoot, m.Name, rival),
 		})
 	}
 	return out
@@ -197,6 +209,22 @@ func Format(fs []Finding) string {
 				b.WriteString("    back from " + f.Rival + " and silence " + f.Rival + "'s own gates.\n")
 				continue
 			}
+			if f.BridgesRival {
+				// The collision with a known answer: this manager's config calls
+				// the one that won, so handing it the hooks loses nothing. The
+				// generic "whichever guards code that exists" line left the
+				// reader to derive that, and its "do not reinstall" warning is
+				// the opposite of the fix here.
+				b.WriteString("    That is " + f.Rival + ", which this lacquer also ships. Both write .git/hooks\n")
+				b.WriteString("    and the last `install` wins, so this is a collision, not a missing setup.\n")
+				b.WriteString("    Fix: from the repository root, run  " + f.Manager + " install\n")
+				b.WriteString("    Safe because " + f.ConfigFile + " CALLS " + f.Rival + ", so one hook runs both rule sets.\n")
+				b.WriteString("    Afterwards do NOT run `" + f.Rival + " install`: it would take .git/hooks back\n")
+				b.WriteString("    and silence " + f.Manager + "'s own gates again.\n")
+				b.WriteString("    Until then, " + f.ConfigFile + " is enforced by nothing here, so a rule added to\n")
+				b.WriteString("    it upstream will not reach this checkout.\n")
+				continue
+			}
 			if f.Rival != "" {
 				// The other manager is one the lacquer itself ships, so this is
 				// a known mixed-repo collision rather than an unexplained gap.
@@ -227,10 +255,35 @@ func Format(fs []Finding) string {
 			b.WriteString("    install them:  " + f.Manager + " install\n")
 		}
 	}
-	b.WriteString("\nEvery gate in that file is currently running on nothing. A violation it would\n")
-	b.WriteString("have caught reaches CI instead, which is the local-checks-match-CI rule failing\n")
-	b.WriteString("one level up: the local checks were never run.\n")
+	b.WriteString(footer(fs))
 	return b.String()
+}
+
+// footer closes the report with what is at stake -- for the findings that are
+// actually unenforced, and only those.
+//
+// A Bridged config DOES run, through the rival's hook. Printing "every gate is
+// running on nothing" under its "Nothing to fix" entry contradicted the entry
+// in the same report, so an all-bridged report gets no footer, and a mixed one
+// names the unenforced configs instead of saying "that file", which would read
+// as covering the bridged one too.
+func footer(fs []Finding) string {
+	var unenforced []string
+	for _, f := range fs {
+		if !f.Bridged {
+			unenforced = append(unenforced, f.ConfigFile)
+		}
+	}
+	if len(unenforced) == 0 {
+		return ""
+	}
+	subject := "that file"
+	if len(unenforced) < len(fs) {
+		subject = strings.Join(unenforced, " and ")
+	}
+	return "\nEvery gate in " + subject + " is currently running on nothing. A violation it would\n" +
+		"have caught reaches CI instead, which is the local-checks-match-CI rule failing\n" +
+		"one level up: the local checks were never run.\n"
 }
 
 // rivalInstalled names the OTHER lacquer-shipped hook manager when that manager
@@ -262,6 +315,11 @@ func rivalInstalled(projectRoot, hooksDir, self string) string {
 // A substring match on the invocation, deliberately, rather than parsing the
 // config: the question is only "does this file call that binary", and a YAML
 // walk would have to know every place a command can hide.
+//
+// Whole-line comments are skipped, because a comment naming the invocation is
+// prose about it, not a call (#378 is the same defect on another detector).
+// That matters most for BridgesRival, where a false match tells the reader to
+// run an install that silently drops the other manager's gates.
 func bridges(projectRoot, rival, self string) bool {
 	for _, m := range managers {
 		if m.Name != rival {
@@ -271,7 +329,15 @@ func bridges(projectRoot, rival, self string) bool {
 		if err != nil {
 			return false
 		}
-		return strings.Contains(string(data), self+" run")
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			if strings.Contains(line, self+" run") {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }

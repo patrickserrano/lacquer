@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // A manifest for a single-product iOS project. The only thing that varies
@@ -64,7 +65,7 @@ func uncalledLacquer(t *testing.T, manifest string, files map[string]string) (la
 		writeFile(t, filepath.Join(lacquer, filepath.FromSlash(rel)), body)
 	}
 	writeFile(t, filepath.Join(project, ".lacquer.toml"), manifest)
-	git(t, project, "init", "-q")
+	gittest.Init(t, project, "-q")
 	git(t, project, "add", "-A")
 	git(t, project, "commit", "-q", "-m", "init")
 	return lacquer, project

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 func TestRemoveRecordDropsOnlyTheMatch(t *testing.T) {
@@ -90,7 +92,7 @@ func TestKillRemovesALockedWorktree(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run("init", "-q")
+	gittest.Init(t, mainDir, "-q")
 	run("config", "user.email", "test@example.com")
 	run("config", "user.name", "test")
 	if err := os.WriteFile(filepath.Join(mainDir, "f.txt"), []byte("x"), 0o644); err != nil {

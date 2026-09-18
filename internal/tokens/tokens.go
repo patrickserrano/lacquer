@@ -403,6 +403,40 @@ func ToRoot(prefix string) string {
 	return strings.TrimSuffix(strings.Repeat("../", strings.Count(p, "/")+1), "/")
 }
 
+// projectOrLoneProduct resolves a project-wide token that [project] and a
+// product can both name: scheme, bundle_id, asc_app_id. [project]'s value wins
+// when it has one. When it is blank and there is exactly ONE product, that
+// product's value is the only possible answer, so it is used.
+//
+// Without this, a project declaring its one app as a lone [[product]] was
+// refused by sync ("missing [project] values for placeholders: {{SCHEME}}")
+// for templates like build.md and ci.yml, and the only way through was to state
+// the scheme twice, once in each table. That duplication is how the values
+// drift apart.
+//
+// With two or more products it stays blank on purpose: which app a project-wide
+// template means would have to be guessed, and the sync preflight refuses with
+// that explanation instead.
+func projectOrLoneProduct(project string, products []config.Product, field func(config.Product) string) string {
+	if project != "" || len(products) != 1 {
+		return project
+	}
+	return field(products[0])
+}
+
+// MissingProjectHint is the remedy sync prints when a required [project] token
+// has no value. With several products it says why no product can fill it, so
+// the reader does not go looking for a fallback that deliberately does not
+// exist.
+func MissingProjectHint(cfg *config.Config) string {
+	if n := len(cfg.Product); n > 1 {
+		return fmt.Sprintf("add them to .lacquer.toml [project], then re-run. With %d [[product]] blocks, "+
+			"[project].scheme, bundle_id and asc_app_id cannot be taken from a product: which one a "+
+			"project-wide template means would have to be guessed", n)
+	}
+	return "add them to .lacquer.toml [project], then re-run"
+}
+
 // Values builds the substitution map from the [project] values plus the derived
 // component prefix for the content being substituted.
 //
@@ -415,9 +449,9 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 	pm := detect.WebPackageManager(cfg.Root, prefix)
 	return map[string]string{
 		ProjectName:       p.ProjectName,
-		Scheme:            p.Scheme,
-		BundleID:          p.BundleID,
-		AscAppID:          p.AscAppID,
+		Scheme:            projectOrLoneProduct(p.Scheme, products, func(x config.Product) string { return x.Scheme }),
+		BundleID:          projectOrLoneProduct(p.BundleID, products, func(x config.Product) string { return x.BundleID }),
+		AscAppID:          projectOrLoneProduct(p.AscAppID, products, func(x config.Product) string { return x.AscAppID }),
 		Xcodeproj:         p.Xcodeproj,
 		SwiftVersion:      p.SwiftVersion,
 		GithubOrg:         p.GithubOrg,

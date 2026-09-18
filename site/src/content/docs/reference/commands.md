@@ -19,7 +19,7 @@ description: Every lacquer CLI subcommand.
 | `lacquer fleet diff A.json B.json` | What changed between two snapshots; exit 4 on a regression. |
 | `lacquer protection [--repo O/N] [--branch B] [--roster F]` | Compare what branch protection **requires** against what CI can **post**. GitHub counts a skipped check as satisfying a required one, so a repo passes only if it requires the always-running `CI OK` aggregate — or some other context posted by a job nothing can skip. Reaches the GitHub API through `gh`, so it is opt-in and separate from `audit`. Exit 4 on a finding; **exit 7 if a repository could not be checked** — never reported as a pass. |
 | `lacquer console --roster F` | One screen: fleet truth + live sessions + open PRs. |
-| `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, re-attach, check, or stop work on a project or a named role. See `lacquer help` for the flag combinations each takes. |
+| `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, check, relaunch, or stop work on a project or a named role. `--mode bg` runs `claude --bg` in a new git worktree and branch under `<repo>/.claude/worktrees/`, and launches nothing if one cannot be made. `--mode tmux` starts a detached tmux session in the checkout itself, which it edits directly; attach with `tmux attach -t <name>`, and a session already running under that name is left alone. Both modes pass `--dangerously-skip-permissions` with the sandbox off, and neither needs a terminal, so an agent can dispatch. With `--sessions`, every launch attempt is recorded, a failed one included, and `watch` reports a failed launch as failed. `watch --relaunch` puts the relaunched session's record in place of the dead one (a bg session resumes in its recorded worktree), and stops retrying a record after 3 failed launches in a row, leaving it for you. See `lacquer help` for the flag combinations each takes. |
 | `lacquer version` | Print the lacquer version. |
 
 `lacquer help` (or `--help`/`-h`) prints usage, including the full `console`
@@ -234,8 +234,27 @@ has is reported as stale.
 
 ### Release-time secrets
 
-A product that needs real values at release — monetization SDK keys, ad unit
-IDs — maps each xcconfig key to the GitHub secret holding it:
+A project that needs real values at release — monetization SDK keys, ad unit
+IDs, an analytics key, a crash-reporting DSN — maps each xcconfig key to the
+GitHub secret holding it. A single-app project (no `[[product]]` block) declares
+them under `[project]`, where they fold into the product the manifest
+synthesises — the same fallback `scheme`, `bundle_id`, `asc_app_id` and
+`extra_test_targets` have:
+
+```toml
+[project]
+name = "MyApp"
+scheme = "MyApp"
+bundle_id = "com.example.myapp"
+asc_app_id = "1111111110"
+secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
+secret_formats = { REVENUECAT_API_KEY = "appl_*", SENTRY_DSN = "https://*@*/*" }
+```
+
+A project with several products declares them per product, since each app's
+keys are its own. Setting `secrets`, `secrets_file` or `secret_formats` under
+`[project]` alongside any `[[product]]` block is rejected rather than merged,
+because which product they belong to would have to be guessed:
 
 ```toml
 [[product]]
@@ -254,7 +273,10 @@ checked at release time. Non-empty is not the same as correct: the two ways
 these keys actually go wrong — pasting another app's key, or leaving Google's
 public test AdMob ID in place — both produce a perfectly non-empty value that
 builds, signs, uploads and passes review, then serves the wrong ads to real
-users. A mismatch fails the release without echoing the value.
+users. A mismatch fails the release without echoing the value. A pattern may
+use letters, digits and `_ ~ . : / * ? @ -`; anything else (quotes, `|`, `(`,
+`&`, spaces) is rejected at load, because the pattern is used unquoted in a
+shell `case`.
 
 The manifest holds the secret's **name**; the value stays in GitHub. `lacquer`
 rejects a value that looks like a real credential, because this file is
