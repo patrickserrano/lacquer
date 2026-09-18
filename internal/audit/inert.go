@@ -107,7 +107,7 @@ const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 // and one that did would be reported rather than silently accepted.
 func writesPath(body, file string) bool {
 	for _, line := range shellLines(body) {
-		for _, c := range simpleCommands(shellWords(line)) {
+		for _, c := range simpleCommands(shellWords(line.text)) {
 			if c.writes(file) {
 				return true
 			}
@@ -116,23 +116,36 @@ func writesPath(body, file string) bool {
 	return false
 }
 
+// shellLine is one logical shell line and the 1-based line of the file it
+// starts on.
+type shellLine struct {
+	text string
+	line int
+}
+
 // shellLines splits body into lines, joining a line that ends in a backslash to
 // the next — the way `sed \` / `-e …` / `src > dest` is one command to the shell.
-func shellLines(body string) []string {
-	var out []string
+// A joined line keeps the number of the line it starts on, which is where a
+// reader looking for the command will find it.
+func shellLines(body string) []shellLine {
+	var out []shellLine
 	var cur strings.Builder
-	for _, line := range strings.Split(body, "\n") {
+	start := 0
+	for i, line := range strings.Split(body, "\n") {
+		if cur.Len() == 0 {
+			start = i + 1
+		}
 		if t := strings.TrimRight(line, " \t"); strings.HasSuffix(t, "\\") {
 			cur.WriteString(strings.TrimSuffix(t, "\\"))
 			cur.WriteString(" ")
 			continue
 		}
 		cur.WriteString(line)
-		out = append(out, cur.String())
+		out = append(out, shellLine{cur.String(), start})
 		cur.Reset()
 	}
 	if cur.Len() > 0 {
-		out = append(out, cur.String())
+		out = append(out, shellLine{cur.String(), start})
 	}
 	return out
 }
@@ -344,21 +357,7 @@ func InertSecretDeclarations(projectRoot string, cfg *config.Config) []InertSecr
 	// The question is not "does the managed step exist" but "does anything write
 	// the file the product declared". That is what the release actually depends
 	// on, and it is agnostic about who writes it.
-	workflows := map[string]string{}
-	wfDir := filepath.Join(projectRoot, ".github", "workflows")
-	if entries, err := os.ReadDir(wfDir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			if !strings.HasSuffix(e.Name(), ".yml") && !strings.HasSuffix(e.Name(), ".yaml") {
-				continue
-			}
-			if b, err := os.ReadFile(filepath.Join(wfDir, e.Name())); err == nil {
-				workflows[e.Name()] = string(b)
-			}
-		}
-	}
+	workflows := workflowFiles(projectRoot)
 
 	excluded := false
 	for _, e := range cfg.Project.Exclude {
@@ -382,8 +381,8 @@ func InertSecretDeclarations(projectRoot string, cfg *config.Config) []InertSecr
 		// release that only seeds from the example ships placeholders exactly
 		// as CI does, and a project's own writer can live in any workflow.
 		written := false
-		for _, body := range workflows {
-			if writesPath(body, p.SecretsPath()) {
+		for _, wf := range workflows {
+			if writesPath(wf.body, p.SecretsPath()) {
 				written = true
 				break
 			}
@@ -435,4 +434,34 @@ func FormatInertSecrets(fs []InertSecrets) string {
 		"an unset or wrong-shaped value. If the keys genuinely are not needed, remove the\n" +
 		"declaration so it stops claiming otherwise.\n")
 	return b.String()
+}
+
+// workflowFile is one file under .github/workflows, by its repo-relative path.
+type workflowFile struct {
+	path string
+	body string
+}
+
+// workflowFiles reads every workflow in the project — managed, project-owned
+// and excluded alike, because what a runner executes does not depend on who
+// owns the file — sorted by path. A missing directory is no workflows.
+func workflowFiles(projectRoot string) []workflowFile {
+	dir := filepath.Join(projectRoot, ".github", "workflows")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []workflowFile
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(e.Name(), ".yml") && !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil {
+			out = append(out, workflowFile{path: ".github/workflows/" + e.Name(), body: string(b)})
+		}
+	}
+	return out
 }

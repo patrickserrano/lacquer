@@ -358,6 +358,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// Declared [[product]].secrets that no workflow here will write. See
 		// internal/audit/inert.go.
 		fmt.Fprint(stdout, audit.FormatInertSecrets(audit.InertSecretDeclarations(projectRoot, cfg)))
+		// Workflow steps that kill or wipe simulators for every job on a shared
+		// runner. See internal/audit/machinewide.go.
+		fmt.Fprint(stdout, audit.FormatMachineWide(audit.MachineWideSteps(projectRoot)))
 
 		// Both directions of the test-selector comparison. Reported, not gated,
 		// for the same reason as the hooks check: a project whose widget suite
