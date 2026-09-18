@@ -12,6 +12,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/tokens"
 	"gopkg.in/yaml.v3"
 )
@@ -503,7 +504,7 @@ func runChangesFilter(t *testing.T, script, event string, changed []string) map[
 		}
 		return strings.TrimSpace(string(out))
 	}
-	git("init", "-q", "-b", "main")
+	gittest.Init(t, dir, "-q", "-b", "main")
 	write := func(rel, body string) {
 		t.Helper()
 		p := filepath.Join(dir, filepath.FromSlash(rel))

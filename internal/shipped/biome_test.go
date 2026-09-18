@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/sync"
 )
 
@@ -46,7 +47,7 @@ func biomeProject(t *testing.T, componentPath string) string {
 	r := root(t)
 	project := t.TempDir()
 
-	git(t, project, "init", "-q")
+	gittest.Init(t, project, "-q")
 	git(t, project, "config", "user.email", "test@example.com")
 	git(t, project, "config", "user.name", "Test")
 

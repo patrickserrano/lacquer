@@ -21,6 +21,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/doctor"
 	"github.com/patrickserrano/lacquer/internal/exclusion"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/sync"
 	"github.com/patrickserrano/lacquer/internal/tokens"
@@ -95,7 +96,7 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 // on the author's laptop is worse than no test.
 func initRepo(t *testing.T, dir string) {
 	t.Helper()
-	gitIn(t, dir, "init", "-q", "--initial-branch=main")
+	gittest.Init(t, dir, "-q", "--initial-branch=main")
 	// core.excludesFile overrides the user's global ignore file; emptying
 	// .git/info/exclude removes the per-repository one git creates by default.
 	gitIn(t, dir, "config", "core.excludesFile", os.DevNull)
