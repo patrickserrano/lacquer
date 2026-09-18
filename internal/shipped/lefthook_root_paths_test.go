@@ -256,6 +256,34 @@ func TestDocsRelaxationMissingInputsFailLoudly(t *testing.T) {
 	}
 }
 
+// TestDocsRelaxationBrokenScriptFailsLoudly: a script that is present but
+// errors is the same case one step later. Swallowing its failure back into
+// "none" survived every other test here, so it gets its own.
+func TestDocsRelaxationBrokenScriptFailsLoudly(t *testing.T) {
+	t.Parallel()
+	for _, tc := range docsCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := fromFixture(t, "multistack")
+			p.sync()
+			root, run := hookCommand(t, p, tc.hook, tc.cmd)
+			bin := tc.prepare(t, p, root)
+			writeExe(t, filepath.Join(p.root, "scripts", "docs-relaxation.sh"), "#!/bin/sh\necho relaxed\nexit 7\n")
+
+			out, code := runAsLefthook(t, p, root, run, bin)
+			if code == 0 {
+				t.Errorf("%s.%s exited 0 although scripts/docs-relaxation.sh failed:\n%s", tc.hook, tc.cmd, out)
+			}
+			if !strings.Contains(out, "docs-relaxation.sh failed") {
+				t.Errorf("the failure does not say the relaxation script failed:\n%s", out)
+			}
+			if strings.Contains(out, toolRan) {
+				t.Errorf("the documentation tool ran although the relaxation could not be read:\n%s", out)
+			}
+		})
+	}
+}
+
 // TestDenoTestPermitsNoFiles: a supabase component with edge functions and no
 // tests could never push, because `deno test` exits non-zero when it finds
 // nothing. CI already permits the empty set and says so; the hook now does the
