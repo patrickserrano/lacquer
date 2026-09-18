@@ -530,6 +530,21 @@ jobs:
           fi
           exit $EXIT_CODE
 
+      # Reads the BUILT app's Info.plist and stops the release if a build-time
+      # key reached it empty, unexpanded, or as a placeholder -- after the
+      # archive exists, before anything is exported or uploaded.
+      #
+      # The write step above checks a secret's VALUE. Nothing checked that the
+      # value reached the product: a wrong secrets_file, a missing `#include?`,
+      # a committed xcconfig assigning the key after the written one, and the
+      # archive bakes in REPLACE_ME or nothing while every gate stays green.
+      # Flare's onboarding dropped exactly this check, and its next release
+      # would have shipped that way. It renders for EVERY product, declared
+      # secrets or not, because the repositories most at risk declare none. It
+      # also reads every widget, extension and watch app the archive embeds --
+      # see scripts/verify-archive-info-plist.sh for the rules.
+{{IOS_ARCHIVE_SECRETS_CHECK}}
+
       - name: Export IPA
         run: |
           set -o pipefail

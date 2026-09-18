@@ -357,3 +357,34 @@ func TestArchiveRootNeverEmpty(t *testing.T) {
 		t.Errorf("configured root should be trimmed, got %q", got)
 	}
 }
+
+// The archive check renders for every product — including one declaring no
+// secrets, which is the case it exists for — with the component prefix on the
+// examples (declared relative to the component) and NOT on the project (the
+// archive step's `-project` is repo-root relative), and a product name's single
+// quote doubled so the GitHub expression still parses.
+func TestArchiveSecretsCheckRendersEveryProduct(t *testing.T) {
+	got := ArchiveSecretsCheck([]config.Product{
+		{Name: "Mom's App", Scheme: "Mom"},
+		{Name: "Free", Scheme: "Free", SecretsFile: "Config/M.xcconfig",
+			Secrets:       map[string]string{"B_KEY": "S_B", "A_KEY": "S_A"},
+			SecretFormats: map[string]string{"B_KEY": "https://*@*/*"}},
+	}, "ios/App.xcodeproj", "ios/")
+	for _, want := range []string{
+		"      - name: Verify build-time keys reached the archive (Mom's App)\n        if: matrix.product.name == 'Mom''s App'\n",
+		"      - name: Verify build-time keys reached the archive (Free)\n        if: matrix.product.name == 'Free'\n",
+		`--project "ios/App.xcodeproj"`,
+		"--example \"ios/Config/M.xcconfig.example\" \\\n            --example \"ios/Secrets.xcconfig.example\"",
+		"\"A_KEY\" \\\n            \"B_KEY=https://*@*/*\"",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("render lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "scripts/verify-archive-info-plist.sh") != 2 {
+		t.Errorf("want one check per product:\n%s", got)
+	}
+	if strings.HasSuffix(got, "\n") {
+		t.Error("render ends in a newline; the template supplies the blank line after the token")
+	}
+}

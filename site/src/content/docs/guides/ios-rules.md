@@ -342,13 +342,43 @@ secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN"
 secret_formats = { REVENUECAT_API_KEY = "appl_*", SENTRY_DSN = "https://*@*/*" }
 ```
 
-A project with several `[[product]]` blocks declares the same three keys on each product instead, because a paid app's key written into the free app's build is a bad release, not a failed one. Setting them under `[project]` as well is rejected: which product they belong to would have to be guessed. **If your app reads keys from `Secrets.xcconfig` and none of this is declared, the release archives with the committed placeholders.** Declare them.
+A project with several `[[product]]` blocks declares the same three keys on each product instead, because a paid app's key written into the free app's build is a bad release, not a failed one. Setting them under `[project]` as well is rejected: which product they belong to would have to be guessed. **If your app reads keys from `Secrets.xcconfig` and none of this is declared, the release archives with the committed placeholders** — and the archive check below stops it before upload. Declare them.
 
-`release.yml` then runs `scripts/write-release-config.sh`, which seeds the committed `<secrets_file>.example` and substitutes the declared keys into it. It fails closed on an unset **or empty** secret (an unset secret expands to the empty string, and an empty xcconfig value is not an error to `xcodebuild`); fails closed on a value that doesn't match its `secret_formats` shape; escapes `//` as `/$()/`, because xcconfig treats `//` as a comment and a bare `https://host` truncates to `https:`; and seeds from the example first, so keys the project references but doesn't hold in secrets stay defined.
+`release.yml` then runs `scripts/write-release-config.sh`, which seeds the committed `<secrets_file>.example` and substitutes the declared keys into it. It fails closed on an unset **or empty** secret (an unset secret expands to the empty string, and an empty xcconfig value is not an error to `xcodebuild`); fails closed on a value that doesn't match its `secret_formats` shape; escapes `//` as `/$()/`, because xcconfig treats `//` as a comment and a bare `https://host` truncates to `https:`; seeds from the example first, so keys the project references but doesn't hold in secrets stay defined; refuses a placeholder (the example's own value, `REPLACE_ME…`, `your_…`, `appl_xxxx…`, `A-DEV-0000000000`, the all-zero Sentry DSN, a scheme-only `https://`), using the rules in `scripts/secret-placeholders.sh` it shares with the archive check; and escapes `$` as `$$`, because xcconfig substitutes a bare `$NAME`, refusing a value containing `$(` or `${` outright.
 
 :::caution[Why this is a script and not a step body]
 The step it replaces was dropped by an onboarding sync in one repo, and the next releases archived with every app-runtime key unset — `Purchases.configure` never ran, RevenueCatUI's paywall calls `fatalError("Purchases has not been configured.")` in any non-DEBUG build, and 1.1.0 was rejected under **Guideline 2.1(a)**, with CI green throughout. A script can be run against known-bad input; a program pasted into a YAML string can only be read. `lacquer doctor` runs this one with a required secret missing and requires it to fail.
 :::
+
+#### After the archive, the release reads what actually shipped
+
+The writer checks a secret's value; it cannot see whether that value reached the app. A wrong `secrets_file`, a missing `#include? "Secrets.xcconfig"`, or a committed xcconfig assigning the key again after the written one, and the archive bakes in the placeholder or nothing at all while every gate is green.
+
+So every release, **declared secrets or not**, runs `scripts/verify-archive-info-plist.sh` between the archive and the IPA export. It reads the archived app's `Info.plist` — and that of every widget, app extension and watch app the archive embeds, each against the source plist of the target that built it — and, for every entry whose source value was a `$(KEY)` build-setting reference (Xcode's own settings excepted), fails the release if the value arrived empty, still a literal `$(KEY)`, as a placeholder, or — for a declared key — not matching `secret_formats`.
+
+- **Undeclared keys are held to the same rules**, because the projects most at risk declare nothing. The failure names the key and the rule, never the value, and says to declare it under `[project].secrets` or `[[product]].secrets`.
+- **A flag meant to be off is written `NO` or `0`, never left empty.** There is no way to mark an empty key as intended.
+- **Adjacent references** (`$(SCHEME)$(HOST)`) cannot be told apart once built, so such a run is checked as one value.
+- **A declared key no `Info.plist` entry references** is printed as `NOT COVERED` rather than failed.
+- **It fails closed**: an archive, a plist, an unmappable bundle or a build-settings query it cannot read stops the release.
+
+##### Adopting the check in your own release workflow
+
+A project that excludes `ios-release.yml` still receives both scripts (`scripts/verify-archive-info-plist.sh` and `scripts/secret-placeholders.sh`), because an exclusion covers only the path it names. Call the check after your archive step and before export or upload, with your archive, project and release scheme, your `Secrets.xcconfig.example`, and your declared keys with their shapes. It fails closed.
+
+```yaml
+      - name: Verify build-time keys reached the archive
+        run: |
+          scripts/verify-archive-info-plist.sh \
+            --archive "$ARCHIVE_PATH" \
+            --project "MyApp.xcodeproj" \
+            --scheme "MyApp" \
+            --example "Secrets.xcconfig.example" \
+            "REVENUECAT_API_KEY=appl_*" \
+            "SENTRY_DSN=https://*@*/*"
+```
+
+`--info-plist <path>` names the app's source plist directly instead of `--project`/`--scheme`; name each embedded bundle's source too with `--embedded-plist MyWidgets.appex=Widgets/Info.plist`, or the check fails on the bundle it cannot map. A macOS app needs nothing different: the check reads `Contents/Info.plist` inside a macOS `.app` itself.
 
 **`lacquer sync` now refuses to drop a secret.** If the workflow a project has today reads a `${{ secrets.NAME }}` the incoming lacquer version does not, the sync stops and names it. Resolve it by declaring the keys as above, or by excluding the path with a reason and an expiry. `--force` does not lift it.
 
