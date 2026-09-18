@@ -27,13 +27,15 @@ pre-commit:
     # scripts/docs-relaxation.sh and .lacquer.toml are resolved from the
     # REPOSITORY root: `root:` has already cd'd into the component, where
     # neither exists, and a missing one fails loudly rather than reading as
-    # "not relaxed". See the `docs` command in profiles/web/root/lefthook.yml
-    # for the defect this closed.
+    # "not relaxed". The root is resolved with GIT_DIR cleared, because git
+    # exports it to hooks in a linked worktree and `--show-toplevel` then
+    # answers the component. See the `docs` command in
+    # profiles/web/root/lefthook.yml for both defects.
     docs:
       root: "{{COMPONENT_PREFIX}}"
       glob: "supabase/functions/_shared/*.ts"
       run: |
-        top=$(git rev-parse --show-toplevel) || exit 1
+        top=$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --show-toplevel) || exit 1
         for f in scripts/docs-relaxation.sh .lacquer.toml; do
           if [ ! -f "$top/$f" ]; then
             echo "docs: $f is missing from the repository root ($top), so [baseline.relax] cannot be read." >&2

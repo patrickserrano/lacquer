@@ -20,9 +20,15 @@
 # ignored, and indistinguishable from "read the manifest, found nothing". A
 # missing input is a broken install, so it fails and names the file (#387 fixed
 # the same swallow in the web and supabase lefthook commands).
+#
+# The root is found with GIT_DIR and GIT_WORK_TREE cleared. git exports GIT_DIR
+# to hooks in a linked worktree, and with it set `--show-toplevel` answers the
+# current directory rather than the top of the working tree — right only by
+# accident when run from the root. Cleared, git rediscovers the repository from
+# the current directory, correctly in a main checkout and a worktree alike.
 set -euo pipefail
 
-if ! top=$(git rev-parse --show-toplevel); then
+if ! top=$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --show-toplevel); then
   echo "docs: not inside a git repository, so [baseline.relax] cannot be read." >&2
   exit 1
 fi
