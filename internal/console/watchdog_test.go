@@ -79,7 +79,7 @@ func TestRelaunchDispatchesAProjectRecordViaDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "tmux new-session -A -s alpha") {
+	if !strings.Contains(out, "tmux new-session -d -s alpha") {
 		t.Errorf("expected a project relaunch to go through Dispatch:\n%s", out)
 	}
 	if !strings.Contains(out, "died and is being relaunched") {
@@ -94,7 +94,7 @@ func TestRelaunchDispatchesARoleRecordViaDispatchRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "tmux new-session -A -s lead") {
+	if !strings.Contains(out, "tmux new-session -d -s lead") {
 		t.Errorf("expected a role relaunch to go through DispatchRole:\n%s", out)
 	}
 }

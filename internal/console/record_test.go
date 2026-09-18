@@ -230,13 +230,8 @@ func TestCheckJobStateMissingFileIsMissingNotError(t *testing.T) {
 }
 
 func TestCheckTmuxSession(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not installed in this test environment")
-	}
+	isolatedTmux(t) // a private server: never the operator's own sessions
 	name := "lacquer-console-test-" + t.Name()
-	// Ensure clean slate: kill any leftover session under this name from a
-	// prior failed run before asserting Missing.
-	_ = exec.Command("tmux", "kill-session", "-t", name).Run()
 
 	r := Record{Mode: Tmux, Name: name}
 	status, _, err := r.Check()
@@ -250,7 +245,6 @@ func TestCheckTmuxSession(t *testing.T) {
 	if err := exec.Command("tmux", "new-session", "-d", "-s", name).Run(); err != nil {
 		t.Fatalf("could not start a real tmux session to test against: %v", err)
 	}
-	defer exec.Command("tmux", "kill-session", "-t", name).Run()
 
 	status, _, err = r.Check()
 	if err != nil {

@@ -686,7 +686,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		rolesPath := fs.String("roles", getenv("LACQUER_ROLES"), "path to the roles file (or $LACQUER_ROLES) — dispatch-role/watch only")
 		sessionsPath := fs.String("sessions", getenv("LACQUER_SESSIONS"), "path to the sessions file (or $LACQUER_SESSIONS) — enables tracking for `watch`")
 		inboxPath := fs.String("inbox", getenv("LACQUER_INBOX"), "path to the inbox file (or $LACQUER_INBOX) — decisions awaiting the operator and finished work, shown as ACTION/UNREAD and required by `inbox add`/`resolve`/`list`")
-		mode := fs.String("mode", "", "dispatch target: bg (worktree-isolated background agent) or tmux (interactive, edits the checkout)")
+		mode := fs.String("mode", "", "dispatch target: bg (background agent in a new git worktree and branch under <repo>/.claude/worktrees/) or tmux (detached tmux session in the checkout itself, edits it)")
 		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role/watch --relaunch: print the command without starting anything")
 		relaunch := fs.Bool("relaunch", false, "with watch: re-dispatch every session found dead")
 		live := fs.Bool("live", false, "with watch: keep refreshing in place every --interval until Ctrl-C, instead of checking once")
@@ -793,15 +793,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, err)
 			}
 			taskOverride := strings.Join(rest[2:], " ")
-			out, err := console.DispatchRole(roles, console.Sessions(), rest[1], taskOverride, *dryRun)
-			fmt.Fprint(stdout, out)
-			if err != nil {
-				return fail(stderr, err)
-			}
-			if *sessionsPath != "" && !*dryRun {
-				recordRoleDispatch(stderr, *sessionsPath, roles, rest[1], taskOverride, out)
-			}
-			return 0
+			launch, err := console.DispatchRole(roles, console.Sessions(), rest[1], taskOverride, *dryRun)
+			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
 		// inbox needs neither --mode nor a project roster, same reasoning as
 		// watch/dispatch-role above: it operates entirely on the inbox file.
@@ -835,21 +828,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, fmt.Errorf("usage: lacquer console [--roster F] --mode bg|tmux dispatch <project> \"<task>\""))
 			}
 			if *mode == "" {
-				// No default on purpose: bg is worktree-isolated and cannot edit
-				// the main checkout, tmux edits it directly. Guessing would
-				// silently change where the work lands.
+				// No default on purpose: bg runs in a worktree of its own and
+				// does not edit the main checkout, tmux edits it directly.
+				// Guessing would silently change where the work lands.
 				return fail(stderr, fmt.Errorf("dispatch needs --mode bg or --mode tmux"))
 			}
 			task := strings.Join(rest[2:], " ")
-			out, err := console.Dispatch(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun)
-			fmt.Fprint(stdout, out)
-			if err != nil {
-				return fail(stderr, err)
-			}
-			if *sessionsPath != "" && !*dryRun {
-				recordProjectDispatch(stderr, *sessionsPath, roster, rest[1], task, console.Mode(*mode), out)
-			}
-			return 0
+			launch, err := console.Dispatch(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun)
+			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
 		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now(), *inboxPath))
 	case "status":
@@ -955,23 +941,30 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               (decisions awaiting the operator, finished work awaiting")
 	fmt.Fprintln(w, "                               acknowledgement) shown first, as ACTION/UNREAD, when --inbox is set")
 	fmt.Fprintln(w, "  console ... --mode bg|tmux dispatch <project> \"<task>\"")
-	fmt.Fprintln(w, "                               start work on one project (bg = isolated worktree; tmux = the checkout)")
+	fmt.Fprintln(w, "                               start work on one project. bg = `claude --bg` in a new git worktree")
+	fmt.Fprintln(w, "                               and branch under <repo>/.claude/worktrees/ (nothing is launched if")
+	fmt.Fprintln(w, "                               one cannot be made); tmux = a detached tmux session in the checkout")
+	fmt.Fprintln(w, "                               itself (attach with `tmux attach -t <name>`). Both run claude with")
+	fmt.Fprintln(w, "                               --dangerously-skip-permissions and the sandbox off. Neither needs a")
+	fmt.Fprintln(w, "                               terminal; a tmux session already running is left alone")
 	fmt.Fprintln(w, "  console --roles R dispatch-role <name> [\"<task override>\"]")
-	fmt.Fprintln(w, "                               start (or re-attach) a named role — a lead/PM supervising many")
-	fmt.Fprintln(w, "                               projects, not editing one; mode and task come from the roles file")
+	fmt.Fprintln(w, "                               start a named role — a lead/PM supervising many projects, not")
+	fmt.Fprintln(w, "                               editing one; mode and task come from the roles file, modes as above")
 	fmt.Fprintln(w, "  console --sessions S [--roster F] [--roles R] watch [--relaunch] [--live] [--interval D]")
 	fmt.Fprintln(w, "                               check every recorded dispatch's liveness; --relaunch re-dispatches")
-	fmt.Fprintln(w, "                               each one found dead (Blocked and Missing are reported, not")
-	fmt.Fprintln(w, "                               auto-relaunched). --live keeps redrawing every --interval (default")
+	fmt.Fprintln(w, "                               each one found dead, a failed launch included (Blocked and Missing")
+	fmt.Fprintln(w, "                               are reported, not auto-relaunched); a bg session resumes in its")
+	fmt.Fprintln(w, "                               recorded worktree. --live keeps redrawing every --interval (default")
 	fmt.Fprintln(w, "                               2s) instead of checking once, until Ctrl-C; ignores --relaunch.")
-	fmt.Fprintln(w, "                               --sessions on dispatch/dispatch-role enables recording; nothing")
-	fmt.Fprintln(w, "                               is tracked unless you pass it")
+	fmt.Fprintln(w, "                               --sessions on dispatch/dispatch-role records every launch attempt,")
+	fmt.Fprintln(w, "                               a failed one included; nothing is tracked unless you pass it")
 	fmt.Fprintln(w, "  console --sessions S kill <name-or-daemon-id> [--force]")
 	fmt.Fprintln(w, "                               stop one recorded session and drop it from the sessions file.")
 	fmt.Fprintln(w, "                               Refuses an Alive session unless --force. For bg mode this removes")
 	fmt.Fprintln(w, "                               the job's own ~/.claude/jobs/<id> directory (a blocked bg daemon")
 	fmt.Fprintln(w, "                               holds no live process to signal, so this is what actually stops")
-	fmt.Fprintln(w, "                               it being respawned) — for tmux mode it kills the tmux session")
+	fmt.Fprintln(w, "                               it being respawned) and keeps the session's own worktree, printing")
+	fmt.Fprintln(w, "                               its path — for tmux mode it kills the tmux session")
 	fmt.Fprintln(w, "  console --inbox F inbox add --type action|unread --title T [--body B] [--ref R] [--project P]")
 	fmt.Fprintln(w, "                               record a decision awaiting the operator, or finished work")
 	fmt.Fprintln(w, "                               awaiting acknowledgement; prints the new entry's id on success")
@@ -1088,72 +1081,25 @@ func watchLive(w io.Writer, sessionsPath string, roster fleet.Roster, roles cons
 	}
 }
 
-// absDir resolves dir to an absolute path, falling back to the original
-// string if that fails for any reason. A relaunch may run from a different
-// working directory than the original dispatch (a later invocation, a cron
-// sweep) -- a relative Dir recorded against today's CWD would silently point
-// somewhere else, or nowhere, by then.
-func absDir(dir string) string {
-	abs, err := filepath.Abs(dir)
+// finishDispatch prints a dispatch's output, records it when a sessions file
+// is configured, and turns its error into an exit code. Shared by dispatch
+// and dispatch-role.
+//
+// What gets recorded is decided by console (Launch.Record), not here. A
+// failure to write the record is a warning, not a hard error: the dispatch
+// itself already happened, and the operator's request should not fail just
+// because tracking could not be written.
+func finishDispatch(stdout, stderr io.Writer, sessionsPath string, launch console.Launch, err error) int {
+	fmt.Fprint(stdout, launch.Output)
+	if sessionsPath != "" && launch.Record != nil {
+		if rerr := console.AppendRecord(sessionsPath, *launch.Record); rerr != nil {
+			fmt.Fprintf(stderr, "warning: could not record session: %v\n", rerr)
+		}
+	}
 	if err != nil {
-		return dir
+		return fail(stderr, err)
 	}
-	return abs
-}
-
-// recordProjectDispatch appends a Record for a successful project dispatch,
-// so a later `watch` pass can find it again. A failure to record is a
-// warning, not a hard error: the dispatch itself already succeeded, and the
-// operator's actual request should not fail just because tracking couldn't
-// be written.
-func recordProjectDispatch(stderr io.Writer, sessionsPath string, roster fleet.Roster, name, task string, mode console.Mode, dispatchOut string) {
-	for i := range roster.Project {
-		if roster.Project[i].Name != name {
-			continue
-		}
-		rec := console.Record{
-			Kind:      console.ProjectKind,
-			Name:      roster.Project[i].Name,
-			Mode:      mode,
-			Dir:       absDir(roster.Project[i].Path),
-			Task:      task,
-			DaemonID:  console.DaemonID(dispatchOut),
-			StartedAt: time.Now().UTC(),
-		}
-		if err := console.AppendRecord(sessionsPath, rec); err != nil {
-			fmt.Fprintf(stderr, "warning: could not record session: %v\n", err)
-		}
-		return
-	}
-}
-
-// recordRoleDispatch mirrors recordProjectDispatch for a role dispatch.
-// taskOverride, when blank, means the role's own declared task was used --
-// the record needs the ACTUAL task that ran, not an empty override, so the
-// role's declared Task is substituted here rather than left blank.
-func recordRoleDispatch(stderr io.Writer, sessionsPath string, roles console.RoleRoster, name, taskOverride, dispatchOut string) {
-	for i := range roles.Role {
-		if roles.Role[i].Name != name {
-			continue
-		}
-		task := strings.TrimSpace(taskOverride)
-		if task == "" {
-			task = roles.Role[i].Task
-		}
-		rec := console.Record{
-			Kind:      console.RoleKind,
-			Name:      roles.Role[i].Name,
-			Mode:      roles.Role[i].Mode,
-			Dir:       absDir(roles.Role[i].Dir),
-			Task:      task,
-			DaemonID:  console.DaemonID(dispatchOut),
-			StartedAt: time.Now().UTC(),
-		}
-		if err := console.AppendRecord(sessionsPath, rec); err != nil {
-			fmt.Fprintf(stderr, "warning: could not record session: %v\n", err)
-		}
-		return
-	}
+	return 0
 }
 
 // runInboxAdd is `lacquer console --inbox F inbox add`. Must be usable

@@ -3,6 +3,7 @@ package console
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -59,27 +60,52 @@ func Watch(path string, roster fleet.Roster, roles RoleRoster, sessions []Sessio
 // bikeshedding a richer one before there is real experience to design from.
 func Relaunch(r Record, roster fleet.Roster, roles RoleRoster, sessions []Session, dryRun bool) (string, error) {
 	task := buildRelaunchTask(r)
+	// A bg session resumes in the worktree it was recorded in, where its own
+	// commits and uncommitted work are, while that is still a registered
+	// worktree (resumeWorktree, worktree.go).
+	var resume string
+	if r.Mode == Background {
+		resume = r.Worktree
+	}
+	var launch Launch
+	var err error
 	switch r.Kind {
 	case ProjectKind:
-		return Dispatch(roster, sessions, r.Name, task, r.Mode, dryRun)
+		launch, err = dispatchProject(roster, sessions, r.Name, task, r.Mode, dryRun, resume)
 	case RoleKind:
-		return DispatchRole(roles, sessions, r.Name, task, dryRun)
+		launch, err = dispatchRole(roles, sessions, r.Name, task, dryRun, resume)
 	default:
 		return "", fmt.Errorf("record %q has unknown kind %q", r.Name, r.Kind)
 	}
+	return launch.Output, err
 }
 
 func buildRelaunchTask(r Record) string {
 	var b strings.Builder
-	b.WriteString("Your previous session on this task died and is being relaunched. ")
-	b.WriteString("Pick up from wherever it left off rather than starting over from scratch.\n\n")
+	if r.LaunchError != "" {
+		b.WriteString("A previous dispatch of this task failed to launch (")
+		b.WriteString(r.LaunchError)
+		b.WriteString("), so it may never have run. This is a new attempt; ")
+		b.WriteString("check the state below before assuming any of it was done.\n\n")
+	} else {
+		b.WriteString("Your previous session on this task died and is being relaunched. ")
+		b.WriteString("Pick up from wherever it left off rather than starting over from scratch.\n\n")
+	}
 	b.WriteString("Original task: ")
 	b.WriteString(r.Task)
-	if log := gitLogOne(r.Dir); log != "" {
+	// The worktree is where a bg session's work actually is; the checkout's
+	// state says nothing about it.
+	dir := r.Dir
+	if r.Worktree != "" {
+		if _, err := os.Stat(r.Worktree); err == nil {
+			dir = r.Worktree
+		}
+	}
+	if log := gitLogOne(dir); log != "" {
 		b.WriteString("\n\nLast commit (git log -1): ")
 		b.WriteString(log)
 	}
-	if status := gitStatusShort(r.Dir); status != "" {
+	if status := gitStatusShort(dir); status != "" {
 		b.WriteString("\n\nUncommitted changes (git status --short):\n")
 		b.WriteString(status)
 	} else {
