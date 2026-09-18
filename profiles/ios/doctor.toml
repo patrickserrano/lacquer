@@ -387,3 +387,39 @@ expect = "pass"
 # `set -e` script that never ran the writer, or ran a writer that wrote the raw
 # value, exits 0 or 1 with no such line.
 expect_output = 'write-release-config: set DOCTOR_PROBE_DSN in .*/Secrets\.xcconfig \(// escaped as /\$\(\)/\)'
+
+[[probe]]
+name = "missing_docs covers types that declare a conformance, and their members"
+why = """
+.swiftlint-docs.yml set `excludes_inherited_types: true`, meaning to spare
+members that implement a protocol requirement. What SwiftLint actually does
+with it is skip any type with an inheritance clause AND every member inside it.
+`struct SettingsView: View` and `struct Order: Codable` were never checked,
+and neither was anything declared in them. The probe above still passed,
+because its fixture declares no conformance. Measured across the iOS fleet: 2,219
+violations with the option on, 10,218 with it off; one project reported zero
+and owed 584.
+
+SwiftLint's default for the option is TRUE, so a config that drops the line
+brings the exemption back as surely as one that sets it. Either way this probe
+fails: it asserts violations on the conforming type (line 1) and on an
+undocumented member of a DOCUMENTED conforming type (line 8), so each half is
+checked on its own.
+"""
+file = "Probe.swift"
+content = """
+struct DoctorProbeConformingView: View {
+    /// Documented, so the violation on line 1 is the type's own.
+    var body: some View { EmptyView() }
+}
+
+/// Documented, so the violation on line 8 is the member's own.
+struct DoctorProbeModel: Codable {
+    var undocumentedMember: String
+}
+"""
+argv = ["swiftlint", "--strict", "--config", "{component}/.swiftlint-docs.yml", "{dir}"]
+expect = "fail"
+# Both lines, in the order SwiftLint reports them. A `true` or a missing key
+# produces neither, and a config that matches no files exits 0.
+expect_output = '(?s)Probe\.swift:1:1: error: Missing Docs Violation:.*\(missing_docs\).*Probe\.swift:8:5: error: Missing Docs Violation:.*\(missing_docs\)'
