@@ -264,3 +264,52 @@ func TestFormatNamesTheHarmTheLocationAndTheScopedAlternative(t *testing.T) {
 		}
 	}
 }
+
+// Whole files, not lines: the janitor as it ships in v1.37.10, and the scoped
+// rewrite that replaces it (lacquer#395). Kept as frozen copies under testdata
+// rather than read from profiles/, so the positive fixture keeps its kills after
+// the template drops them.
+func machineWideFixture(t *testing.T, name string) []MachineWide {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "machinewide", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return machineWideIn(".github/workflows/ios-cleanup-ci.yml", string(b))
+}
+
+// Every one of the v1.37.10 janitor's sixteen host-wide commands, at its line.
+func TestTheV1_37_10CleanupWorkflowIsReportedLineByLine(t *testing.T) {
+	want := map[int]string{
+		86: KindPkill, 90: KindKillall, 94: KindKillall, 98: KindPkill, 99: KindPkill,
+		113: KindSimctlAll, 117: KindSimctlAll,
+		121: KindKillall, 122: KindKillall, 123: KindKillall, 124: KindKillall,
+		143: KindSimctlAll, 147: KindSharedCache, 151: KindSharedCache, 155: KindSharedCache,
+		159: KindKillall,
+	}
+	got := machineWideFixture(t, "cleanup-ci.v1.37.10.yml")
+	seen := map[int]bool{}
+	for _, f := range got {
+		if want[f.Line] != f.Kind {
+			t.Errorf("line %d: got %s, want %q (%s)", f.Line, f.Kind, want[f.Line], f.Command)
+		}
+		seen[f.Line] = true
+	}
+	for line, kind := range want {
+		if !seen[line] {
+			t.Errorf("line %d (%s) not reported", line, kind)
+		}
+	}
+}
+
+// The scoped rewrite: kills are `"$CLEANUP_KILL" -TERM "$pid"` on PIDs it
+// selected, devices are deleted by UDID or as `unavailable`, and the manual
+// full reset (`simctl shutdown all && simctl erase all`) appears only in a
+// comment pointing at it. None of that reaches another job.
+func TestTheScopedCleanupRewriteIsQuiet(t *testing.T) {
+	if got := machineWideFixture(t, "cleanup-ci.pr395.yml"); len(got) != 0 {
+		for _, f := range got {
+			t.Errorf("flagged %d: %s (%s)", f.Line, f.Command, f.Kind)
+		}
+	}
+}
