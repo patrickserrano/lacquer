@@ -611,3 +611,33 @@ func TestConsoleTmuxDispatchStartsInTheAssignedWorktree(t *testing.T) {
 		})
 	}
 }
+
+// A project in a subdirectory starts in that subdirectory of its worktree.
+// An assigned worktree without it (a branch that predates it, say) is refused
+// rather than run from somewhere else in the tree.
+func TestConsoleDispatchRefusesAWorktreeWithoutTheProjectsDirectory(t *testing.T) {
+	lq := realLacquer(t)
+	for _, mode := range []string{"bg", "tmux"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newPlaceFleet(t)
+			wt := filepath.Join(f.root, "worktrees", "unit")
+			addWorktree(t, f.proj, wt, "pm/unit")
+			if err := os.RemoveAll(filepath.Join(wt, "sub")); err != nil {
+				t.Fatal(err)
+			}
+			_, errb, code := runConsole(t, lq, []string{"--roster", f.roster, "--sessions", f.sessions, "--mode", mode, "--worktree", wt, "dispatch", "sub", "do the unit"})
+			if code == 0 {
+				t.Fatal("dispatch into a worktree without the project's directory was not refused")
+			}
+			if !strings.Contains(errb, "has no "+filepath.Join(wt, "sub")) {
+				t.Errorf("stderr must name the missing directory:\n%s", errb)
+			}
+			if n := len(f.launches(t)); n != 0 {
+				t.Errorf("launched %d time(s)", n)
+			}
+			if recs := readRecords(t, f.sessions); len(recs) != 0 {
+				t.Errorf("a refusal was recorded: %+v", recs)
+			}
+		})
+	}
+}
