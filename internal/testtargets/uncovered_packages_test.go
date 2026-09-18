@@ -227,7 +227,8 @@ func TestThingsThatDoNotRunThePackageDoNotCoverIt(t *testing.T) {
 		"repo root, no package path":   workflow("", "", "", "swift test"),
 		"a parent of the package":      workflow("", "", "        working-directory: Flare\n", "swift test"),
 		"commented out":                workflow("", "", "", "# swift test --package-path FlareCore\necho skipped"),
-		"trailing comment":             workflow("", "", "", "echo later # swift test --package-path FlareCore"),
+		"trailing comment":             workflow("", "", "", "true # ; swift test --package-path FlareCore"),
+		"list the tests, run none":     workflow("", "", "", "swift test --package-path FlareCore --list-tests"),
 		"echoed, not run":              workflow("", "", "", `echo "swift test --package-path FlareCore"`),
 		"cd, then back":                workflow("", "", "", "cd FlareCore\ncd ..\nswift test"),
 		"xcodebuild build-for-testing": workflow("", "", "", "xcodebuild build-for-testing -scheme Flare -only-testing:FlareCoreTests"),
@@ -528,7 +529,8 @@ func TestMoreWaysARunIsSpelled(t *testing.T) {
 		"a variable":     {"PKG=FlareCore\nswift test --package-path \"$PKG\"", "FlareDataTests"},
 		"${variable}":    {"PKG=FlareCore\nswift test --package-path \"${PKG}\"", "FlareDataTests"},
 		// `X=1 cmd` sets X for cmd only.
-		"a prefix assignment does not persist":        {"PKG=FlareCore true\nswift test --package-path FlareData", "FlareCoreTests"},
+		// $PKG is unset afterwards: not covered, and not "runs nowhere" either.
+		"a prefix assignment does not persist":        {"PKG=FlareCore true\nswift test --package-path \"$PKG\"", ""},
 		"bash -c does not move the caller":            {"bash -c 'cd FlareCore'\nswift test", "FlareCoreTests FlareDataTests"},
 		"a script's cd does not move the caller":      {"./scripts/cd.sh\nswift test", "FlareCoreTests FlareDataTests"},
 		"here-string is not a heredoc":                {"cat <<< \"x\"\nswift test --package-path FlareCore", "FlareDataTests"},
