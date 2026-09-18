@@ -1255,8 +1255,9 @@ jobs:
           #
           # Every test process carries its workspace path in argv, so this
           # matches exactly this repository's strays and nothing else. The
-          # machine-wide hammer still exists in the scheduled cleanup workflow,
-          # which is the right place for it: it runs when nothing else does.
+          # scheduled cleanup workflow is scoped the same way: it kills only its
+          # own runner's orphaned processes and deletes only CI-created
+          # simulators, once per runner per night.
           pkill -9 -f "$GITHUB_WORKSPACE" 2>/dev/null || true
           sleep 3
 

@@ -4,7 +4,9 @@ on:
   schedule:
     # The only timer-driven job in the profile. Runs once daily at 07:00 UTC —
     # waking the dedicated runner 24x/day for a mostly-no-op janitorial job is
-    # wasteful and can race live PR jobs.
+    # wasteful and can race live PR jobs. Every iOS repository ships this same
+    # line, so the host sees one run per repository each night; the per-runner
+    # stamp below turns those into one real pass per runner.
     - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
@@ -17,11 +19,15 @@ on:
           - standard
           - aggressive
           - nuclear
+      dry_run:
+        description: 'Print what would be killed and deleted, and change nothing'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  # `gh run list` (read-only run queries) plus checkout; everything else the
-  # job does is local process/simulator cleanup needing no token scope.
-  actions: read
+  # Nothing here reads the repository or the API: the cleanup acts on this
+  # runner's own processes and simulators only.
   contents: read
 
 jobs:
@@ -30,159 +36,483 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     timeout-minutes: 10
     env:
-      # Default to 'standard' for scheduled runs, use input for manual runs
+      # Scheduled runs have no inputs: standard, for real.
       CLEANUP_LEVEL: ${{ inputs.cleanup_level || 'standard' }}
+      CLEANUP_DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+      CLEANUP_EVENT: ${{ github.event_name }}
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Check for Running CI Jobs
-        id: check-jobs
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Clean up this runner's orphans and CI simulators
         run: |
-          echo "Checking for running CI jobs..."
+          set -euo pipefail
+          # What this used to do, and why it no longer does it.
+          #
+          # The scheduled (standard) level killed every xcodebuild, every xctest
+          # runner, the Simulator app and CoreSimulatorService by NAME, host-wide,
+          # and the manual levels shut down, erased and deleted every simulator the
+          # runner's OS user owned and wiped that user's whole DerivedData. This
+          # workflow ships to every iOS repository and they all share one Mac,
+          # with runners under two OS users, one of them the operator's own. So
+          # fourteen times a night it killed other repositories' CI jobs, agents'
+          # local builds and the operator's Simulator, and a manual run on the
+          # operator's runner destroyed the operator's simulators and caches. Its
+          # only guard asked GitHub about the CURRENT repository's runs, which
+          # cannot see the other thirteen. ci.yml's Setup Simulator step records
+          # what the victims see ("Test crashed with signal trap before
+          # establishing connection") and why its own host-wide kills were scoped.
+          #
+          # Everything below acts only on what provably belongs to THIS runner:
+          #
+          #   processes  orphaned (parent PID 1), owned by this OS user, carrying
+          #              this runner's work directory in argv or as their working
+          #              directory, and older than CLEANUP_MIN_AGE_SECONDS. Killed
+          #              by PID: TERM, a grace, then KILL. Never CoreSimulatorService,
+          #              the Simulator app or the runner itself.
+          #   devices    named CI-iPhone-* or CI-Watch-* (what ios-ci.yml creates),
+          #              shut down, and unchanged for CLEANUP_MIN_AGE_SECONDS; plus
+          #              `simctl delete unavailable`. Deleted by UDID.
+          #
+          # aggressive and nuclear (manual only) drop the age threshold and also
+          # shut down and delete BOOTED CI devices; nuclear also removes the
+          # DerivedData directories under this runner's work directory. Neither
+          # reaches anything that is not this runner's. A genuine full reset of a
+          # wedged simulator host is a human decision, made at the Mac, as the
+          # user whose simulators they are, outside CI:
+          #
+          #   xcrun simctl shutdown all && xcrun simctl erase all
+          #
+          # >>> lacquer-cleanup-lib
+          # Run locally, read-only, from a repository that has synced this file:
+          #
+          #   sed -n '/^ *# >>> lacquer-cleanup-lib$/,/^ *# <<< lacquer-cleanup-lib$/p' \
+          #     .github/workflows/ios-cleanup-ci.yml >/tmp/lacquer-cleanup-lib.sh
+          #   RUNNER_WORKSPACE=<runner>/_work/x RUNNER_NAME=<runner-name> \
+          #     bash -c '. /tmp/lacquer-cleanup-lib.sh; cleanup_main standard true schedule'
+          #
+          # The paths and the kill command are overridable only so the lacquer's
+          # tests can point them at a fake host; nothing in CI sets them.
 
-          # Check all workflows that use the dedicated runner
-          IOS_RUNNING=$(gh run list --workflow=ios-ci.yml --status=in_progress --json databaseId --jq 'length')
-          IOS_RELEASE_RUNNING=$(gh run list --workflow=ios-release.yml --status=in_progress --json databaseId --jq 'length')
-          TOTAL_RUNNING=$((IOS_RUNNING + IOS_RELEASE_RUNNING))
+          # Three hours. The runner runs one job at a time and this job is that
+          # job, so nothing live can be under this runner's work directory at all;
+          # the threshold is the margin for everything that reasoning misses. The
+          # longest job backstop on this runner is the iOS test job's (under an
+          # hour), so a process older than three times that cannot belong to a job
+          # still inside its timeout. The same number dates CI devices.
+          CLEANUP_MIN_AGE_SECONDS=10800
+          # One pass per runner per night. Tonight's runs from every repository
+          # land within a few hours of each other; tomorrow's lands ~24h later.
+          # Twenty hours collapses the first and never suppresses the second.
+          CLEANUP_STAMP_MAX_AGE_SECONDS=72000
+          # Another runner's pass holds the host lock for well under a minute.
+          CLEANUP_HOST_LOCK_WAIT_SECONDS=180
+          CLEANUP_KILL_GRACE_SECONDS=${CLEANUP_KILL_GRACE_SECONDS:-10}
+          # /tmp because it is the one directory every runner user on the host
+          # shares. The boot lock is ios-ci.yml's: held while a simulator
+          # cold-boots.
+          CLEANUP_HOST_LOCK=${CLEANUP_HOST_LOCK:-/tmp/lacquer-ci-cleanup.lock}
+          CLEANUP_BOOT_LOCK=${CLEANUP_BOOT_LOCK:-/tmp/lacquer-simulator-boot.lock}
+          CLEANUP_STAMP_DIR=${CLEANUP_STAMP_DIR:-/tmp}
+          CLEANUP_SIM_DEVICES_DIR=${CLEANUP_SIM_DEVICES_DIR:-$HOME/Library/Developer/CoreSimulator/Devices}
+          CLEANUP_KILL=${CLEANUP_KILL:-kill}
+          CLEANUP_TAB=$(printf '\t')
 
-          echo "  ios-ci.yml: $IOS_RUNNING"
-          echo "  ios-release.yml: $IOS_RELEASE_RUNNING"
-          echo "  Total: $TOTAL_RUNNING"
+          cleanup_fmt_age() {
+            if [ "$1" -lt 0 ]; then
+              echo "unknown"
+            else
+              printf '%dh%02dm' $(($1 / 3600)) $(($1 % 3600 / 60))
+            fi
+          }
 
-          if [ "$TOTAL_RUNNING" -gt 0 ]; then
-            {
-              echo "has_running_jobs=true"
-              echo "running_count=$TOTAL_RUNNING"
-            } >> "$GITHUB_OUTPUT"
-          else
-            {
-              echo "has_running_jobs=false"
-              echo "running_count=0"
-            } >> "$GITHUB_OUTPUT"
-          fi
+          # Seconds since the file's mtime, or -1. GNU stat first: on BSD `-c` is
+          # an illegal option and prints nothing, while GNU `stat -f` would print a
+          # filesystem report for the format string.
+          cleanup_file_age() {
+            local m
+            m=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || true)
+            case "$m" in
+              '' | *[!0-9]*) echo -1 ;;
+              *) echo $(($(date +%s) - m)) ;;
+            esac
+          }
 
-      - name: Skip Cleanup if Jobs Running (scheduled only)
-        if: github.event_name == 'schedule' && steps.check-jobs.outputs.has_running_jobs == 'true'
-        run: |
-          echo "::notice::Skipping scheduled cleanup - there are CI jobs currently running."
-          echo "The cleanup will run on the next scheduled interval when no jobs are active."
+          # This runner's work directory (the runner's _work), from the runner's
+          # own variables. Refuses rather than guessing: an empty or top-level
+          # scope would be "everything".
+          cleanup_work_root() {
+            local ws=${RUNNER_WORKSPACE:-} root
+            if [ -z "$ws" ] && [ -n "${GITHUB_WORKSPACE:-}" ]; then
+              ws=$(dirname "$GITHUB_WORKSPACE")
+            fi
+            if [ -z "$ws" ]; then
+              echo "::error::Neither RUNNER_WORKSPACE nor GITHUB_WORKSPACE is set, so there is no work directory to scope the cleanup to." >&2
+              return 1
+            fi
+            root=$(dirname "$ws")
+            case "$root" in
+              /?*) ;;
+              *)
+                echo "::error::Work directory '$root' (from '$ws') is not an absolute path below /; refusing to scope a cleanup to it." >&2
+                return 1
+                ;;
+            esac
+            if [ "$root" = "${HOME:-}" ] || [ ! -d "$root" ]; then
+              echo "::error::Work directory '$root' (from '$ws') is the home directory or does not exist; refusing to scope a cleanup to it." >&2
+              return 1
+            fi
+            if [ -n "${GITHUB_WORKSPACE:-}" ]; then
+              case "$GITHUB_WORKSPACE" in
+                "$root"/*) ;;
+                *)
+                  echo "::error::GITHUB_WORKSPACE '$GITHUB_WORKSPACE' is not under '$root'; the runner's variables disagree." >&2
+                  return 1
+                  ;;
+              esac
+            fi
+            echo "$root"
+          }
 
-      - name: Warn About Running Jobs (manual only)
-        if: github.event_name == 'workflow_dispatch' && steps.check-jobs.outputs.has_running_jobs == 'true'
-        run: |
-          echo "::warning::There are CI jobs currently running."
-          echo "Proceeding with manual cleanup as requested - this may cause running jobs to fail."
+          # cleanup_select_orphans <work-root> <min-age-seconds>
+          # Prints pid<TAB>age-seconds<TAB>command for each process to kill.
+          cleanup_select_orphans() {
+            local root=$1 min_age=$2 listing candidates pid age inargv cmd cwd
+            if ! listing=$(ps -A -ww -o pid= -o ppid= -o uid= -o etime= -o command=); then
+              echo "::error::ps failed, so orphans cannot be identified." >&2
+              return 1
+            fi
+            candidates=$(printf '%s\n' "$listing" |
+              CLEANUP_ROOT="$root/" CLEANUP_UID="$(id -u)" CLEANUP_SELF="$$" CLEANUP_MIN_AGE="$min_age" awk '
+                # etime is [[dd-]hh:]mm:ss
+                function secs(e,    d, p, n, i, s) {
+                  d = 0
+                  if (index(e, "-")) { split(e, p, "-"); d = p[1]; e = p[2] }
+                  n = split(e, p, ":")
+                  s = 0
+                  for (i = 1; i <= n; i++) s = s * 60 + p[i]
+                  return d * 86400 + s
+                }
+                NF >= 5 && $2 + 0 == 1 && $3 + 0 == ENVIRON["CLEANUP_UID"] + 0 && $1 + 0 != ENVIRON["CLEANUP_SELF"] + 0 {
+                  age = secs($4)
+                  if (age < ENVIRON["CLEANUP_MIN_AGE"] + 0) next
+                  cmd = $0
+                  sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+[^ \t]+[ \t]+/, "", cmd)
+                  # The host-wide simulator services and the runner itself, even
+                  # if a work path appears in their arguments.
+                  if (cmd ~ /(^|\/)(com\.apple\.CoreSimulator\.CoreSimulatorService|Simulator|launchd_sim|Runner\.Listener|Runner\.Worker)( |$)/) next
+                  printf "%s\t%d\t%d\t%s\n", $1, age, (index(cmd, ENVIRON["CLEANUP_ROOT"]) > 0), cmd
+                }')
+            while IFS="$CLEANUP_TAB" read -r pid age inargv cmd; do
+              [ -n "$pid" ] || continue
+              if [ "$inargv" != 1 ]; then
+                # xcodebuild is handed relative paths, so its argv never names the
+                # work directory; its working directory does.
+                cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true)
+                case "$cwd" in
+                  "$root" | "$root"/*) ;;
+                  *) continue ;;
+                esac
+              fi
+              printf '%s\t%s\t%s\n' "$pid" "$age" "$cmd"
+            done <<<"$candidates"
+          }
 
-      - name: Kill Hung Processes
-        if: github.event_name != 'schedule' || steps.check-jobs.outputs.has_running_jobs != 'true'
-        run: |
-          echo "=== Killing Hung Processes ==="
-          echo "Cleanup level: ${{ env.CLEANUP_LEVEL }}"
+          # cleanup_kill_orphans <dry-run>, selection on stdin.
+          cleanup_kill_orphans() {
+            local dry=$1 pid age cmd pids="" alive waited=0 n=0
+            while IFS="$CLEANUP_TAB" read -r pid age cmd; do
+              [ -n "$pid" ] || continue
+              n=$((n + 1))
+              if [ "$dry" = true ]; then
+                echo "  would kill pid=$pid age=$(cleanup_fmt_age "$age") cmd=$(printf '%.160s' "$cmd")"
+                continue
+              fi
+              echo "  TERM pid=$pid age=$(cleanup_fmt_age "$age") cmd=$(printf '%.160s' "$cmd")"
+              "$CLEANUP_KILL" -TERM "$pid" 2>/dev/null || true
+              pids="$pids $pid"
+            done
+            if [ "$n" -eq 0 ]; then
+              echo "  none"
+            fi
+            if [ -z "$pids" ]; then
+              return 0
+            fi
+            while :; do
+              alive=""
+              for pid in $pids; do
+                if "$CLEANUP_KILL" -0 "$pid" 2>/dev/null; then
+                  alive="$alive $pid"
+                fi
+              done
+              pids=$alive
+              if [ -z "$pids" ] || [ "$waited" -ge "$CLEANUP_KILL_GRACE_SECONDS" ]; then
+                break
+              fi
+              sleep 1
+              waited=$((waited + 1))
+            done
+            for pid in $pids; do
+              echo "  KILL pid=$pid (still running ${waited}s after TERM)"
+              "$CLEANUP_KILL" -KILL "$pid" 2>/dev/null || true
+            done
+          }
 
-          # Kill any hung xcodebuild processes
-          echo "Killing xcodebuild processes..."
-          pkill -9 xcodebuild 2>/dev/null || echo "No xcodebuild processes found"
+          # Prints udid<TAB>state<TAB>age-seconds<TAB>name for every CI-iPhone-* and
+          # CI-Watch-* device this OS user owns. The age is that of the device's
+          # device.plist, which CoreSimulator rewrites on every state change, so for
+          # a booted device it is the time since it booted.
+          cleanup_list_ci_devices() {
+            local listing udid state name
+            if ! listing=$(xcrun simctl list devices); then
+              echo "::error::xcrun simctl list devices failed, so CI simulators cannot be identified." >&2
+              return 1
+            fi
+            printf '%s\n' "$listing" |
+              sed -nE "s/^[[:space:]]+(CI-(iPhone|Watch)-[^()]+) \(([0-9A-F-]{36})\) \(([^)]*)\).*\$/\3${CLEANUP_TAB}\4${CLEANUP_TAB}\1/p" |
+              while IFS="$CLEANUP_TAB" read -r udid state name; do
+                printf '%s\t%s\t%s\t%s\n' "$udid" "$state" "$(cleanup_file_age "$CLEANUP_SIM_DEVICES_DIR/$udid/device.plist")" "$name"
+              done
+          }
 
-          # Kill CoreSimulator service to reset device discovery
-          echo "Resetting CoreSimulator service..."
-          killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || echo "CoreSimulator not running"
+          # Probes ios-ci.yml's boot lock without keeping it: succeeds (held) only
+          # if someone else holds it right now. Opening it read-only never creates
+          # it, and an absent file means no boot is in progress.
+          cleanup_boot_lock_held() {
+            local rc
+            if [ ! -e "$CLEANUP_BOOT_LOCK" ]; then
+              return 1
+            fi
+            if ! { exec 8<"$CLEANUP_BOOT_LOCK"; } 2>/dev/null; then
+              echo "  cannot open $CLEANUP_BOOT_LOCK to probe it; assuming a boot is in progress"
+              return 0
+            fi
+            if lockf -s -t 0 8; then rc=0; else rc=$?; fi
+            exec 8<&-
+            if [ "$rc" -eq 0 ]; then
+              return 1
+            fi
+            if [ "$rc" -ne 75 ]; then
+              echo "  lockf exited $rc probing $CLEANUP_BOOT_LOCK; assuming a boot is in progress"
+            fi
+            return 0
+          }
 
-          # Kill Simulator app
-          echo "Killing Simulator app..."
-          killall -9 Simulator 2>/dev/null || echo "Simulator not running"
+          # cleanup_host_busy <device-listing>: succeeds, saying why, when a CI job
+          # is live on this host. The runner-user split means this sees only this
+          # user's devices; the boot lock is the host-wide half.
+          cleanup_host_busy() {
+            local busy=1 udid state age name
+            if cleanup_boot_lock_held; then
+              echo "  busy: a simulator is cold-booting on this host (the boot lock $CLEANUP_BOOT_LOCK is held)"
+              busy=0
+            fi
+            while IFS="$CLEANUP_TAB" read -r udid state age name; do
+              if [ "$state" != Booted ]; then
+                continue
+              fi
+              if [ "$age" -ge "$CLEANUP_MIN_AGE_SECONDS" ]; then
+                # A job that died without its cleanup step. Letting it block would
+                # stop every future nightly pass, so it does not.
+                echo "::warning::CI simulator $name ($udid) has been booted for $(cleanup_fmt_age "$age"), longer than any job runs: it was leaked by a job that died. It does not block this pass; a manual aggressive run shuts it down and deletes it."
+              else
+                echo "  busy: CI simulator $name ($udid) is booted (for $(cleanup_fmt_age "$age")), so a job is running"
+                busy=0
+              fi
+            done <<<"$1"
+            return "$busy"
+          }
 
-          # Kill any test runner processes
-          echo "Killing test runners..."
-          pkill -9 -f "xctest" 2>/dev/null || echo "No xctest processes found"
-          pkill -9 -f "XCTestRunner" 2>/dev/null || echo "No XCTestRunner processes found"
+          # cleanup_devices <dry-run> <min-age> <include-booted> <device-listing>
+          cleanup_devices() {
+            local dry=$1 min_age=$2 include_booted=$3 udid state age name n=0
+            while IFS="$CLEANUP_TAB" read -r udid state age name; do
+              [ -n "$udid" ] || continue
+              case "$state" in
+                Shutdown) ;;
+                Booted)
+                  if [ "$include_booted" != 1 ]; then
+                    echo "  kept $name ($udid): booted"
+                    continue
+                  fi
+                  ;;
+                *)
+                  echo "  kept $name ($udid): $state"
+                  continue
+                  ;;
+              esac
+              if [ "$age" -lt 0 ]; then
+                echo "::warning::Kept CI simulator $name ($udid): it cannot be dated, $CLEANUP_SIM_DEVICES_DIR/$udid/device.plist is missing."
+                continue
+              fi
+              if [ "$age" -lt "$min_age" ]; then
+                echo "  kept $name ($udid): last changed $(cleanup_fmt_age "$age") ago"
+                continue
+              fi
+              n=$((n + 1))
+              if [ "$dry" = true ]; then
+                echo "  would delete $name ($udid) $state, last changed $(cleanup_fmt_age "$age") ago"
+                continue
+              fi
+              echo "  deleting $name ($udid) $state, last changed $(cleanup_fmt_age "$age") ago"
+              if [ "$state" = Booted ]; then
+                xcrun simctl shutdown "$udid" || true
+              fi
+              xcrun simctl delete "$udid" || echo "::warning::simctl delete $udid failed"
+            done <<<"$4"
+            if [ "$n" -eq 0 ]; then
+              echo "  none to delete"
+            fi
+          }
 
-          # Wait for processes to terminate
-          sleep 3
+          # cleanup_derived_data <dry-run> <work-root>: the jobs' own DerivedData
+          # (ios-ci.yml builds into the checkout), never the runner's _actions,
+          # _temp or _tool.
+          cleanup_derived_data() {
+            local dry=$1 root=$2 dd found
+            found=$(find "$root" -mindepth 1 -maxdepth 5 \( -path "$root/_*" -prune \) -o \( -type d -name DerivedData -print -prune \))
+            if [ -z "$found" ]; then
+              echo "  none"
+              return 0
+            fi
+            while IFS= read -r dd; do
+              if [ "$dry" = true ]; then
+                echo "  would remove $dd"
+              else
+                echo "  removing $dd"
+                rm -rf -- "$dd"
+              fi
+            done <<<"$found"
+          }
 
-          echo "=== Process Cleanup Complete ==="
+          # Took the host lock (0), another pass holds it (1), or cannot lock (2).
+          # Held on descriptor 9 until this shell exits, so the kernel releases it
+          # on any exit, a cancel included.
+          cleanup_host_lock_acquire() {
+            local rc
+            if ! command -v lockf >/dev/null 2>&1; then
+              echo "::error::lockf(1) is not on this runner, so the cleanup cannot serialise with the other runners on this host."
+              return 2
+            fi
+            if [ ! -e "$CLEANUP_HOST_LOCK" ]; then
+              (
+                umask 000
+                : >>"$CLEANUP_HOST_LOCK"
+              ) 2>/dev/null || true
+            fi
+            if ! { exec 9<"$CLEANUP_HOST_LOCK"; } 2>/dev/null; then
+              echo "::error::Cannot open $CLEANUP_HOST_LOCK."
+              return 2
+            fi
+            if lockf -s -t "$CLEANUP_HOST_LOCK_WAIT_SECONDS" 9; then
+              return 0
+            else
+              rc=$?
+            fi
+            exec 9<&-
+            if [ "$rc" -eq 75 ]; then
+              echo "Another runner's cleanup held $CLEANUP_HOST_LOCK for ${CLEANUP_HOST_LOCK_WAIT_SECONDS}s; skipping. The next repository's schedule retries."
+              return 1
+            fi
+            echo "::error::lockf exited $rc on $CLEANUP_HOST_LOCK."
+            return 2
+          }
 
-      - name: Reset Simulators (aggressive+)
-        if: (github.event_name != 'schedule' || steps.check-jobs.outputs.has_running_jobs != 'true') && (env.CLEANUP_LEVEL == 'aggressive' || env.CLEANUP_LEVEL == 'nuclear')
-        run: |
-          echo "=== Resetting Simulators ==="
+          cleanup_stamp_path() {
+            local runner
+            runner=$(printf '%s' "${RUNNER_NAME:-local}" | tr -c 'A-Za-z0-9._-' '_')
+            echo "$CLEANUP_STAMP_DIR/lacquer-ci-cleanup.$(id -un).$runner.stamp"
+          }
 
-          # Shutdown all simulators
-          echo "Shutting down all simulators..."
-          xcrun simctl shutdown all 2>/dev/null || echo "No simulators to shutdown"
+          # cleanup_main <standard|aggressive|nuclear> <dry-run: true|false> <event>
+          cleanup_main() {
+            local level=${1:-standard} dry=${2:-false} event=${3:-schedule}
+            local root min_age include_booted rc stamp stamp_age devices orphans
+            case "$level" in
+              standard)
+                min_age=$CLEANUP_MIN_AGE_SECONDS
+                include_booted=0
+                ;;
+              aggressive | nuclear)
+                min_age=0
+                include_booted=1
+                ;;
+              *)
+                echo "::error::Unknown cleanup level '$level'."
+                return 1
+                ;;
+            esac
+            case "$dry" in
+              true | false) ;;
+              *)
+                echo "::error::dry run must be true or false, got '$dry'."
+                return 1
+                ;;
+            esac
+            root=$(cleanup_work_root) || return 1
+            echo "Level $level, dry run $dry, event $event."
+            echo "Runner ${RUNNER_NAME:-local} as $(id -un), work directory $root."
+            if [ "$dry" = true ]; then
+              echo "DRY RUN: nothing will be killed, deleted or written."
+            else
+              rc=0
+              cleanup_host_lock_acquire || rc=$?
+              if [ "$rc" -eq 1 ]; then
+                return 0
+              fi
+              if [ "$rc" -ne 0 ]; then
+                return 1
+              fi
+            fi
 
-          # Erase all simulator content and settings
-          echo "Erasing simulator content..."
-          xcrun simctl erase all 2>/dev/null || echo "No simulators to erase"
+            stamp=$(cleanup_stamp_path)
+            if [ "$event" = schedule ] && [ -e "$stamp" ]; then
+              stamp_age=$(cleanup_file_age "$stamp")
+              if [ "$stamp_age" -ge 0 ] && [ "$stamp_age" -lt "$CLEANUP_STAMP_MAX_AGE_SECONDS" ]; then
+                if [ "$dry" = false ]; then
+                  echo "This runner already cleaned $(cleanup_fmt_age "$stamp_age") ago ($stamp); skipping. Every repository's schedule lands on this runner, and one pass a night is the job."
+                  return 0
+                fi
+                echo "A real scheduled run would skip: this runner already cleaned $(cleanup_fmt_age "$stamp_age") ago ($stamp). Showing the selection anyway."
+              fi
+            fi
 
-          # Kill additional Apple services that might be stuck
-          echo "Killing additional Apple services..."
-          killall -9 launchd_sim 2>/dev/null || true
-          killall -9 simctl 2>/dev/null || true
-          killall -9 "iOS Simulator" 2>/dev/null || true
-          killall -9 SimulatorTrampoline 2>/dev/null || true
+            devices=$(cleanup_list_ci_devices) || return 1
+            if cleanup_host_busy "$devices"; then
+              if [ "$level" != standard ]; then
+                echo "::warning::A CI job looks live on this host; a manual $level run proceeds anyway and may fail it."
+              elif [ "$dry" = true ]; then
+                echo "A real run would skip: the host is busy (above). Showing the selection anyway."
+              else
+                echo "The host is busy (above); skipping without stamping, so the next repository's schedule retries."
+                return 0
+              fi
+            fi
 
-          # Clear simulator device logs
-          echo "Clearing simulator logs..."
-          rm -rf ~/Library/Logs/CoreSimulator/* 2>/dev/null || true
+            echo "Orphaned processes under $root, older than $(cleanup_fmt_age "$min_age"):"
+            orphans=$(cleanup_select_orphans "$root" "$min_age") || return 1
+            cleanup_kill_orphans "$dry" <<<"$orphans"
 
-          # Wait for cleanup
-          sleep 5
+            echo "CI simulators (CI-iPhone-*, CI-Watch-*):"
+            cleanup_devices "$dry" "$min_age" "$include_booted" "$devices"
 
-          echo "=== Simulator Reset Complete ==="
+            echo "Unavailable simulators:"
+            if [ "$dry" = true ]; then
+              xcrun simctl list devices unavailable | grep -E '\([0-9A-F-]{36}\)' | sed 's/^[[:space:]]*/  would delete /' || echo "  none"
+            else
+              xcrun simctl delete unavailable || echo "::warning::simctl delete unavailable failed"
+            fi
 
-      - name: Delete All Caches (nuclear)
-        if: (github.event_name != 'schedule' || steps.check-jobs.outputs.has_running_jobs != 'true') && env.CLEANUP_LEVEL == 'nuclear'
-        run: |
-          echo "=== Nuclear Cleanup ==="
-          echo "WARNING: This will delete all simulators and derived data!"
+            if [ "$level" = nuclear ]; then
+              echo "DerivedData under $root:"
+              cleanup_derived_data "$dry" "$root"
+            fi
 
-          # Delete all simulators
-          echo "Deleting all simulator devices..."
-          xcrun simctl delete all 2>/dev/null || echo "No simulators to delete"
+            if [ "$dry" = false ]; then
+              touch "$stamp"
+              echo "Stamped $stamp."
+            fi
+          }
+          # <<< lacquer-cleanup-lib
 
-          # Clear DerivedData
-          echo "Clearing DerivedData..."
-          rm -rf ~/Library/Developer/Xcode/DerivedData/* 2>/dev/null || true
+          cleanup_main "$CLEANUP_LEVEL" "$CLEANUP_DRY_RUN" "$CLEANUP_EVENT"
 
-          # Clear CoreSimulator caches
-          echo "Clearing CoreSimulator caches..."
-          rm -rf ~/Library/Developer/CoreSimulator/Caches/* 2>/dev/null || true
-
-          # Clear module cache
-          echo "Clearing module cache..."
-          rm -rf ~/Library/Developer/Xcode/ModuleCache.noindex/* 2>/dev/null || true
-
-          # Restart CoreSimulator service fresh
-          echo "Restarting CoreSimulator service..."
-          killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || true
-          sleep 2
-
-          # Trigger CoreSimulator to recreate default devices
-          echo "Regenerating default simulators..."
-          xcrun simctl list devices > /dev/null 2>&1 || true
-
-          echo "=== Nuclear Cleanup Complete ==="
-
-      - name: Verify Cleanup
-        if: github.event_name != 'schedule' || steps.check-jobs.outputs.has_running_jobs != 'true'
-        run: |
-          echo "=== Verification ==="
-
-          echo "Running processes:"
-          ps aux | grep -E "(xcodebuild|Simulator|xctest|CoreSimulator)" | grep -v grep || echo "No relevant processes running"
-
-          echo ""
-          echo "Available simulators:"
-          xcrun simctl list devices available | head -20
-
-          echo ""
-          echo "Disk usage:"
-          echo "  DerivedData: $(du -sh ~/Library/Developer/Xcode/DerivedData 2>/dev/null | cut -f1 || echo 'N/A')"
-          echo "  CoreSimulator: $(du -sh ~/Library/Developer/CoreSimulator 2>/dev/null | cut -f1 || echo 'N/A')"
-          echo "  Module Cache: $(du -sh ~/Library/Developer/Xcode/ModuleCache.noindex 2>/dev/null | cut -f1 || echo 'N/A')"
-          echo ""
-          df -h ~ | head -2
-
-          echo "=== Cleanup verification complete ==="
+      - name: Disk
+        run: df -h ~ | head -2
