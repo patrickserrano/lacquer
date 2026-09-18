@@ -255,10 +255,35 @@ func Format(fs []Finding) string {
 			b.WriteString("    install them:  " + f.Manager + " install\n")
 		}
 	}
-	b.WriteString("\nEvery gate in that file is currently running on nothing. A violation it would\n")
-	b.WriteString("have caught reaches CI instead, which is the local-checks-match-CI rule failing\n")
-	b.WriteString("one level up: the local checks were never run.\n")
+	b.WriteString(footer(fs))
 	return b.String()
+}
+
+// footer closes the report with what is at stake -- for the findings that are
+// actually unenforced, and only those.
+//
+// A Bridged config DOES run, through the rival's hook. Printing "every gate is
+// running on nothing" under its "Nothing to fix" entry contradicted the entry
+// in the same report, so an all-bridged report gets no footer, and a mixed one
+// names the unenforced configs instead of saying "that file", which would read
+// as covering the bridged one too.
+func footer(fs []Finding) string {
+	var unenforced []string
+	for _, f := range fs {
+		if !f.Bridged {
+			unenforced = append(unenforced, f.ConfigFile)
+		}
+	}
+	if len(unenforced) == 0 {
+		return ""
+	}
+	subject := "that file"
+	if len(unenforced) < len(fs) {
+		subject = strings.Join(unenforced, " and ")
+	}
+	return "\nEvery gate in " + subject + " is currently running on nothing. A violation it would\n" +
+		"have caught reaches CI instead, which is the local-checks-match-CI rule failing\n" +
+		"one level up: the local checks were never run.\n"
 }
 
 // rivalInstalled names the OTHER lacquer-shipped hook manager when that manager

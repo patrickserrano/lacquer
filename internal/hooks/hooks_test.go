@@ -341,3 +341,70 @@ func TestAHandWrittenHookUnderABridgingLefthookIsNotGivenTheRemedy(t *testing.T)
 		t.Errorf("the unknown foreign hook lost its hedge:\n%s", out)
 	}
 }
+
+// wantFooter is the closing paragraph for findings that are genuinely unenforced,
+// verbatim, so a change to it is a deliberate one.
+const wantFooter = "\nEvery gate in that file is currently running on nothing. A violation it would\n" +
+	"have caught reaches CI instead, which is the local-checks-match-CI rule failing\n" +
+	"one level up: the local checks were never run.\n"
+
+// A bridged config DOES run. Closing its "Nothing to fix" entry with "every gate
+// in that file is currently running on nothing" contradicts it in the same
+// breath, and a report that contradicts itself is one people stop reading.
+func TestAllBridgedFindingsPrintNoRunningOnNothingFooter(t *testing.T) {
+	dir := gitRepo(t)
+	write(t, dir, ".pre-commit-config.yaml", "repos: []\n")
+	write(t, dir, "lefthook.yml", lefthookBridge)
+	write(t, dir, ".git/hooks/pre-commit", "#!/bin/sh\ncall_lefthook()\n{\n  :\n}\n")
+
+	fs := Check(dir)
+	if len(fs) != 1 || !fs[0].Bridged {
+		t.Fatalf("expected one bridged finding, got %+v", fs)
+	}
+	out := Format(fs)
+	if !strings.Contains(out, "Nothing to fix") {
+		t.Fatalf("the bridged entry itself is missing:\n%s", out)
+	}
+	if strings.Contains(out, "running on nothing") {
+		t.Errorf("a bridged-only report still says its gates run on nothing:\n%s", out)
+	}
+}
+
+// A mix: the footer still has to fire for the config that IS unenforced, and it
+// must name that one rather than leave "that file" to be read as the bridged
+// config too. Check cannot produce this with today's two managers (a bridged
+// finding means the rival is installed, so the rival has no finding), which is
+// why the findings are built by hand -- Format must not depend on that.
+func TestMixedFindingsFooterNamesOnlyTheUnenforcedConfig(t *testing.T) {
+	fs := []Finding{
+		{Manager: "pre-commit", ConfigFile: ".pre-commit-config.yaml", HooksDir: "/h",
+			ForeignHook: "/h/pre-commit", Rival: "lefthook", Bridged: true},
+		{Manager: "lefthook", ConfigFile: "lefthook.yml", HooksDir: "/h"},
+	}
+	out := Format(fs)
+	if !strings.Contains(out, "Nothing to fix") {
+		t.Fatalf("the bridged entry is missing:\n%s", out)
+	}
+	i := strings.Index(out, "running on nothing")
+	if i < 0 {
+		t.Fatalf("an unenforced config lost its footer because another finding was bridged:\n%s", out)
+	}
+	tail := out[strings.LastIndex(out[:i], "\n\n"):]
+	if !strings.Contains(tail, "lefthook.yml") {
+		t.Errorf("the footer does not name the unenforced config:\n%s", tail)
+	}
+	if strings.Contains(tail, ".pre-commit-config.yaml") || strings.Contains(tail, "that file") {
+		t.Errorf("the footer can be read as covering the bridged config, which does run:\n%s", tail)
+	}
+}
+
+// And the plain not-installed report keeps its footer word for word.
+func TestNotInstalledFooterIsUnchanged(t *testing.T) {
+	dir := gitRepo(t)
+	write(t, dir, ".pre-commit-config.yaml", "repos: []\n")
+
+	out := Format(Check(dir))
+	if !strings.HasSuffix(out, wantFooter) {
+		t.Errorf("the not-installed footer changed:\n%s", out)
+	}
+}
