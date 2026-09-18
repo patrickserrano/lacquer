@@ -695,10 +695,31 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		live := fs.Bool("live", false, "with watch: keep refreshing in place every --interval until Ctrl-C, instead of checking once")
 		interval := fs.Duration("interval", 2*time.Second, "with watch --live: refresh interval")
 		force := fs.Bool("force", false, "with kill: kill even a session Check reports Alive")
+		worktree := fs.String("worktree", "", "with dispatch/dispatch-role: run in this existing, registered worktree of the project's repository instead of creating one (bg) or using the checkout (tmux) -- for a worktree a PM assigned")
+		branch := fs.String("branch", "", "with bg dispatch/dispatch-role: name the branch of the worktree bg creates (directory derived from it) instead of dispatch/<id>; refused if it exists, and in tmux mode")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
 		rest := fs.Args()
+		place := console.Placement{Worktree: *worktree, Branch: *branch}
+		// Flag parsing stops at the subcommand, so a flag after it is not a
+		// flag: `dispatch proj --worktree P "task"` would run in a worktree of
+		// lacquer's own with "--worktree P task" as the task, and a trailing
+		// --dry-run would launch for real.
+		if len(rest) > 0 && (rest[0] == "dispatch" || rest[0] == "dispatch-role") {
+			if a := trailingFlag(fs, rest[1:]); a != "" {
+				return fail(stderr, fmt.Errorf("%s after %s is not read as a flag; put console flags before the subcommand (lacquer console %s ... %s ...)", a, rest[0], a, rest[0]))
+			}
+		}
+		// Only a dispatch has somewhere to run. Accepted and ignored anywhere
+		// else, a PM's --worktree would read as honoured when nothing was.
+		if len(rest) == 0 || (rest[0] != "dispatch" && rest[0] != "dispatch-role") {
+			for flagName, v := range map[string]string{"--worktree": *worktree, "--branch": *branch} {
+				if v != "" {
+					return fail(stderr, fmt.Errorf("%s applies only to dispatch and dispatch-role", flagName))
+				}
+			}
+		}
 		// watch and dispatch-role both need neither --mode nor a project
 		// roster's own gate below, so both are checked first: a watch-only or
 		// dispatch-role-only invocation should never have to set up config it
@@ -795,7 +816,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, err)
 			}
 			taskOverride := strings.Join(rest[2:], " ")
-			launch, err := console.DispatchRole(roles, console.Sessions(), rest[1], taskOverride, *dryRun)
+			launch, err := console.DispatchRolePlaced(roles, console.Sessions(), rest[1], taskOverride, *dryRun, place)
 			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
 		// inbox needs neither --mode nor a project roster, same reasoning as
@@ -836,7 +857,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, fmt.Errorf("dispatch needs --mode bg or --mode tmux"))
 			}
 			task := strings.Join(rest[2:], " ")
-			launch, err := console.Dispatch(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun)
+			launch, err := console.DispatchPlaced(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun, place)
 			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
 		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now(), *inboxPath))
@@ -942,16 +963,23 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               one screen: fleet truth + live sessions + open PRs + inbox")
 	fmt.Fprintln(w, "                               (decisions awaiting the operator, finished work awaiting")
 	fmt.Fprintln(w, "                               acknowledgement) shown first, as ACTION/UNREAD, when --inbox is set")
-	fmt.Fprintln(w, "  console ... --mode bg|tmux dispatch <project> \"<task>\"")
+	fmt.Fprintln(w, "  console ... --mode bg|tmux [--worktree P | --branch B] dispatch <project> \"<task>\"")
 	fmt.Fprintln(w, "                               start work on one project. bg = `claude --bg` in a new git worktree")
 	fmt.Fprintln(w, "                               and branch under <repo>/.claude/worktrees/ (nothing is launched if")
 	fmt.Fprintln(w, "                               one cannot be made); tmux = a detached tmux session in the checkout")
 	fmt.Fprintln(w, "                               itself (attach with `tmux attach -t <name>`). Both run claude with")
 	fmt.Fprintln(w, "                               --dangerously-skip-permissions and the sandbox off. Neither needs a")
-	fmt.Fprintln(w, "                               terminal; a tmux session already running is left alone")
-	fmt.Fprintln(w, "  console --roles R dispatch-role <name> [\"<task override>\"]")
+	fmt.Fprintln(w, "                               terminal; a tmux session already running is left alone.")
+	fmt.Fprintln(w, "                               --worktree P runs in P, an existing registered worktree of the")
+	fmt.Fprintln(w, "                               project's repo (either mode; never created, changed or removed), for")
+	fmt.Fprintln(w, "                               the worktree a PM assigned an IC in its brief. --branch B (bg only)")
+	fmt.Fprintln(w, "                               names the created worktree's branch, under .claude/worktrees/<B with")
+	fmt.Fprintln(w, "                               / as ->, instead of dispatch/<id>, for a branch a PM chose; refused")
+	fmt.Fprintln(w, "                               if it exists. An unusable --worktree or --branch launches nothing")
+	fmt.Fprintln(w, "  console --roles R [--worktree P | --branch B] dispatch-role <name> [\"<task override>\"]")
 	fmt.Fprintln(w, "                               start a named role — a lead/PM supervising many projects, not")
-	fmt.Fprintln(w, "                               editing one; mode and task come from the roles file, modes as above")
+	fmt.Fprintln(w, "                               editing one; mode and task come from the roles file, modes and")
+	fmt.Fprintln(w, "                               --worktree/--branch as above")
 	fmt.Fprintln(w, "  console --sessions S [--roster F] [--roles R] watch [--relaunch] [--live] [--interval D]")
 	fmt.Fprintln(w, "                               check every recorded dispatch's liveness; --relaunch re-dispatches")
 	fmt.Fprintln(w, "                               each one found dead, a failed launch included (Blocked and Missing")
@@ -1083,6 +1111,21 @@ func watchLive(w io.Writer, sessionsPath string, roster fleet.Roster, roles cons
 		case <-time.After(interval):
 		}
 	}
+}
+
+// trailingFlag returns the first of args that names one of fs's flags
+// (-name, --name or --name=value), or "".
+func trailingFlag(fs *flag.FlagSet, args []string) string {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if name != "" && fs.Lookup(name) != nil {
+			return a
+		}
+	}
+	return ""
 }
 
 // finishDispatch prints a dispatch's output, records it when a sessions file

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -152,46 +153,164 @@ func excludeWorktrees(root string) error {
 	return nil
 }
 
+// worktreePlan is a new dispatch worktree, resolved but not yet created.
+type worktreePlan struct {
+	root   string // the repository's root, where the worktree is added
+	rel    string // the dispatched directory, relative to root
+	path   string
+	branch string
+	base   string
+	note   string // which base was chosen, and why
+}
+
+func (p worktreePlan) addArgs() []string {
+	return []string{"git", "-C", p.root, "worktree", "add", "--quiet", "--no-track", "-b", p.branch, p.path, p.base}
+}
+
 // planWorktree resolves where a new dispatch worktree for dir would go,
-// without creating anything.
-func planWorktree(dir string, fetch bool) (root, rel, path, branch, base, note string, err error) {
-	root, rel, err = repoRoot(dir)
+// without creating anything. branch names its branch, and its directory is
+// derived from it; empty means dispatch/<id>. A named branch or directory
+// that already exists is refused, never reused: a dispatcher that means an
+// existing worktree says so with --worktree (assignedWorktree).
+func planWorktree(dir, branch string, fetch bool) (worktreePlan, error) {
+	root, rel, err := repoRoot(dir)
 	if err != nil {
-		return "", "", "", "", "", "", fmt.Errorf("no worktree to isolate a bg session in; refusing rather than running it in the checkout: %w", err)
+		return worktreePlan{}, fmt.Errorf("no worktree to isolate a bg session in; refusing rather than running it in the checkout: %w", err)
 	}
-	id, err := newWorktreeID()
-	if err != nil {
-		return "", "", "", "", "", "", err
+	p := worktreePlan{root: root, rel: rel, branch: branch}
+	if branch == "" {
+		id, err := newWorktreeID()
+		if err != nil {
+			return worktreePlan{}, err
+		}
+		p.path = filepath.Join(root, worktreesDir, "dispatch-"+id)
+		p.branch = "dispatch/" + id
+	} else {
+		if err := checkNewBranch(root, branch); err != nil {
+			return worktreePlan{}, err
+		}
+		p.path = filepath.Join(root, worktreesDir, branchDirName(branch))
+		if _, err := os.Lstat(p.path); err == nil {
+			return worktreePlan{}, fmt.Errorf("refusing --branch %s: its worktree directory %s already exists; to run in an existing worktree, pass --worktree instead", branch, p.path)
+		}
 	}
-	path = filepath.Join(root, worktreesDir, "dispatch-"+id)
-	branch = "dispatch/" + id
-	base, note = worktreeBase(root, fetch)
-	return root, rel, path, branch, base, note, nil
+	p.base, p.note = worktreeBase(root, fetch)
+	return p, nil
 }
 
-func worktreeAddArgs(root, path, branch, base string) []string {
-	return []string{"git", "-C", root, "worktree", "add", "--quiet", "--no-track", "-b", branch, path, base}
+// checkNewBranch refuses a --branch name git would not create as written, or
+// one that already exists.
+func checkNewBranch(root, branch string) error {
+	// check-ref-format --branch expands @{-N} to the name of a branch that
+	// exists, so its output must be the name exactly as given. It refuses a
+	// leading '-', which would otherwise reach `git worktree add -b` as an
+	// option.
+	out, err := gitOutput(root, "check-ref-format", "--branch", branch)
+	if err != nil || out != branch {
+		return fmt.Errorf("refusing --branch %q: not a valid branch name (git check-ref-format --branch)", branch)
+	}
+	if _, err := gitOutput(root, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		return fmt.Errorf("refusing --branch %s: that branch already exists in %s; to run in its existing worktree, pass --worktree instead", branch, root)
+	}
+	return nil
 }
 
-// createWorktree makes a new worktree and branch for one bg dispatch.
-func createWorktree(dir string) (dispatchWorktree, error) {
-	root, rel, path, branch, base, note, err := planWorktree(dir, true)
+// branchDirName is the directory under .claude/worktrees/ for a --branch
+// worktree: the branch with its slashes flattened, so feat/x is feat-x.
+func branchDirName(branch string) string {
+	return strings.ReplaceAll(branch, "/", "-")
+}
+
+// createWorktree makes a new worktree and branch for one bg dispatch, on
+// branch when one is named (see planWorktree).
+func createWorktree(dir, branch string) (dispatchWorktree, error) {
+	p, err := planWorktree(dir, branch, true)
 	if err != nil {
 		return dispatchWorktree{}, err
 	}
-	if err := excludeWorktrees(root); err != nil {
-		return dispatchWorktree{}, fmt.Errorf("could not exclude %s from %s's git status: %w", worktreesDir, root, err)
+	if err := excludeWorktrees(p.root); err != nil {
+		return dispatchWorktree{}, fmt.Errorf("could not exclude %s from %s's git status: %w", worktreesDir, p.root, err)
 	}
-	argv := worktreeAddArgs(root, path, branch, base)
-	if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil { // #nosec G204 -- fixed git subcommand; paths and branch are generated here
+	argv := p.addArgs()
+	if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil { // #nosec G204 -- fixed git subcommand; the path is generated here and the branch passed check-ref-format
 		return dispatchWorktree{}, fmt.Errorf("could not create a worktree for the bg session (%s): %w: %s", strings.Join(argv, " "), err, strings.TrimSpace(string(out)))
 	}
 	return dispatchWorktree{
-		path:   path,
-		branch: branch,
-		runDir: filepath.Join(path, rel),
-		setup:  strings.Join(argv, " ") + "\n  (" + note + ")\n",
+		path:   p.path,
+		branch: p.branch,
+		runDir: filepath.Join(p.path, p.rel),
+		setup:  strings.Join(argv, " ") + "\n  (" + p.note + ")\n",
 	}, nil
+}
+
+// assignedWorktree is the existing worktree a dispatcher named with
+// --worktree: a fleet PM decides each IC's branch and worktree, creates them,
+// and names them in the brief (fleet-ops personas/pm.md), so the session must
+// run there, not in one lacquer makes beside it. It is checked, and never
+// created, changed or removed.
+//
+// It must be a registered worktree of dir's repository -- not merely a
+// directory, which could be anything, nor another repository's worktree -- and
+// for a bg session not the checkout itself, which bg never runs in.
+func assignedWorktree(dir, path string, mode Mode) (dispatchWorktree, error) {
+	abs := filepath.Clean(absPath(path))
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return dispatchWorktree{}, fmt.Errorf("refusing --worktree %s: it does not exist", abs)
+		}
+		return dispatchWorktree{}, fmt.Errorf("refusing --worktree %s: %w", abs, err)
+	}
+	root, rel, err := repoRoot(dir)
+	if err != nil {
+		return dispatchWorktree{}, fmt.Errorf("refusing --worktree %s: %w", abs, err)
+	}
+	registered, err := worktreePaths(dir)
+	if err != nil {
+		return dispatchWorktree{}, fmt.Errorf("refusing --worktree %s: %w", abs, err)
+	}
+	if !slices.Contains(registered, real) {
+		return dispatchWorktree{}, fmt.Errorf("refusing --worktree %s: it is not a registered worktree of %s's repository (see `git -C %s worktree list`)", abs, root, root)
+	}
+	if mode == Background && (real == root || real == registered[0]) {
+		return dispatchWorktree{}, fmt.Errorf("refusing --worktree %s: it is the repository's checkout, not a worktree of its own, and a bg session never runs in the checkout", abs)
+	}
+	runDir := filepath.Join(abs, rel)
+	if fi, err := os.Stat(runDir); err != nil || !fi.IsDir() {
+		return dispatchWorktree{}, fmt.Errorf("refusing --worktree %s: it has no %s, the dispatched directory's counterpart inside it", abs, runDir)
+	}
+	branch, err := gitOutput(abs, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return dispatchWorktree{}, fmt.Errorf("refusing --worktree %s: %w", abs, err)
+	}
+	return dispatchWorktree{
+		path:   abs,
+		branch: branch,
+		runDir: runDir,
+		setup:  "running in the assigned worktree " + abs + " (branch " + branch + "); lacquer does not create, change or remove it\n",
+	}, nil
+}
+
+// worktreePaths lists the registered worktrees of dir's repository, the main
+// one first, each resolved where it exists.
+func worktreePaths(dir string) ([]string, error) {
+	out, err := gitOutput(dir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	sc := bufio.NewScanner(strings.NewReader(out))
+	for sc.Scan() {
+		p, ok := strings.CutPrefix(sc.Text(), "worktree ")
+		if !ok {
+			continue
+		}
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		paths = append(paths, p)
+	}
+	return paths, nil
 }
 
 // registeredWorktree reports whether path is one of dir's repository's
@@ -199,25 +318,12 @@ func createWorktree(dir string) (dispatchWorktree, error) {
 // enough: it may since have been removed from git and something else put
 // there.
 func registeredWorktree(dir, path string) bool {
-	out, err := gitOutput(dir, "worktree", "list", "--porcelain")
-	if err != nil {
-		return false
-	}
 	want, err := filepath.EvalSymlinks(absPath(path))
 	if err != nil {
 		return false
 	}
-	sc := bufio.NewScanner(strings.NewReader(out))
-	for sc.Scan() {
-		p, ok := strings.CutPrefix(sc.Text(), "worktree ")
-		if !ok {
-			continue
-		}
-		if real, err := filepath.EvalSymlinks(p); err == nil && real == want {
-			return true
-		}
-	}
-	return false
+	registered, err := worktreePaths(dir)
+	return err == nil && slices.Contains(registered, want)
 }
 
 // resumeWorktree returns the recorded worktree for a relaunch if it is still
@@ -240,7 +346,7 @@ func resumeWorktree(dir, recorded string) (dispatchWorktree, error) {
 			setup:  "resuming in the recorded worktree " + recorded + " (branch " + branch + ")\n",
 		}, nil
 	}
-	wt, err := createWorktree(dir)
+	wt, err := createWorktree(dir, "")
 	if err != nil {
 		return wt, err
 	}

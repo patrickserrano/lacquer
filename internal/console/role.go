@@ -131,12 +131,18 @@ func LoadRoleRoster(path string) (RoleRoster, error) {
 // dispatch. They do share the actual argv-building and process-launch code,
 // in runDispatch (dispatch.go).
 func DispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRun bool) (Launch, error) {
-	return dispatchRole(roles, sessions, name, task, dryRun, "")
+	return DispatchRolePlaced(roles, sessions, name, task, dryRun, Placement{})
 }
 
-// dispatchRole is DispatchRole, plus the recorded worktree a bg relaunch
-// resumes in (Relaunch, watchdog.go).
-func dispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRun bool, resume string) (Launch, error) {
+// DispatchRolePlaced is DispatchRole into the worktree, or onto the branch,
+// that its dispatcher chose (Placement).
+func DispatchRolePlaced(roles RoleRoster, sessions []Session, name, task string, dryRun bool, place Placement) (Launch, error) {
+	return dispatchRole(roles, sessions, name, task, dryRun, place, "")
+}
+
+// dispatchRole is DispatchRolePlaced, plus the recorded worktree a bg
+// relaunch resumes in (Relaunch, watchdog.go).
+func dispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRun bool, place Placement, resume string) (Launch, error) {
 	var role *Role
 	for i := range roles.Role {
 		if roles.Role[i].Name == name {
@@ -167,7 +173,7 @@ func dispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRu
 		}
 	}
 
-	return runDispatch(launchSpec{verb: "dispatch role", kind: RoleKind, name: role.Name, dir: role.Dir, task: task, mode: role.Mode, warning: warning, dryRun: dryRun, resume: resume})
+	return runDispatch(launchSpec{verb: "dispatch role", kind: RoleKind, name: role.Name, dir: role.Dir, task: task, mode: role.Mode, warning: warning, dryRun: dryRun, place: place, resume: resume})
 }
 
 func roleNames(r RoleRoster) []string {
