@@ -14,9 +14,10 @@
 #
 # WHY A PLACEHOLDER IS WORSE THAN A MISSING VALUE. Every one of these is
 # non-empty, so every accessor that only checks for blank passes it through.
-# Flare's REVENUECAT_PUBLIC_SDK_KEY = REPLACE_ME_APPL_KEY builds, signs, uploads
-# and passes review; the app then configures RevenueCat with a key that does not
-# exist, and nothing looks wrong until the subscriptions do not arrive.
+# An archive carrying flare's committed REVENUECAT_PUBLIC_SDK_KEY =
+# REPLACE_ME_APPL_KEY would build, sign, upload and pass review; the app would
+# then configure RevenueCat with a key that does not exist, and nothing would
+# look wrong until the subscriptions did not arrive.
 #
 # Sourcing this file defines functions and nothing else. It never prints a
 # value — callers get a REASON, which names the rule and not the input.

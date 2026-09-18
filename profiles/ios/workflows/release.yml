@@ -538,9 +538,11 @@ jobs:
       # value reached the product: a wrong secrets_file, a missing `#include?`,
       # a committed xcconfig assigning the key after the written one, and the
       # archive bakes in REPLACE_ME or nothing while every gate stays green.
-      # Flare shipped that way. It renders for EVERY product, declared secrets
-      # or not, because the repositories most at risk declare none -- see
-      # scripts/verify-archive-info-plist.sh for the rules.
+      # Flare's onboarding dropped exactly this check, and its next release
+      # would have shipped that way. It renders for EVERY product, declared
+      # secrets or not, because the repositories most at risk declare none. It
+      # also reads every widget, extension and watch app the archive embeds --
+      # see scripts/verify-archive-info-plist.sh for the rules.
 {{IOS_ARCHIVE_SECRETS_CHECK}}
 
       - name: Export IPA

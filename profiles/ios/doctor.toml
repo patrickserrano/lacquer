@@ -417,4 +417,4 @@ exec bash "{root}/scripts/verify-archive-info-plist.sh" --archive "$a" --info-pl
 """]
 expect = "fail"
 # The key AND the rule: only the intended rejection prints both.
-expect_output = '::error::verify-archive-info-plist: DOCTOR_PROBE_RC_KEY is a REPLACE_ME placeholder in the archived Info\.plist \(RevenueCatAPIKey\)'
+expect_output = '::error::verify-archive-info-plist: DOCTOR_PROBE_RC_KEY is a REPLACE_ME placeholder in Probe\.app/Info\.plist at RevenueCatAPIKey'

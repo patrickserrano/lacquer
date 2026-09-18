@@ -17,8 +17,9 @@ import (
 // when a build-time key reached it empty, unexpanded, or as a placeholder.
 //
 // The defect they exist for: write-release-config.sh checked a secret's VALUE
-// and nothing checked that the value reached the product. Flare archived with
-// REVENUECAT_PUBLIC_SDK_KEY = REPLACE_ME_APPL_KEY, and kit and port-of-entry —
+// and nothing checked that the value reached the product. Flare's next release
+// would have archived REVENUECAT_PUBLIC_SDK_KEY = REPLACE_ME_APPL_KEY from a
+// committed xcconfig, and kit and port-of-entry —
 // which declare no secrets at all — would archive with their keys empty, every
 // gate green.
 
@@ -244,7 +245,7 @@ func TestArchiveCheckPassesRealKeys(t *testing.T) {
 	for _, s := range []string{
 		"ok — REVENUECAT_API_KEY (declared) reached Demo App.app/Info.plist at RevenueCatAPIKey",
 		"ok — APTABASE_APP_KEY (undeclared) reached",
-		"checked 2 build-setting reference(s) in Demo App.app/Info.plist; 0 failed",
+		"checked 2 build-setting reference(s) across Demo App.app and the bundles it embeds; 0 failed",
 	} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
@@ -403,7 +404,7 @@ func TestArchiveCheckFailsClosed(t *testing.T) {
 			if err := os.Remove(filepath.Join(archive, "Products", "Applications", "Demo App.app", "Info.plist")); err != nil {
 				t.Fatal(err)
 			}
-		}, "does not exist"},
+		}, "Demo App.app has no Info.plist in the archive"},
 		{"corrupt archived Info.plist", func(t *testing.T, dir, archive string) {
 			writeFile(t, filepath.Join(archive, "Products", "Applications", "Demo App.app", "Info.plist"), "not a plist")
 		}, "as a property list"},
@@ -419,7 +420,7 @@ func TestArchiveCheckFailsClosed(t *testing.T) {
 			built := builtPlist(nil)
 			delete(built, "RevenueCatAPIKey")
 			writeFile(t, filepath.Join(archive, "Products", "Applications", "Demo App.app", "Info.plist"), plistXML(built))
-		}, "REVENUECAT_API_KEY is referenced by the source Info.plist at RevenueCatAPIKey but that entry is missing from the archived one"},
+		}, "REVENUECAT_API_KEY is referenced by the source Info.plist of Demo App.app at RevenueCatAPIKey but that entry is missing from the built one"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := shippedScripts(t)
@@ -496,7 +497,7 @@ func TestArchiveCheckResolvesTheSourcePlistFromBuildSettings(t *testing.T) {
 	}{
 		{"resolves the app target", "cat <<'JSON'\n" + settings + "\nJSON\n", true, "REVENUECAT_API_KEY is a REPLACE_ME placeholder"},
 		{"xcodebuild fails", "echo 'error: scheme not found' >&2; exit 65\n", true, "xcodebuild -showBuildSettings failed"},
-		{"no target builds the app", "echo '[{\"target\":\"X\",\"buildSettings\":{\"FULL_PRODUCT_NAME\":\"Other.app\"}}]'\n", true, "do not identify exactly one target producing Demo App.app"},
+		{"no target builds the app", "echo '[{\"target\":\"X\",\"buildSettings\":{\"FULL_PRODUCT_NAME\":\"Other.app\"}}]'\n", true, "Demo App.app is in the archive but no target in the build settings produces it"},
 		// A notice ahead of the JSON must not turn into "unreadable settings".
 		{"a notice before the JSON", "echo 'note: Using new build system'\ncat <<'JSON'\n" + settings + "\nJSON\n", true, "REVENUECAT_API_KEY is a REPLACE_ME placeholder"},
 		// A generated Info.plist cannot reference a custom setting, so there is
@@ -628,5 +629,145 @@ func TestWriterAcceptsAnAtSignInAShape(t *testing.T) {
 		if strings.Contains(string(out), "unsafe in a shell pattern") {
 			t.Errorf("an @ in the shape was refused as unsafe:\n%s", out)
 		}
+	}
+}
+
+// `$(A)$(B)` has no literal between the two references, so the built value
+// cannot be split between them: lazy matching would hand A nothing and B
+// everything, failing a correct release as "A is empty". Such a run is judged
+// as ONE value, and the line says so.
+func TestArchiveCheckJudgesAdjacentReferencesTogether(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, built string
+		wantErr             bool
+		want                string
+	}{
+		{"both set", "$(API_SCHEME)$(API_HOST)", "https://api.real.dev", false,
+			"ok — API_SCHEME (undeclared) reached Demo App.app/Info.plist at APIBase (checked together with API_HOST"},
+		{"both empty", "$(API_SCHEME)$(API_HOST)", "", true,
+			"API_SCHEME (undeclared build-time key) is empty in Demo App.app/Info.plist at APIBase (checked together with API_HOST"},
+		// A standard setting beside a custom one is the same problem: the custom
+		// part cannot be isolated, so the run is judged whole.
+		{"standard beside custom", "$(PRODUCT_NAME)$(SUFFIX)", "Demo-beta", false,
+			"ok — SUFFIX (undeclared) reached Demo App.app/Info.plist at APIBase (checked together with PRODUCT_NAME"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := shippedScripts(t)
+			archive := fixtureArchive(t, dir, map[string]string{"APIBase": tc.built})
+			writeFile(t, filepath.Join(dir, "App", "Info.plist"), plistXML(map[string]string{"APIBase": tc.source}))
+			out, err := verify(t, dir, "--archive", archive, "--info-plist", "App/Info.plist")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err=%v, want error=%v:\n%s", err, tc.wantErr, out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("want %q in:\n%s", tc.want, out)
+			}
+		})
+	}
+}
+
+// addBundle embeds a bundle (an app extension, a watch app) in the fixture app
+// with the given built Info.plist.
+func addBundle(t *testing.T, archive, rel string, built map[string]string) {
+	t.Helper()
+	writeFile(t, filepath.Join(archive, "Products", "Applications", "Demo App.app", rel, "Info.plist"), plistXML(built))
+}
+
+// Widgets and watch apps have their own Info.plists and read build-time keys
+// too — a widget's Sentry DSN is an ordinary thing to ship. Each embedded
+// bundle is checked against ITS source plist, and every line names the bundle.
+func TestArchiveCheckWalksEmbeddedBundles(t *testing.T) {
+	widgetSource := map[string]string{"CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)", "SentryDSN": "$(SENTRY_DSN)"}
+	for _, tc := range []struct {
+		name    string
+		dsn     string
+		wantErr bool
+		want    string
+	}{
+		{"a clean extension passes", "https://abc123@o1.ingest.sentry.io/5", false,
+			"ok — SENTRY_DSN (undeclared) reached Demo App.app/PlugIns/DemoWidgets.appex/Info.plist at SentryDSN"},
+		{"an extension with an empty key fails", "", true,
+			"SENTRY_DSN (undeclared build-time key) is empty in Demo App.app/PlugIns/DemoWidgets.appex/Info.plist at SentryDSN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := shippedScripts(t)
+			archive := fixtureArchive(t, dir, builtPlist(nil))
+			addBundle(t, archive, "PlugIns/DemoWidgets.appex", map[string]string{"CFBundleIdentifier": "com.x.demo.widgets", "SentryDSN": tc.dsn})
+			writeFile(t, filepath.Join(dir, "App", "Info.plist"), plistXML(sourcePlist))
+			writeFile(t, filepath.Join(dir, "Widgets", "Info.plist"), plistXML(widgetSource))
+			out, err := verify(t, dir, "--archive", archive, "--info-plist", "App/Info.plist",
+				"--embedded-plist", "DemoWidgets.appex=Widgets/Info.plist")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err=%v, want error=%v:\n%s", err, tc.wantErr, out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("want %q in:\n%s", tc.want, out)
+			}
+			if !strings.Contains(out, "ok — REVENUECAT_API_KEY (undeclared) reached Demo App.app/Info.plist") {
+				t.Errorf("the app itself was not still checked:\n%s", out)
+			}
+		})
+	}
+}
+
+// A bundle in the archive whose source plist cannot be found is a bundle
+// nothing checked. Passing would make "verified" and "never looked" the same
+// output, so it fails — for an extension and for a watch app's own extension.
+func TestArchiveCheckFailsOnAnUnmappableBundle(t *testing.T) {
+	for _, rel := range []string{"PlugIns/Mystery.appex", "Watch/DemoWatch.app/PlugIns/Complications.appex"} {
+		t.Run(rel, func(t *testing.T) {
+			dir := shippedScripts(t)
+			archive := fixtureArchive(t, dir, builtPlist(nil))
+			addBundle(t, archive, rel, map[string]string{"CFBundleIdentifier": "com.x.demo.other"})
+			writeFile(t, filepath.Join(dir, "App", "Info.plist"), plistXML(sourcePlist))
+			writeFile(t, filepath.Join(dir, "Watch", "Info.plist"), plistXML(map[string]string{"CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)"}))
+			out, err := verify(t, dir, "--archive", archive, "--info-plist", "App/Info.plist",
+				"--embedded-plist", "DemoWatch.app=Watch/Info.plist")
+			if err == nil {
+				t.Fatalf("an archive with an unmapped bundle passed:\n%s", out)
+			}
+			want := "::error::verify-archive-info-plist: Demo App.app/" + rel + " is in the archive but no target in the build settings produces it"
+			if !strings.Contains(out, want) {
+				t.Errorf("want %q in:\n%s", want, out)
+			}
+		})
+	}
+}
+
+// A scheme usually lists only the app; its extensions are built as implicit
+// dependencies and may be absent from the scheme's settings. Those bundles are
+// then looked up across every target in the project (-alltargets). The fake
+// xcodebuild answers the scheme query with the app only.
+func TestArchiveCheckFindsExtensionsOutsideTheScheme(t *testing.T) {
+	dir := shippedScripts(t)
+	archive := fixtureArchive(t, dir, builtPlist(nil))
+	addBundle(t, archive, "PlugIns/DemoWidgets.appex", map[string]string{"SentryDSN": ""})
+	writeFile(t, filepath.Join(dir, "App", "Info.plist"), plistXML(sourcePlist))
+	writeFile(t, filepath.Join(dir, "Widgets", "Info.plist"), plistXML(map[string]string{"SentryDSN": "$(SENTRY_DSN)"}))
+	fake := `case " $* " in
+*" -alltargets "*) cat <<'JSON'
+[{"target":"Demo","buildSettings":{"FULL_PRODUCT_NAME":"Demo App.app","INFOPLIST_FILE":"App/Info.plist","PROJECT_DIR":"@DIR@"}},
+ {"target":"DemoWidgets","buildSettings":{"FULL_PRODUCT_NAME":"DemoWidgets.appex","INFOPLIST_FILE":"Widgets/Info.plist","PROJECT_DIR":"@DIR@"}}]
+JSON
+;;
+*) echo '[{"target":"Demo","buildSettings":{"FULL_PRODUCT_NAME":"Demo App.app","INFOPLIST_FILE":"App/Info.plist","PROJECT_DIR":"@DIR@"}}]' ;;
+esac
+`
+	bin := filepath.Join(dir, "fakebin")
+	writeFile(t, filepath.Join(bin, "xcodebuild"), "#!/bin/sh\n"+strings.ReplaceAll(fake, "@DIR@", dir))
+	if err := os.Chmod(filepath.Join(bin, "xcodebuild"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "scripts/verify-archive-info-plist.sh", "--archive", archive,
+		"--project", "Demo.xcodeproj", "--scheme", "Demo")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	outb, err := cmd.CombinedOutput()
+	out := string(outb)
+	if err == nil {
+		t.Fatalf("an empty key in an extension found via -alltargets passed:\n%s", out)
+	}
+	if want := "SENTRY_DSN (undeclared build-time key) is empty in Demo App.app/PlugIns/DemoWidgets.appex/Info.plist"; !strings.Contains(out, want) {
+		t.Errorf("want %q in:\n%s", want, out)
 	}
 }
