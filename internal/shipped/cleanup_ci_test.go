@@ -546,6 +546,15 @@ func TestCleanupCIDeletesOnlyOldIdleCIDevices(t *testing.T) {
 			t.Errorf("device %s was touched but is %s\n%s", u, why, r.calls)
 		}
 	}
+	// Not even considered: a device outside the two CI name families must not
+	// reach the decision at all, where a mangled UDID would only be saved by
+	// the missing device.plist.
+	for _, u := range []string{"66666666-6666-6666-6666-666666666666", "77777777-7777-7777-7777-777777777777",
+		"88888888-8888-8888-8888-888888888888", "99999999-9999-9999-9999-999999999999"} {
+		if strings.Contains(r.out, u) {
+			t.Errorf("non-CI device %s was a candidate\n%s", u, r.out)
+		}
+	}
 	if !strings.Contains(r.calls, "xcrun simctl delete unavailable\n") {
 		t.Errorf("simctl delete unavailable was not run\n%s", r.calls)
 	}
@@ -779,16 +788,27 @@ func TestCleanupCIManualLevelsStayScoped(t *testing.T) {
 // TestCleanupCIRefusesAnUnprovableWorkRoot: without a work directory there is
 // nothing to scope to, and an empty scope must not become "everything".
 func TestCleanupCIRefusesAnUnprovableWorkRoot(t *testing.T) {
-	for name, env := range map[string][]string{
-		"unset":          {"RUNNER_WORKSPACE=", "GITHUB_WORKSPACE="},
-		"root directory": {"RUNNER_WORKSPACE=/x", "GITHUB_WORKSPACE=/x/x"},
-		"missing":        {"RUNNER_WORKSPACE=/nonexistent/lacquer/_work/x", "GITHUB_WORKSPACE=/nonexistent/lacquer/_work/x/x"},
+	for name, env := range map[string]func(h *cleanupHost) []string{
+		"unset": func(*cleanupHost) []string { return []string{"RUNNER_WORKSPACE=", "GITHUB_WORKSPACE="} },
+		"root directory": func(*cleanupHost) []string {
+			return []string{"RUNNER_WORKSPACE=/x", "GITHUB_WORKSPACE="}
+		},
+		"home directory": func(h *cleanupHost) []string {
+			return []string{"RUNNER_WORKSPACE=" + filepath.Join(h.dir, "home", "x"), "GITHUB_WORKSPACE="}
+		},
+		"missing": func(*cleanupHost) []string {
+			return []string{"RUNNER_WORKSPACE=/nonexistent/lacquer/_work/x", "GITHUB_WORKSPACE="}
+		},
+		"variables disagree": func(h *cleanupHost) []string {
+			return []string{"GITHUB_WORKSPACE=" + filepath.Join(h.dir, "elsewhere", "x", "x")}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newCleanupHost(t)
+			h.proc(803, 1, oldEtime, filepath.Join(h.dir, "home")+"/x/anything")
 			h.proc(801, 1, oldEtime, "/x/anything")
 			h.proc(802, 1, oldEtime, "/nonexistent/lacquer/_work/y")
-			r := h.run("standard", "false", "schedule", env...)
+			r := h.run("standard", "false", "schedule", env(h)...)
 			if r.code == 0 {
 				t.Errorf("exited 0 with no provable work directory; a pass that did nothing must not look like one that ran\n%s", r.out)
 			}
