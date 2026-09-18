@@ -1370,7 +1370,11 @@ jobs:
           # Testing: "Test run started." Neither appears before a pre-connection failure.
           SIM_TEST_CONNECTED_RE="Test Suite '.*' started|Test run started"
           SIM_TEST_HEARTBEAT_SECONDS=60
-          SIM_TEST_DIAG_DIR=simulator-stall-diagnostics
+          SIM_TEST_DIAG_DIR=simulator-diagnostics
+          # Where a simulator app's crash report lands: the HOST's DiagnosticReports of
+          # the user running this job, as <App>-<timestamp>.ips. Host-wide, so every
+          # other repository's crashes are in here too.
+          SIM_TEST_CRASH_DIR="$HOME/Library/Logs/DiagnosticReports"
           # The only failure that retries: the test runner never connected. The exact
           # lines seen on this fleet are "Test crashed with signal trap before
           # establishing connection", "The test runner crashed before establishing
@@ -1525,6 +1529,8 @@ jobs:
             shift 2
             rm -f "$log.stalled" "$log.done"
             : >"$log"
+            # The attempt's start, as a file's mtime, for "crash reports written since".
+            : >"$log.started"
             sim_test_watchdog "$log" &
             wd=$!
             if "$@" 2>&1 | tee "$log" | xcbeautify --renderer github-actions; then rc=0; else rc=$?; fi
@@ -1578,12 +1584,47 @@ jobs:
             return 0
           }
 
+          # sim_test_host_crash <since-file>: the crash report of an app installed on THIS
+          # run's device, written during this attempt, or nothing.
+          #
+          # The same signature with zero tests is ALSO what an app that crashes at launch
+          # produces: flare on iOS 27 trapped every time in App.body, evaluated off-main
+          # (SIGTRAP on com.apple.SwiftUI.AsyncRenderer in _swift_task_checkIsolatedSwift).
+          # Retrying that costs another attempt, fails again, and blames the simulator for
+          # an app bug. Matched on this run's DEVICE ID in the report's procPath (which
+          # only an app installed on this very device carries), and on the file being
+          # newer than the attempt: the directory is host-wide, and other repositories'
+          # reports, or this app's own from another run, are in it too.
+          sim_test_host_crash() {
+            local f path
+            if [ ! -d "$SIM_TEST_CRASH_DIR" ]; then
+              return 0
+            fi
+            while IFS= read -r f; do
+              path=$(tail -n +2 "$f" 2>/dev/null | jq -r '.procPath // empty' 2>/dev/null) || path=""
+              case "$path" in
+                */Devices/"$SIM_TEST_DEVICE_ID"/data/Containers/Bundle/Application/*)
+                  echo "$f"
+                  return 0 ;;
+              esac
+            done < <(find "$SIM_TEST_CRASH_DIR" -maxdepth 1 -name '*.ips' -newer "$1" 2>/dev/null)
+          }
+
+          # One line naming the crash: process, signal and exception, the faulting
+          # thread's name or queue, and its top frames.
+          sim_test_crash_summary() {
+            tail -n +2 "$1" 2>/dev/null | jq -r '
+              (.threads[.faultingThread] // {}) as $t
+              | "\(.procName // "?") crashed: \(.exception.signal // "?") (\(.exception.type // "?")) on \($t.name // $t.queue // "thread \(.faultingThread)") in \([($t.frames // [])[:6][] | .symbol // empty] | join(" < "))"
+            ' 2>/dev/null || basename "$1"
+          }
+
           # sim_test_run <device-id> <ready-service> <log> <xcresult> <artifact> -- <command...>
           #
           # Sets SIM_TEST_EXIT_CODE. Needs 'set -o pipefail' so that xcodebuild's exit
           # code survives the pipe through tee and xcbeautify.
           sim_test_run() {
-            local svc=$2 log=$3 xcr=$4 artifact=$5
+            local svc=$2 log=$3 xcr=$4 artifact=$5 crash
             SIM_TEST_DEVICE_ID=$1
             SIM_TEST_STEP_PID=$$
             shift 5
@@ -1596,6 +1637,18 @@ jobs:
             esac
             sim_test_attempt "$log" "$artifact" "$@"
             if [ "$SIM_TEST_EXIT_CODE" -ne 0 ] && sim_test_should_retry "$log" "$xcr"; then
+              # ReportCrash writes the report seconds after the crash; give it a moment.
+              crash=$(sim_test_host_crash "$log.started")
+              if [ -z "$crash" ]; then
+                sleep 5
+                crash=$(sim_test_host_crash "$log.started")
+              fi
+              if [ -n "$crash" ]; then
+                mkdir -p "$SIM_TEST_DIAG_DIR"
+                cp "$crash" "$SIM_TEST_DIAG_DIR/" 2>/dev/null || true
+                echo "::error::The app under test crashed at launch, before the test runner connected: $(sim_test_crash_summary "$crash"). That is the app failing, not the simulator failing to start, so it is NOT retried. Crash report uploaded as $artifact."
+                return 0
+              fi
               echo "::warning::'$SIM_TEST_RETRY_SIGNATURE' with zero tests executed: the test runner never connected, which is the simulator failing to start, not a test failing. Retrying ONCE on this run's freshly erased device $SIM_TEST_DEVICE_ID."
               mv "$log" "${log%.log}-attempt1.log"
               rm -rf "${xcr%.xcresult}-attempt1.xcresult"
@@ -1809,7 +1862,7 @@ jobs:
           # to report a runner that never connects itself, which is the
           # retryable case below). A sample of this run's xcodebuild and
           # test processes, this device's last 5 minutes of log and the log's
-          # tail go to the ios-test-stall-diagnostics artifact, then only this
+          # tail go to the ios-test-diagnostics artifact, then only this
           # workspace's and this device's processes are killed. It is NEVER
           # retried, because a retry could hide a real hang in the app under
           # test. It used to print "still running" until the step timeout, at
@@ -1817,13 +1870,18 @@ jobs:
           #
           # The ONE retry is for the runner never connecting: "... before
           # establishing connection" or "never finished bootstrapping" in the
-          # output AND zero tests executed in the result bundle. That is the
-          # simulator failing to start under load, not a test failing. The
+          # output AND zero tests executed in the result bundle AND no crash
+          # report from the app under test for this attempt. That is the
+          # simulator failing to start under load, not a test failing. The same
+          # signature with zero tests is also what an app that crashes at
+          # launch produces (flare on iOS 27: SIGTRAP in App.body), so a crash
+          # report from an app on THIS run's device, written during the attempt,
+          # fails the job naming the crash instead of retrying it. Otherwise the
           # device is erased and cold-booted again under the boot lock, and the
           # suite runs once more; a second failure fails the job normally. The
           # stall check exits before the retry is considered, so the two paths
           # never meet.
-          sim_test_run "$DEVICE_ID" springboard xcodebuild.log TestResults.xcresult "ios-test-stall-diagnostics{{IOS_CI_ARTIFACT_SUFFIX}}" -- \
+          sim_test_run "$DEVICE_ID" springboard xcodebuild.log TestResults.xcresult "ios-test-diagnostics{{IOS_CI_ARTIFACT_SUFFIX}}" -- \
             xcodebuild test \
             -project "{{XCODEPROJ}}" \
             -scheme "{{IOS_CI_SCHEME}}" \
@@ -2039,7 +2097,7 @@ jobs:
               fi
             fi
           elif [ "${{ steps.tests.outputs.test_result }}" = "stalled" ]; then
-            echo "Stalled mid-suite: no test output for the watchdog's window. Diagnostics are in the ios-test-stall-diagnostics{{IOS_CI_ARTIFACT_SUFFIX}} artifact." >> "$GITHUB_STEP_SUMMARY"
+            echo "Stalled mid-suite: no test output for the watchdog's window. Diagnostics are in the ios-test-diagnostics{{IOS_CI_ARTIFACT_SUFFIX}} artifact." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Test result unknown - check logs" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -2124,16 +2182,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      # Uploads only when the Run Tests watchdog caught a stall; on every other
-      # run the directory does not exist and this is a no-op. always(), because
-      # a stall FAILS Run Tests, and the name matches the one its ::error gives.
-      - name: Upload stall diagnostics
+      # Uploads only when Run Tests caught a stall or an app crash at launch; on
+      # every other run the directory does not exist and this is a no-op.
+      # always(), because both FAIL Run Tests, and the name matches the one
+      # their ::error gives.
+      - name: Upload test diagnostics
         uses: actions/upload-artifact@v7
         if: always()
         continue-on-error: true
         with:
-          name: ios-test-stall-diagnostics{{IOS_CI_ARTIFACT_SUFFIX}}
-          path: simulator-stall-diagnostics
+          name: ios-test-diagnostics{{IOS_CI_ARTIFACT_SUFFIX}}
+          path: simulator-diagnostics
           if-no-files-found: ignore
           retention-days: 7
 

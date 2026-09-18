@@ -424,7 +424,11 @@ const watchJobBody = `
           # Testing: "Test run started." Neither appears before a pre-connection failure.
           SIM_TEST_CONNECTED_RE="Test Suite '.*' started|Test run started"
           SIM_TEST_HEARTBEAT_SECONDS=60
-          SIM_TEST_DIAG_DIR=simulator-stall-diagnostics
+          SIM_TEST_DIAG_DIR=simulator-diagnostics
+          # Where a simulator app's crash report lands: the HOST's DiagnosticReports of
+          # the user running this job, as <App>-<timestamp>.ips. Host-wide, so every
+          # other repository's crashes are in here too.
+          SIM_TEST_CRASH_DIR="$HOME/Library/Logs/DiagnosticReports"
           # The only failure that retries: the test runner never connected. The exact
           # lines seen on this fleet are "Test crashed with signal trap before
           # establishing connection", "The test runner crashed before establishing
@@ -579,6 +583,8 @@ const watchJobBody = `
             shift 2
             rm -f "$log.stalled" "$log.done"
             : >"$log"
+            # The attempt's start, as a file's mtime, for "crash reports written since".
+            : >"$log.started"
             sim_test_watchdog "$log" &
             wd=$!
             if "$@" 2>&1 | tee "$log" | xcbeautify --renderer github-actions; then rc=0; else rc=$?; fi
@@ -632,12 +638,47 @@ const watchJobBody = `
             return 0
           }
 
+          # sim_test_host_crash <since-file>: the crash report of an app installed on THIS
+          # run's device, written during this attempt, or nothing.
+          #
+          # The same signature with zero tests is ALSO what an app that crashes at launch
+          # produces: flare on iOS 27 trapped every time in App.body, evaluated off-main
+          # (SIGTRAP on com.apple.SwiftUI.AsyncRenderer in _swift_task_checkIsolatedSwift).
+          # Retrying that costs another attempt, fails again, and blames the simulator for
+          # an app bug. Matched on this run's DEVICE ID in the report's procPath (which
+          # only an app installed on this very device carries), and on the file being
+          # newer than the attempt: the directory is host-wide, and other repositories'
+          # reports, or this app's own from another run, are in it too.
+          sim_test_host_crash() {
+            local f path
+            if [ ! -d "$SIM_TEST_CRASH_DIR" ]; then
+              return 0
+            fi
+            while IFS= read -r f; do
+              path=$(tail -n +2 "$f" 2>/dev/null | jq -r '.procPath // empty' 2>/dev/null) || path=""
+              case "$path" in
+                */Devices/"$SIM_TEST_DEVICE_ID"/data/Containers/Bundle/Application/*)
+                  echo "$f"
+                  return 0 ;;
+              esac
+            done < <(find "$SIM_TEST_CRASH_DIR" -maxdepth 1 -name '*.ips' -newer "$1" 2>/dev/null)
+          }
+
+          # One line naming the crash: process, signal and exception, the faulting
+          # thread's name or queue, and its top frames.
+          sim_test_crash_summary() {
+            tail -n +2 "$1" 2>/dev/null | jq -r '
+              (.threads[.faultingThread] // {}) as $t
+              | "\(.procName // "?") crashed: \(.exception.signal // "?") (\(.exception.type // "?")) on \($t.name // $t.queue // "thread \(.faultingThread)") in \([($t.frames // [])[:6][] | .symbol // empty] | join(" < "))"
+            ' 2>/dev/null || basename "$1"
+          }
+
           # sim_test_run <device-id> <ready-service> <log> <xcresult> <artifact> -- <command...>
           #
           # Sets SIM_TEST_EXIT_CODE. Needs 'set -o pipefail' so that xcodebuild's exit
           # code survives the pipe through tee and xcbeautify.
           sim_test_run() {
-            local svc=$2 log=$3 xcr=$4 artifact=$5
+            local svc=$2 log=$3 xcr=$4 artifact=$5 crash
             SIM_TEST_DEVICE_ID=$1
             SIM_TEST_STEP_PID=$$
             shift 5
@@ -650,6 +691,18 @@ const watchJobBody = `
             esac
             sim_test_attempt "$log" "$artifact" "$@"
             if [ "$SIM_TEST_EXIT_CODE" -ne 0 ] && sim_test_should_retry "$log" "$xcr"; then
+              # ReportCrash writes the report seconds after the crash; give it a moment.
+              crash=$(sim_test_host_crash "$log.started")
+              if [ -z "$crash" ]; then
+                sleep 5
+                crash=$(sim_test_host_crash "$log.started")
+              fi
+              if [ -n "$crash" ]; then
+                mkdir -p "$SIM_TEST_DIAG_DIR"
+                cp "$crash" "$SIM_TEST_DIAG_DIR/" 2>/dev/null || true
+                echo "::error::The app under test crashed at launch, before the test runner connected: $(sim_test_crash_summary "$crash"). That is the app failing, not the simulator failing to start, so it is NOT retried. Crash report uploaded as $artifact."
+                return 0
+              fi
               echo "::warning::'$SIM_TEST_RETRY_SIGNATURE' with zero tests executed: the test runner never connected, which is the simulator failing to start, not a test failing. Retrying ONCE on this run's freshly erased device $SIM_TEST_DEVICE_ID."
               mv "$log" "${log%.log}-attempt1.log"
               rm -rf "${xcr%.xcresult}-attempt1.xcresult"
@@ -763,8 +816,10 @@ const watchJobBody = `
           # named below, kills only this run's processes and FAILS: never a
           # retry, which could hide a real hang. The ONE retry is for the
           # runner never connecting ("... before establishing connection" /
-          # "never finished bootstrapping") with ZERO tests executed.
-          sim_test_run "$DEVICE_ID" "$WATCH_READY_SERVICE" watch-xcodebuild.log WatchTestResults.xcresult "watch-test-stall-diagnostics-$WATCH_SLUG" -- \
+          # "never finished bootstrapping") with ZERO tests executed and no
+          # crash report from the app on this device for the attempt; a crash
+          # report means the app died at launch, and is reported, not retried.
+          sim_test_run "$DEVICE_ID" "$WATCH_READY_SERVICE" watch-xcodebuild.log WatchTestResults.xcresult "watch-test-diagnostics-$WATCH_SLUG" -- \
             xcodebuild test \
             -project "@@XCODEPROJ@@" \
             -scheme "$WATCH_SCHEME" \
@@ -860,15 +915,15 @@ const watchJobBody = `
           if-no-files-found: ignore
           retention-days: 1
 
-      # Only when Run Watch Tests caught a stall; otherwise a no-op. always(),
-      # because a stall FAILS that step.
-      - name: Upload watch stall diagnostics
+      # Only when Run Watch Tests caught a stall or an app crash at launch;
+      # otherwise a no-op. always(), because a stall FAILS that step.
+      - name: Upload watch test diagnostics
         uses: actions/upload-artifact@v7
         if: always()
         continue-on-error: true
         with:
-          name: watch-test-stall-diagnostics-${{ matrix.watch.slug }}
-          path: simulator-stall-diagnostics
+          name: watch-test-diagnostics-${{ matrix.watch.slug }}
+          path: simulator-diagnostics
           if-no-files-found: ignore
           retention-days: 7
 

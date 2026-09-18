@@ -110,13 +110,13 @@ type simTarget struct {
 var iosSimTarget = simTarget{
 	job: "test", setup: "Setup Simulator", run: "Run Tests",
 	log: "xcodebuild.log", xcresult: "TestResults.xcresult",
-	artifact: "ios-test-stall-diagnostics", upload: "Upload stall diagnostics",
+	artifact: "ios-test-diagnostics", upload: "Upload test diagnostics",
 }
 
 var watchSimTarget = simTarget{
 	job: "watch-test", setup: "Create an UNPAIRED watch simulator", run: "Run Watch Tests",
 	log: "watch-xcodebuild.log", xcresult: "WatchTestResults.xcresult",
-	artifact: "watch-test-stall-diagnostics-${{ matrix.watch.slug }}", upload: "Upload watch stall diagnostics",
+	artifact: "watch-test-diagnostics-${{ matrix.watch.slug }}", upload: "Upload watch test diagnostics",
 }
 
 func TestSimLibIsIdenticalInEveryJob(t *testing.T) {
@@ -338,8 +338,30 @@ type simHarness struct {
 	t                        *testing.T
 	dir, ws, fakes, state    string
 	runnerTemp, lock, output string
+	home, crashDir           string
 	device                   string
 	lib                      string
+}
+
+// crashReport is a trimmed copy of flare's real report from 2026-09-18
+// (Flare-2026-09-18-031523.ips): a header line, then the body, with the
+// escaped slashes ReportCrash writes, for an app installed on device.
+func crashReport(app, device string) string {
+	return `{"app_name":"` + app + `","timestamp":"2026-09-18 03:15:23.00 -0400","bug_type":"309","name":"` + app + `"}
+{
+  "procName" : "` + app + `",
+  "procPath" : "\/Users\/USER\/Library\/Developer\/CoreSimulator\/Devices\/` + device + `\/data\/Containers\/Bundle\/Application\/4F27B49B-4443-4FCA-8508-A2094E32E489\/` + app + `.app\/` + app + `",
+  "exception" : {"codes":"0x0000000000000001, 0x00000001e64510a4","type":"EXC_BREAKPOINT","signal":"SIGTRAP"},
+  "faultingThread" : 1,
+  "threads" : [
+    {"id":1,"queue":"com.apple.main-thread","frames":[{"symbol":"mach_msg2_trap"}]},
+    {"id":2,"name":"com.apple.SwiftUI.AsyncRenderer","triggered":true,"frames":[
+      {"symbol":"_dispatch_assert_queue_fail"},{"symbol":"dispatch_assert_queue$V2.cold.1"},
+      {"symbol":"dispatch_assert_queue"},{"symbol":"_swift_task_checkIsolatedSwift"},
+      {"symbol":"swift_task_isCurrentExecutorWithFlagsImpl"},{"symbol":"closure #1 in ` + app + `App.body.getter"}]}
+  ]
+}
+`
 }
 
 func newUUID(t *testing.T) string {
@@ -392,7 +414,9 @@ func newSimHarness(t *testing.T, tg simTarget, cfg *config.Config) *simHarness {
 		output:     filepath.Join(dir, "github-output"),
 		device:     newUUID(t),
 	}
-	for _, d := range []string{h.ws, h.fakes, h.state, h.runnerTemp} {
+	h.home = filepath.Join(dir, "home")
+	h.crashDir = filepath.Join(h.home, "Library", "Logs", "DiagnosticReports")
+	for _, d := range []string{h.ws, h.fakes, h.state, h.runnerTemp, h.crashDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -402,6 +426,14 @@ func newSimHarness(t *testing.T, tg simTarget, cfg *config.Config) *simHarness {
 	}
 	setup := simStepNamed(t, simJobs(t, cfg)[tg.job], tg.job, tg.setup).Run
 	h.lib = testLib(t, simLibFrom(t, tg.setup, setup), h.lock)
+	for name, body := range map[string]string{
+		"crash-this.ips":  crashReport("Flare", h.device),
+		"crash-other.ips": crashReport("DailyBread", newUUID(t)),
+	} {
+		if err := os.WriteFile(filepath.Join(h.dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	h.writeFakes()
 	if err := os.WriteFile(filepath.Join(h.runnerTemp, "lacquer-sim.sh"), []byte(h.lib), 0o644); err != nil {
 		t.Fatal(err)
@@ -454,6 +486,15 @@ case "$mode" in
   preconnect)
     echo "Testing started"
     echo "	Flare (42625) encountered an error (Early unexpected exit, operation never finished bootstrapping - no restart will be attempted. (Underlying Error: Test crashed with signal term before establishing connection.))"
+    echo "** TEST FAILED **"
+    result "$SUM_FAIL1" "$SYSFAIL"; exit 65 ;;
+  preconnect-crash|preconnect-other-crash)
+    # The app dies at launch; ReportCrash writes its report into the host's
+    # DiagnosticReports, which every repository on the Mac shares.
+    if [ "$mode" = preconnect-crash ]; then src=$FAKE_CRASH_THIS; else src=$FAKE_CRASH_OTHER; fi
+    cp "$src" "$HOME/Library/Logs/DiagnosticReports/$(basename "$src" .ips)-$n.ips"
+    echo "Testing started"
+    echo "	Flare (42625) encountered an error (Early unexpected exit, operation never finished bootstrapping - no restart will be attempted. (Underlying Error: Test crashed with signal trap before establishing connection.))"
     echo "** TEST FAILED **"
     result "$SUM_FAIL1" "$SYSFAIL"; exit 65 ;;
   preconnect-hang)
@@ -576,6 +617,9 @@ func (h *simHarness) env(extra ...string) []string {
 		"FAKE_STATE="+h.state,
 		"FAKE_LOCK="+h.lock,
 		"FAKE_DEVICE_ID="+h.device,
+		"FAKE_CRASH_THIS="+filepath.Join(h.dir, "crash-this.ips"),
+		"FAKE_CRASH_OTHER="+filepath.Join(h.dir, "crash-other.ips"),
+		"HOME="+h.home,
 		"WATCH_SLUG=demo",
 		"WATCH_READY_SERVICE=com.apple.Carousel",
 		"WATCH_DESTINATION_PREFIX=platform=watchOS Simulator",
@@ -726,7 +770,7 @@ func TestSimTestStallDetector(t *testing.T) {
 			}
 			// Diagnostics FIRST: the log tail, the processes, a sample, and
 			// this device's log.
-			diag := filepath.Join(h.ws, "simulator-stall-diagnostics")
+			diag := filepath.Join(h.ws, "simulator-diagnostics")
 			tail, _ := os.ReadFile(filepath.Join(diag, "xcodebuild-tail.log"))
 			if !strings.Contains(string(tail), "slow() pass") {
 				t.Errorf("the diagnostics carry no tail of the xcodebuild log (got %q)", tail)
@@ -776,7 +820,7 @@ func TestSimTestStallDetector(t *testing.T) {
 			if h.count("xcodebuild.count") != 1 {
 				t.Error("a pre-connection stall was retried")
 			}
-			if _, err := os.Stat(filepath.Join(h.ws, "simulator-stall-diagnostics", "summary.txt")); err != nil {
+			if _, err := os.Stat(filepath.Join(h.ws, "simulator-diagnostics", "summary.txt")); err != nil {
 				t.Errorf("no diagnostics for a pre-connection stall: %v", err)
 			}
 		})
@@ -794,7 +838,7 @@ func TestSimTestStallDetector(t *testing.T) {
 			if !strings.Contains(out, "last output") {
 				t.Errorf("no heartbeat while xcodebuild ran:\n%s", out)
 			}
-			if _, err := os.Stat(filepath.Join(h.ws, "simulator-stall-diagnostics")); err == nil {
+			if _, err := os.Stat(filepath.Join(h.ws, "simulator-diagnostics")); err == nil {
 				t.Error("diagnostics were captured for a run that never stalled")
 			}
 		})
@@ -906,6 +950,71 @@ func TestSimTestRetriesOnlyTheNeverConnectedFailure(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestSimTestDoesNotRetryAnAppCrash: the pre-connection signature with zero
+// tests is also what an app that crashes at launch produces. flare on iOS 27
+// trapped deterministically in App.body (SIGTRAP on
+// com.apple.SwiftUI.AsyncRenderer in _swift_task_checkIsolatedSwift); retrying
+// that costs an attempt, fails again, and blames the simulator for an app bug.
+func TestSimTestDoesNotRetryAnAppCrash(t *testing.T) {
+	for _, tc := range []struct {
+		cfg *config.Config
+		tg  simTarget
+	}{{soloConfig(), iosSimTarget}, {watchProject(), watchSimTarget}} {
+		run := simStepNamed(t, simJobs(t, tc.cfg)[tc.tg.job], tc.tg.job, tc.tg.run).Run
+
+		t.Run(tc.tg.job+"/this app crashed during the attempt: named, not retried", func(t *testing.T) {
+			t.Parallel()
+			h := newSimHarness(t, tc.tg, tc.cfg)
+			out, err := h.runStep(run, "preconnect-crash,pass")
+			if n := h.count("xcodebuild.count"); n != 1 {
+				t.Fatalf("an app crash at launch was retried (xcodebuild ran %d times)\n%s", n, out)
+			}
+			m := regexp.MustCompile(`::error::The app under test crashed at launch[^\n]*`).FindString(out)
+			for _, want := range []string{"Flare crashed", "SIGTRAP", "com.apple.SwiftUI.AsyncRenderer", "_swift_task_checkIsolatedSwift", "FlareApp.body.getter", "NOT retried"} {
+				if !strings.Contains(m, want) {
+					t.Errorf("the crash ::error does not name %q:\n%s", want, m)
+				}
+			}
+			if strings.Contains(out, "Retrying ONCE") {
+				t.Error("the crash was blamed on the simulator with a retry warning")
+			}
+			ips, _ := filepath.Glob(filepath.Join(h.ws, "simulator-diagnostics", "*.ips"))
+			if len(ips) != 1 {
+				t.Errorf("the crash report was not attached to the diagnostics artifact (found %v)", ips)
+			}
+			if tc.tg.job == "test" && err == nil {
+				t.Error("the step passed over an app crash")
+			}
+		})
+
+		t.Run(tc.tg.job+"/another app's crash on another device: still retries", func(t *testing.T) {
+			t.Parallel()
+			h := newSimHarness(t, tc.tg, tc.cfg)
+			out, _ := h.runStep(run, "preconnect-other-crash,pass")
+			if n := h.count("xcodebuild.count"); n != 2 {
+				t.Errorf("another repository's crash report blocked this run's retry (xcodebuild ran %d times)\n%s", n, out)
+			}
+		})
+
+		t.Run(tc.tg.job+"/this app's crash from before the attempt: still retries", func(t *testing.T) {
+			t.Parallel()
+			h := newSimHarness(t, tc.tg, tc.cfg)
+			old := filepath.Join(h.crashDir, "Flare-2026-09-18-025436.ips")
+			if err := os.WriteFile(old, []byte(crashReport("Flare", h.device)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			hourAgo := time.Now().Add(-time.Hour)
+			if err := os.Chtimes(old, hourAgo, hourAgo); err != nil {
+				t.Fatal(err)
+			}
+			out, _ := h.runStep(run, "preconnect,pass")
+			if n := h.count("xcodebuild.count"); n != 2 {
+				t.Errorf("a crash report older than the attempt blocked the retry (xcodebuild ran %d times)\n%s", n, out)
+			}
+		})
 	}
 }
 
