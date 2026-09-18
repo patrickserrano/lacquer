@@ -1456,18 +1456,14 @@ jobs:
             fi
           }
 
-          # xcodebuild's own argv carries no workspace path (-project is relative), so it
-          # is matched by this run's device id in its -destination instead. Then the rest
-          # of the pipeline (tee, xcbeautify): the step shell's other children, which is
-          # exactly that pipeline and this watchdog. Without that, a stalled pipeline
-          # only ends when every process holding its pipes does.
+          # This workspace's strays, then the pipeline itself: the step shell's other
+          # children are exactly xcodebuild, tee and xcbeautify, plus this watchdog.
+          # Killing xcodebuild alone is not enough; a helper that inherited its output
+          # pipe keeps tee waiting, and the step hangs until its timeout.
           sim_test_kill_this_run() {
             local self p
             if [ -n "${GITHUB_WORKSPACE:-}" ]; then
               pkill -9 -f "$GITHUB_WORKSPACE" 2>/dev/null || true
-            fi
-            if [ -n "${SIM_TEST_DEVICE_ID:-}" ]; then
-              pkill -9 -f "id=$SIM_TEST_DEVICE_ID" 2>/dev/null || true
             fi
             self=$(exec sh -c 'echo "$PPID"')
             for p in $(pgrep -P "$SIM_TEST_STEP_PID" 2>/dev/null || true); do
@@ -1584,30 +1580,37 @@ jobs:
             return 0
           }
 
-          # sim_test_host_crash <since-file>: the crash report of an app installed on THIS
-          # run's device, written during this attempt, or nothing.
-          #
-          # The same signature with zero tests is ALSO what an app that crashes at launch
-          # produces: flare on iOS 27 trapped every time in App.body, evaluated off-main
-          # (SIGTRAP on com.apple.SwiftUI.AsyncRenderer in _swift_task_checkIsolatedSwift).
-          # Retrying that costs another attempt, fails again, and blames the simulator for
-          # an app bug. Matched on this run's DEVICE ID in the report's procPath (which
-          # only an app installed on this very device carries), and on the file being
-          # newer than the attempt: the directory is host-wide, and other repositories'
-          # reports, or this app's own from another run, are in it too.
-          sim_test_host_crash() {
-            local f path
+          # sim_device_crash_reports <device-id> <since-file>: every crash report, one
+          # path per line, written after <since-file>'s mtime by an app INSTALLED ON
+          # <device-id>. The host's DiagnosticReports is shared by every repository on
+          # the Mac, so both filters matter: the device id appears in a report's procPath
+          # (/Devices/<id>/data/Containers/Bundle/Application/...) only for an app on
+          # that very device, which also excludes this same app's reports from another
+          # run; the time window excludes this device's reports from before it. procPath
+          # is read as JSON because ReportCrash escapes its slashes ("\/Users\/...").
+          sim_device_crash_reports() {
+            local dev=$1 since=$2 f path
             if [ ! -d "$SIM_TEST_CRASH_DIR" ]; then
               return 0
             fi
             while IFS= read -r f; do
               path=$(tail -n +2 "$f" 2>/dev/null | jq -r '.procPath // empty' 2>/dev/null) || path=""
               case "$path" in
-                */Devices/"$SIM_TEST_DEVICE_ID"/data/Containers/Bundle/Application/*)
-                  echo "$f"
-                  return 0 ;;
+                */Devices/"$dev"/data/Containers/Bundle/Application/*) echo "$f" ;;
               esac
-            done < <(find "$SIM_TEST_CRASH_DIR" -maxdepth 1 -name '*.ips' -newer "$1" 2>/dev/null)
+            done < <(find "$SIM_TEST_CRASH_DIR" -maxdepth 1 -name '*.ips' -newer "$since" 2>/dev/null)
+          }
+
+          # sim_test_host_crash <since-file>: one crash report of the app under test on
+          # THIS run's device during this attempt, or nothing.
+          #
+          # The same signature with zero tests is ALSO what an app that crashes at launch
+          # produces: flare on iOS 27 trapped every time in App.body, evaluated off-main
+          # (SIGTRAP on com.apple.SwiftUI.AsyncRenderer in _swift_task_checkIsolatedSwift).
+          # Retrying that costs another attempt, fails again, and blames the simulator for
+          # an app bug.
+          sim_test_host_crash() {
+            sim_device_crash_reports "$SIM_TEST_DEVICE_ID" "$1" | head -n 1
           }
 
           # One line naming the crash: process, signal and exception, the faulting

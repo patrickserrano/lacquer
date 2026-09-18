@@ -509,6 +509,14 @@ case "$mode" in
     echo "	Demo (4243) encountered an error (The test runner crashed before establishing connection)"
     echo "** TEST FAILED **"
     result '{"result":"Failed","totalTestCount":2,"passedTests":1,"failedTests":1,"skippedTests":0,"expectedFailures":0}' "$SOME_THEN_SYSFAIL"; exit 65 ;;
+  zero-nosig)
+    # Zero tests executed for a reason that is NOT the runner failing to
+    # connect: the retry needs the signature as well, not either one.
+    echo "error: cannot find 'Widget' in scope"
+    echo "Testing cancelled because the build failed."
+    echo "** TEST FAILED **"
+    result '{"result":"Failed","totalTestCount":0,"passedTests":0,"failedTests":0,"skippedTests":0,"expectedFailures":0}' '{"testNodes":[{"nodeType":"Test Plan","name":"Demo","result":"Failed","children":[]}]}'
+    exit 65 ;;
   preconnect-nobundle)
     echo "Early unexpected exit, operation never finished bootstrapping"
     exit 65 ;;
@@ -559,9 +567,13 @@ case "$2" in
     esac ;;
   create) echo "$FAKE_DEVICE_ID" ;;
   boot)
-    exec 8<"$FAKE_LOCK"
-    if lockf -s -t 0 8; then echo free >>"$FAKE_STATE/lock-during-boot"; else echo held >>"$FAKE_STATE/lock-during-boot"; fi
-    exec 8<&-
+    if [ ! -e "$FAKE_LOCK" ]; then
+      echo free >>"$FAKE_STATE/lock-during-boot" # no lock file: nobody has ever taken it
+    else
+      exec 8<"$FAKE_LOCK"
+      if lockf -s -t 0 8; then echo free >>"$FAKE_STATE/lock-during-boot"; else echo held >>"$FAKE_STATE/lock-during-boot"; fi
+      exec 8<&-
+    fi
     ( sleep "${FAKE_BOOT_CHILD_SECONDS:-8}" ) >/dev/null 2>&1 &
     ;;
   spawn)
@@ -900,6 +912,7 @@ func TestSimTestRetriesOnlyTheNeverConnectedFailure(t *testing.T) {
 			{"signature, some tests executed: no retry", "preconnect-some,pass", 1, false},
 			{"signature, no result bundle: no retry", "preconnect-nobundle,pass", 1, false},
 			{"ordinary failure: no retry", "fail,pass", 1, false},
+			{"zero tests but no signature: no retry", "zero-nosig,pass", 1, false},
 		} {
 			t.Run(tc.tg.job+"/"+sc.name, func(t *testing.T) {
 				t.Parallel()
