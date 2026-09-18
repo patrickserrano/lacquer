@@ -110,19 +110,9 @@ func TestSecretsStepCallsTheShippedWriter(t *testing.T) {
 // actually uses.
 func releaseWriter(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	src := filepath.Join(root(t), "profiles", "ios", "root", "scripts", "write-release-config.sh")
-	data, err := os.ReadFile(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "scripts", "write-release-config.sh"), data, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return dir
+	// The writer sources scripts/secret-placeholders.sh, so it is copied with
+	// its siblings rather than alone.
+	return shippedScripts(t)
 }
 
 func secretsRun(t *testing.T, cfg *config.Config) string {

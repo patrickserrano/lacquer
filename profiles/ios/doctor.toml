@@ -387,3 +387,34 @@ expect = "pass"
 # `set -e` script that never ran the writer, or ran a writer that wrote the raw
 # value, exits 0 or 1 with no such line.
 expect_output = 'write-release-config: set DOCTOR_PROBE_DSN in .*/Secrets\.xcconfig \(// escaped as /\$\(\)/\)'
+
+[[probe]]
+name = "the release refuses an archive whose Info.plist carries a placeholder key"
+why = """
+The writer above checks a secret's VALUE. It cannot see whether that value
+reached the app: a wrong secrets_file, a missing `#include?`, or a committed
+xcconfig assigning the key again after the written one, and the archive bakes
+in the committed placeholder while every gate is green. Flare's
+REVENUECAT_PUBLIC_SDK_KEY = REPLACE_ME_APPL_KEY is that exact shape.
+
+scripts/verify-archive-info-plist.sh reads the BUILT app's Info.plist after
+the archive and before anything uploads. This probe hands it an archive whose
+app carries REPLACE_ME where the source Info.plist referenced a build setting,
+and requires it to stop the release — naming the key and the rule, so a
+missing python3, an unreadable fixture or a deleted helper cannot pass for a
+rejection.
+"""
+requires = ["bash", "python3", "{root}/scripts/verify-archive-info-plist.sh"]
+argv = ["bash", "-c", """
+set -e
+a="{dir}/Probe.xcarchive"
+mkdir -p "$a/Products/Applications/Probe.app"
+head='<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
+printf '%s%s\\n' "$head" '<key>ApplicationProperties</key><dict><key>ApplicationPath</key><string>Applications/Probe.app</string></dict></dict></plist>' >"$a/Info.plist"
+printf '%s%s\\n' "$head" '<key>RevenueCatAPIKey</key><string>$(DOCTOR_PROBE_RC_KEY)</string></dict></plist>' >"{dir}/Source-Info.plist"
+printf '%s%s\\n' "$head" '<key>RevenueCatAPIKey</key><string>REPLACE_ME_APPL_KEY</string></dict></plist>' >"$a/Products/Applications/Probe.app/Info.plist"
+exec bash "{root}/scripts/verify-archive-info-plist.sh" --archive "$a" --info-plist "{dir}/Source-Info.plist" 'DOCTOR_PROBE_RC_KEY=appl_*'
+"""]
+expect = "fail"
+# The key AND the rule: only the intended rejection prints both.
+expect_output = '::error::verify-archive-info-plist: DOCTOR_PROBE_RC_KEY is a REPLACE_ME placeholder in the archived Info\.plist \(RevenueCatAPIKey\)'

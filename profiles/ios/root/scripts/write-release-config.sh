@@ -19,9 +19,19 @@
 #   * a value that does not match its declared shape stops it too — pasting the
 #     paid app's RevenueCat key into the free app produces a perfectly non-empty
 #     value that builds, signs, uploads and passes review
+#   * a value that is a known placeholder — REPLACE_ME, appl_xxxx…, the
+#     committed example's own value for that key, a scheme-only URL husk; see
+#     secret-placeholders.sh, the one definition shared with the archive check
+#     — stops it too. It is non-empty, so the presence check cannot see it
 #   * `//` in a value is escaped, because xcconfig treats it as the start of a
 #     comment: a bare `https://host` truncates to `https:`, which is non-empty,
 #     so nothing downstream notices and the service is silently misconfigured
+#   * `$` in a value is escaped as `$$`, because xcconfig SUBSTITUTES a bare
+#     `$NAME` that names a build setting — measured: `a$ZB c` builds as
+#     `abee c` when ZB = bee. `$$` is xcconfig's escape and reaches the built
+#     Info.plist as one literal `$`. A value containing `$(` or `${` is refused
+#     outright instead: the archive check cannot tell it from a reference Xcode
+#     failed to expand, so it could never pass that check anyway
 #   * a value is NEVER printed, echoed, or interpolated into a shell word — only
 #     key NAMES reach the log
 #
@@ -42,6 +52,9 @@
 set -euo pipefail
 
 me="write-release-config"
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=secret-placeholders.sh
+. "$here/secret-placeholders.sh"
 
 fail() {
 	echo "::error::$me: $1"
@@ -73,16 +86,24 @@ else
 fi
 chmod 600 "$dest"
 
-# xcconfig_escape rewrites every `//` as `/$()/`. `$()` is xcconfig's
+# xcconfig_escape rewrites every `$` as `$$` and then every `//` as `/$()/`.
+# `$$` is xcconfig's literal dollar, so a bare `$NAME` inside a secret can no
+# longer be substituted by a build setting of that name. `$()` is xcconfig's
 # empty-substitution and expands to nothing at build time, so the value the
-# compiler sees is unchanged while the file contains no comment marker.
+# compiler sees is unchanged while the file contains no comment marker. The
+# order matters: escaping `$` second would double the `$()` just inserted.
 #
 # Pure parameter expansion, never sed or awk on the value: a secret containing
 # `&`, `\1` or a backslash is DATA here, and both of those tools would treat it
 # as syntax and corrupt it silently. The loop is needed for `///` — a single
 # global replace leaves the third slash paired with the one it just inserted.
 xcconfig_escape() {
-	local v=$1
+	local v=$1 d=""
+	while [ "${v#*\$}" != "$v" ]; do
+		d="$d${v%%\$*}\$\$"
+		v=${v#*\$}
+	done
+	v="$d$v"
 	while [ "${v#*//}" != "$v" ]; do
 		v="${v%%//*}/\$()/${v#*//}"
 	done
@@ -125,7 +146,7 @@ for spec in "$@"; do
 	'' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) fail "invalid key $(printf '%q' "$key")" ;;
 	esac
 	case "$glob" in
-	*[!A-Za-z0-9_~.:/*?-]*) fail "$key: pattern has characters that are unsafe in a shell pattern" ;;
+	*[!A-Za-z0-9_~.:/*?@-]*) fail "$key: pattern has characters that are unsafe in a shell pattern" ;;
 	esac
 	keys+=("$key")
 	globs+=("$glob")
@@ -148,7 +169,26 @@ if [ "${#missing[@]}" -gt 0 ]; then
 	exit 1
 fi
 
-# Shape second. Non-empty is not the same as correct: another app's key and
+# Placeholders second, again ALL of them at once. The committed template seeds
+# the file this script writes, so a secret that was set to the template's own
+# value — or to any other stand-in — would sail through as "set" and ship.
+placeholders=()
+for key in "${keys[@]+"${keys[@]}"}"; do
+	if reason=$(placeholder_reason "${!key}" "$(example_value "$example" "$key")"); then
+		placeholders+=("$key $reason")
+	fi
+done
+if [ "${#placeholders[@]}" -gt 0 ]; then
+	echo "::error::$me: release secret(s) hold a placeholder, not a real key:"
+	for p in "${placeholders[@]}"; do
+		echo "::error::$me:   $p"
+	done
+	echo "$me: a placeholder is non-empty, so it builds, signs, uploads and reaches App Review wired to a key that does"
+	echo "$me: not exist. Set the real value with: gh secret set <NAME> -R <owner>/<repo>"
+	exit 1
+fi
+
+# Shape third. Non-empty is not the same as correct: another app's key and
 # Google's public test AdMob id are both perfectly non-empty.
 i=0
 for key in "${keys[@]+"${keys[@]}"}"; do
@@ -166,8 +206,10 @@ for key in "${keys[@]+"${keys[@]}"}"; do
 	raw=${!key}
 	escaped=$(xcconfig_escape "$raw")
 	set_key "$dest" "$key" "$escaped"
-	if [ "$escaped" != "$raw" ]; then
+	if [ "${raw#*//}" != "$raw" ]; then
 		echo "$me: set $key in $dest (// escaped as /\$()/)"
+	elif [ "$escaped" != "$raw" ]; then
+		echo "$me: set $key in $dest (\$ escaped as \$\$)"
 	else
 		echo "$me: set $key in $dest"
 	fi

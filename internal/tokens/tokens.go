@@ -147,6 +147,20 @@ const (
 	// because the common case renders NOTHING and a leftover blank `- name:`
 	// would be a syntax error.
 	IOSProductSecrets = "{{IOS_PRODUCT_SECRETS}}"
+	// IOSArchiveSecretsCheck expands to one "verify the archived Info.plist"
+	// step per product, between the archive and the IPA export.
+	//
+	// Unlike IOSProductSecrets it renders for EVERY product, declared secrets or
+	// not, and that is the point of it. The repositories actually at risk of
+	// shipping an app with empty or placeholder keys are the ones that declare
+	// nothing — no writer step runs for them, so nothing else in the pipeline
+	// looks at those keys at all. A check that only rendered where secrets are
+	// declared would defuse none of them.
+	//
+	// Required, because Products() is never empty: an empty render could only
+	// mean the derivation broke, and the failure it would ship is a release with
+	// the check silently missing.
+	IOSArchiveSecretsCheck = "{{IOS_ARCHIVE_SECRETS_CHECK}}"
 	// IOSReleaseTags is the release workflow's push-tag filter, derived from the
 	// products' tag prefixes.
 	//
@@ -325,6 +339,7 @@ var registry = []entry{
 	{IOSProductCatalog, false},
 	{IOSProductChoices, false},
 	{IOSProductSecrets, false},
+	{IOSArchiveSecretsCheck, true},
 	{IOSReleaseTags, false},
 	{IOSCIProductSuffix, false},
 	{IOSCIBuildStrategy, false},
@@ -420,6 +435,8 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSProductChoices: ProductChoices(products),
 		IOSProductSecrets: ProductSecrets(products, prefix),
 		IOSReleaseTags:    ReleaseTags(products),
+
+		IOSArchiveSecretsCheck: ArchiveSecretsCheck(products, p.Xcodeproj, prefix),
 
 		IOSCIProductSuffix:     CIProductSuffix(products),
 		IOSCIBuildStrategy:     CIBuildStrategy(products),
@@ -1120,6 +1137,80 @@ func ProductSecrets(products []config.Product, prefix string) string {
 		}
 	}
 	return b.String()
+}
+
+// ArchiveSecretsCheck renders, for every product, the step that reads the
+// ARCHIVED app's Info.plist and fails the release when a build-time key reached
+// it empty, unexpanded, or as a placeholder — scripts/verify-archive-info-plist.sh.
+//
+// ProductSecrets checks a secret's value before the build. Nothing checked that
+// the value reached the product: a wrong secrets_file, a missing `#include?`, a
+// committed xcconfig assigning the key after the written one, and the archive
+// bakes in REPLACE_ME or nothing while every gate is green. This is the check
+// that reads the one artifact that cannot be wrong about what shipped.
+//
+// It is a static step per product, gated on the matrix leg, for the same reason
+// ProductSecrets is: the declared key names and shapes stay greppable in the
+// workflow. Every product in the catalog gets exactly one, so no leg can run
+// without it.
+//
+// xcodeproj is [project].xcodeproj, repo-root relative exactly as the archive
+// step's `-project` is. The examples are every distinct secrets_file the
+// project declares, plus the profile default, each with `.example` appended:
+// the script compares archived values against them and says so when one is not
+// in the checkout.
+func ArchiveSecretsCheck(products []config.Product, xcodeproj, prefix string) string {
+	seen := map[string]bool{}
+	var examples []string
+	paths := []string{"Secrets.xcconfig"}
+	for _, p := range products {
+		paths = append(paths, p.SecretsPath())
+	}
+	for _, path := range paths {
+		e := prefix + path + ".example"
+		if !seen[e] {
+			seen[e] = true
+			examples = append(examples, e)
+		}
+	}
+	sort.Strings(examples)
+
+	steps := make([]string, 0, len(products))
+	for _, p := range products {
+		gate := strings.ReplaceAll(p.Name, "'", "''")
+		keys := make([]string, 0, len(p.Secrets))
+		for k := range p.Secrets {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		args := []string{
+			`--archive "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive"`,
+			fmt.Sprintf("--project %q", xcodeproj),
+			`--scheme "$PRODUCT_SCHEME"`,
+		}
+		for _, e := range examples {
+			args = append(args, fmt.Sprintf("--example %q", e))
+		}
+		for _, k := range keys {
+			arg := k
+			if pattern, ok := p.SecretFormats[k]; ok {
+				arg = k + "=" + pattern
+			}
+			args = append(args, fmt.Sprintf("%q", arg))
+		}
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "      - name: Verify build-time keys reached the archive (%s)\n", p.Name)
+		fmt.Fprintf(&b, "        if: matrix.product.name == '%s'\n", gate)
+		b.WriteString("        run: |\n")
+		b.WriteString("          scripts/verify-archive-info-plist.sh")
+		for _, a := range args {
+			b.WriteString(" \\\n            " + a)
+		}
+		steps = append(steps, b.String())
+	}
+	return strings.Join(steps, "\n")
 }
 
 // ReleaseTags renders the push-tag filter: one pattern per product prefix, or
