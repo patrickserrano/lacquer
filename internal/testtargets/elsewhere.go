@@ -106,9 +106,13 @@ var testAction = regexp.MustCompile(`(^|\s)(test|test-without-building|build-for
 // noticing. An empty set skips the check rather than guessing — see Parse on why
 // "could not look" is not "it is not there".
 func Verify(projectRoot string, decls []Declaration, project []Target, managed map[string]bool) []Claim {
+	// Native targets only, as Compare's uncovered direction is: that is the
+	// list a declaration can take a target out of.
 	have := make(map[string]bool, len(project))
 	for _, t := range project {
-		have[t.Name] = true
+		if t.native() {
+			have[t.Name] = true
+		}
 	}
 
 	out := make([]Claim, 0, len(decls))
