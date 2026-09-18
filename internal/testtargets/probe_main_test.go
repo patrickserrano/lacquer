@@ -7,7 +7,7 @@ import (
 
 // A harness for eyeballing the parser against real projects during development:
 //
-//	go test ./internal/testtargets/ -run TestParseRealProject -v -args <pbxproj>
+//	PBXPROJ=<path/to/project.pbxproj> go test ./internal/testtargets/ -run TestParseRealProject -v
 func TestParseRealProject(t *testing.T) {
 	path := os.Getenv("PBXPROJ")
 	if path == "" {
@@ -18,10 +18,18 @@ func TestParseRealProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, x := range ts {
+		if x.Unread != "" {
+			t.Logf("  UNREAD %s", x.Unread)
+			continue
+		}
 		kind := "unit"
 		if x.UI {
 			kind = "UI"
 		}
-		t.Logf("  %-42s %s", x.Name, kind)
+		where := "native"
+		if x.Package != "" {
+			where = "package " + x.Package
+		}
+		t.Logf("  %-42s %-4s %s", x.Name, kind, where)
 	}
 }

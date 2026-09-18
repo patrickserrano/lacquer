@@ -185,6 +185,17 @@ that matched no tests; blank and repeated entries are rejected at load, because
 both render a selector that runs nothing. The pre-commit `Swift Tests` hook runs
 the same extras.
 
+`audit` checks each selector against the targets that exist. A native test
+target in `project.pbxproj` counts, and so does a `.testTarget` in the
+`Package.swift` of a local package the project references
+(`XCLocalSwiftPackageReference`, resolved from the `.xcodeproj`'s directory). A
+selector found in neither place is reported as naming a target that does not
+exist. If a referenced package can't be read, the selector is reported as
+*could not check*, not as missing, and the report gives the reason. That happens
+when the manifest is absent or declares a test target whose name is computed
+rather than written as a string. Package suites are not part of the
+"no selector covers it" report.
+
 `app_target` is declared, not derived: a scheme and the product it builds
 genuinely differ in real projects, and a wrong target selects no coverage row at
 all — which reports 0.0% rather than failing.

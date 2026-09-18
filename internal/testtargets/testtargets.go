@@ -23,16 +23,30 @@ package testtargets
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 )
 
-// Target is one test bundle declared in project.pbxproj.
+// Target is one test bundle the project can select: a native target in
+// project.pbxproj, or a test target of a local Swift package it references (see
+// packages.go).
 type Target struct {
 	Name string
 	UI   bool // a ui-testing bundle rather than a unit-test one
+	// Package is the relativePath of the local Swift package this test target
+	// was read from, and "" for a native target of project.pbxproj.
+	Package string
+	// Unread is set on an entry that is NOT a target: a referenced package the
+	// audit could not fully read, and why. It exists so "I could not look" can
+	// reach Compare as that, rather than as an absence it would read as "it is
+	// not there". Such an entry has no Name.
+	Unread string
 }
+
+// native reports whether t is a test target declared by project.pbxproj itself.
+func (t Target) native() bool { return t.Package == "" && t.Unread == "" }
 
 var (
 	nativeTarget = regexp.MustCompile(`isa = PBXNativeTarget;`)
@@ -68,10 +82,11 @@ func Parse(pbxprojPath string) ([]Target, bool, error) {
 		return nil, false, fmt.Errorf("read %s: %w", pbxprojPath, err)
 	}
 
+	text := string(b)
 	var out []Target
 	var inTarget bool
 	var name string
-	for _, line := range strings.Split(string(b), "\n") {
+	for _, line := range strings.Split(text, "\n") {
 		if nativeTarget.MatchString(line) {
 			inTarget, name = true, ""
 			continue
@@ -99,7 +114,13 @@ func Parse(pbxprojPath string) ([]Target, bool, error) {
 			inTarget = false
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	out = append(out, packageTargets(filepath.Dir(filepath.Dir(pbxprojPath)), text)...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Package < out[j].Package
+	})
 	return out, true, nil
 }
 
@@ -112,6 +133,14 @@ type Report struct {
 	// Missing are selectors naming a target the project does not have. Each one
 	// renders a `-only-testing:` that matches nothing and exits 0.
 	Missing []string
+	// Unverified are selectors found in no place the audit could read, while
+	// some place a test target could be — a referenced local package — could
+	// not be read. Neither missing nor present: reporting them missing would
+	// assert what was not checked, and dropping them would pass it.
+	Unverified []string
+	// Unreadable are the entries that made a selector Unverified, each with its
+	// reason. Set only when Unverified is non-empty.
+	Unreadable []Target
 	// Elsewhere are [[project.covered_elsewhere]] declarations that verified:
 	// their target is run by a workflow this lacquer does not manage. Their
 	// targets are NOT in Uncovered — and they are printed anyway, because an
@@ -133,7 +162,12 @@ type Report struct {
 // `-only-testing:` matches. A near-miss is a miss.
 func Compare(project []Target, selectors []string) Report {
 	have := map[string]bool{}
+	var unreadable []Target
 	for _, t := range project {
+		if t.Unread != "" {
+			unreadable = append(unreadable, t)
+			continue
+		}
 		have[t.Name] = true
 	}
 	named := map[string]bool{}
@@ -145,23 +179,35 @@ func Compare(project []Target, selectors []string) Report {
 
 	var r Report
 	for _, t := range project {
-		if !named[t.Name] {
+		// Native targets only. A package's test suite may be run by `swift
+		// test` in a workflow of its own, and `-only-testing:` can reach it at
+		// all only once the scheme lists it — so no selector naming it is not
+		// the evidence that it runs nowhere that it is for a native target.
+		if t.native() && !named[t.Name] {
 			r.Uncovered = append(r.Uncovered, t)
 		}
 	}
 	for s := range named {
-		if !have[s] {
+		switch {
+		case have[s]:
+		case len(unreadable) > 0:
+			r.Unverified = append(r.Unverified, s)
+		default:
 			r.Missing = append(r.Missing, s)
 		}
 	}
 	sort.Strings(r.Missing)
+	sort.Strings(r.Unverified)
+	if len(r.Unverified) > 0 {
+		r.Unreadable = unreadable
+	}
 	return r
 }
 
 // Format renders the report for `lacquer audit`, empty when there is nothing to
 // say so the caller can print it unconditionally.
 func Format(r Report) string {
-	if len(r.Uncovered) == 0 && len(r.Missing) == 0 &&
+	if len(r.Uncovered) == 0 && len(r.Missing) == 0 && len(r.Unverified) == 0 &&
 		len(r.Elsewhere) == 0 && len(r.Unconfirmed) == 0 && len(r.Stale) == 0 {
 		return ""
 	}
@@ -176,6 +222,20 @@ func Format(r Report) string {
 		b.WriteString("    Check test_target / ui_test_target / extra_test_targets against the target\n")
 		b.WriteString("    names in the Xcode project — a product's `name` is a display label and is\n")
 		b.WriteString("    not required to match its scheme or its targets.\n")
+	}
+
+	if len(r.Unverified) > 0 {
+		b.WriteString("\ntest selectors this audit could not check:\n")
+		for _, s := range r.Unverified {
+			b.WriteString("  " + s + "\n")
+		}
+		b.WriteString("    None is a native target of the Xcode project, and the project references a\n")
+		b.WriteString("    local Swift package that could not be read, which may declare it:\n")
+		for _, t := range r.Unreadable {
+			b.WriteString("      " + t.Unread + "\n")
+		}
+		b.WriteString("    This is not a finding that the target is missing, and not evidence that it\n")
+		b.WriteString("    exists. Make the package readable here and re-run the audit.\n")
 	}
 
 	if len(r.Uncovered) > 0 {
