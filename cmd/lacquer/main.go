@@ -26,6 +26,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/fixcmd"
 	"github.com/patrickserrano/lacquer/internal/fleet"
 	"github.com/patrickserrano/lacquer/internal/hooks"
+	"github.com/patrickserrano/lacquer/internal/inbox"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
@@ -684,6 +685,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		rosterPath := fs.String("roster", getenv("LACQUER_ROSTER"), "path to the roster file (or $LACQUER_ROSTER)")
 		rolesPath := fs.String("roles", getenv("LACQUER_ROLES"), "path to the roles file (or $LACQUER_ROLES) — dispatch-role/watch only")
 		sessionsPath := fs.String("sessions", getenv("LACQUER_SESSIONS"), "path to the sessions file (or $LACQUER_SESSIONS) — enables tracking for `watch`")
+		inboxPath := fs.String("inbox", getenv("LACQUER_INBOX"), "path to the inbox file (or $LACQUER_INBOX) — decisions awaiting the operator and finished work, shown as ACTION/UNREAD and required by `inbox add`/`resolve`/`list`")
 		mode := fs.String("mode", "", "dispatch target: bg (worktree-isolated background agent) or tmux (interactive, edits the checkout)")
 		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role/watch --relaunch: print the command without starting anything")
 		relaunch := fs.Bool("relaunch", false, "with watch: re-dispatch every session found dead")
@@ -801,6 +803,26 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			}
 			return 0
 		}
+		// inbox needs neither --mode nor a project roster, same reasoning as
+		// watch/dispatch-role above: it operates entirely on the inbox file.
+		if len(rest) > 0 && rest[0] == "inbox" {
+			if *inboxPath == "" {
+				return fail(stderr, fmt.Errorf("inbox needs a path: pass --inbox <path> or set LACQUER_INBOX"))
+			}
+			if len(rest) < 2 {
+				return fail(stderr, fmt.Errorf("usage: lacquer console --inbox F inbox <add|resolve|list> ..."))
+			}
+			switch rest[1] {
+			case "add":
+				return runInboxAdd(*inboxPath, rest[2:], stdout, stderr)
+			case "resolve":
+				return runInboxResolve(*inboxPath, rest[2:], stdout, stderr)
+			case "list":
+				return runInboxList(*inboxPath, rest[2:], stdout, stderr)
+			default:
+				return fail(stderr, fmt.Errorf("unknown inbox subcommand %q (want add, resolve, or list)", rest[1]))
+			}
+		}
 		if *rosterPath == "" {
 			return fail(stderr, fmt.Errorf("console needs a roster: pass --roster <path> or set LACQUER_ROSTER"))
 		}
@@ -829,7 +851,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			}
 			return 0
 		}
-		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now()))
+		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now(), *inboxPath))
 	case "status":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -928,7 +950,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               \"CI OK\" aggregate, or a context no job can skip. Reaches the API")
 	fmt.Fprintln(w, "                               via `gh` (exit 4 on a finding; exit 7 if a repo could NOT be")
 	fmt.Fprintln(w, "                               checked — which is never reported as a pass)")
-	fmt.Fprintln(w, "  console --roster F           one screen: fleet truth + live sessions + open PRs")
+	fmt.Fprintln(w, "  console --roster F [--inbox F]")
+	fmt.Fprintln(w, "                               one screen: fleet truth + live sessions + open PRs + inbox")
+	fmt.Fprintln(w, "                               (decisions awaiting the operator, finished work awaiting")
+	fmt.Fprintln(w, "                               acknowledgement) shown first, as ACTION/UNREAD, when --inbox is set")
 	fmt.Fprintln(w, "  console ... --mode bg|tmux dispatch <project> \"<task>\"")
 	fmt.Fprintln(w, "                               start work on one project (bg = isolated worktree; tmux = the checkout)")
 	fmt.Fprintln(w, "  console --roles R dispatch-role <name> [\"<task override>\"]")
@@ -947,6 +972,14 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               the job's own ~/.claude/jobs/<id> directory (a blocked bg daemon")
 	fmt.Fprintln(w, "                               holds no live process to signal, so this is what actually stops")
 	fmt.Fprintln(w, "                               it being respawned) — for tmux mode it kills the tmux session")
+	fmt.Fprintln(w, "  console --inbox F inbox add --type action|unread --title T [--body B] [--ref R] [--project P]")
+	fmt.Fprintln(w, "                               record a decision awaiting the operator, or finished work")
+	fmt.Fprintln(w, "                               awaiting acknowledgement; prints the new entry's id on success")
+	fmt.Fprintln(w, "                               (usable non-interactively, e.g. from an agent's own shell)")
+	fmt.Fprintln(w, "  console --inbox F inbox resolve <id>")
+	fmt.Fprintln(w, "                               mark one inbox entry resolved")
+	fmt.Fprintln(w, "  console --inbox F inbox list [--all]")
+	fmt.Fprintln(w, "                               list open inbox entries (--all also lists resolved ones)")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
@@ -1121,6 +1154,96 @@ func recordRoleDispatch(stderr io.Writer, sessionsPath string, roles console.Rol
 		}
 		return
 	}
+}
+
+// runInboxAdd is `lacquer console --inbox F inbox add`. Must be usable
+// non-interactively by an agent in one shell line, so the ONLY thing it prints
+// on success is the assigned id — a script capturing stdout gets exactly the
+// id and nothing else to strip.
+func runInboxAdd(path string, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("console inbox add", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	typ := fs.String("type", "", `"action" (needs a human decision) or "unread" (finished, unacknowledged)`)
+	title := fs.String("title", "", "one-line summary (required)")
+	body := fs.String("body", "", "optional detail")
+	ref := fs.String("ref", "", `optional reference, e.g. "#374" or a URL`)
+	project := fs.String("project", "", "optional project/roster name")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	var t inbox.Type
+	switch *typ {
+	case string(inbox.Action):
+		t = inbox.Action
+	case string(inbox.Unread):
+		t = inbox.Unread
+	default:
+		return fail(stderr, fmt.Errorf("inbox add needs --type action or --type unread, got %q", *typ))
+	}
+	e, err := inbox.Add(path, inbox.Entry{
+		Type:    t,
+		Title:   *title,
+		Body:    *body,
+		Ref:     *ref,
+		Project: *project,
+	})
+	if err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintln(stdout, e.ID)
+	return 0
+}
+
+// runInboxResolve is `lacquer console --inbox F inbox resolve <id>`.
+func runInboxResolve(path string, args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		return fail(stderr, fmt.Errorf("usage: lacquer console --inbox F inbox resolve <id>"))
+	}
+	e, err := inbox.Resolve(path, args[0])
+	if err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintf(stdout, "resolved %s [%s]: %s\n", e.ID, e.Type, e.Title)
+	return 0
+}
+
+// runInboxList is `lacquer console --inbox F inbox list [--all]`. Defaults to
+// open entries only, matching what the console dashboard itself shows;
+// --all also lists resolved ones, for an operator auditing what has already
+// been handled.
+func runInboxList(path string, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("console inbox list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	all := fs.Bool("all", false, "include resolved entries")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	entries, malformed, err := inbox.ReadAll(path)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if malformed > 0 {
+		fmt.Fprintf(stderr, "warning: skipped %d malformed inbox line(s)\n", malformed)
+	}
+	var shown int
+	for _, e := range entries {
+		if !*all && !e.Open() {
+			continue
+		}
+		shown++
+		status := "open"
+		if !e.Open() {
+			status = "resolved " + e.ResolvedAt.Format(time.RFC3339)
+		}
+		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", e.ID, e.Type, status, e.CreatedAt.Format(time.RFC3339), e.Title)
+		if e.Body != "" {
+			fmt.Fprintf(stdout, "\t\t\t\t  %s\n", e.Body)
+		}
+	}
+	if shown == 0 {
+		fmt.Fprintln(stdout, "no inbox entries")
+	}
+	return 0
 }
 
 // runFixers loads the manifest and runs every declared profile's autofixers.

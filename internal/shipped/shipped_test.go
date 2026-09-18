@@ -789,14 +789,17 @@ func stripYAMLComments(s string) string {
 }
 
 // TestOperatorPackagesNameNoProject enforces the boundary that makes `lacquer
-// fleet` safe to ship in a PUBLIC repository while every project it sweeps is
-// private.
+// fleet`, `lacquer console`, and internal/inbox safe to ship in a PUBLIC
+// repository while every project they operate on is private.
 //
 // The roster belongs to the operator, not to this tool. A project name reaching
-// this package would be a privacy leak with no upside — and the leak would be
-// permanent, because this repo's history is public. The names below are the
-// ones this fleet actually uses; the check is a tripwire for the habit, not an
-// exhaustive filter.
+// any of these packages would be a privacy leak with no upside — and the leak
+// would be permanent, because this repo's history is public. internal/inbox
+// holds an operator-supplied Project string at RUNTIME (entries an operator or
+// agent adds via `console inbox add --project ...`), which this static scan
+// cannot see — but its own source and fixtures are held to the same bar. The
+// names below are the ones this fleet actually uses; the check is a tripwire
+// for the habit, not an exhaustive filter.
 func TestOperatorPackagesNameNoProject(t *testing.T) {
 	r := root(t)
 	// Distinctive names only. Short or dictionary-word names ("rail", "kit",
@@ -807,7 +810,7 @@ func TestOperatorPackagesNameNoProject(t *testing.T) {
 		"needledrop", "sleevetap", "shelflife", "darndest", "mindmint",
 	}
 	var scanned int
-	for _, pkg := range []string{"fleet", "console"} {
+	for _, pkg := range []string{"fleet", "console", "inbox"} {
 		dir := filepath.Join(r, "internal", pkg)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
