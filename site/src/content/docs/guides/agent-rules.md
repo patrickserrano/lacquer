@@ -97,6 +97,12 @@ doesn't. Manage context so it never happens mid-task:
 - **Front-load, don't rebuild, on resume.** Read the last plan/PR/commit and state the next action instead of reconstructing context by re-reading everything.
 - **Two failed corrections means the context is the problem, not the next attempt.** If the same issue has been corrected twice in one session and is still wrong, stop retrying — `/clear` and restart with a prompt that incorporates what you learned. A clean session with a better prompt outperforms a long one carrying failed approaches.
 
+## Papercuts log
+
+If `~/Developer/papercuts.md` exists, read it first when tooling fails in a way that doesn't make sense — a machine-wide log of traps that already cost sessions time. When you lose time to something new, append one line, `date · symptom · fix · project`, under **Global** if it applies in any repo or under that project's heading if it is tied to one repo's setup.
+
+The file only exists on the operator's machine, so its absence is normal (CI, cloud sessions, a fresh clone). Nothing depends on it and no check requires it.
+
 ## Docs taxonomy
 
 A project starts from a **brief** at `docs/brief.md` — the pitch, scope, and
