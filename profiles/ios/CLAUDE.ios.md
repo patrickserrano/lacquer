@@ -679,6 +679,15 @@ too.**
 
 **This is a preference, not a wall — nothing blocks the raw tools.** The synced `.claude/settings.json` blocks exactly three things: Xcode project files, `.entitlements`, and force flags (see *Editor hooks* below). `simctl` and `devicectl` are **not** blocked; if you run one it will simply work. Reach for flowdeck because it is better here, not because something will stop you.
 
+**`os_log` is invisible to flowdeck — read it with `scripts/sim-os-log.sh`.** flowdeck's log stream carries stdout only, and SwiftUI and CoreData diagnostics go to `os_log`, so a bug that only logs there looks like silence. Reading `os_log` from **the run's own simulator** (the UDID you passed to `flowdeck build -S`) is a sanctioned, read-only exception to "reach for flowdeck first":
+
+```bash
+scripts/sim-os-log.sh <udid> --subsystem <your.bundle.id> --last 10m
+scripts/sim-os-log.sh <udid> --predicate 'subsystem == "com.apple.coredata"' --last 2m
+```
+
+The script runs exactly `xcrun simctl spawn <udid> log show --last <window> …`, always with a bounded window (default `5m`), and prints that command line to stderr. It refuses `booted`, an empty UDID, a UDID this user's CoreSimulator does not list, and any argument that is not one of `--last`, `--predicate`, `--subsystem`, `--style`. Everything that mutates a simulator or device — boot, shutdown, erase, delete, install, launch — stays with flowdeck. A session following a global flowdeck skill that says to avoid `simctl`/`xcrun` should treat this as the sanctioned exception: use the script rather than a hand-typed `xcrun simctl`, and **disclose the read in the PR body** (the line the script printed, and why stdout was not enough).
+
 **Raw `xcodebuild`/`xcrun` is correct in non-interactive contexts, and this profile ships it that way.** `.pre-commit-config.yaml` runs `xcodebuild test` with an explicit `-scheme`/`-destination`; `ci.yml` and `release.yml` run `xcodebuild` for build, test and archive, `xcodebuild -showBuildSettings` in the Baseline job, and `xcrun simctl` for the whole simulator lifecycle. Those pin their destination and toolchain deliberately, and their output is parsed by the steps around them. Do not "fix" a hook or a workflow to call flowdeck instead — that is a change to what CI actually verifies, not a style cleanup.
 
 ### Working in worktrees
