@@ -111,6 +111,19 @@ doesn't. Manage context so it never happens mid-task:
   learned. A clean session with a better prompt outperforms a long one carrying
   failed approaches.
 
+## Papercuts Log
+
+If `~/Developer/papercuts.md` exists, read it **first** when tooling fails in a way
+that doesn't make sense — it is a machine-wide log of traps that already cost
+sessions time, and the fix is usually one line away.
+
+When you lose time to something new, append one line in this form:
+`date · symptom · fix · project`. Put it under **Global** if it applies in any
+repo, or under that project's heading if it is tied to one repo's setup.
+
+The file only exists on the operator's machine, so its absence is normal (CI,
+cloud sessions, a fresh clone). Nothing depends on it and no check requires it.
+
 ## Docs Taxonomy
 
 A project starts from a **brief** at `docs/brief.md` — the pitch, scope, and
