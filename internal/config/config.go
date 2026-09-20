@@ -166,6 +166,11 @@ type Project struct {
 	// apart from "something outside the managed workflows runs this". See
 	// CoveredElsewhere.
 	CoveredElsewhere []CoveredElsewhere `toml:"covered_elsewhere"`
+	// NotRunInCI names test targets that deliberately run in no CI job, each with
+	// a reason and a review date, so the uncovered-target report can tell "nobody
+	// wired this" apart from "this is run somewhere CI cannot reach, on purpose".
+	// See NotRunInCI.
+	NotRunInCI []NotRunInCI `toml:"not_run_in_ci"`
 	// WatchTests is the single-product spelling of [product.watch_tests], folded
 	// into the product Products() synthesises when a manifest declares no
 	// [[product]] block — exactly as ExtraTestTargets is, and for the same
@@ -708,10 +713,109 @@ func validateProject(p Project) error {
 		}
 		seenCovered[c.Target] = true
 	}
+	// Shape only, again: whether the term has run out, and whether the target
+	// still exists and still runs nowhere, are audit-time questions. See
+	// internal/testtargets.Deliberate.
+	seenNotRun := map[string]bool{}
+	for i, n := range p.NotRunInCI {
+		if err := validateNotRunInCI(i, n); err != nil {
+			return err
+		}
+		if seenNotRun[n.Target] {
+			return fmt.Errorf("[[project.not_run_in_ci]][%d] names %q twice; one suite has one reason "+
+				"and one review date, and a second entry is a second answer nobody will reconcile", i, n.Target)
+		}
+		seenNotRun[n.Target] = true
+		if seenCovered[n.Target] {
+			return fmt.Errorf("[[project.not_run_in_ci]][%d] %q is also declared in [[project.covered_elsewhere]]; "+
+				"one says a workflow runs it and the other that nothing in CI does, and at most one is true", i, n.Target)
+		}
+		if p.Xcodeproj == "" {
+			// The audit reads test targets from the Xcode project. Without one it
+			// reads none, so this declaration — and its expiry — would never be
+			// evaluated: a date that looks enforced and is not.
+			return fmt.Errorf("[[project.not_run_in_ci]][%d] %q needs [project].xcodeproj; the audit reads "+
+				"test targets from it, and without one this declaration and its until date are never checked", i, n.Target)
+		}
+	}
 	if _, err := p.ParsedSkills(); err != nil {
 		return err
 	}
 	return validateXcodeproj(p.Xcodeproj)
+}
+
+// NotRunInCI is one test target that deliberately runs in no CI job.
+//
+//	[[project.not_run_in_ci]]
+//	target = "MomFriendCoreTests"
+//	reason = "needs on-device models; built in CI, run on device before release"
+//	until  = "2026-12-31"
+//
+// It exists because the uncovered-target report had no honest answer for a
+// suite that is run on purpose, somewhere CI cannot reach. momfriend's
+// MomFriendCoreTests is built in CI and never run there: it needs on-device
+// models, and is written to fail rather than skip without them. None of the
+// fixes the report offers fits — a selector or a `swift test` step would run it
+// on a runner where it cannot pass, and covered_elsewhere would claim a
+// workflow runs it when none does — so the entry stayed reported forever. A
+// finding nobody can act on trains people to skip the report, which costs the
+// findings they can act on.
+//
+// It is the opposite claim to CoveredElsewhere ("CI runs this, just not the
+// managed workflow") and carries the opposite rule about time. That one has no
+// expiry because the project holds no remedy a date could force. This one
+// REQUIRES `until`, the rule [[component]].dependabot_ignore and
+// [baseline.relax] follow, because the project does hold the remedies: provide
+// the models on a runner, rewrite the suite to skip without them, or decide the
+// on-device run is no longer happening. A gap in CI coverage with no term is a
+// gap nobody revisits. Past `until`, `lacquer audit` reports the target as
+// uncovered again and exits 4.
+//
+// A declaration is also reported as stale when it stops being needed: the target
+// no longer exists, or something now covers it (a selector, a verified
+// covered_elsewhere, a workflow that runs it). Declaring a target in both tables
+// is rejected at load, since the two cannot both be true.
+//
+// A plain struct, not a custom UnmarshalTOML, so manifestTables' reflection and
+// rejectUnknownKeys see its interior: an unknown key is named with the keys this
+// table accepts, and a TOML date written unquoted fails to decode rather than
+// being dropped.
+type NotRunInCI struct {
+	// Target is the test target's EXACT name, as project.pbxproj or the local
+	// package's Package.swift spells it. Compared case-sensitively.
+	Target string `toml:"target"`
+	// Reason is why nothing in CI runs it, and where it IS run. Required, and
+	// printed beside the target on every audit.
+	Reason string `toml:"reason"`
+	// Until is the review date, YYYY-MM-DD. Required. Through that whole day the
+	// declaration holds; after it, the audit reports it expired and exits 4.
+	Until string `toml:"until"`
+}
+
+// UntilDate parses Until.
+func (n NotRunInCI) UntilDate() (time.Time, error) { return time.Parse("2006-01-02", n.Until) }
+
+// validateNotRunInCI checks one entry's shape. Every field is required.
+func validateNotRunInCI(i int, n NotRunInCI) error {
+	where := fmt.Sprintf("[[project.not_run_in_ci]][%d]", i)
+	if n.Target == "" {
+		return fmt.Errorf("%s needs a target (the test target's exact name)", where)
+	}
+	if !projNameVal.MatchString(n.Target) {
+		return fmt.Errorf("%s has an invalid target %q (must match %s)", where, n.Target, projNameVal.String())
+	}
+	if strings.TrimSpace(n.Reason) == "" {
+		return fmt.Errorf("%s %q needs a reason (why nothing in CI runs it, and where it is run); "+
+			"it is printed on every audit, and it is the only thing the next reader will have", where, n.Target)
+	}
+	if n.Until == "" {
+		return fmt.Errorf("%s %q needs an until date (YYYY-MM-DD); a coverage gap with no term never "+
+			"comes back for review, and is indistinguishable from one nobody noticed", where, n.Target)
+	}
+	if _, err := n.UntilDate(); err != nil {
+		return fmt.Errorf("%s %q has an invalid until %q (want YYYY-MM-DD)", where, n.Target, n.Until)
+	}
+	return nil
 }
 
 // validateXcodeproj accepts a blank value, or a relative, non-escaping,

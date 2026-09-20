@@ -351,6 +351,63 @@ jobs:
       - name: Test the e2e suite (no race detector -- see above)
         run: go test ./internal/shipped/ -timeout 20m
 
+      # Claude Code skips a malformed agent, skill or command WITHOUT an error, so
+      # a broken one looks like one that is never used (lacquer#414). Two checks
+      # cover what lacquer ships, and they cover different things:
+      #
+      #   1. internal/plugindefs, run by `go test ./...` above with no CLI: a
+      #      missing or misplaced opening `---`, an agent `name` that is missing
+      #      or contains ':'. These are the defects `claude plugin validate`
+      #      provably MISSES (measured on 2.1.278).
+      #   2. The real CLI, below: frontmatter present and a description.
+      #
+      # The CLI is measured, not assumed, and it is a weak instrument. Pointed at
+      # a bare directory it reads nothing and prints "Validation passed"; it only
+      # reads a plugin wrapper (internal/plugindefs builds one in a temp dir), and
+      # only FAILS under --strict, because every finding is a warning otherwise.
+      # So the test first proves the same invocation rejects a known-bad
+      # definition and hands the CLI at least 50 real ones -- "can this tell
+      # verified-and-passing from never-ran?" -- and this step then requires
+      # those two tests to have RAN, since `go test -run` that matches nothing
+      # exits 0.
+      #
+      # It rides in this job, not a new one: a job is billed a minimum minute, and
+      # `test` is already required, so this needs no new branch-protection rule.
+      #
+      # Install is its own step so a registry failure reads as one and not as a
+      # validation failure. Pinned to an exact version: an unpinned CLI would let
+      # a new release turn this red (or, worse, blind) with no change here. Bump it
+      # deliberately, after re-running the measurements in internal/plugindefs.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install the claude CLI (pinned)
+        env:
+          CLAUDE_CLI_VERSION: "2.1.278"
+        run: |
+          set -euo pipefail
+          npm install --global "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
+          got="$(claude --version | awk '{print $1}')"
+          if [ "$got" != "$CLAUDE_CLI_VERSION" ]; then
+            echo "::error::installed claude is '$got', wanted $CLAUDE_CLI_VERSION."
+            exit 1
+          fi
+      - name: Validate shipped agents, skills and commands with claude plugin validate
+        env:
+          # No API key, no login: the CLI needs neither to validate (verified with
+          # an empty HOME and the network blocked).
+          DISABLE_AUTOUPDATER: "1"
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/plugindefs.out"
+          go test -tags claudecli -count=1 -run 'TestRealCLI' -v ./internal/plugindefs/ | tee "$out"
+          for t in TestRealCLIRejectsAKnownBadDefinition TestRealCLIAcceptsWhatLacquerShips; do
+            if ! grep -q "^--- PASS: $t " "$out"; then
+              echo "::error::$t did not run and pass. A selector that matches nothing exits 0; that is not a pass."
+              exit 1
+            fi
+          done
+
   # Behaviour eval suite: does an agent following core/CLAUDE.core.md and this
   # repo's own CLAUDE.md reach the right VERDICT on a real repo state, not just
   # "does the Go compile." See internal/eval's package doc for the full

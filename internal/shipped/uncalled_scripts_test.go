@@ -110,10 +110,18 @@ func TestWriteReleaseConfigIsCalledWhenAProductDeclaresSecrets(t *testing.T) {
 // fully-profiled fixtures, and this pins that so a new script arriving without
 // one is a test failure rather than a discovery months later. It fails in both
 // directions: an over-reporting change to the check lands here too.
+//
+// Two are known. write-release-config.sh is the defect above. sim-os-log.sh is
+// the opposite case, deliberately: it is run by an agent or a person at a
+// terminal to read os_log from their own simulator (lacquer#413), so no
+// workflow, hook or settings file should name it, and it is documented in
+// CLAUDE.ios.md as exactly that. Listing it here is the point of the guard —
+// the state is written down, and a later script arriving with no caller and no
+// such reason still fails this test.
 func TestTheOnlyUncalledScriptOnAProfiledProjectIsTheKnownOne(t *testing.T) {
 	for _, name := range []string{"rootapp", "multistack"} {
 		dests, _ := uncalled(t, name)
-		want := []string{"scripts/write-release-config.sh"}
+		want := []string{"scripts/sim-os-log.sh", "scripts/write-release-config.sh"}
 		if !equalStrings(dests, want) {
 			t.Errorf("%s: uncalled scripts = %v, want %v.\nA new entry means a script was shipped with "+
 				"no caller; a missing entry means either it was wired up (delete it from want) or the "+

@@ -14,12 +14,12 @@ description: Every lacquer CLI subcommand.
 | `lacquer doctor [--profile P]` | Prove each check can actually fail; exit 5 if one cannot. `--profile` limits it to one stack's checks, for a runner that has only that toolchain. |
 | `lacquer fix` | Run the profiles' autofixers (formatters, `lint --fix`) over the project. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
-| `lacquer audit` | Classify project drift and check the project baseline. Exit 3 if a sync would clobber a local change, 4 on a baseline violation or an expired `[project].exclude`, 6 if a stack on disk is undeclared (usable as a CI gate). |
+| `lacquer audit` | Classify project drift and check the project baseline. Exit 3 if a sync would clobber a local change, 4 on a baseline violation or an expired `[project].exclude`, `dependabot_ignore` or `[[project.not_run_in_ci]]`, 6 if a stack on disk is undeclared (usable as a CI gate). It also reports, without ever changing the exit code, any rendered agent, skill or command that Claude Code would skip silently (frontmatter missing or not on line 1, an agent with no `name` or a `name` containing `:`), and runs `claude plugin validate --strict` over them when the `claude` CLI is installed (otherwise it says "not checked"). |
 | `lacquer fleet --roster F [--json]` | Audit every project in a roster; exit 4 if any would fail its own audit. `--json` emits a snapshot. |
 | `lacquer fleet diff A.json B.json` | What changed between two snapshots; exit 4 on a regression. |
 | `lacquer protection [--repo O/N] [--branch B] [--roster F]` | Compare what branch protection **requires** against what CI can **post**. GitHub counts a skipped check as satisfying a required one, so a repo passes only if it requires the always-running `CI OK` aggregate — or some other context posted by a job nothing can skip. Reaches the GitHub API through `gh`, so it is opt-in and separate from `audit`. Exit 4 on a finding; **exit 7 if a repository could not be checked** — never reported as a pass. |
 | `lacquer console --roster F` | One screen: fleet truth + live sessions + open PRs. |
-| `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, check, relaunch, or stop work on a project or a named role. `--mode bg` runs `claude --bg` in a new git worktree and branch under `<repo>/.claude/worktrees/`, and launches nothing if one cannot be made. `--mode tmux` starts a detached tmux session in the checkout itself, which it edits directly; attach with `tmux attach -t <name>`, and a session already running under that name is left alone. `--worktree <path>` runs the session, in either mode, in an existing worktree instead: for the worktree a PM created and named in an IC's brief. It must be a registered worktree of the project's repository (and, for bg, not the checkout itself), or nothing launches; lacquer never creates, changes or removes it, and records it like one it made, so a relaunch resumes in it and `kill` keeps it. `--branch <name>` (bg only) names the branch of the worktree bg creates, under `.claude/worktrees/` with `/` flattened to `-`, instead of `dispatch/<id>`: for a branch a PM chose. It is refused if the branch or directory already exists (pass `--worktree` for that), and together with `--worktree`. Console flags go before the subcommand; one after `dispatch` is refused rather than read as part of the task. Both modes pass `--dangerously-skip-permissions` with the sandbox off, and neither needs a terminal, so an agent can dispatch. With `--sessions`, every launch attempt is recorded, a failed one included, and `watch` reports a failed launch as failed. `watch --relaunch` puts the relaunched session's record in place of the dead one (a bg session resumes in its recorded worktree), and stops retrying a record after 3 failed launches in a row, leaving it for you. See `lacquer help` for the flag combinations each takes. |
+| `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, check, relaunch, or stop work on a project or a named role. `--mode bg` runs `claude --bg` in a new git worktree and branch under `<repo>/.claude/worktrees/`, and launches nothing if one cannot be made. `--mode tmux` starts a detached tmux session in the checkout itself, which it edits directly; attach with `tmux attach -t <name>`, and a session already running under that name is left alone. `--worktree <path>` runs the session, in either mode, in an existing worktree instead: for the worktree a PM created and named in an IC's brief. It must be a registered worktree of the project's repository (and, for bg, not the checkout itself), or nothing launches; lacquer never creates, changes or removes it, and records it like one it made, so a relaunch resumes in it and `kill` keeps it. `--branch <name>` (bg only) names the branch of the worktree bg creates, under `.claude/worktrees/` with `/` flattened to `-`, instead of `dispatch/<id>`: for a branch a PM chose. It is refused if the branch or directory already exists (pass `--worktree` for that), and together with `--worktree`. Every console flag works on either side of the subcommand, with the same meaning (`watch --relaunch` is `--relaunch watch`), and among a dispatch task's words, so a trailing `--dry-run` is a dry run; a task word that starts with `-` goes after `--`, which ends the flags (`dispatch <project> -- <task>`). An unknown flag, or one the subcommand has no use for (`--dry-run` with `kill`), is an error; `--roster`, `--roles`, `--sessions` and `--inbox` are accepted by every subcommand. Both modes pass `--dangerously-skip-permissions` with the sandbox off, and neither needs a terminal, so an agent can dispatch. With `--sessions`, every launch attempt is recorded, a failed one included, and `watch` reports a failed launch as failed. `watch --relaunch` puts the relaunched session's record in place of the dead one (a bg session resumes in its recorded worktree), and stops retrying a record after 3 failed launches in a row, leaving it for you. See `lacquer help` for the flag combinations each takes. |
 | `lacquer version` | Print the lacquer version. |
 
 `lacquer help` (or `--help`/`-h`) prints usage, including the full `console`
@@ -204,7 +204,8 @@ that selects the suite or runs a scheme testing it (including the scheme Xcode
 generates for a package), and the same commands inside a script in the
 repository that the step runs. It does not recognise `swift build
 --build-tests`, which compiles the suite and runs none of it. A suite run some
-other way can be declared in `[[project.covered_elsewhere]]`, below. If the
+other way can be declared in `[[project.covered_elsewhere]]`, and a suite
+deliberately run in no CI job in `[[project.not_run_in_ci]]`, both below. If the
 package can't be read, or a workflow that might run the suite can't be (a
 `${{ matrix }}` directory, a scheme that isn't committed), the suite is
 reported as *could not check* rather than as running nowhere.
@@ -244,6 +245,45 @@ Anything short of that and the target is reported again with the failed check
 printed beside it. There is no `until` — the declaration expires by ceasing to
 verify, not on a date, and a declaration naming a target the project no longer
 has is reported as stale.
+
+### A suite deliberately not run in CI
+
+Some suites are run on purpose somewhere CI can't reach. momfriend's
+`MomFriendCoreTests` needs on-device models and is written to fail, not skip,
+without them, so CI builds it and never runs it. The audit is right that nothing
+in CI runs it, and none of its suggested fixes applies. Say so, with a reason and
+a date:
+
+```toml
+[[project.not_run_in_ci]]
+target = "MomFriendCoreTests"
+reason = "needs on-device models; built in CI, run on device before release"
+until  = "2026-12-31"
+```
+
+All three fields are required. `until` is `YYYY-MM-DD` and covers the whole of
+that day. It works for native targets and local-package suites alike, and it
+needs `[project].xcodeproj`, because that is where the audit reads test targets
+from. A target can't be declared in both this and `covered_elsewhere`, since only
+one of them can be true.
+
+While the declaration is in term, the suite leaves the "no selector covers" list
+and is printed on a line of its own, so it stays visible:
+
+```
+deliberately not run in CI: MomFriendCoreTests — needs on-device models; built in CI, run on device before release (until 2026-12-31)
+```
+
+**Past `until`, it expires.** The suite goes back in the report, the expiry is
+named, and `audit` exits 4, the same as an expired `dependabot_ignore`. This is
+the divergence from `covered_elsewhere`, which has no date because the project
+holds no remedy for it. Here the project does hold the remedies: make the suite
+runnable in CI, delete it, or review the reason and set a new date.
+
+A declaration is reported as **stale** when it no longer describes a gap: the
+target doesn't exist, or something now runs it (a selector, a verified
+`covered_elsewhere`, or a workflow the audit sees running the suite). Stale
+declarations are reported but don't gate. Remove them.
 
 ### Release-time secrets
 

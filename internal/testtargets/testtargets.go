@@ -168,6 +168,11 @@ type Report struct {
 	// Stale are declarations that are not doing anything — the target no longer
 	// exists, or a managed selector already covers it. Set by Apply.
 	Stale []Claim
+	// NotRun are [[project.not_run_in_ci]] declarations: in term (their target
+	// taken out of Uncovered or Unchecked and printed on a line of its own),
+	// expired (the target left where it was, and the audit blocked), or stale.
+	// Set by Deliberate.
+	NotRun []NotRunClaim
 }
 
 // Unchecked is a local package, or one suite of it, whose coverage the audit
@@ -239,7 +244,7 @@ func Compare(project []Target, selectors []string) Report {
 func Format(r Report) string {
 	if len(r.Uncovered) == 0 && len(r.Missing) == 0 && len(r.Unverified) == 0 &&
 		len(r.Elsewhere) == 0 && len(r.Unconfirmed) == 0 && len(r.Stale) == 0 &&
-		len(r.Ran) == 0 && len(r.Unchecked) == 0 {
+		len(r.Ran) == 0 && len(r.Unchecked) == 0 && len(r.NotRun) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -306,6 +311,11 @@ func Format(r Report) string {
 		b.WriteString("    test_target / ui_test_target) — OR DELETE IT. Removing a target that should\n")
 		b.WriteString("    not exist is a correct resolution, not a failure to act; a suite nothing has\n")
 		b.WriteString("    run in months is as likely to be testing an app that changed under it.\n")
+		// The one resolution that is neither wiring nor deleting: a suite run on
+		// purpose somewhere CI cannot reach. Without this line it had no honest
+		// answer and stayed here forever (momfriend's MomFriendCoreTests).
+		b.WriteString("    A suite deliberately run only outside CI (on a device, by hand) can say so\n")
+		b.WriteString("    in [[project.not_run_in_ci]], with a reason and an until date.\n")
 		if packages {
 			// A package suite has a way to run that a native target does not, and
 			// a way to be wired that fails silently, so both go next to it.
@@ -340,6 +350,8 @@ func Format(r Report) string {
 		b.WriteString("    This is not a finding that they run nowhere, and not evidence that they run.\n")
 		b.WriteString("    Make the package or the workflow readable here and re-run the audit.\n")
 	}
+
+	formatNotRun(&b, r.NotRun)
 
 	if len(r.Ran) > 0 {
 		b.WriteString("\nlocal-package test suites a workflow runs (no selector names them):\n")

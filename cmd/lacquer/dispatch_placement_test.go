@@ -484,9 +484,11 @@ func TestConsoleDispatchRefusesAmbiguousOrMisplacedPlacement(t *testing.T) {
 		{name: "--worktree and --branch", args: []string{"--roster", f.roster, "--mode", "bg", "--worktree", wt, "--branch", "feat/y", "dispatch", "proj", "t"}, want: "--worktree and --branch"},
 		{name: "--branch in tmux mode", args: []string{"--roster", f.roster, "--mode", "tmux", "--branch", "feat/y", "dispatch", "proj", "t"}, want: "tmux"},
 		{name: "--branch on a tmux role", args: []string{"--roles", f.roles, "--branch", "feat/y", "dispatch-role", "pm-tmux"}, want: "tmux"},
-		{name: "--worktree after dispatch", args: []string{"--roster", f.roster, "--mode", "bg", "dispatch", "proj", "--worktree", wt, "t"}, want: "--worktree after dispatch"},
-		{name: "--branch= after dispatch-role", args: []string{"--roles", f.roles, "dispatch-role", "pm-bg", "--branch=feat/y"}, want: "--branch=feat/y after dispatch-role"},
-		{name: "--dry-run after the task", args: []string{"--roster", f.roster, "--mode", "bg", "dispatch", "proj", "t", "--dry-run"}, want: "--dry-run after dispatch"},
+		// A flag after dispatch is parsed now, not refused: see
+		// TestConsoleDispatchFlagsParseOnEitherSide. Misplaced on either side
+		// of a subcommand that has no use for it, it is still refused.
+		{name: "--worktree after watch", args: []string{"--sessions", f.sessions, "watch", "--worktree", wt}, want: "--worktree"},
+		{name: "--branch= after kill", args: []string{"--sessions", f.sessions, "kill", "proj", "--branch=feat/y"}, want: "--branch"},
 		{name: "--worktree with watch", args: []string{"--sessions", f.sessions, "--worktree", wt, "watch"}, want: "--worktree"},
 		{name: "--branch with the dashboard", args: []string{"--roster", f.roster, "--branch", "feat/y"}, want: "--branch"},
 	} {
