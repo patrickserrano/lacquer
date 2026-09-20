@@ -367,6 +367,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// contradict: the build re-resolves and ships the requirement, so the
 		// lockfile lies. See internal/audit/packagepins.go.
 		fmt.Fprint(stdout, audit.FormatPackagePins(audit.PackagePinFindings(projectRoot)))
+		// Rendered agents, skills and commands Claude Code would skip silently.
+		// Report-only. See internal/audit/plugindefs.go.
+		fmt.Fprint(stdout, audit.FormatPluginDefs(audit.PluginDefinitions(projectRoot)))
 
 		// Both directions of the test-selector comparison. Reported, not gated,
 		// for the same reason as the hooks check: a project whose widget suite
