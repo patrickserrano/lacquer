@@ -43,6 +43,9 @@ const (
 	cleanupLibStart  = "# >>> lacquer-cleanup-lib"
 	cleanupLibEnd    = "# <<< lacquer-cleanup-lib"
 	cleanupEntryCall = "cleanup_main "
+	// The argv word the cleanup step re-execs itself with, so that every
+	// runner's cleanup can recognise every other runner's in `ps -A`.
+	cleanupMarker = "lacquer-ci-cleanup"
 )
 
 // cleanupDoc is just enough of the rendered workflow for these tests.
@@ -401,7 +404,7 @@ func (r cleanupRun) destructive() bool {
 func (h *cleanupHost) run(level, dry, event string, extraEnv ...string) cleanupRun {
 	h.t.Helper()
 	ps := []string{fmt.Sprintf("%6s %6d %5d %11s %s", "@SELF@", h.selfParent, os.Getuid(), "00:00:05",
-		"/bin/bash --noprofile --norc -e -o pipefail "+h.work+"/_temp/step.sh")}
+		"/opt/homebrew/bin/bash -e "+h.work+"/_temp/step.sh "+cleanupMarker)}
 	if h.ownWorker {
 		ps = append(ps, fmt.Sprintf("%6d %6d %5d %11s %s", ownWorkerPID, ownListenerPID, os.Getuid(), "00:00:30",
 			h.runner+"/bin/Runner.Worker spawnclient 105 108"))
@@ -1002,6 +1005,161 @@ func TestCleanupCIQuietWindow(t *testing.T) {
 			t.Errorf("acted on an unreadable job count\n%s", r.calls)
 		}
 	})
+}
+
+// cleanupJob adds another runner's job: its Runner.Worker and, under it, the
+// given chain of descendants, each the parent of the next.
+func (h *cleanupHost) cleanupJob(uid, worker int, runnerDir string, descendants ...string) {
+	h.procAs(uid, worker, worker-1, "00:02:00", runnerDir+"/bin/Runner.Worker spawnclient 160 163")
+	parent := worker
+	for i, cmd := range descendants {
+		pid := worker + 1 + i
+		h.procAs(uid, pid, parent, "00:01:00", cmd)
+		parent = pid
+	}
+}
+
+// TestCleanupCIOtherCleanupsDoNotBlock: every repository's nightly cleanup is
+// itself a Runner.Worker, and GitHub fires fourteen of them in a burst. Were
+// they "other jobs" to each other, the more they overlapped the less the host
+// would be cleaned, and every run would only say "skipped". They are harmless
+// to each other (each acts on its own runner's orphans and on shut-down, old
+// CI devices, serialised by the host lock), so a worker running this same
+// cleanup, recognised by the marker in a descendant's argv, is not counted.
+func TestCleanupCIOtherCleanupsDoNotBlock(t *testing.T) {
+	seed := func(h *cleanupHost) {
+		h.proc(1001, 1, oldEtime, h.work+"/repo/repo/DerivedData/X.xctest")
+		h.device("CI-iPhone-1", "11111111-1111-1111-1111-111111111111", "Shutdown", 5*time.Hour)
+	}
+	githubUID := os.Getuid() + 1
+	cleanupStep := func(runnerDir string) string {
+		return "/opt/homebrew/bin/bash -e " + runnerDir + "/_work/_temp/a1b2.sh " + cleanupMarker
+	}
+
+	t.Run("another runner's cleanup does not block this one", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		theirs := "/Users/github/actions-runner-2"
+		// Waiting on the host lock: the marked step shell, and lockf under it.
+		h.cleanupJob(githubUID, 3000, theirs, cleanupStep(theirs), "lockf -s -t 180 9")
+		r := h.mustRun("standard", "false", "schedule")
+		if !r.killed(1001) || !r.deleted("11111111-1111-1111-1111-111111111111") {
+			t.Errorf("another runner's cleanup held this one back\n%s\n%s", r.out, r.calls)
+		}
+		if strings.Contains(r.out, "skipped") {
+			t.Errorf("reported a skip for a concurrent cleanup\n%s", r.out)
+		}
+		if !strings.Contains(r.out, "1 other cleanup job(s) running ("+theirs+")") {
+			t.Errorf("the ignored cleanup is not logged, so an overlap is invisible\n%s", r.out)
+		}
+		if !strings.Contains(r.calls, "lockf -s -t 180 9") {
+			t.Errorf("the pass did not serialise on the host lock\n%s", r.calls)
+		}
+	})
+	t.Run("a marker deeper in the tree still identifies the cleanup", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		theirs := filepath.Join(h.dir, "pixelfox-2")
+		h.cleanupJob(os.Getuid(), 3000, theirs, "/bin/sh -c wrapper", cleanupStep(theirs))
+		r := h.mustRun("standard", "false", "schedule")
+		if !r.killed(1001) {
+			t.Errorf("a cleanup whose marked shell is a grandchild of its worker blocked this one\n%s", r.out)
+		}
+	})
+	t.Run("a cleanup and a normal job skip", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		cleanup, busy := "/Users/github/actions-runner-2", filepath.Join(h.dir, "pixelfox-2")
+		h.cleanupJob(githubUID, 3000, cleanup, cleanupStep(cleanup))
+		h.cleanupJob(os.Getuid(), 4000, busy, "/opt/homebrew/bin/bash -e "+busy+"/_work/_temp/c3d4.sh",
+			"/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test")
+		r := h.mustRun("standard", "false", "schedule")
+		if r.destructive() {
+			t.Errorf("acted while a normal job was running beside a cleanup\n%s", r.calls)
+		}
+		if !strings.Contains(r.out, "skipped: 1 other job(s) running on this host ("+busy+")") {
+			t.Errorf("the skip does not name exactly the normal job\n%s", r.out)
+		}
+	})
+	t.Run("a worker with no children yet counts as a job", func(t *testing.T) {
+		// Just starting: nothing says what it will run, so it is a job.
+		h := newCleanupHost(t)
+		seed(h)
+		theirs := "/Users/github/actions-runner-2"
+		h.cleanupJob(githubUID, 3000, theirs)
+		r := h.mustRun("standard", "false", "schedule")
+		if r.destructive() {
+			t.Errorf("a worker with no children yet was assumed to be a cleanup\n%s", r.calls)
+		}
+		if !strings.Contains(r.out, "skipped: 1 other job(s) running on this host ("+theirs+")") {
+			t.Errorf("the starting worker was not counted\n%s", r.out)
+		}
+	})
+	t.Run("the marker only as part of a word is not a cleanup", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		theirs := filepath.Join(h.dir, "pixelfox-2")
+		h.cleanupJob(os.Getuid(), 3000, theirs, "/opt/homebrew/bin/bash -e "+theirs+"/_work/_temp/e5f6.sh",
+			"cat /tmp/"+cleanupMarker+".lock", "echo --"+cleanupMarker+"-x")
+		r := h.mustRun("standard", "false", "schedule")
+		if r.destructive() {
+			t.Errorf("a normal job that mentions the marker inside a word was taken for a cleanup\n%s", r.calls)
+		}
+	})
+	t.Run("a marked process under no worker excludes nothing", func(t *testing.T) {
+		h := newCleanupHost(t)
+		seed(h)
+		theirs := "/Users/github/actions-runner-2"
+		h.cleanupJob(githubUID, 3000, theirs)
+		h.procAs(githubUID, 3500, 1, "00:10:00", "/bin/bash /tmp/x.sh "+cleanupMarker)
+		r := h.mustRun("standard", "false", "schedule")
+		if r.destructive() {
+			t.Errorf("a stray marked process excused an unrelated worker\n%s", r.calls)
+		}
+	})
+}
+
+// TestCleanupCIStepCarriesTheMarker runs the step's own prelude (everything
+// before the library) with the real bash and the real ps, as the runner does
+// (`bash -e <script>`), and asserts the step's shell, the process that is a
+// direct child of the Runner.Worker, carries the marker as an argv word. The
+// shell tests above take that for granted in their ps fixtures.
+func TestCleanupCIStepCarriesTheMarker(t *testing.T) {
+	var prelude []string
+	for _, script := range cleanupRunScripts(t) {
+		if !strings.Contains(script, cleanupLibStart) {
+			continue
+		}
+		for _, line := range strings.Split(script, "\n") {
+			if strings.TrimSpace(line) == cleanupLibStart {
+				break
+			}
+			prelude = append(prelude, line)
+		}
+	}
+	if len(prelude) == 0 {
+		t.Fatalf("no run step holds the cleanup library")
+	}
+	dir := t.TempDir()
+	step := filepath.Join(dir, "step.sh")
+	body := strings.Join(prelude, "\n") + "\necho \"pid=$$\"\nps -ww -o command= -p $$\n"
+	if err := os.WriteFile(step, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "-e", step)
+	cmd.Stdin = strings.NewReader("")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the step prelude failed: %v\n%s", err, out)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	argv := lines[len(lines)-1]
+	if !regexp.MustCompile(`(^|\s)` + regexp.QuoteMeta(cleanupMarker) + `(\s|$)`).MatchString(argv) {
+		t.Errorf("the step's shell does not carry %q as an argv word; ps shows %q\n%s", cleanupMarker, argv, out)
+	}
+	if strings.Count(string(out), "pid=") != 1 {
+		t.Errorf("the step ran its body more than once (a re-exec loop?)\n%s", out)
+	}
 }
 
 // TestCleanupCINeverKillsSharedXcodeServices: an Xcode build service, SourceKit

@@ -44,6 +44,14 @@ jobs:
       - name: Clean up this runner's orphans and CI simulators
         run: |
           set -euo pipefail
+          # Re-exec this step's script once with a marker word in its argv, as
+          # the same process (exec keeps the PID, so its parent is still this
+          # job's Runner.Worker). `ps -A` shows argv across OS users, and the
+          # quiet-window gate below uses the marker to tell another runner's
+          # cleanup from a real job.
+          if [ "${1:-}" != lacquer-ci-cleanup ]; then
+            exec "$BASH" -e "$0" lacquer-ci-cleanup
+          fi
           # What this used to do, and why it no longer does it.
           #
           # The scheduled (standard) level killed every xcodebuild, every xctest
@@ -66,7 +74,10 @@ jobs:
           # nothing about that: on 2026-09-18 GitHub fired the 07:00 UTC schedule
           # five hours late, at peak CI. A pass that finds another job running,
           # or cannot find its own worker up its parent chain, skips without
-          # stamping, so the next scheduled run tries again.
+          # stamping, so the next scheduled run tries again. Other runners'
+          # cleanups (a worker with a process carrying the marker above) do not
+          # count: every repository's schedule fires in the same burst, they
+          # are harmless to each other, and the host lock serialises them.
           #
           # Everything below acts only on what provably belongs to THIS runner:
           #
@@ -131,6 +142,8 @@ jobs:
           CLEANUP_SIM_DEVICES_DIR=${CLEANUP_SIM_DEVICES_DIR:-$HOME/Library/Developer/CoreSimulator/Devices}
           CLEANUP_KILL=${CLEANUP_KILL:-kill}
           CLEANUP_TAB=$(printf '\t')
+          # The argv word the step re-execs itself with, above.
+          CLEANUP_MARKER=lacquer-ci-cleanup
 
           cleanup_fmt_age() {
             if [ "$1" -lt 0 ]; then
@@ -199,10 +212,13 @@ jobs:
           #
           # Each runner runs one job at a time in one Runner.Worker, so a worker
           # is a running job. This job's own is found by walking up the parent
-          # chain from this shell; every other one, whoever owns it, is another
-          # job. One ps snapshot answers both, so the walk cannot race the count.
+          # chain from this shell. Another runner's cleanup is a worker with a
+          # descendant whose argv carries CLEANUP_MARKER as a word; it is logged
+          # and not counted. Every other worker, whoever owns it, is another
+          # job, including one with no children yet, which may run anything.
+          # One ps snapshot answers all of it, so nothing races the count.
           cleanup_quiet_window() {
-            local dry=$1 listing own n dirs verb=skipped quiet=0
+            local dry=$1 listing own n dirs nc cdirs v readable verb=skipped quiet=0
             if ! listing=$(cleanup_ps); then
               echo "::error::ps failed, so the other jobs on this host cannot be counted." >&2
               return 2
@@ -211,10 +227,30 @@ jobs:
               read -r own
               read -r n
               read -r dirs
-            } < <(printf '%s\n' "$listing" | CLEANUP_SELF="$$" awk '
+              read -r nc
+              read -r cdirs
+            } < <(printf '%s\n' "$listing" | CLEANUP_SELF="$$" CLEANUP_MARKER="$CLEANUP_MARKER" awk '
               # The executable (the first word of the command) is Runner.Worker;
               # a command that only mentions it, like a grep, is not a job.
               function is_worker(c) { sub(/[ \t].*/, "", c); return c ~ /(^|\/)Runner\.Worker$/ }
+              # The marker as a whole argv word, not inside a path or flag.
+              function is_marked(c,    n, w, i) {
+                n = split(c, w, /[ \t]+/)
+                for (i = 1; i <= n; i++) if (w[i] == ENVIRON["CLEANUP_MARKER"]) return 1
+                return 0
+              }
+              # <runner>/bin/Runner.Worker, or bin.<version> once updated.
+              function runner_dir(c) { sub(/[ \t].*/, "", c); sub(/\/bin[^\/]*\/Runner\.Worker$/, "", c); return c }
+              function sorted_dirs(ids, k,    i, j, v, out) {
+                for (i = 2; i <= k; i++) {
+                  v = ids[i]
+                  for (j = i - 1; j >= 1 && ids[j] > v; j--) ids[j + 1] = ids[j]
+                  ids[j + 1] = v
+                }
+                out = ""
+                for (i = 1; i <= k; i++) out = out (i > 1 ? ", " : "") runner_dir(command[ids[i]])
+                return (k ? out : "-")
+              }
               NF >= 5 {
                 cmd = $0
                 sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+[^ \t]+[ \t]+/, "", cmd)
@@ -228,40 +264,47 @@ jobs:
                   if (is_worker(command[p])) { own = p; break }
                   p = parent[p]
                 }
+                # The worker above each marked process runs a cleanup.
+                for (q in command) {
+                  if (!is_marked(command[q])) continue
+                  p = parent[q]
+                  for (i = 0; i < 64 && p > 1 && (p in parent); i++) {
+                    if (is_worker(command[p])) { cleanup[p] = 1; break }
+                    p = parent[p]
+                  }
+                }
                 n = 0
+                nc = 0
                 for (p in command) {
-                  if (p + 0 != own && is_worker(command[p])) pids[++n] = p + 0
-                }
-                # Ascending pid, so the log reads the same for the same host.
-                for (i = 2; i <= n; i++) {
-                  v = pids[i]
-                  for (j = i - 1; j >= 1 && pids[j] > v; j--) pids[j + 1] = pids[j]
-                  pids[j + 1] = v
-                }
-                dirs = ""
-                for (i = 1; i <= n; i++) {
-                  d = command[pids[i]]
-                  sub(/[ \t].*/, "", d)
-                  # <runner>/bin/Runner.Worker, or bin.<version> once updated.
-                  sub(/\/bin[^\/]*\/Runner\.Worker$/, "", d)
-                  dirs = dirs (i > 1 ? ", " : "") d
+                  if (p + 0 == own || !is_worker(command[p])) continue
+                  if (p in cleanup) cpids[++nc] = p + 0
+                  else pids[++n] = p + 0
                 }
                 print (own ? own : "-")
                 print n
-                print (n ? dirs : "-")
+                # Ascending pid, so the log reads the same for the same host.
+                print sorted_dirs(pids, n)
+                print nc
+                print sorted_dirs(cpids, nc)
               }')
             # Anything unreadable is a count of nothing, which must not read as
             # "no other job".
             case "${own:-}" in
-              - | [1-9] | [1-9]*[0-9]) ;;
-              *) own=x ;;
+              - | [1-9] | [1-9]*[0-9]) readable=1 ;;
+              *) readable=0 ;;
             esac
-            case "${n:-}:$own" in
-              *:x | :* | *[!0-9]*:*)
-                echo "::error::Could not count the jobs on this host from ps (own worker '${own}', others '${n:-}'); not proceeding." >&2
-                return 2
-                ;;
-            esac
+            for v in "${n:-}" "${nc:-}"; do
+              case "$v" in
+                '' | *[!0-9]*) readable=0 ;;
+              esac
+            done
+            if [ "$readable" != 1 ]; then
+              echo "::error::Could not count the jobs on this host from ps (own worker '${own:-}', others '${n:-}', cleanups '${nc:-}'); not proceeding." >&2
+              return 2
+            fi
+            if [ "$nc" -gt 0 ]; then
+              echo "  not counted: $nc other cleanup job(s) running ($cdirs); they act only on their own runners, one at a time under the host lock."
+            fi
             if [ "$dry" = true ]; then
               verb="would be skipped"
             fi
