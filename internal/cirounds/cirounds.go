@@ -137,6 +137,14 @@ func Begin(ctx context.Context, o Options) Result {
 			Text: fmt.Sprintf("Round %d of %d for PR #%d is already recorded for %s; nothing new was spent.\n", r.Round, o.Cap, o.PR, short(o.SHA))}
 	}
 
+	// Already on the PR, not ours, so nothing to push: the reset above (if any)
+	// stands, and no round is spent on somebody else's commit. Only with history:
+	// on a PR the tool has never seen, the head IS the push being recorded.
+	if ledger.Any && o.SHA == rd.Head {
+		return Result{Code: CodeNothingToFix, Spent: len(ledger.Rounds), Cap: o.Cap,
+			Text: fmt.Sprintf("REFUSED: no round spent. %s is already the PR's head and this tool did not record it, so a person pushed it: there is nothing of yours to push. Commit your change, then run `lacquer ci-round begin %d` for that commit.\n", short(o.SHA), o.PR)}
+	}
+
 	failing := names(rd.Failed())
 	spent := len(ledger.Rounds)
 	if spent >= o.Cap {

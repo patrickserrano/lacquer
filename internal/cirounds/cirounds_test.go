@@ -607,3 +607,22 @@ func TestLastRoundIsFlagged(t *testing.T) {
 		t.Errorf("PR comment does not say it is the last round:\n%s", cs[len(cs)-1].Body)
 	}
 }
+
+// A round is for a push. If the commit asked about is already the PR's head and
+// the tool never recorded it, a person pushed it: charging the agent a round for
+// it would spend budget on nothing anyone at the agent's end did. Found on a
+// real PR (#438), where the agent pulled a human's commit and ran `begin`.
+func TestBeginOnAHeadAHumanPushedSpendsNothing(t *testing.T) {
+	r := newRig(t)
+	want(t, r.begin(sha('a'), ""), CodeGranted)
+	r.head(sha('d'), fakegh.Failed("lint")) // a person pushed d
+	got := r.begin(sha('d'), "")
+	want(t, got, CodeNothingToFix)
+	if got.Spent != 0 || !strings.Contains(got.Text, "already the PR's head") {
+		t.Errorf("spent %d; text:\n%s", got.Spent, got.Text)
+	}
+	// The budget is fresh and unspent: the next new commit is round 1.
+	if next := r.begin(sha('e'), ""); next.Code != CodeGranted || next.Round != 1 {
+		t.Errorf("after the refusal: exit %d round %d, want granted round 1\n%s", next.Code, next.Round, next.Text)
+	}
+}

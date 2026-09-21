@@ -253,7 +253,7 @@ func TestCIRoundCommandRaisesAnInboxActionOnExhaustion(t *testing.T) {
 func TestUsageDocumentsEveryCIRoundExitCode(t *testing.T) {
 	var out bytes.Buffer
 	usage(&out)
-	for _, s := range []string{"ci-round begin", "ci-round status", " 0  granted", " 10  EXHAUSTED", " 11  round 2+", " 12  the last round", " 13  could not check", "ci_round_cap"} {
+	for _, s := range []string{"ci-round begin", "ci-round status", " 0  granted", " 10  EXHAUSTED", " 11  round 2+", " 12  nothing to spend a round on", " 13  could not check", "ci_round_cap"} {
 		if !strings.Contains(out.String(), strings.TrimSpace(s)) {
 			t.Errorf("usage lacks %q", s)
 		}

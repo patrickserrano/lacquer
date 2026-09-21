@@ -435,7 +435,7 @@ idempotent for a commit it already recorded.
 | `0` | Granted, or already recorded: push this commit. |
 | `10` | **Exhausted.** A report, not a failure: the PR is not failed or closed and nothing is pushed. It comments on the PR with what is still failing, raises an inbox ACTION if `--inbox` / `$LACQUER_INBOX` is set (otherwise it prints the exact `console inbox add` command to run), and prints what was spent. Do not push; say what you do not understand. |
 | `11` | Round 2 or later needs `--reason` naming at least one check the previous round reported failing (at a word boundary, in a reason of four or more words). The refusal lists the names it will accept. Nothing was recorded. |
-| `12` | The previous round reported **no failure**: its checks are still running (`lacquer wait pr` exit 2), it has none (exit 3), or they passed. There is nothing to fix, so no round is spent; escalate rather than push to find out. |
+| `12` | **Nothing to spend a round on.** Either the previous round reported no failure (its checks are still running, `lacquer wait pr` exit 2; it has none, exit 3; or they passed), or the commit you named is already the PR's head and was pushed by a person, so there is nothing of yours to push. No round is spent; escalate rather than push to find out. |
 | `13` | The tool **could not check**: `gh` failing (`lacquer wait pr` exit 4), the PR closed, an unreadable ledger or manifest, bad usage. Nothing was recorded and it cannot say a round is allowed, so do not push. |
 
 The codes start at 10 so none is read as `lacquer wait pr`'s 0-4. The mapping to
