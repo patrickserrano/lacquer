@@ -712,6 +712,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		case protection.Unchecked(reports) > 0:
 			return 7
 		}
+	case "wait":
+		// Reaches the GitHub API through gh and reads nothing from a lacquer
+		// checkout, so — like protection — no requireLacquerRoot.
+		return waitCmd(args[1:], stdout, stderr)
 	case "console":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -997,6 +1001,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               \"CI OK\" aggregate, or a context no job can skip. Reaches the API")
 	fmt.Fprintln(w, "                               via `gh` (exit 4 on a finding; exit 7 if a repo could NOT be")
 	fmt.Fprintln(w, "                               checked — which is never reported as a pass)")
+	usageWait(w)
 	fmt.Fprintln(w, "  console --roster F [--inbox F]")
 	fmt.Fprintln(w, "                               one screen: fleet truth + live sessions + open PRs + inbox")
 	fmt.Fprintln(w, "                               (decisions awaiting the operator, finished work awaiting")
