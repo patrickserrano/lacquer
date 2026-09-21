@@ -43,8 +43,8 @@ lacquer wait pr 425 --timeout 45m --json
 | Exit | Outcome | Meaning |
 |------|---------|---------|
 | `0` | passed | Every check is terminal and none failed. Skipped checks are named on a `skipped:` line. |
-| `1` | failed | At least one check failed (or was cancelled, timed out, needs action, or concluded something unrecognised). Each is named. |
-| `2` | timed out | `--timeout` hit while a check was still running. The running checks are named. **Not a failure and not a pass**: the result is unknown. |
+| `1` | failed | At least one check failed (or was cancelled, timed out, needs action, or concluded something unrecognised). Each is named. A failure is decisive: if the ceiling hit with other checks still running it is still `1`, and the running ones are listed as abandoned. |
+| `2` | timed out | `--timeout` hit while a check was still running and **none had failed**. The running checks are named. **Not a failure and not a pass**: the result is unknown. |
 | `3` | no checks | The PR reports no checks, so nothing tested it. **Never a pass.** |
 | `4` | could not wait | `gh` is missing or kept failing, the PR is closed or merged, or the usage was wrong. The PR's state is unknown. |
 
@@ -63,8 +63,11 @@ Choices worth knowing:
   `status`. A pending commit status is still running.
 - **All terminal must hold for two polls.** The first reading can predate a slower
   workflow registering; a check that appears in between is not missed.
-- **A known failure with something still running at the ceiling is exit 2**, with
-  the failure named on its own line: the wait did not finish.
+- **A known failure beats a timeout.** A failure is a fact and CI cannot become
+  green from it, whereas a timeout means "not known yet". If the ceiling hits with
+  a failure and some checks still running, the exit is `1`; the running checks are
+  still listed, marked as abandoned, and their results no longer matter. A caller
+  deciding whether to spend another CI round can key on the exit code alone.
 - **A new head commit mid-wait** means new checks. The old commit's results are
   discarded (and the output says `head moved a -> b`), and the wait continues on the
   new commit. The ceiling is **not** reset: `--timeout` bounds the whole wait.

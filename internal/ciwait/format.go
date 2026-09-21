@@ -71,12 +71,12 @@ func Format(r Result) string {
 		}
 	case Failed:
 		fmt.Fprintf(&b, "FAILED: %d of %d checks failed: %s\n", len(failed), total, nameList(failed))
+		if len(running) > 0 {
+			fmt.Fprintf(&b, "The failure is decisive. The ceiling hit with %d checks still running; they were abandoned and their results do not matter: %s\n", len(running), nameList(running))
+		}
 	case TimedOut:
 		fmt.Fprintf(&b, "TIMED OUT after %s: %d of %d checks were still running. This is not a failure and not a pass: the result is unknown.\n", r.Elapsed.Round(time.Second), len(running), total)
 		fmt.Fprintf(&b, "still running: %s\n", nameList(running))
-		if len(failed) > 0 {
-			fmt.Fprintf(&b, "failed: %s\n", nameList(failed))
-		}
 	case NoChecks:
 		fmt.Fprintf(&b, "NO CHECKS: PR #%d reports no checks (%s). This is not a pass: nothing tested this commit. "+
 			"Either its workflows have not registered, none matched (a path filter, a misconfiguration), or checks are not configured.\n", r.PR, r.Message)

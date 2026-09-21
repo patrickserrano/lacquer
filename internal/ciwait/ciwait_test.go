@@ -187,43 +187,50 @@ func TestTimeoutIsNotFailureAndNamesWhatWasRunning(t *testing.T) {
 	}
 }
 
-// A known failure plus a check still running at the ceiling is a timeout: the
-// wait did not finish. The failure is still named.
-func TestTimeoutWithAFailureAlsoNamesTheFailure(t *testing.T) {
-	s := &script{steps: []string{open(run("a", "COMPLETED", "FAILURE"), run("b", "IN_PROGRESS", ""))}}
+// A known failure plus a check still running at the ceiling is Failed, not
+// TimedOut: the failure is a fact and CI cannot go green from there, whereas a
+// timeout means "not known yet". A caller deciding whether to spend another CI
+// round keys on the exit code alone. The abandoned checks are still listed.
+func TestFailureBeatsTimeoutAndTheRunningChecksAreListedAsAbandoned(t *testing.T) {
+	s := &script{steps: []string{open(run("a", "COMPLETED", "FAILURE"), run("b", "IN_PROGRESS", ""), run("c", "COMPLETED", "SUCCESS"))}}
 	r := wait(t, s, func(o *Options) { o.Timeout = time.Minute })
-	if r.Outcome != TimedOut {
-		t.Fatalf("outcome = %v, want TimedOut", r.Outcome)
+	if r.Outcome != Failed || r.Outcome.ExitCode() != 1 {
+		t.Fatalf("outcome = %v, want Failed/1 (a known failure is decisive)", r.Outcome)
 	}
-	if out := Format(r); !strings.Contains(out, "failed: a") || !strings.Contains(out, "still running: b") {
-		t.Errorf("want both facts:\n%s", out)
+	if got := names(r.Running()); got != "b" {
+		t.Errorf("Running() = %q, want b still listed", got)
+	}
+	out := Format(r)
+	for _, want := range []string{"FAILED: 1 of 3 checks failed: a", "The failure is decisive", "abandoned", "still running", ": b"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "TIMED OUT") {
+		t.Errorf("must not read as a timeout:\n%s", out)
+	}
+	if r.Elapsed < time.Minute {
+		t.Errorf("Elapsed = %v: it must still wait out every running check until the ceiling", r.Elapsed)
 	}
 }
 
-// The first all-terminal reading can land exactly on the ceiling, with no time
-// left for a confirming poll. That reading is complete data: report it, do not
-// call it a timeout.
-func TestTerminalReadingAtTheCeilingIsReportedNotTimedOut(t *testing.T) {
-	inflight := open(run("test", "IN_PROGRESS", ""))
-	failed := open(run("test", "COMPLETED", "FAILURE"))
-	s := &script{steps: []string{inflight, failed}}
-	r := wait(t, s, func(o *Options) { o.Timeout = 15 * time.Second })
-	if r.Outcome != Failed {
-		t.Fatalf("outcome = %v, want Failed", r.Outcome)
+// Exit 2 is for "still running, nothing failed" only.
+func TestTimeoutWithNothingFailedIsStillTimedOut(t *testing.T) {
+	s := &script{steps: []string{open(run("a", "COMPLETED", "SUCCESS"), run("b", "IN_PROGRESS", ""), run("c", "COMPLETED", "SKIPPED"), run("d", "COMPLETED", "NEUTRAL"))}}
+	if r := wait(t, s, func(o *Options) { o.Timeout = time.Minute }); r.Outcome != TimedOut {
+		t.Fatalf("outcome = %v, want TimedOut", r.Outcome)
 	}
 }
 
-// The ceiling bounds the whole wait. A push mid-wait must not buy a fresh one.
-func TestHeadChangeDoesNotResetTheCeiling(t *testing.T) {
-	a := resp("OPEN", "aaaa111", run("test", "IN_PROGRESS", ""))
-	b := resp("OPEN", "bbbb222", run("test", "IN_PROGRESS", ""))
-	s := &script{steps: []string{a, a, b}}
-	r := wait(t, s, func(o *Options) { o.Timeout = time.Minute })
-	if r.Outcome != TimedOut {
-		t.Fatalf("outcome = %v, want TimedOut", r.Outcome)
-	}
-	if r.Elapsed != time.Minute {
-		t.Errorf("Elapsed = %v, want exactly the 1m ceiling", r.Elapsed)
+// A failed check that lands while others run does not end the wait early: the
+// brief is to block until every check is terminal.
+func TestAFailureDoesNotEndTheWaitWhileOthersAreRunning(t *testing.T) {
+	early := open(run("a", "COMPLETED", "FAILURE"), run("b", "IN_PROGRESS", ""))
+	late := open(run("a", "COMPLETED", "FAILURE"), run("b", "COMPLETED", "SUCCESS"))
+	s := &script{steps: []string{early, early, early, late}}
+	r := wait(t, s, nil)
+	if r.Outcome != Failed || len(r.Running()) != 0 || s.calls < 4 {
+		t.Fatalf("outcome %v, running %q, calls %d: returned before b finished", r.Outcome, names(r.Running()), s.calls)
 	}
 }
 

@@ -43,10 +43,12 @@ const (
 	// Passed: every check is terminal and none failed. Skipped and neutral
 	// checks do not fail a PR; skipped ones are named in the output.
 	Passed Outcome = iota
-	// Failed: every check is terminal and at least one failed.
+	// Failed: at least one check failed. Normally every check is terminal; if
+	// the ceiling hit first, the failure still decides and the checks still
+	// running are abandoned (they are listed in the output).
 	Failed
-	// TimedOut: the ceiling hit while at least one check was still running.
-	// Not a failure, and not a pass: the answer is unknown.
+	// TimedOut: the ceiling hit while at least one check was still running and
+	// NONE had failed. Not a failure, and not a pass: the answer is unknown.
 	TimedOut
 	// NoChecks: the PR has no checks. Never a pass — nothing tested it.
 	NoChecks
@@ -434,10 +436,14 @@ func Wait(ctx context.Context, o Options) Result {
 			if !lastOK {
 				return finish(Error, fmt.Sprintf("the ceiling hit while gh was failing (the PR's state is UNKNOWN): %v", lastErr))
 			}
-			if allTerminal(res.Checks) {
+			if oc := outcomeOf(res.Checks); allTerminal(res.Checks) || oc == Failed {
 				// Terminal but not yet confirmed by a second poll: the data is
-				// complete, so report it rather than call it a timeout.
-				return finish(outcomeOf(res.Checks), "")
+				// complete, so report it rather than call it a timeout. And a
+				// known failure is decisive even with checks still running: CI
+				// cannot become green from there, so it is Failed, not "we do
+				// not know yet". Whoever branches on the exit code must not have
+				// to re-derive that from the text.
+				return finish(oc, "")
 			}
 			return finish(TimedOut, "")
 		}

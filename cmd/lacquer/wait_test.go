@@ -89,6 +89,7 @@ func TestWaitPRExitCodes(t *testing.T) {
 	}{
 		{"passed", []string{rollup(checkRun("test", "COMPLETED", "SUCCESS"))}, 0, []string{"PASSED"}},
 		{"failed names the check", []string{rollup(checkRun("test", "COMPLETED", "FAILURE"), checkRun("lint", "COMPLETED", "SUCCESS"))}, 1, []string{"FAILED", "test"}},
+		{"failure beats timeout, running listed as abandoned", []string{rollup(checkRun("test", "IN_PROGRESS", ""), checkRun("lint", "COMPLETED", "FAILURE"))}, 1, []string{"FAILED", "lint", "The failure is decisive", "abandoned", "test"}},
 		{"timed out names what ran", []string{rollup(checkRun("test", "IN_PROGRESS", ""), checkRun("lint", "COMPLETED", "SUCCESS"))}, 2, []string{"TIMED OUT", "still running: test"}},
 		{"no checks is not green", []string{rollup()}, 3, []string{"NO CHECKS"}},
 		{"pending commit status is not done", []string{rollup(statusCtx("ci/legacy", "PENDING"))}, 2, []string{"TIMED OUT", "ci/legacy"}},
@@ -194,7 +195,7 @@ func TestHelpDocumentsTheWaitExitCodes(t *testing.T) {
 	}
 	help := out.String()
 	for _, want := range []string{
-		"wait pr <N>", "0  every check finished and none failed", "1  at least one check FAILED",
+		"wait pr <N>", "0  every check finished and none failed", "1  at least one check FAILED", "A failure is decisive", "and NONE failed",
 		"2  TIMED OUT", "3  NO CHECKS", "4  the wait itself failed", "no model tokens",
 	} {
 		if !strings.Contains(help, want) {
