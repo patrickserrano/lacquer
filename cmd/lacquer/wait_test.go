@@ -60,6 +60,10 @@ func checkRun(name, status, conclusion string) string {
 	return fmt.Sprintf(`{"__typename":"CheckRun","name":%q,"status":%q,"conclusion":%q,"startedAt":"2026-09-20T03:00:00Z","completedAt":"2026-09-20T03:01:00Z"}`, name, status, conclusion)
 }
 
+func runIn(id int, name, status, conclusion string) string {
+	return fmt.Sprintf(`{"__typename":"CheckRun","workflowName":"CI","name":%q,"status":%q,"conclusion":%q,"startedAt":"2026-09-20T03:00:00Z","completedAt":"2026-09-20T03:01:00Z","detailsUrl":"https://github.com/o/r/actions/runs/%d/job/9"}`, name, status, conclusion, id)
+}
+
 func statusCtx(name, state string) string {
 	return fmt.Sprintf(`{"__typename":"StatusContext","context":%q,"state":%q,"startedAt":"2026-09-20T03:00:00Z"}`, name, state)
 }
@@ -90,6 +94,7 @@ func TestWaitPRExitCodes(t *testing.T) {
 		{"passed", []string{rollup(checkRun("test", "COMPLETED", "SUCCESS"))}, 0, []string{"PASSED"}},
 		{"failed names the check", []string{rollup(checkRun("test", "COMPLETED", "FAILURE"), checkRun("lint", "COMPLETED", "SUCCESS"))}, 1, []string{"FAILED", "test"}},
 		{"failure beats timeout, running listed as abandoned", []string{rollup(checkRun("test", "IN_PROGRESS", ""), checkRun("lint", "COMPLETED", "FAILURE"))}, 1, []string{"FAILED", "lint", "The failure is decisive", "abandoned", "test"}},
+		{"superseded cancelled run is ignored and named", []string{rollup(runIn(100, "test", "COMPLETED", "CANCELLED"), runIn(200, "test", "COMPLETED", "SUCCESS"))}, 0, []string{"PASSED", "ignored, superseded", "test (run 100, cancelled)"}},
 		{"timed out names what ran", []string{rollup(checkRun("test", "IN_PROGRESS", ""), checkRun("lint", "COMPLETED", "SUCCESS"))}, 2, []string{"TIMED OUT", "still running: test"}},
 		{"no checks is not green", []string{rollup()}, 3, []string{"NO CHECKS"}},
 		{"pending commit status is not done", []string{rollup(statusCtx("ci/legacy", "PENDING"))}, 2, []string{"TIMED OUT", "ci/legacy"}},

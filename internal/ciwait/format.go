@@ -15,6 +15,14 @@ func nameList(cs []Check) string {
 	return strings.Join(n, ", ")
 }
 
+func supersededList(cs []Check) string {
+	n := make([]string, len(cs))
+	for i, c := range cs {
+		n[i] = fmt.Sprintf("%s (run %d, %s)", c.Name, c.RunID, c.Label)
+	}
+	return strings.Join(n, ", ")
+}
+
 func fmtDur(c Check) string {
 	if !c.HasDuration {
 		return "-"
@@ -58,6 +66,10 @@ func Format(r Result) string {
 			b.WriteString("(* not finished; time is elapsed so far)\n")
 		}
 		b.WriteString("\n")
+	}
+
+	if len(r.Superseded) > 0 {
+		fmt.Fprintf(&b, "ignored, superseded by a newer run of the same workflow: %s\n\n", supersededList(r.Superseded))
 	}
 
 	failed, running, skipped := r.Failed(), r.Running(), r.Skipped()
@@ -137,9 +149,10 @@ func FormatJSON(r Result) string {
 		Failed      []string `json:"failed"`
 		Running     []string `json:"running"`
 		Skipped     []string `json:"skipped"`
+		Superseded  []string `json:"superseded"`
 		HeadChanges []string `json:"head_changes"`
 		Checks      []jcheck `json:"checks"`
 	}{r.Outcome.String(), r.Outcome.ExitCode(), r.PR, r.Repo, r.Head, r.Message, r.Elapsed.Seconds(),
-		strs(r.Failed()), strs(r.Running()), strs(r.Skipped()), changes, checks}, "", "  ")
+		strs(r.Failed()), strs(r.Running()), strs(r.Skipped()), strs(r.Superseded), changes, checks}, "", "  ")
 	return string(out) + "\n"
 }

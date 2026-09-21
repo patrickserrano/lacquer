@@ -63,6 +63,13 @@ Choices worth knowing:
   `status`. A pending commit status is still running.
 - **All terminal must hold for two polls.** The first reading can predate a slower
   workflow registering; a check that appears in between is not missed.
+- **Only the latest run of a check counts.** The rollup lists every workflow run on
+  the commit, so editing a PR while CI runs leaves a `cancelled` check from the run
+  the concurrency group killed beside the latest run's real one. For the same
+  workflow and check name across different runs, only the newest run is judged, as
+  on GitHub's checks tab; the ignored entries are listed (`ignored, superseded by a
+  newer run`) so nothing is hidden. Two same-named jobs in one run, or entries
+  with no run id, are never collapsed.
 - **A known failure beats a timeout.** A failure is a fact and CI cannot become
   green from it, whereas a timeout means "not known yet". If the ceiling hits with
   a failure and some checks still running, the exit is `1`; the running checks are

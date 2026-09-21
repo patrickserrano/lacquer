@@ -30,7 +30,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -128,6 +130,10 @@ type Check struct {
 	Name     string
 	Kind     Kind
 	Terminal bool
+	// Workflow and RunID say which workflow run a CheckRun belongs to (RunID 0
+	// when detailsUrl does not carry one). They exist to spot a superseded run.
+	Workflow string
+	RunID    int64
 	// Label is the lower-cased conclusion (or state) of a terminal check, and
 	// the lower-cased status (or state) of one still running.
 	Label       string
@@ -149,6 +155,11 @@ type Result struct {
 	Elapsed time.Duration
 	// Message explains an Error (and, for NoChecks, how long it looked).
 	Message string
+	// Superseded is entries ignored because a newer run of the same workflow
+	// reported the same check on the same commit (a rerun, or a run cancelled by
+	// the concurrency group when the PR was edited). Only the latest counts, as
+	// on GitHub's own checks tab; they are listed so nothing is hidden.
+	Superseded []Check
 	// HeadChanges records each "old -> new" head commit seen mid-wait.
 	HeadChanges []string
 }
@@ -175,23 +186,25 @@ func (r Result) Skipped() []Check { return r.filter(vSkipped) }
 // node is one statusCheckRollup element. It carries the fields of BOTH shapes;
 // which ones are populated is the shape.
 type node struct {
-	Typename    string `json:"__typename"`
-	Name        string `json:"name"`   // CheckRun
-	Status      string `json:"status"` // CheckRun: QUEUED, IN_PROGRESS, COMPLETED, ...
-	Conclusion  string `json:"conclusion"`
-	Context     string `json:"context"` // StatusContext
-	State       string `json:"state"`   // StatusContext: PENDING, SUCCESS, FAILURE, ERROR
-	StartedAt   string `json:"startedAt"`
-	CompletedAt string `json:"completedAt"`
-	DetailsURL  string `json:"detailsUrl"`
-	TargetURL   string `json:"targetUrl"`
+	Typename     string `json:"__typename"`
+	Name         string `json:"name"` // CheckRun
+	WorkflowName string `json:"workflowName"`
+	Status       string `json:"status"` // CheckRun: QUEUED, IN_PROGRESS, COMPLETED, ...
+	Conclusion   string `json:"conclusion"`
+	Context      string `json:"context"` // StatusContext
+	State        string `json:"state"`   // StatusContext: PENDING, SUCCESS, FAILURE, ERROR
+	StartedAt    string `json:"startedAt"`
+	CompletedAt  string `json:"completedAt"`
+	DetailsURL   string `json:"detailsUrl"`
+	TargetURL    string `json:"targetUrl"`
 }
 
 // snapshot is one reading of the PR.
 type snapshot struct {
-	state  string
-	head   string
-	checks []Check
+	state      string
+	head       string
+	checks     []Check
+	superseded []Check
 }
 
 func parseSnapshot(out []byte, now time.Time) (snapshot, error) {
@@ -210,10 +223,48 @@ func parseSnapshot(out []byte, now time.Time) (snapshot, error) {
 		return snapshot{}, errors.New("gh output has no statusCheckRollup")
 	}
 	s := snapshot{state: raw.State, head: raw.HeadRefOid}
+	all := make([]Check, 0, len(*raw.Rollup))
 	for _, n := range *raw.Rollup {
-		s.checks = append(s.checks, classify(n, now))
+		all = append(all, classify(n, now))
 	}
+	s.checks, s.superseded = dropSuperseded(all)
 	return s, nil
+}
+
+var runIDRe = regexp.MustCompile(`/runs/(\d+)`)
+
+func runID(url string) int64 {
+	if m := runIDRe.FindStringSubmatch(url); m != nil {
+		if id, err := strconv.ParseInt(m[1], 10, 64); err == nil {
+			return id
+		}
+	}
+	return 0
+}
+
+// dropSuperseded keeps, for each (workflow, check name), only the entries of the
+// newest run. The rollup lists every run on the commit, so a PR edited while CI
+// ran carries a cancelled `test` from the run the concurrency group killed
+// beside the latest run's real one, and reading both calls a PR whose latest
+// `test` passed FAILED. Deliberately narrow: only CheckRuns whose runs are
+// known and DIFFER are collapsed. Two same-named jobs in one run, or entries
+// with no run id, are all kept, so this can hide nothing it cannot account for.
+func dropSuperseded(all []Check) (kept, superseded []Check) {
+	newest := map[string]int64{}
+	key := func(c Check) string { return c.Workflow + "\x00" + c.Name }
+	for _, c := range all {
+		if c.Kind == KindCheckRun && c.RunID != 0 && c.RunID > newest[key(c)] {
+			newest[key(c)] = c.RunID
+		}
+	}
+	for _, c := range all {
+		if c.Kind == KindCheckRun && c.RunID != 0 && c.RunID < newest[key(c)] {
+			superseded = append(superseded, c)
+			continue
+		}
+		kept = append(kept, c)
+	}
+	return kept, superseded
 }
 
 // classify is the predicate the whole package exists to get right.
@@ -230,7 +281,7 @@ func classify(n node, now time.Time) Check {
 }
 
 func classifyRun(n node, now time.Time) Check {
-	c := Check{Name: n.Name, Kind: KindCheckRun, URL: n.DetailsURL}
+	c := Check{Name: n.Name, Kind: KindCheckRun, URL: n.DetailsURL, Workflow: n.WorkflowName, RunID: runID(n.DetailsURL)}
 	c.Duration, c.HasDuration = span(n.StartedAt, n.CompletedAt, now)
 	// Terminal is the status alone. The conclusion of a check in flight is ""
 	// (not null), which is exactly what a `// default` misses.
@@ -407,7 +458,7 @@ func Wait(ctx context.Context, o Options) Result {
 				emptySince, prevSig = time.Time{}, ""
 			}
 			haveHead = true
-			res.Head, res.Checks = snap.head, snap.checks
+			res.Head, res.Checks, res.Superseded = snap.head, snap.checks, snap.superseded
 
 			switch {
 			case len(snap.checks) == 0:

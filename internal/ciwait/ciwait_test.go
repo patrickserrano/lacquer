@@ -538,6 +538,67 @@ func TestSettlingDoesNotSpanAHeadChange(t *testing.T) {
 	}
 }
 
+// --- superseded runs -----------------------------------------------------
+
+// runIn is a CheckRun that belongs to a specific workflow run.
+func runIn(id int, workflow, name, status, conclusion string) string {
+	return fmt.Sprintf(`{"__typename":"CheckRun","workflowName":%q,"name":%q,"status":%q,"conclusion":%q,"startedAt":"2026-09-20T03:00:00Z","completedAt":%q,"detailsUrl":"https://github.com/o/r/actions/runs/%d/job/9"}`,
+		workflow, name, status, conclusion, completedAt(status), id)
+}
+
+// Editing a PR while CI runs fires a new run and the concurrency group cancels
+// the old one. The rollup lists both. Only the latest run's `test` is the
+// PR's answer; the cancelled one must not make a passing PR FAILED.
+func TestSupersededCancelledRunDoesNotFailAPassingPR(t *testing.T) {
+	s := &script{steps: []string{open(
+		runIn(100, "CI", "test", "COMPLETED", "CANCELLED"),
+		runIn(200, "CI", "test", "COMPLETED", "SUCCESS"),
+		runIn(100, "CI", "lint", "COMPLETED", "SUCCESS"),
+		runIn(200, "CI", "lint", "COMPLETED", "SUCCESS"),
+	)}}
+	r := wait(t, s, nil)
+	if r.Outcome != Passed {
+		t.Fatalf("outcome = %v (failed %q): the cancelled test belongs to a superseded run", r.Outcome, names(r.Failed()))
+	}
+	if len(r.Checks) != 2 || len(r.Superseded) != 2 {
+		t.Errorf("kept %d, superseded %d; want 2 and 2", len(r.Checks), len(r.Superseded))
+	}
+	if out := Format(r); !strings.Contains(out, "ignored, superseded") || !strings.Contains(out, "test (run 100, cancelled)") {
+		t.Errorf("what was ignored must be named:\n%s", out)
+	}
+}
+
+// Latest wins in BOTH directions: an old green must not hide a new failure, and
+// an old failure must not mask a new check that is still running.
+func TestLatestRunWinsWhetherOlderWasGreenOrRed(t *testing.T) {
+	s := &script{steps: []string{open(runIn(100, "CI", "test", "COMPLETED", "SUCCESS"), runIn(200, "CI", "test", "COMPLETED", "FAILURE"))}}
+	if r := wait(t, s, nil); r.Outcome != Failed {
+		t.Errorf("old green + new red: outcome = %v, want Failed", r.Outcome)
+	}
+	s = &script{steps: []string{open(runIn(100, "CI", "test", "COMPLETED", "FAILURE"), runIn(200, "CI", "test", "IN_PROGRESS", ""))}}
+	r := wait(t, s, func(o *Options) { o.Timeout = time.Minute })
+	if r.Outcome != TimedOut {
+		t.Errorf("old red + new running: outcome = %v, want TimedOut (the new run has not finished)", r.Outcome)
+	}
+}
+
+// Only collapse what can be accounted for: same workflow, same name, DIFFERENT
+// known runs. Anything else is kept, so a real failure cannot be hidden.
+func TestOnlyDifferentRunsOfTheSameWorkflowAreCollapsed(t *testing.T) {
+	cases := map[string][]string{
+		"same run, same name (two real jobs)": {runIn(100, "CI", "test", "COMPLETED", "FAILURE"), runIn(100, "CI", "test", "COMPLETED", "SUCCESS")},
+		"different workflows, same name":      {runIn(100, "CI", "test", "COMPLETED", "FAILURE"), runIn(200, "Other", "test", "COMPLETED", "SUCCESS")},
+		"no run id in the url (cannot tell)":  {run("test", "COMPLETED", "FAILURE"), run("test", "COMPLETED", "SUCCESS")},
+	}
+	for name, nodes := range cases {
+		s := &script{steps: []string{open(nodes...)}}
+		r := wait(t, s, nil)
+		if r.Outcome != Failed || len(r.Checks) != 2 || len(r.Superseded) != 0 {
+			t.Errorf("%s: outcome %v, kept %d, superseded %d; want Failed with both kept", name, r.Outcome, len(r.Checks), len(r.Superseded))
+		}
+	}
+}
+
 // --- settling -------------------------------------------------------------
 
 // The first reading with everything terminal can be a reading taken before a
