@@ -18,12 +18,71 @@ description: Every lacquer CLI subcommand.
 | `lacquer fleet --roster F [--json]` | Audit every project in a roster; exit 4 if any would fail its own audit. `--json` emits a snapshot. |
 | `lacquer fleet diff A.json B.json` | What changed between two snapshots; exit 4 on a regression. |
 | `lacquer protection [--repo O/N] [--branch B] [--roster F]` | Compare what branch protection **requires** against what CI can **post**. GitHub counts a skipped check as satisfying a required one, so a repo passes only if it requires the always-running `CI OK` aggregate — or some other context posted by a job nothing can skip. Reaches the GitHub API through `gh`, so it is opt-in and separate from `audit`. Exit 4 on a finding; **exit 7 if a repository could not be checked** — never reported as a pass. |
+| `lacquer wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json]` | Block, in one process, until every check on PR `N` is terminal, then print each check's name, conclusion and duration. **The sanctioned way to wait for CI.** It sleeps between polls, so waiting costs no model tokens: run it in the background and you are woken once, when it returns. Defaults: `--timeout 20m`, `--interval 15s`; `--repo` is inferred by `gh` from the checkout. Four outcomes, each its own exit code, never conflated — see [Waiting for CI](#waiting-for-ci-lacquer-wait-pr). |
 | `lacquer console --roster F` | One screen: fleet truth + live sessions + open PRs. |
 | `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, check, relaunch, or stop work on a project or a named role. `--mode bg` runs `claude --bg` in a new git worktree and branch under `<repo>/.claude/worktrees/`, and launches nothing if one cannot be made. `--mode tmux` starts a detached tmux session in the checkout itself, which it edits directly; attach with `tmux attach -t <name>`, and a session already running under that name is left alone. `--worktree <path>` runs the session, in either mode, in an existing worktree instead: for the worktree a PM created and named in an IC's brief. It must be a registered worktree of the project's repository (and, for bg, not the checkout itself), or nothing launches; lacquer never creates, changes or removes it, and records it like one it made, so a relaunch resumes in it and `kill` keeps it. `--branch <name>` (bg only) names the branch of the worktree bg creates, under `.claude/worktrees/` with `/` flattened to `-`, instead of `dispatch/<id>`: for a branch a PM chose. It is refused if the branch or directory already exists (pass `--worktree` for that), and together with `--worktree`. Every console flag works on either side of the subcommand, with the same meaning (`watch --relaunch` is `--relaunch watch`), and among a dispatch task's words, so a trailing `--dry-run` is a dry run; a task word that starts with `-` goes after `--`, which ends the flags (`dispatch <project> -- <task>`). An unknown flag, or one the subcommand has no use for (`--dry-run` with `kill`), is an error; `--roster`, `--roles`, `--sessions` and `--inbox` are accepted by every subcommand. Both modes pass `--dangerously-skip-permissions` with the sandbox off, and neither needs a terminal, so an agent can dispatch. With `--sessions`, every launch attempt is recorded, a failed one included, and `watch` reports a failed launch as failed. `watch --relaunch` puts the relaunched session's record in place of the dead one (a bg session resumes in its recorded worktree), and stops retrying a record after 3 failed launches in a row, leaving it for you. See `lacquer help` for the flag combinations each takes. |
 | `lacquer version` | Print the lacquer version. |
 
 `lacquer help` (or `--help`/`-h`) prints usage, including the full `console`
 flag surface this table abbreviates.
+
+## Waiting for CI: `lacquer wait pr`
+
+Waiting for CI is the most common thing an agent does, and hand-rolled waiters
+keep getting it wrong. One reported `FINAL` and exited 0 while both test jobs
+were still running: it branched on `(.conclusion // "PENDING")`, and jq's `//`
+substitutes for `null`, not for the empty string a check **in flight** reports.
+`gh pr checks --watch --fail-fast` is no substitute: it exits 0 even when checks
+fail. `lacquer wait pr` puts the predicate in one tested place.
+
+```sh
+lacquer wait pr 425                      # blocks; prints every check at the end
+lacquer wait pr 425 --timeout 45m --json
+```
+
+| Exit | Outcome | Meaning |
+|------|---------|---------|
+| `0` | passed | Every check is terminal and none failed. Skipped checks are named on a `skipped:` line. |
+| `1` | failed | At least one check failed (or was cancelled, timed out, needs action, or concluded something unrecognised). Each is named. A failure is decisive: if the ceiling hit with other checks still running it is still `1`, and the running ones are listed as abandoned. |
+| `2` | timed out | `--timeout` hit while a check was still running and **none had failed**. The running checks are named. **Not a failure and not a pass**: the result is unknown. |
+| `3` | no checks | The PR reports no checks, so nothing tested it. **Never a pass.** |
+| `4` | could not wait | `gh` is missing or kept failing, the PR is closed or merged, or the usage was wrong. The PR's state is unknown. |
+
+Choices worth knowing:
+
+- **Empty is not green.** "No check is non-terminal" is trivially true of zero
+  checks. An empty rollup is re-checked for `--empty-grace` (default 30s), because
+  workflows register a moment after a PR opens; if checks appear they are judged
+  normally, and if none do the answer is exit 3.
+- **Skipped exits 0, loudly.** A skipped job did not run, and a skipped *required*
+  job is how a PR looks green untested, so every skipped check is named in the
+  output. If every check was skipped it says `PASSED, BUT NOTHING RAN`. Read that
+  line before treating exit 0 as "tested".
+- **Both check shapes are read.** `CheckRun` entries carry `status` and
+  `conclusion`; legacy commit statuses (`StatusContext`) carry `state` and no
+  `status`. A pending commit status is still running.
+- **All terminal must hold for two polls.** The first reading can predate a slower
+  workflow registering; a check that appears in between is not missed.
+- **Only the latest run of a check counts.** The rollup lists every workflow run on
+  the commit, so editing a PR while CI runs leaves a `cancelled` check from the run
+  the concurrency group killed beside the latest run's real one. For the same
+  workflow and check name across different runs, only the newest run is judged, as
+  on GitHub's checks tab; the ignored entries are listed (`ignored, superseded by a
+  newer run`) so nothing is hidden. Two same-named jobs in one run, or entries
+  with no run id, are never collapsed.
+- **A known failure beats a timeout.** A failure is a fact and CI cannot become
+  green from it, whereas a timeout means "not known yet". If the ceiling hits with
+  a failure and some checks still running, the exit is `1`; the running checks are
+  still listed, marked as abandoned, and their results no longer matter. A caller
+  deciding whether to spend another CI round can key on the exit code alone.
+- **A new head commit mid-wait** means new checks. The old commit's results are
+  discarded (and the output says `head moved a -> b`), and the wait continues on the
+  new commit. The ceiling is **not** reset: `--timeout` bounds the whole wait.
+- **A PR that is closed or merged** ends the wait with exit 4; its checks no longer
+  decide anything.
+- **`gh` failures are retried**, five in a row before the wait gives up with exit 4
+  and gh's own message. A failed call is never read as "no checks" or as success,
+  and a `gh` response with no `statusCheckRollup` is an error, not an empty list.
 
 ## Manifest shape
 
