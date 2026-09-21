@@ -716,6 +716,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// Reaches the GitHub API through gh and reads nothing from a lacquer
 		// checkout, so — like protection — no requireLacquerRoot.
 		return waitCmd(args[1:], stdout, stderr)
+	case "ci-round":
+		// Reaches the GitHub API through gh and reads only the project's own
+		// manifest (from a git ref), so — like wait — no requireLacquerRoot.
+		return ciRoundCmd(args[1:], getenv, stdout, stderr)
 	case "console":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -1002,6 +1006,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               via `gh` (exit 4 on a finding; exit 7 if a repo could NOT be")
 	fmt.Fprintln(w, "                               checked — which is never reported as a pass)")
 	usageWait(w)
+	usageCIRound(w)
 	fmt.Fprintln(w, "  console --roster F [--inbox F]")
 	fmt.Fprintln(w, "                               one screen: fleet truth + live sessions + open PRs + inbox")
 	fmt.Fprintln(w, "                               (decisions awaiting the operator, finished work awaiting")
