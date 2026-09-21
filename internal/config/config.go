@@ -133,6 +133,15 @@ type Project struct {
 	// reads each from `secrets`, so an unset secret is empty rather than
 	// baked in.
 	BuildEnv []string `toml:"build_env"`
+	// CIRoundCapSetting is how many rounds of CI an agent gets on one pull
+	// request before `lacquer ci-round` refuses another and escalates. OPTIONAL;
+	// read it through CIRoundCap, which supplies the default of 2.
+	//
+	// A pointer so "unset" and "0" differ: an absent key means the default, and
+	// an explicit 0 is an error (it would forbid the push that opens the PR).
+	// Bounded above too — a cap of 100 is no cap, and is more likely a typo than
+	// a decision. See internal/cirounds for what a round is.
+	CIRoundCapSetting *int `toml:"ci_round_cap"`
 	// Retired marks a project that is no longer worth investing in but is not
 	// being deleted. Nil for every ordinary project. See Retirement.
 	Retired *Retirement `toml:"retired"`
@@ -289,6 +298,20 @@ func (r Retirement) SinceDate() (time.Time, error) { return time.Parse("2006-01-
 
 // IsRetired reports whether this project has been retired.
 func (p Project) IsRetired() bool { return p.Retired != nil }
+
+// Bounds of [project].ci_round_cap and the value an absent key means.
+const (
+	DefaultCIRoundCap = 2
+	maxCIRoundCap     = 10
+)
+
+// CIRoundCap is how many CI rounds an agent may spend on one pull request.
+func (p Project) CIRoundCap() int {
+	if p.CIRoundCapSetting == nil {
+		return DefaultCIRoundCap
+	}
+	return *p.CIRoundCapSetting
+}
 
 // Exclusion is one [project].exclude entry: a path the lacquer neither
 // distributes nor tracks.
@@ -634,6 +657,9 @@ func validateProject(p Project) error {
 	}
 	if err := check("stack", p.Stack, stackVal); err != nil {
 		return err
+	}
+	if c := p.CIRoundCapSetting; c != nil && (*c < 1 || *c > maxCIRoundCap) {
+		return fmt.Errorf("invalid [project].ci_round_cap %d (want 1-%d; below 1 would refuse the push that opens a PR, and a large cap is no cap)", *c, maxCIRoundCap)
 	}
 	for _, t := range p.Tools {
 		if !knownTools[t] {

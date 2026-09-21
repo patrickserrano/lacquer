@@ -534,3 +534,42 @@ func sleep(ctx context.Context, d time.Duration) error {
 		return nil
 	}
 }
+
+// Reading is one look at a pull request's current head commit: what Wait sees on
+// each poll, without the waiting. `lacquer ci-round` uses it to learn what the
+// last round reported, so that the definition of "a check failed" is the one
+// place this package already gets right and is not derived a second time.
+type Reading struct {
+	State      string // OPEN, CLOSED, MERGED
+	Head       string
+	Checks     []Check
+	Superseded []Check
+}
+
+func (r Reading) result() Result { return Result{Checks: r.Checks} }
+
+// Failed is the terminal checks that failed. Like Wait, a failure is decisive
+// even while other checks are still running.
+func (r Reading) Failed() []Check { return r.result().Failed() }
+
+// Running is the checks that are not terminal yet.
+func (r Reading) Running() []Check { return r.result().Running() }
+
+// Look reads the PR once. A response gh did not give, or one without a rollup,
+// is an error, never an empty reading.
+func Look(ctx context.Context, run Runner, repo string, pr int, now time.Time) (Reading, error) {
+	args := []string{"pr", "view"}
+	if repo != "" {
+		args = append(args, "-R", repo)
+	}
+	args = append(args, fmt.Sprint(pr), "--json", "state,headRefOid,statusCheckRollup")
+	out, err := run(ctx, args...)
+	if err != nil {
+		return Reading{}, err
+	}
+	snap, err := parseSnapshot(out, now)
+	if err != nil {
+		return Reading{}, err
+	}
+	return Reading{State: snap.state, Head: snap.head, Checks: snap.checks, Superseded: snap.superseded}, nil
+}
