@@ -52,6 +52,10 @@ message rather than an opaque missing-file error.
 - **`web`** — TypeScript + Biome + Vitest; CI + git hooks via `lefthook`.
 - **`supabase`** — Deno Edge Functions + Postgres/RLS; CI + git hooks via
   `lefthook`.
+- **`marketing`** — no CI, no hooks, skills only: ~50 marketing/growth skills
+  (ads, SEO, copywriting, funnels, lifecycle, pricing, planning). Never
+  auto-detected — there is no marketing "stack" on disk to find, so add it to a
+  component's `profiles` deliberately when marketing work is in scope.
 
 A component detected as an unshipped stack (e.g. Rust/Go, or a bare SwiftPM
 package) is recorded in the manifest with an empty profile list and a notice —

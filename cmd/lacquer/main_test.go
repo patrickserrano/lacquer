@@ -218,6 +218,55 @@ type errFake struct{}
 
 func (errFake) Error() string { return "boom" }
 
+// TestSyncHintsAtDeclaredSkillsWithoutInstallingThem pins the offline
+// contract the README states outright: "sync stays fully offline and
+// deterministic". Before this test's line of production code existed, Steps
+// had declared [project].skills for months with nothing ever telling anyone
+// to run `lacquer skills` — the entries were gitignored by name, absent on
+// disk, and sync's own success output said nothing about them. skillsync.Runner
+// is injected to FAIL if sync ever calls it, so this fails loudly the day
+// someone routes an install through sync instead of a printed hint.
+func TestSyncHintsAtDeclaredSkillsWithoutInstallingThem(t *testing.T) {
+	lq := realLacquer(t)
+	dir := fixtureProject(t, lq)
+	manifest := filepath.Join(dir, ".lacquer.toml")
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// skills must land under [project], not after the last [[component]] table
+	// — TOML would otherwise attach it to whatever table precedes it in the file.
+	data = bytes.Replace(data, []byte("[project]\n"),
+		[]byte("[project]\nskills = [\"dpearson2699/swift-ios-skills@healthkit\"]\n"), 1)
+	if err := os.WriteFile(manifest, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+
+	orig := skillsync.Runner
+	skillsync.Runner = func(d string, args ...string) ([]byte, error) {
+		t.Fatal("sync must never invoke the skills CLI — it is meant to stay offline")
+		return nil, nil
+	}
+	defer func() { skillsync.Runner = orig }()
+
+	var out, errb bytes.Buffer
+	env := envMap(map[string]string{"LACQUER_ROOT": lq})
+	code := run([]string{"sync"}, env, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "dpearson2699/swift-ios-skills@healthkit") {
+		t.Errorf("stdout missing declared skill entry: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "lacquer skills") {
+		t.Errorf("stdout does not point at `lacquer skills`: %q", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".agents", "skills", "healthkit")); err == nil {
+		t.Error("sync installed the declared skill onto disk — it must only hint, never install")
+	}
+}
+
 // lacquerRootWithPlugins builds a minimal lacquer checkout (VERSION,
 // profiles/, core/bootstrap/plugins.toml) so `plugins` finds a manifest.
 func lacquerRootWithPlugins(t *testing.T, manifest string) string {
