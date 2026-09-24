@@ -103,6 +103,26 @@ class Fixtures(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertIn("unknown eval fixture profile", result.stderr)
 
+    def test_expanded_scenarios(self):
+        controls = json.loads((FIXTURES.parents[1] / "scenario_controls.json").read_text())
+        for kind, control in controls.items():
+            for label in control:
+                want = label == "good"
+                with self.subTest(kind=kind, control=label), tempfile.TemporaryDirectory() as scratch:
+                    previous = self.root
+                    self.root = Path(scratch)
+                    try:
+                        self.run_cmd("python3", str(FIXTURES / "scaffold.py"), kind)
+                        env = {**os.environ, "PATH": str(self.root / "bin") + os.pathsep + os.environ["PATH"]}
+                        # Do not use shell -e: failure-first controls deliberately
+                        # continue after the failing test, then restore and retest.
+                        result = subprocess.run(["bash", "-c", control[label]], cwd=self.root,
+                                                env=env, text=True, capture_output=True)
+                        self.assertNotIn("command not found", result.stderr)
+                        self.verdict(want)
+                    finally:
+                        self.root = previous
+
     def test_existing_workspace_refused(self):
         (self.root / "keep.txt").write_text("existing work")
         result = self.run_cmd("python3", str(FIXTURES / "scaffold.py"), "ci-wait", ok=False)

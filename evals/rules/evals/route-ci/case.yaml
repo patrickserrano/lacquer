@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.1",
+  "name": "route-ci",
+  "context": {
+    "scaffold_script": "scaffold.sh"
+  },
+  "graders": [
+    {
+      "name": "skill-route",
+      "type": "tool_used",
+      "tool": "Skill",
+      "input_match": "\"skill\"\\s*:\\s*\"(?:lacquer-rule-evals:)?github-ci-fix\""
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.1",
+  "name": "route-ios-project",
+  "context": {
+    "scaffold_script": "scaffold.sh"
+  },
+  "graders": [
+    {
+      "name": "skill-route",
+      "type": "tool_used",
+      "tool": "Skill",
+      "input_match": "\"skill\"\\s*:\\s*\"(?:lacquer-rule-evals:)?ios-project-development\""
+    }
+  ]
+}

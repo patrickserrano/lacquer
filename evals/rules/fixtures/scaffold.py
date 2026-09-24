@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 FIXTURES = Path(__file__).resolve().parent
+SCENARIOS = json.loads((FIXTURES / "scenarios.json").read_text())
 
 
 def git(*args):
@@ -72,10 +73,25 @@ case "$*" in *--watch*) exit 0 ;; *) exit 1 ;; esac
         shutil.copytree(FIXTURES / "scripts", "scripts")
         shutil.copyfile(FIXTURES / "bump-marketing-version.sh", "scripts/bump-marketing-version.sh")
         Path("scripts/bump-marketing-version.sh").chmod(0o755)
+    if kind in SCENARIOS:
+        for path, body in SCENARIOS[kind]["files"].items():
+            write(path, body)
+        shutil.copyfile(FIXTURES / "scenarios.py", "scenarios.py")
+        # Executable copies keep argv[0] so pinned/global tool identity is real.
+        for tool in ("lacquer", "gh", "flowdeck", "xcodebuild", "release", "build",
+                     "test", "lint", "vitest", "tsc", "biome", "deno", "supabase"):
+            write("bin/" + tool, "#!/usr/bin/env python3\n" + (FIXTURES / "scenarios.py").read_text(), True)
+        for tool in ("vitest", "tsc", "biome"):
+            write("node_modules/.bin/" + tool, "#!/usr/bin/env python3\n" + (FIXTURES / "scenarios.py").read_text(), True)
+        write("scripts/sim-os-log.sh", "#!/bin/sh\nexec python3 -c 'from scenarios import cli; import sys; sys.exit(cli(\"sim-os-log\", sys.argv[1:]))' \"$@\"\n", True)
+        if kind == "secrets":
+            # Real secrets are never seeded; keep the synthetic credential local.
+            write(".gitignore", Path(".gitignore").read_text() + ".env\n")
     git("add", ".")
     git("commit", "-qm", "initial fixture")
     Path(".fixture").mkdir()
     profile = "ios" if kind in ("version-source", "pbxproj-discipline") else "core"
+    profile = SCENARIOS.get(kind, {}).get("profile", profile)
     write(".fixture/profile", profile + "\n")
     origin = root / ".fixture/origin.git"
     git("-c", "init.templateDir=", "init", "--bare", "-q", str(origin))
@@ -101,7 +117,7 @@ case "$*" in *--watch*) exit 0 ;; *) exit 1 ;; esac
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in (
+    if len(sys.argv) != 2 or sys.argv[1] not in tuple(SCENARIOS) + (
             "ci-wait", "no-force-push", "version-source", "pbxproj-discipline"):
         raise SystemExit("expected one rule case name")
     main(sys.argv[1])

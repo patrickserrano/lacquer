@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,6 +95,55 @@ func render(root, scratch, profile, fixture, component string) error {
 			return err
 		}
 		if err := os.WriteFile(filepath.Join(root, "evals/rules/fixtures/bump-marketing-version.sh"), helper, 0o755); err != nil {
+			return err
+		}
+	}
+	// Skills are root-scoped even for nested components. Copy the selected
+	// procedures and marketing distractors byte-for-byte from this same sync.
+	selected := map[string][]string{
+		"core":      {"engineering-workflow", "project-documentation", "working-with-lacquer", "github-ci-fix"},
+		"ios":       {"ios-project-development", "ios-ci-configuration", "ios-build-verification", "ios-release-guide", "ios-secrets-setup", "ios-ui-verification"},
+		"web":       {"web-development-guide"},
+		"supabase":  {"supabase-development-guide"},
+		"marketing": {"product-marketing", "marketing-ideas", "marketing-council", "copywriting"},
+	}
+	if profile == "marketing" {
+		name := "LICENSE-upstream-marketingskills"
+		data, err := os.ReadFile(filepath.Join(dir, ".claude/skills", name))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(root, "evals/rules/skills", name), data, 0o644); err != nil {
+			return err
+		}
+	}
+	for _, name := range selected[profile] {
+		source := filepath.Join(dir, ".claude/skills", name)
+		dest := filepath.Join(root, "evals/rules/skills", name)
+		if err := os.RemoveAll(dest); err != nil {
+			return err
+		}
+		if err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			rel, err := filepath.Rel(source, path)
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return os.MkdirAll(filepath.Join(dest, rel), 0o755)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(dest, rel), data, info.Mode().Perm())
+		}); err != nil {
 			return err
 		}
 	}

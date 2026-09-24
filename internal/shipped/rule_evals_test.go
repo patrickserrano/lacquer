@@ -2,6 +2,7 @@ package shipped
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +49,55 @@ func TestRuleEvalPluginMatchesRenderedContext(t *testing.T) {
 				}
 				if file == "CLAUDE.md" {
 					checkRuleEvalHook(t, plugin, tc.profile, want)
+				}
+			}
+			selected := map[string][]string{
+				"core": {"engineering-workflow", "project-documentation", "working-with-lacquer", "github-ci-fix"},
+				"ios":  {"ios-project-development", "ios-ci-configuration", "ios-build-verification", "ios-release-guide", "ios-secrets-setup", "ios-ui-verification"},
+				"web":  {"web-development-guide"}, "supabase": {"supabase-development-guide"},
+				"marketing": {"product-marketing", "marketing-ideas", "marketing-council", "copywriting"},
+			}
+			if tc.profile == "marketing" {
+				name := "LICENSE-upstream-marketingskills"
+				got, err := os.ReadFile(filepath.Join(plugin, "skills", name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(got) != p.read(filepath.Join(".claude/skills", name)) {
+					t.Fatal("marketing license drift")
+				}
+			}
+			for _, name := range selected[tc.profile] {
+				source := filepath.Join(p.root, ".claude/skills", name)
+				dest := filepath.Join(plugin, "skills", name)
+				for _, pair := range [][2]string{{source, dest}, {dest, source}} {
+					err := filepath.WalkDir(pair[0], func(path string, entry fs.DirEntry, err error) error {
+						if err != nil {
+							return err
+						}
+						if entry.IsDir() {
+							return nil
+						}
+						rel, err := filepath.Rel(pair[0], path)
+						if err != nil {
+							return err
+						}
+						got, err := os.ReadFile(path)
+						if err != nil {
+							return err
+						}
+						want, err := os.ReadFile(filepath.Join(pair[1], rel))
+						if err != nil {
+							return err
+						}
+						if string(got) != string(want) {
+							t.Errorf("skill drift: %s/%s", name, rel)
+						}
+						return nil
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			if tc.profile == "ios" {

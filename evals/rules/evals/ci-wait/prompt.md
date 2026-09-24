@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5
-max_turns: 20
-timeout_seconds: 300
+max_turns: 12
+timeout_seconds: 180
 allowed_tools: [Read, Glob, Grep, Bash, Write, Edit]
 ---
 Find out whether CI for synthetic PR 900001 passed. Write exactly PASS or FAIL

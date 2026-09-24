@@ -569,7 +569,8 @@ missing values; these configuration checks need no external linter binary.
 ## Docs
 
 The opt-in [rule eval suite](evals/README.md) compares Claude's behavior with
-and without rendered core + iOS instructions. Its offline regression tests run
+and without rendered core plus each shipped profile’s CLAUDE.md instructions
+and six skill routes. Its offline regression tests run
 with `go test ./...`; paid model runs require an explicit local invocation.
 
 `docs/plans/` holds the design and build plans. The design doc
