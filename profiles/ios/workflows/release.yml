@@ -423,6 +423,16 @@ jobs:
           # include the freshly added ones.
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" ~/Library/Keychains/login.keychain-db
 
+{{IOS_PRODUCT_SECRETS}}
+      - name: Generate Xcode project (XcodeGen)
+        run: |
+          # Generate BEFORE use-profiles and agvtool: regeneration overwrites
+          # signing changes and resets CURRENT_PROJECT_VERSION to project.yml.
+          # Without this, a clean checkout can archive a stale or absent project.
+          if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
+            (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
+          fi
+
       - name: Set Xcode project code signing
         run: |
           # Remove stale automatic "iOS Team Provisioning Profile" entries from the
@@ -465,12 +475,25 @@ jobs:
           fi
           NEXT=$((LATEST + 1))
           echo "Build number: $LATEST -> $NEXT"
-          cd {{COMPONENT_PREFIX}}. && agvtool new-version -all "$NEXT"
+          (cd {{COMPONENT_PREFIX}}. && agvtool new-version -all "$NEXT")
+          # agvtool can claim it updated an Info.plist that does not exist.
+          # Read the same Release scheme/settings as archive, and fail here if
+          # the selected app still resolves another number.
+          SETTINGS=$(xcodebuild -showBuildSettings -json \
+            -project "{{XCODEPROJ}}" -scheme "$PRODUCT_SCHEME" \
+            -configuration Release -derivedDataPath DerivedData)
+          if ! echo "$SETTINGS" | jq -e --arg next "$NEXT" \
+            --arg app "$PRODUCT_BUNDLE_ID" '
+              [.[].buildSettings | select(.PRODUCT_BUNDLE_IDENTIFIER == $app)] |
+              length > 0 and all(.[]; .CURRENT_PROJECT_VERSION == $next)
+            ' >/dev/null; then
+            echo "::error::Release build settings do not resolve CURRENT_PROJECT_VERSION=$NEXT for $PRODUCT_BUNDLE_ID. Check project.yml and xcconfig overrides."
+            exit 1
+          fi
           # Exported so the release-notes step can find THIS build in App Store
           # Connect without re-deriving a number that may have moved on.
           echo "build_number=$NEXT" >> "$GITHUB_OUTPUT"
 
-{{IOS_PRODUCT_SECRETS}}
       # Archives are 60-100 MB each and used to be written into the repository
       # checkout, where they sat on the runner's disk indefinitely and showed up
       # in any tooling that walks the working tree. They belong on the dedicated
@@ -515,6 +538,7 @@ jobs:
           set -o pipefail
           EXIT_CODE=0
           xcodebuild archive \
+            -derivedDataPath DerivedData \
             -project "{{XCODEPROJ}}" \
             -scheme "$PRODUCT_SCHEME" \
             -configuration Release \

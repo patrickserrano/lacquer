@@ -21,6 +21,13 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 - **Model observable state with `@Observable`**, held in `@State` — not `ObservableObject`, `@StateObject`, or `@Published`; `@Observable` properties publish automatically.
 - **Navigate with `NavigationStack`**, not `NavigationView`.
 
+## Build data stays in the worktree
+
+Use `-d "$(git rev-parse --show-toplevel)/DerivedData"` on every FlowDeck
+`build`, `run`, `test`, and `clean`; use `-derivedDataPath` with that same path
+on raw `xcodebuild`, including settings, list, and package-resolution queries.
+The Bash PreToolUse hook rejects these commands without an explicit path.
+
 ## App Store Requirements
 
 - **`ITSAppUsesNonExemptEncryption` must be set** in `Info.plist` (or as `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption` build setting). Value is `NO` for apps using only standard HTTPS; `YES` for apps with custom encryption. Missing or wrong value causes export compliance failures on every TestFlight upload.
