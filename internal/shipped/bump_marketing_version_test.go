@@ -539,3 +539,124 @@ func TestBumpMarketingVersionIgnoresSiblingGenerator(t *testing.T) {
 		t.Errorf("manual project was not bumped: %s", firstLineDiff(want, got))
 	}
 }
+
+// The abved failure: project settings are stale, while target configurations
+// inherit the shipped version from Config/Paid.xcconfig.
+const xcconfigPbxprojFixture = `// !$*UTF8*$!
+{
+	objects = {
+		ROOT = { isa = PBXGroup; children = (CONFIG,); sourceTree = "<group>"; };
+		CONFIG = { isa = PBXGroup; children = (PAID,); path = Config; sourceTree = "<group>"; };
+		PAID = { isa = PBXFileReference; path = Paid.xcconfig; sourceTree = "<group>"; };
+		PROJECT = { isa = PBXProject; mainGroup = ROOT; buildConfigurationList = PROJECTLIST; targets = (APP,); };
+		APP = { isa = PBXNativeTarget; buildConfigurationList = TARGETLIST; };
+		PROJECTLIST = { isa = XCConfigurationList; buildConfigurations = (PD, PR,); };
+		TARGETLIST = { isa = XCConfigurationList; buildConfigurations = (TD, TR,); };
+		PD = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MARKETING_VERSION = 3.0;
+			};
+		};
+		PR = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MARKETING_VERSION = 3.0;
+			};
+		};
+		TD = { isa = XCBuildConfiguration; baseConfigurationReference = PAID; buildSettings = {}; };
+		TR = { isa = XCBuildConfiguration; baseConfigurationReference = PAID; buildSettings = {}; };
+	};
+	rootObject = PROJECT;
+}
+`
+
+func TestBumpMarketingVersionRefusesXCConfig(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, config, included, version, want string
+	}{
+		{"abved", "MARKETING_VERSION = 3.0.2\n", "", "3.1", "Config/Paid.xcconfig"},
+		{"already stale", "MARKETING_VERSION = 3.0.2\n", "", "3.0", "Config/Paid.xcconfig"},
+		{"nested include", "#include \"Shared/Version.xcconfig\"\n", "#include? \"../Actual.xcconfig\"\n", "3.1", "Config/Actual.xcconfig"},
+		{"conditional", "MARKETING_VERSION[sdk=iphoneos*] = 3.0.2\n", "", "3.1", "Config/Paid.xcconfig"},
+		{"missing include", "#include \"Missing.xcconfig\"\n", "", "3.1", "Missing.xcconfig"},
+		{"variable include", "#include \"$(VERSIONS)/Version.xcconfig\"\n", "", "3.1", "cannot determine"},
+		{"cycle", "#include \"Paid.xcconfig\"\n", "", "3.1", "cannot determine"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newBumpRepo(t, "ios/App.xcodeproj/project.pbxproj", xcconfigPbxprojFixture)
+			files := map[string]string{"Config/Paid.xcconfig": tc.config}
+			if tc.included != "" {
+				files["Config/Shared/Version.xcconfig"] = tc.included
+				files["Config/Actual.xcconfig"] = "MARKETING_VERSION = 3.0.2\n"
+			}
+			for path, body := range files {
+				full := filepath.Join(r.dir, "ios", path)
+				if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			gitIn(t, r.dir, "add", "-A")
+			gitIn(t, r.dir, "commit", "-qm", "xcconfig source")
+			out, code := runBump(t, r.dir, "", tc.version)
+			if code == 0 {
+				t.Errorf("xcconfig-sourced version reported success:\n%s", out)
+			}
+			mustContain(t, "the refusal", out, "refusing", tc.want, "resolved", "-showBuildSettings", "-derivedDataPath DerivedData")
+			r.wantUntouched(t)
+		})
+	}
+}
+
+func TestBumpMarketingVersionXCConfigResolution(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, old, replacement, config string
+		refuse                         bool
+	}{
+		{"unrelated settings", "", "", "// MARKETING_VERSION = 9.9\n/* MARKETING_VERSION = 8.8 */\nSWIFT_VERSION = 6.0\n#include? \"Absent.xcconfig\"\n", false},
+		{"source root", "path = Paid.xcconfig; sourceTree = \"<group>\"", "path = Config/Paid.xcconfig; sourceTree = SOURCE_ROOT", "MARKETING_VERSION = 3.0.2\n", true},
+		{"missing reference", "baseConfigurationReference = PAID", "baseConfigurationReference = MISSING", "SWIFT_VERSION = 6.0\n", true},
+		{"unknown source tree", "path = Paid.xcconfig; sourceTree = \"<group>\"", "path = Paid.xcconfig; sourceTree = SDKROOT", "SWIFT_VERSION = 6.0\n", true},
+		{"missing group", "children = (PAID,)", "children = ()", "SWIFT_VERSION = 6.0\n", true},
+		{"group cycle", "children = (PAID,)", "children = (PAID, ROOT,)", "SWIFT_VERSION = 6.0\n", true},
+		{"unsupported include", "", "", "#include <Versions.xcconfig>\n", true},
+		{"unterminated comment", "", "", "/* MARKETING_VERSION = 3.0.2\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := xcconfigPbxprojFixture
+			if tc.old != "" {
+				body = strings.ReplaceAll(body, tc.old, tc.replacement)
+			}
+			r := newBumpRepo(t, "App.xcodeproj/project.pbxproj", body)
+			if err := os.Mkdir(filepath.Join(r.dir, "Config"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(r.dir, "Config/Paid.xcconfig"), []byte(tc.config), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitIn(t, r.dir, "add", "-A")
+			gitIn(t, r.dir, "commit", "-qm", "xcconfig inputs")
+			out, code := runBump(t, r.dir, "", "3.1")
+			if tc.refuse {
+				if code == 0 {
+					t.Errorf("unresolved/xcconfig source accepted:\n%s", out)
+				}
+				mustContain(t, "the refusal", out, "refusing", "resolved", "-showBuildSettings")
+				r.wantUntouched(t)
+			} else {
+				if code != 0 {
+					t.Fatalf("unrelated xcconfig blocked a safe bump:\n%s", out)
+				}
+				want := strings.ReplaceAll(r.orig, "MARKETING_VERSION = 3.0;", "MARKETING_VERSION = 3.1;")
+				if got := r.read(t); got != want {
+					t.Errorf("safe bump differs: %s", firstLineDiff(want, got))
+				}
+			}
+		})
+	}
+}
