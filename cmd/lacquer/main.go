@@ -1002,14 +1002,15 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
-		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+		root, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr)
+		if code != 0 {
 			return code
 		}
 		v, err := version.Read(lacquerRoot)
 		if err != nil {
 			return fail(stderr, err)
 		}
-		fmt.Fprintln(stdout, v)
+		fmt.Fprintf(stdout, "%s (content) / built from %s\nroot: %s\n", v, root.BuiltVersion, root.Root)
 	default:
 		fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
 		usage(stderr)
@@ -1180,7 +1181,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               mark one inbox entry resolved")
 	fmt.Fprintln(w, "  console --inbox F inbox list [--all]")
 	fmt.Fprintln(w, "                               list open inbox entries (--all also lists resolved ones)")
-	fmt.Fprintln(w, "  version                      print the lacquer version")
+	fmt.Fprintln(w, "  version                      print content and build versions and the resolved root")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
 	fmt.Fprintln(w, "     LACQUER_ALLOW_UNVERIFIED_ROOT=1 (run against a root that is not a pinned release --")

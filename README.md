@@ -27,7 +27,7 @@ every project regardless.
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
 | `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change, 4 on a baseline violation, 6 on an undeclared stack (usable as a CI gate). |
 | `lacquer wait pr <N>` | Block until every check on a PR is terminal (no tokens while it sleeps). Exit 0 none failed, 1 a check failed, 2 timed out, 3 no checks — an empty check list is never a pass. The sanctioned way to wait for CI. |
-| `lacquer version` | Print the lacquer version. |
+| `lacquer version` | Print labeled content and build versions, plus the resolved content root path. |
 
 `lacquer --help` prints usage.
 
