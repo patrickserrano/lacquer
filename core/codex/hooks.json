@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/lacquer-guard.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking repository safety rules"
+          }
+        ]
+      }
+    ]
+  }
+}

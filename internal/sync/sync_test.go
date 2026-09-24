@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
@@ -58,13 +59,15 @@ func TestSyncMergesCoreAndProfile(t *testing.T) {
 	}
 }
 
-func TestSyncMirrorsAgentsMd(t *testing.T) {
+func TestSyncUsesDedicatedAgentsMd(t *testing.T) {
 	lacquer := t.TempDir()
 	project := t.TempDir()
 
 	writeFile(t, filepath.Join(lacquer, "VERSION"), "3\n")
 	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE RULES")
 	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "CLAUDE.ios.md"), "IOS RULES")
+	writeFile(t, filepath.Join(lacquer, "core", "AGENTS.core.md"), "CODEX CORE")
+	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "AGENTS.ios.md"), "CODEX IOS")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"),
 		"[project]\nname=\"acme\"\ntools=[\"claude\",\"codex\",\"antigravity\"]\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 	// Pre-existing project-owned text in AGENTS.md must be preserved (managed
@@ -83,7 +86,7 @@ func TestSyncMirrorsAgentsMd(t *testing.T) {
 	if !strings.Contains(s, "keep me") {
 		t.Error("root AGENTS.md lost project-owned text")
 	}
-	if !strings.Contains(s, "<!-- lacquer:core:start v0.3.0 -->") || !strings.Contains(s, "CORE RULES") {
+	if !strings.Contains(s, "<!-- lacquer:core:start v0.3.0 -->") || !strings.Contains(s, "CODEX CORE") {
 		t.Errorf("root AGENTS.md missing core region:\n%s", s)
 	}
 
@@ -92,11 +95,11 @@ func TestSyncMirrorsAgentsMd(t *testing.T) {
 		t.Fatalf("component AGENTS.md not written: %v", err)
 	}
 	if !strings.Contains(string(compAgents), "<!-- lacquer:ios:start v0.3.0 -->") ||
-		!strings.Contains(string(compAgents), "IOS RULES") {
+		!strings.Contains(string(compAgents), "CODEX IOS") {
 		t.Errorf("component AGENTS.md missing ios region:\n%s", compAgents)
 	}
 
-	// AGENTS.md and CLAUDE.md must carry identical managed-region bodies.
+	// Dedicated instructions must not replace the original source.
 	rootClaude, _ := os.ReadFile(filepath.Join(project, "CLAUDE.md"))
 	if !strings.Contains(string(rootClaude), "CORE RULES") {
 		t.Error("root CLAUDE.md missing core region (mirror must not replace it)")
@@ -415,5 +418,71 @@ func TestSyncExcludeSilencesAnUndeclaredStack(t *testing.T) {
 
 	if _, err := Run(lacquer, project, false); err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+}
+
+// Existing mirrored locks must update without force while project prose and
+// CLAUDE.md stay byte-identical; later local edits must still block sync.
+func TestDedicatedAgentsMigrationAndDrift(t *testing.T) {
+	lacquer, project := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "3\n")
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "OLD CORE")
+	writeFile(t, filepath.Join(lacquer, "core", "AGENTS.core.md"), "OLD CORE")
+	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"x\"\ntools=[\"codex\"]\n")
+	writeFile(t, filepath.Join(project, "AGENTS.md"), "project-owned text\n")
+	if _, err := Run(lacquer, project, false); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(project, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(lacquer, "core", "AGENTS.core.md"), "NEW CODEX CORE")
+	rows, _, err := audit.Classify(lacquer, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range rows {
+		if row.Dest == "AGENTS.md" {
+			found = true
+			if row.Status != audit.Behind {
+				t.Fatalf("migration: %+v", row)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("audit omitted AGENTS.md")
+	}
+	if _, err := Run(lacquer, project, false); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(filepath.Join(project, "CLAUDE.md"))
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("CLAUDE.md changed: %v", err)
+	}
+	agents, err := os.ReadFile(filepath.Join(project, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(agents), "project-owned text") || !strings.Contains(string(agents), "NEW CODEX CORE") {
+		t.Fatalf("bad migration: %s", agents)
+	}
+	writeFile(t, filepath.Join(project, "AGENTS.md"), strings.Replace(string(agents), "NEW CODEX CORE", "LOCAL EDIT", 1))
+	if _, err := Run(lacquer, project, false); err == nil {
+		t.Fatal("sync clobbered locally modified instructions")
+	}
+}
+
+func TestMissingAgentsSourceFailsBeforeWriting(t *testing.T) {
+	lacquer, project := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "3\n")
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"x\"\ntools=[\"codex\"]\n")
+	if _, err := Run(lacquer, project, false); err == nil {
+		t.Fatal("missing dedicated source silently accepted")
+	}
+	if _, err := os.Stat(filepath.Join(project, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Fatalf("partial write: %v", err)
 	}
 }

@@ -341,6 +341,17 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 
 	tools := cfg.Project.EffectiveTools()
 
+	// Codex runtime configuration is tool-specific, even when another tool
+	// also consumes AGENTS.md. Keep it in the normal asset/lock/exclusion path.
+	for _, tool := range tools {
+		if tool == "codex" {
+			if err := walkInto(filepath.Join(lacquerRoot, "core", "codex"),
+				func(src, rel string) { add(src, filepath.Join(".codex", rel), "", "") }); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
 	// core assets are stack-agnostic: no component prefix. Skills fan out to each
 	// enabled tool's skills dir; commands stay Claude-only.
 	for _, tool := range tools {
