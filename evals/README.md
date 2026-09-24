@@ -105,7 +105,8 @@ The `negative-control` and `report-evidence` method graders require an explicit
 incidental mentions, other test runners and Bash's builtin `test`, and cover
 command separators in serialized Bash input. Outcome graders still require
 the fixture's actual recorded execution and state. The `ios-hung` method grader
-accepts `flowdeck test stop` with or without arguments, including a PATH prefix;
+accepts `flowdeck test stop` with or without arguments, including a PATH prefix
+or a `bin/` or `./bin/` path;
 controls reject status queries and incidental mentions.
 
 Issue #485 five whys: valid stops scored as missing → the method pattern required

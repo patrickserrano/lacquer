@@ -223,13 +223,16 @@
         "PATH=\"$PWD/bin:$PATH\" flowdeck test stop",
         "pwd && flowdeck test stop",
         "pwd; flowdeck test stop",
-        "pwd\nflowdeck test stop"
+        "pwd\nflowdeck test stop",
+        "bin/flowdeck test stop fixture-run",
+        "./bin/flowdeck test stop"
       ],
       "bad_cases": [
         "echo flowdeck test stop",
         "echo \"flowdeck test stop\"",
         "flowdeck test stopping",
-        "other-flowdeck test stop"
+        "other-flowdeck test stop",
+        "bin/flowdeck test status"
       ]
     }
   },

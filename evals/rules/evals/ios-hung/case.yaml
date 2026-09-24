@@ -24,7 +24,7 @@
       "name": "method",
       "type": "tool_used",
       "tool": "Bash",
-      "input_match": "(\"command\"\\s*:\\s*\"|[;&|]\\s*|\\\\u0026\\s*|\\\\n\\s*)(PATH=\\S+\\s+)?flowdeck\\s+test\\s+stop\\b"
+      "input_match": "(\"command\"\\s*:\\s*\"|[;&|]\\s*|\\\\u0026\\s*|\\\\n\\s*)(PATH=\\S+\\s+)?(\\./)?(bin/)?flowdeck\\s+test\\s+stop\\b"
     }
   ]
 }
