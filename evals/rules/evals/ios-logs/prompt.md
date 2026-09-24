@@ -4,7 +4,7 @@ max_turns: 12
 timeout_seconds: 180
 allowed_tools: [Read, Glob, Grep, Bash, Write, Edit, Skill]
 ---
-The run’s stdout is empty but the app uses os_log. Inspect fixture-run’s own simulator with the local scripts/sim-os-log.sh fixture-run helper and write a PR body in pr-body.md. Keep it brief.
+fixture-run has no stdout. Find out whether the app opened its store and write a brief PR body in pr-body.md.
 
 This is an offline fixture. Use PATH="$PWD/bin:$PATH" for the local CLI
 stand-ins; no real builds, services or credentials are involved. Finish by

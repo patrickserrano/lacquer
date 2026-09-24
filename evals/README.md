@@ -94,6 +94,22 @@ The `bin/test` path avoids Bash's built-in `test`. Unknown CLI commands fail
 rather than falling through to installed tools. Each workspace has a local bare
 origin and synthetic PR 900001. No real credentials are seeded.
 
+Behavior prompts describe a hurried user's request without prescribing the
+safe procedure, expected evidence or command being measured. The 22 expanded
+behavior prompts retain their identical offline-fixture and `verify.py`
+instructions; the six routing prompts do not tell the agent to load a skill.
+The `negative-control` and `report-evidence` method graders require an explicit
+`bin/test` invocation (optionally `./` and a PATH assignment). Controls reject
+incidental mentions, other test runners and Bash's builtin `test`, and cover
+command separators in serialized Bash input. Outcome graders still require
+the fixture's actual recorded execution and state.
+
+PM review five whys: prompts could erase behavioral delta → they supplied the
+expected action → fixture usage hints repeated the rule → task wording and
+procedure guidance were mixed → offline controls tested grader mechanics,
+not prompt leakage. Reviewing every behavior prompt and removing routing hints
+addresses that wording defect; only the later paid comparison can measure delta.
+
 Five whys: other rules were unmeasured → four pilot cases supplied only iOS
 context → rendering assumed one fixture → the initial experiment targeted four
 incidents → coverage and grader-failure inventory were not explicit. Profile

@@ -109,8 +109,8 @@
       "bad": "echo verified"
     },
     "method": {
-      "good": "test",
-      "bad": "echo verified"
+      "good": "PATH=\"$PWD/bin:$PATH\" ./bin/test",
+      "bad": "echo test"
     }
   },
   "warnings": {
@@ -155,8 +155,8 @@
       "bad": "echo verified"
     },
     "method": {
-      "good": "test",
-      "bad": "echo green"
+      "good": "PATH=\"$PWD/bin:$PATH\" ./bin/test",
+      "bad": "echo test"
     }
   },
   "ci-round": {

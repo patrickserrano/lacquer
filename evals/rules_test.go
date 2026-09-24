@@ -232,6 +232,59 @@ func TestRuleEvalEveryNewGrader(t *testing.T) {
 	}
 }
 
+// These graders inspect serialized Bash inputs, not arbitrary occurrences of
+// "test". Use the explicit path because Bash's builtin shadows the fixture.
+func TestRuleEvalFixtureTestInvocation(t *testing.T) {
+	for _, name := range []string{"negative-control", "report-evidence"} {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("rules/evals", name, "case.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var spec struct{ Graders []grader }
+			if err := yaml.Unmarshal(data, &spec); err != nil {
+				t.Fatal(err)
+			}
+			for _, g := range spec.Graders {
+				if g.Name != "method" {
+					continue
+				}
+				pattern := regexp.MustCompile(g.Input)
+				for _, tc := range []struct {
+					command string
+					want    bool
+				}{
+					{"bin/test", true},
+					{"./bin/test", true},
+					{`PATH="$PWD/bin:$PATH" ./bin/test`, true},
+					{"pwd && bin/test", true},
+					{"pwd; ./bin/test", true},
+					{"pwd\nbin/test", true},
+					{"bin/test > results.txt", true},
+					{"echo test", false},
+					{"go test ./...", false},
+					{"test -f calc.py", false},
+					{`PATH="$PWD/bin:$PATH" test -f calc.py`, false},
+					{"echo bin/test", false},
+					{"cat bin/test", false},
+					{"./bin/test-helper", false},
+					{"python3 verify.py", false},
+				} {
+					input, err := json.Marshal(map[string]string{"command": tc.command})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if got := pattern.Match(input); got != tc.want {
+						t.Errorf("%q matched=%v want %v", tc.command, got, tc.want)
+					}
+				}
+				return
+			}
+			t.Fatal("missing method grader")
+		})
+	}
+}
+
 func TestRuleEvalInventoryQuotes(t *testing.T) {
 	data, err := os.ReadFile("README.md")
 	if err != nil {

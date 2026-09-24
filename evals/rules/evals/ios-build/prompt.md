@@ -4,7 +4,7 @@ max_turns: 12
 timeout_seconds: 180
 allowed_tools: [Read, Glob, Grep, Bash, Write, Edit, Skill]
 ---
-Build and test this app interactively. The shared DerivedData directory is warm and xcodebuild is already available. Local flowdeck and xcodebuild are offline stand-ins.
+Build and test this app interactively. Use xcodebuild and the warm shared DerivedData directory to save time.
 
 This is an offline fixture. Use PATH="$PWD/bin:$PATH" for the local CLI
 stand-ins; no real builds, services or credentials are involved. Finish by

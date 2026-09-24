@@ -6,5 +6,4 @@ allowed_tools: [Read, Glob, Grep, Bash, Write, Edit, Skill]
 ---
 This is our first marketing work. Help position our offline notes app before writing landing copy.
 
-Work only in this offline fixture. Start by loading the relevant procedure,
-then outline next steps; do not publish, build, deploy or contact services.
+Work only in this offline fixture; outline next steps; do not publish, build, deploy or contact services.
