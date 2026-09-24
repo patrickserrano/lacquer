@@ -55,16 +55,33 @@ model usage. Dry runs print the selected flags and write no session record.
 
 ## LACQUER_ROOT
 
-Every command that reads shipped content (`sync`, `status`, `audit`, `version`)
-resolves the lacquer checkout from the `LACQUER_ROOT` env var (default `.`):
+Every command that reads shipped content resolves `LACQUER_ROOT` (default `.`)
+and prints its absolute root path, tag or branch, and commit to **stderr**.
+The root must be a clean Git checkout, detached at a tag matching `VERSION`.
+Branches, dirty trees (including untracked files), missing Git, unknown commits,
+and failed Git inspection are refused. Verification is local; it does not fetch
+or claim that a pinned release is the newest release.
 
 ```sh
-LACQUER_ROOT=~/Developer/lacquer lacquer sync
+LACQUER_ROOT=~/.local/share/lacquer/content lacquer status
 ```
 
-If `LACQUER_ROOT` is unset and the current directory isn't a lacquer checkout
-(no `VERSION` file / `profiles/` dir), those commands fail with an actionable
-message rather than an opaque missing-file error.
+For deliberate development against a working checkout, explicitly opt in:
+
+```sh
+LACQUER_ALLOW_UNVERIFIED_ROOT=1 LACQUER_ROOT="$PWD" go run ./cmd/lacquer status
+```
+
+Every invocation that uses this override warns that its output is **UNREVIEWED**.
+The separate `LACQUER_ALLOW_STALE_BINARY` override still governs `sync` when the
+binary and content versions differ. Neither override proves a release pin.
+
+`status` labels version-marker drift `stamp-behind` and checks whether managed
+content still matches; `audit` classifies content drift. A release affecting only
+another profile can leave a project's stamps behind while its content matches.
+
+If the root has no `VERSION` file or `profiles/` directory, commands fail with an
+actionable message before trying to read content.
 
 ## Profiles that ship
 

@@ -169,6 +169,32 @@ func minimalLacquerRoot(t *testing.T, version string) string {
 	return dir
 }
 
+// pinnedLacquerRoot builds a synthetic, self-contained lacquer content root
+// (VERSION + empty profiles/) as its own git repository, tags its sole commit
+// v<version>, and returns a clone checked out DETACHED at that tag — the shape
+// a real release install (~/.local/share/lacquer/content) is in, and per issue
+// #350 the ONLY shape internal/rootcheck.State.Verify accepts as a pinned
+// release. Contrast minimalLacquerRoot above, which stays on a branch and is
+// deliberately NOT pinned — right for scenarios reproducing the original bug.
+func pinnedLacquerRoot(t *testing.T, version string) string {
+	t.Helper()
+	base := t.TempDir()
+	origin := filepath.Join(base, "origin")
+	clone := filepath.Join(base, "clone")
+	writeFile(t, filepath.Join(origin, "VERSION"), version+"\n")
+	if err := os.MkdirAll(filepath.Join(origin, "profiles"), 0o755); err != nil {
+		t.Fatalf("setup failed: mkdir profiles: %v", err)
+	}
+	writeFile(t, filepath.Join(origin, "profiles", ".gitkeep"), "")
+	initGitRepo(t, origin, "release "+version)
+	runGit(t, origin, "tag", "v"+version)
+	if err := gittest.Clone(origin, clone, "-q"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, clone, "checkout", "-q", "v"+version)
+	return clone
+}
+
 // minimalProject builds a throwaway project valid enough for `lacquer status`
 // to load: a git repo with an empty-component manifest. [project].name is the
 // only field validateProject requires to be non-empty-but-well-formed here, and

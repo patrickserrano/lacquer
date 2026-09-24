@@ -1,20 +1,5 @@
-// Package rootcheck reports which lacquer checkout a command is reading its
-// content from, and whether that checkout is behind its upstream.
-//
-// Why this exists: `sync` renders whatever is in LACQUER_ROOT, and a stale root
-// fails SILENTLY. It prints "sync complete", writes the old content, and leaves
-// a diff indistinguishable from "there was nothing to do" — the two states
-// produce identical output. That is not hypothetical: a fix was merged to the
-// lacquer, a project was synced from a root pulled before that merge, the sync
-// reported success without touching the file the fix was in, and the same
-// production job failed a second time with the identical error before anyone
-// suspected the root rather than the fix.
-//
-// The fix is to make the source visible on every run and to say so out loud
-// when it is behind. Both halves matter: the warning catches the case where a
-// fetch is possible, and the always-printed provenance line catches the rest,
-// because "synced from a1b2c3d on main" in a scrollback is enough to spot the
-// problem later even when nothing warned at the time.
+// Package rootcheck verifies that a content root is a clean, detached release
+// checkout and reports its path, tag and commit. Unknown state fails closed.
 package rootcheck
 
 import (
@@ -42,21 +27,35 @@ type State struct {
 	// whenever a binary outlives the tree it was built from — routine here, where
 	// feature worktrees are built and then linger.
 	BuiltVersion string
-	// Root is the checkout's path, as given.
+	// Root is the absolute, symlink-resolved checkout path.
 	Root string
 	// Version is the contents of the checkout's VERSION file, if any.
 	Version string
 	// Branch and Commit identify HEAD. Branch is "HEAD" when detached.
 	Branch string
 	Commit string
-	// Dirty reports uncommitted changes to tracked files.
+	// Tag is a tag pointing at HEAD, preferring one matching VERSION.
+	// It is resolved only when Branch == "HEAD" (detached). Empty
+	// when HEAD is on a branch, or when it is detached but does not sit exactly
+	// on any tag — the "detached at an unknown commit" case issue #350 requires
+	// to refuse as unverifiable rather than pass.
+	Tag string
+	// Dirty reports tracked changes and untracked, non-ignored files.
 	Dirty bool
 	// Behind counts commits the upstream has that HEAD does not. It is -1 when
 	// unknown: no upstream configured, not a git checkout, or the fetch failed.
 	Behind int
 	// NotGit is set when Root is not a git checkout at all — a tarball or a
-	// copied directory, where staleness cannot be determined by any means.
+	// copied directory, where staleness cannot be determined by any means. Also
+	// set when the `git` binary itself could not be run (not installed, not on
+	// PATH): the underlying exec fails the same way a non-repo does, and both
+	// are the same answer to "can this be verified" — no.
 	NotGit bool
+	// GitError records a failed path, HEAD, tag, or working-tree inspection.
+	// Distinct from NotGit only for diagnostics; both mean the same
+	// thing to Verify: unverifiable, which must refuse exactly like a confirmed
+	// bad state (issue #350) rather than read as safety.
+	GitError bool
 }
 
 // Inspect describes the checkout at root.
@@ -69,6 +68,15 @@ func Inspect(root string, fetch bool) State {
 	// BuiltVersion comes from the binary, never from the root — that separation
 	// is the entire point of the check.
 	s := State{Root: root, Behind: -1, BuiltVersion: strings.TrimSpace(lacquer.BuiltVersion)}
+	resolved, err := filepath.Abs(root)
+	if err == nil {
+		resolved, err = filepath.EvalSymlinks(resolved)
+	}
+	if err != nil {
+		s.GitError = true
+		return s
+	}
+	root, s.Root = resolved, resolved
 
 	if b, err := os.ReadFile(filepath.Join(root, "VERSION")); err == nil {
 		s.Version = strings.TrimSpace(string(b))
@@ -79,11 +87,50 @@ func Inspect(root string, fetch bool) State {
 		return s
 	}
 
-	s.Branch, _ = trimmed(git(root, "rev-parse", "--abbrev-ref", "HEAD"))
-	s.Commit, _ = trimmed(git(root, "rev-parse", "--short", "HEAD"))
+	branch, errB := trimmed(git(root, "rev-parse", "--abbrev-ref", "HEAD"))
+	commit, errC := trimmed(git(root, "rev-parse", "--short", "HEAD"))
+	if errB != nil || errC != nil {
+		// git confirmed this IS a repo but then could not resolve HEAD (an
+		// unborn branch, a corrupt ref). Unverifiable, not fine — see Verify's
+		// doc comment on why this must refuse rather than silently pass.
+		s.GitError = true
+		return s
+	}
+	s.Branch, s.Commit = branch, commit
+	// Git searches parent directories. A nested content copy must not borrow
+	// its parent's tag and clean state as proof of its own provenance.
+	top, err := trimmed(git(root, "rev-parse", "--show-toplevel"))
+	if err == nil {
+		top, err = filepath.EvalSymlinks(top)
+	}
+	if err != nil || top != root {
+		s.NotGit = true
+		return s
+	}
 
-	if out, err := git(root, "status", "--porcelain", "--untracked-files=no"); err == nil {
+	if out, err := git(root, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"); err == nil {
 		s.Dirty = strings.TrimSpace(out) != ""
+	} else {
+		s.GitError = true
+		return s
+	}
+
+	if s.Branch == "HEAD" {
+		// Multiple tags can point at a release. Select the one matching VERSION,
+		// rather than whichever tag git describe happens to prefer.
+		tags, err := trimmed(git(root, "tag", "--points-at", "HEAD"))
+		if err != nil {
+			s.GitError = true
+			return s
+		}
+		for _, tag := range strings.Fields(tags) {
+			if s.Tag == "" || tagMatchesVersion(tag, s.Version) {
+				s.Tag = tag
+			}
+			if tagMatchesVersion(tag, s.Version) {
+				break
+			}
+		}
 	}
 
 	upstream, err := trimmed(git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"))
@@ -114,6 +161,12 @@ func Inspect(root string, fetch bool) State {
 }
 
 // Describe is the one-line provenance note, printed on every run.
+//
+// The root PATH is always included — issue #350's field incident had a session
+// read "from HEAD @ 2775df3" as naming provenance when it named nothing: the
+// one variable that actually changed between a safe run and a dangerous one is
+// which directory LACQUER_ROOT pointed at, and that used to be the one thing
+// this line omitted.
 func (s State) Describe() string {
 	var b strings.Builder
 	b.WriteString("lacquer: ")
@@ -121,11 +174,26 @@ func (s State) Describe() string {
 		b.WriteString(s.Version)
 		b.WriteString(" ")
 	}
+	fmt.Fprintf(&b, "from %s", s.Root)
 	if s.NotGit {
-		fmt.Fprintf(&b, "from %s (not a git checkout)", s.Root)
+		b.WriteString(" (not a git checkout)")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "from %s @ %s", s.Branch, s.Commit)
+	if s.GitError {
+		b.WriteString(" (could not read git state)")
+		return b.String()
+	}
+	ref := s.Branch
+	if s.Branch == "HEAD" && s.Tag != "" {
+		// A detached, correctly pinned checkout renders as the literal string
+		// "HEAD" if left alone — which carries no information and is exactly the
+		// SAFE configuration a reader most needs to identify at a glance. The tag
+		// is the useful thing to print here instead (issue #350): the pixelfox
+		// session read "from HEAD @ sha" as naming nothing and read a working
+		// checkout's branch name as though it were more informative.
+		ref = s.Tag
+	}
+	fmt.Fprintf(&b, " @ %s @ %s", ref, s.Commit)
 	if s.Dirty {
 		b.WriteString(" (dirty)")
 	}
@@ -137,6 +205,42 @@ func (s State) Describe() string {
 		fmt.Fprintf(&b, "  ** STALE BINARY: built from %s, reading %s **", s.BuiltVersion, s.Version)
 	}
 	return b.String()
+}
+
+// Verify reports why root is NOT provably a pinned release, or nil when it is:
+// detached HEAD, sitting exactly on a tag whose name (a leading "v" stripped)
+// equals VERSION, with a clean tree.
+//
+// Every other state — including one that cannot be determined at all — returns
+// a non-nil error. That symmetry is the point (issue #350): "I could not
+// verify this root" and "this root is fine" must never share an exit code. A
+// guard that only refuses a DETECTED branch reproduces the original bug one
+// level up, because the absence of detection would then read as safety — the
+// same defect family as a skipped CI check satisfying a required one.
+func (s State) Verify() error {
+	switch {
+	case s.NotGit:
+		return fmt.Errorf("%s is not a git checkout, or git is unavailable — its pinned state cannot be verified", s.Root)
+	case s.GitError:
+		return fmt.Errorf("%s: git could not read HEAD or working-tree state — its pinned state cannot be verified", s.Root)
+	case s.Commit == "" || s.Version == "":
+		return fmt.Errorf("%s: missing commit or VERSION — its pinned state cannot be verified", s.Root)
+	case s.Dirty:
+		return fmt.Errorf("%s has uncommitted changes — a dirty tree is never a pinned release", s.Root)
+	case s.Branch != "HEAD":
+		return fmt.Errorf("%s is on branch %q, not detached at a release tag — a branch moves out from under you", s.Root, s.Branch)
+	case s.Tag == "":
+		return fmt.Errorf("%s is detached at %s, which is not exactly any tag — its pinned state cannot be verified", s.Root, s.Commit)
+	case !tagMatchesVersion(s.Tag, s.Version):
+		return fmt.Errorf("%s is at tag %s but VERSION reads %q — a pinned release requires these to match", s.Root, s.Tag, s.Version)
+	}
+	return nil
+}
+
+// tagMatchesVersion compares a resolved tag (e.g. "v1.36.8") against VERSION's
+// contents (e.g. "1.36.8"), tolerating the tag's conventional "v" prefix.
+func tagMatchesVersion(tag, version string) bool {
+	return strings.TrimPrefix(strings.TrimSpace(tag), "v") == strings.TrimSpace(version)
 }
 
 // StaleBinary reports whether this binary was compiled from a different source

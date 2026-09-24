@@ -32,7 +32,17 @@ func noEnv(string) string { return "" }
 
 // envMap returns a getenv backed by m.
 func envMap(m map[string]string) func(string) string {
-	return func(k string) string { return m[k] }
+	return func(k string) string {
+		if v, ok := m[k]; ok {
+			return v
+		}
+		// Synthetic fixtures and the development checkout are intentionally unpinned.
+		// Gate tests use rawEnv instead so they cannot inherit this override.
+		if k == "LACQUER_ALLOW_UNVERIFIED_ROOT" {
+			return "1"
+		}
+		return ""
+	}
 }
 
 func TestRunDispatch(t *testing.T) {

@@ -66,7 +66,9 @@ func TestContentWorkedExample_WarningsAsErrors(t *testing.T) {
 	copyDir(t, filepath.Join(root, "internal", "shipped", "testdata", "projects", "rootapp"), project)
 	initGitRepo(t, project, "rootapp fixture")
 
-	env := map[string]string{"LACQUER_ROOT": root}
+	// root is this checkout on a feature branch, not a pinned release tag; the
+	// override is needed so `sync` (gated by issue #350's fix) still runs here.
+	env := map[string]string{"LACQUER_ROOT": root, "LACQUER_ALLOW_UNVERIFIED_ROOT": "1"}
 	if res := runLacquer(t, bin, project, env, "sync"); res.Code != 0 {
 		t.Fatalf("setup failed: `lacquer sync` exited %d:\n%s", res.Code, res.Combined())
 	}
