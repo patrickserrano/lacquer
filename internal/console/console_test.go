@@ -178,7 +178,7 @@ func TestDispatchModesTargetDifferentPlaces(t *testing.T) {
 	// silently denied -- indistinguishable from success until the operator
 	// reads the job's own transcript.
 	if !strings.Contains(bg, "(cd "+filepath.Join(repo, ".claude", "worktrees", "dispatch-")) ||
-		!strings.Contains(bg, ` && claude --bg --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task)`) {
+		!strings.Contains(bg, ` && claude --bg --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} --model sonnet task)`) {
 		t.Errorf("bg mode must launch a background agent in a worktree of its own with the sandbox disabled, not just permission prompts skipped:\n%s", bg)
 	}
 	if strings.Contains(bg, "(cd "+repo+" &&") {
@@ -189,7 +189,7 @@ func TestDispatchModesTargetDifferentPlaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(tm, `tmux new-session -d -s alpha -c /w/alpha claude --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task`) {
+	if !strings.Contains(tm, `tmux new-session -d -s alpha -c /w/alpha claude --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} --model sonnet task`) {
 		t.Errorf("tmux mode must start a detached session in the checkout, with bypass permissions:\n%s", tm)
 	}
 	if strings.Contains(tm, " -A ") {

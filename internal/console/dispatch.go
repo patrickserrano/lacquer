@@ -50,7 +50,29 @@ func Dispatch(roster fleet.Roster, sessions []Session, name, task string, mode M
 // DispatchPlaced is Dispatch into the worktree, or onto the branch, that its
 // dispatcher chose (Placement).
 func DispatchPlaced(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool, place Placement) (Launch, error) {
-	return dispatchProject(roster, sessions, name, task, mode, dryRun, place, "")
+	return DispatchConfigured(roster, sessions, name, task, mode, dryRun, place, ModelOptions{})
+}
+
+// ModelOptions selects Claude's model and effort. Empty fields use the caller's
+// defaults; no model aliases or effort levels are hardcoded here.
+type ModelOptions struct {
+	Model  string
+	Effort string
+}
+
+func (o ModelOptions) withDefaults(d ModelOptions) ModelOptions {
+	if o.Model == "" {
+		o.Model = d.Model
+	}
+	if o.Effort == "" {
+		o.Effort = d.Effort
+	}
+	return o
+}
+
+// DispatchConfigured is DispatchPlaced with explicit model/effort overrides.
+func DispatchConfigured(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool, place Placement, options ModelOptions) (Launch, error) {
+	return dispatchProject(roster, sessions, name, task, mode, dryRun, place, "", options)
 }
 
 // Placement is where a session runs when its dispatcher decides that rather
@@ -88,7 +110,7 @@ func (p Placement) check(mode Mode) error {
 
 // dispatchProject is DispatchPlaced, plus the recorded worktree a bg
 // relaunch resumes in (Relaunch, watchdog.go).
-func dispatchProject(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool, place Placement, resume string) (Launch, error) {
+func dispatchProject(roster fleet.Roster, sessions []Session, name, task string, mode Mode, dryRun bool, place Placement, resume string, options ModelOptions) (Launch, error) {
 	var entry *fleet.Entry
 	for i := range roster.Project {
 		if roster.Project[i].Name == name {
@@ -137,7 +159,8 @@ func dispatchProject(roster fleet.Roster, sessions []Session, name, task string,
 			entry.Name, len(live), strings.Join(live, ", "))
 	}
 
-	return runDispatch(launchSpec{verb: "dispatch", kind: ProjectKind, name: entry.Name, dir: entry.Path, task: task, mode: mode, warning: warning, dryRun: dryRun, place: place, resume: resume})
+	options = options.withDefaults(ModelOptions{Model: roster.ICModel, Effort: roster.ICEffort}).withDefaults(ModelOptions{Model: "sonnet"})
+	return runDispatch(launchSpec{options: options, verb: "dispatch", kind: ProjectKind, name: entry.Name, dir: entry.Path, task: task, mode: mode, warning: warning, dryRun: dryRun, place: place, resume: resume})
 }
 
 // Launch is what one Dispatch or DispatchRole call did.
@@ -152,6 +175,7 @@ type Launch struct {
 
 // launchSpec is everything runDispatch needs, resolved by its caller.
 type launchSpec struct {
+	options ModelOptions
 	verb    string // labels the display line: "dispatch" or "dispatch role"
 	kind    Kind
 	name    string
@@ -176,6 +200,8 @@ func (sp launchSpec) record() *Record {
 		dir = abs
 	}
 	return &Record{
+		Model:     sp.options.Model,
+		Effort:    sp.options.Effort,
 		Kind:      sp.kind,
 		Name:      sp.name,
 		Mode:      sp.mode,
@@ -260,7 +286,7 @@ func launchFailed(sp launchSpec, output string, rec *Record, err error) (Launch,
 // '--cwd'") while still printing an optimistic "backgrounded · <id>" line,
 // because that message is emitted before the daemon's own init check runs.
 func runBackground(sp launchSpec) (Launch, error) {
-	argv := append(append([]string{"claude", "--bg"}, bypassFlags...), sp.task)
+	argv := sp.claudeArgs(true)
 	claudeLine := strings.Join(argv, " ")
 	prefix := sp.warning + sp.verb + ": "
 
@@ -352,7 +378,7 @@ func runTmux(sp launchSpec) (Launch, error) {
 		}
 		dir = wt.runDir
 	}
-	argv := append(append([]string{"tmux", "new-session", "-d", "-s", session, "-c", dir, "claude"}, bypassFlags...), sp.task)
+	argv := append([]string{"tmux", "new-session", "-d", "-s", session, "-c", dir}, sp.claudeArgs(false)...)
 	line := sp.warning
 	if wt.path != "" {
 		line += sp.verb + ": " + wt.setup
@@ -463,4 +489,21 @@ func Sessions() []Session {
 		return nil
 	}
 	return s
+}
+
+// claudeArgs is shared by both transports so recorded settings and launched
+// settings cannot diverge between bg and tmux.
+func (sp launchSpec) claudeArgs(background bool) []string {
+	argv := []string{"claude"}
+	if background {
+		argv = append(argv, "--bg")
+	}
+	argv = append(argv, bypassFlags...)
+	if sp.options.Model != "" {
+		argv = append(argv, "--model", sp.options.Model)
+	}
+	if sp.options.Effort != "" {
+		argv = append(argv, "--effort", sp.options.Effort)
+	}
+	return append(argv, sp.task)
 }
