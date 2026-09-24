@@ -232,11 +232,14 @@ scheme = "MyAppLite"
 bundle_id = "com.example.myapp.lite"
 asc_app_id = "1111111111"
 tag_prefix = "myapplite"
-test_target = "MyAppLiteTests"   # defaults to "<name>Tests"
+test_target = "MyAppLiteTests"   # defaults to "<scheme>Tests"
 ui_test_target = ""              # blank = no UI tests for this variant
 extra_test_targets = ["CoreKitTests"]  # local package suites to run as well
-app_target = "MyApp.app"         # coverage target; defaults to "<name>.app"
+app_target = "MyApp.app"         # coverage target; defaults to "<scheme>.app"
 ```
+
+Target defaults use `name` only when `scheme` is empty. Explicit
+`test_target` and `app_target` values override these defaults.
 
 `extra_test_targets` adds `-only-testing:` selectors for suites the app's own
 bundle does not contain — typically a local Swift package's test target, which

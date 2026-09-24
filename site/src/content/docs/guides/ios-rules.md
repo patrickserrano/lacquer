@@ -143,14 +143,17 @@ scheme = "MyApp Lite"
 bundle_id = "com.example.myapp.lite"
 asc_app_id = "0987654321"
 tag_prefix = "myapplite"
-test_target = "MyApp LiteTests"      # defaults to "<name>Tests"
+test_target = "MyApp LiteTests"      # defaults to "<scheme>Tests"
 ui_test_target = ""                   # blank = this variant has no UI tests
 extra_test_targets = []               # local package suites to run as well
-app_target = "MyApp.app"              # coverage target; defaults to "<name>.app"
+app_target = "MyApp.app"              # coverage target; defaults to "<scheme>.app"
 ```
 
-`app_target` is declared rather than derived because a scheme and its built
-product genuinely differ — one app in this fleet builds `A Bible Verse Daily.app`
+Target defaults use `name` only when `scheme` is empty. Explicit
+`test_target` and `app_target` values override these defaults.
+
+`app_target` must be declared when a scheme and its built
+product differ — one app in this fleet builds `A Bible Verse Daily.app`
 from a scheme named `A Bible Verse Each Day Free`. A derived value would select
 no coverage row, and `jq` selecting nothing reports 0.0%, not an error.
 `ui_test_target` is conditional in the shell rather than always passed: an empty
