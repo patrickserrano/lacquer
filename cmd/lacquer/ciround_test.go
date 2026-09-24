@@ -219,7 +219,7 @@ func TestCIRoundCommandFailsClosedOnABadManifest(t *testing.T) {
 func TestCIRoundCommandUsageErrors(t *testing.T) {
 	project(t, "")
 	statefulGH(t, strings.Repeat("a", 40))
-	for _, args := range [][]string{{}, {"nope", "7"}, {"begin"}, {"begin", "x"}, {"begin", "0"}, {"begin", "7", "8"}, {"status", "--bogus", "7"}} {
+	for _, args := range [][]string{{}, {"nope", "7"}, {"begin"}, {"begin", "x"}, {"begin", "0"}, {"begin", "7", "8"}, {"status", "--bogus", "7"}, {"begin", "7", "--review", ""}, {"begin", "7", "--review", "  "}, {"reset", "7", "--review", "PM requested changes"}, {"begin", "7", "--review", "PM requested changes", "--reason", goodReason}} {
 		if code, _, _ := ciRound(t, nil, args...); code != 13 {
 			t.Errorf("ci-round %v: exit %d, want 13", args, code)
 		}
@@ -257,5 +257,88 @@ func TestUsageDocumentsEveryCIRoundExitCode(t *testing.T) {
 		if !strings.Contains(out.String(), strings.TrimSpace(s)) {
 			t.Errorf("usage lacks %q", s)
 		}
+	}
+}
+
+func TestCIRoundReviewOnGreenAndCap(t *testing.T) {
+	a := project(t, "")
+	state := statefulGH(t, a)
+	if code, out, _ := ciRound(t, nil, "begin", "7"); code != 0 {
+		t.Fatalf("%d: %s", code, out)
+	}
+	if err := fakegh.SetRollup(state, "OPEN", a, fakegh.Passed("lint")); err != nil {
+		t.Fatal(err)
+	}
+	b := commit(t, "review correction")
+	if code, out, _ := ciRound(t, nil, "begin", "7", "--reason", goodReason); code != 12 {
+		t.Fatalf("without review: %d: %s", code, out)
+	}
+	if code, out, errs := ciRound(t, nil, "begin", "7", "--review", "PM requested correcting the misleading comment"); code != 0 {
+		t.Fatalf("review: %d: %s%s", code, out, errs)
+	}
+	if code, out, _ := ciRound(t, nil, "status", "7"); code != 10 || !strings.Contains(out, "2/2 used (1 failure, 1 review)") {
+		t.Fatalf("status: %d: %s", code, out)
+	}
+	if err := fakegh.SetRollup(state, "OPEN", b, fakegh.Passed("lint")); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, "third review")
+	if code, out, _ := ciRound(t, nil, "begin", "7", "--review", "PM requested another correction"); code != 10 {
+		t.Fatalf("cap: %d: %s", code, out)
+	}
+	cs, err := fakegh.Comments(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cs[1].Body, `"kind":"review"`) {
+		t.Fatalf("review ledger: %s", cs[1].Body)
+	}
+}
+
+func TestCIRoundUnrecordedPushAndExplicitReset(t *testing.T) {
+	for _, reader := range []string{"begin", "status"} {
+		t.Run(reader, func(t *testing.T) {
+			a := project(t, "")
+			state := statefulGH(t, a)
+			if code, out, _ := ciRound(t, nil, "begin", "7"); code != 0 {
+				t.Fatalf("%d: %s", code, out)
+			}
+			b := commit(t, "push without begin")
+			if err := fakegh.SetRollup(state, "OPEN", b, fakegh.Failed("lint")); err != nil {
+				t.Fatal(err)
+			}
+			commit(t, "next attempt")
+			if code, out, _ := ciRound(t, nil, reader, "7", "--reason", goodReason); code != 10 {
+				t.Fatalf("unrecorded: %d: %s", code, out)
+			}
+			if code, out, _ := ciRound(t, nil, "begin", "7", "--reason", goodReason); code != 10 {
+				t.Fatalf("cap: %d: %s", code, out)
+			}
+			if code, out, _ := ciRound(t, nil, "reset", "7"); code != 11 {
+				t.Fatalf("missing reason: %d: %s", code, out)
+			}
+			if code, out, errs := ciRound(t, nil, "reset", "7", "--reason", "Operator investigated and approved a fresh budget"); code != 0 {
+				t.Fatalf("reset: %d: %s%s", code, out, errs)
+			}
+			if code, out, _ := ciRound(t, nil, "begin", "7"); code != 0 || !strings.Contains(out, "round 1 of 2") {
+				t.Fatalf("fresh: %d: %s", code, out)
+			}
+			cs, err := fakegh.Comments(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var unrecorded, resets int
+			for _, c := range cs {
+				if strings.Contains(c.Body, `"kind":"unrecorded"`) {
+					unrecorded++
+				}
+				if strings.Contains(c.Body, `"kind":"reset"`) {
+					resets++
+				}
+			}
+			if unrecorded != 1 || resets != 1 {
+				t.Fatalf("ledger: %d unrecorded, %d resets", unrecorded, resets)
+			}
+		})
 	}
 }

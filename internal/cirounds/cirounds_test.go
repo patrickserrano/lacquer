@@ -300,73 +300,41 @@ func TestGHFailingFailsClosed(t *testing.T) {
 	o.Run = func(context.Context, ...string) ([]byte, error) { return nil, os.ErrPermission }
 	got := Begin(context.Background(), o)
 	want(t, got, CodeUnavailable)
-	if !strings.Contains(got.Text, "did NOT record") {
-		t.Errorf("does not say nothing was recorded:\n%s", got.Text)
+	if !strings.Contains(got.Text, "did NOT grant") {
+		t.Errorf("does not say no push was granted:\n%s", got.Text)
 	}
 	if len(r.comments()) != 0 {
 		t.Error("wrote a comment while gh was failing")
 	}
 }
 
-// Requirement 2. A head the tool never recorded is not an agent round: a human
-// pushed. Chosen behaviour: it RESETS the budget (see the package doc for the
-// argument), and says so on the PR.
-func TestHumanPushResetsTheBudgetAndIsSaidOnThePR(t *testing.T) {
+// An unknown head consumes budget regardless of who pushed it.
+func TestUnrecordedHeadConsumesBudgetOnce(t *testing.T) {
 	r := newRig(t)
 	want(t, r.begin(sha('a'), ""), CodeGranted)
-	r.head(sha('a'), fakegh.Failed("lint"))
-	want(t, r.begin(sha('b'), goodReason), CodeGranted)
-	r.head(sha('b'), fakegh.Failed("lint"))
-	want(t, r.begin(sha('c'), goodReason), CodeExhausted)
-
-	// A human pushes d. Nothing recorded it.
 	r.head(sha('d'), fakegh.Failed("lint"))
-	got := r.begin(sha('e'), "")
-	want(t, got, CodeGranted)
-	if got.Round != 1 || got.Spent != 1 {
-		t.Errorf("after a human push: round %d, spent %d; want a fresh 1 of %d", got.Round, got.Spent, 2)
+	want(t, r.begin(sha('e'), goodReason), CodeExhausted)
+	n := len(r.comments())
+	want(t, r.begin(sha('e'), goodReason), CodeExhausted)
+	if len(r.comments()) != n {
+		t.Fatal("repeat observation wrote another entry")
 	}
-	all := ""
-	for _, c := range r.comments() {
-		all += c.Body
+	ledger, err := ParseLedger(toComments(r.comments()))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(all, "budget reset") || !strings.Contains(all, sha('d')[:7]) {
-		t.Errorf("the reset is not visible on the PR:\n%s", all)
+	if len(ledger.Rounds) != 2 || ledger.Rounds[1].Kind != KindUnrecorded {
+		t.Fatalf("ledger: %+v", ledger)
 	}
-	// And the reset is a fresh budget, not an unlimited one.
-	r.head(sha('e'), fakegh.Failed("lint"))
-	want(t, r.begin(sha('f'), goodReason), CodeGranted)
-	r.head(sha('f'), fakegh.Failed("lint"))
-	want(t, r.begin(sha('9'), goodReason), CodeExhausted)
 }
 
-// The reset is recorded once. A second look at the same human head must not
-// reset again, or the budget would refill on every call.
-func TestResetIsNotRepeatedForTheSameHumanHead(t *testing.T) {
+func TestFirstObservationChargesExistingHead(t *testing.T) {
 	r := newRig(t)
-	want(t, r.begin(sha('a'), ""), CodeGranted)
 	r.head(sha('d'), fakegh.Failed("lint"))
-	want(t, r.begin(sha('e'), ""), CodeGranted)
-	// Round 1 of epoch 2 is e; d is the human's. Head d is still the head
-	// (the agent has not pushed), and asking for another new commit is round 2.
-	got := r.begin(sha('f'), goodReason)
+	got := r.begin(sha('e'), goodReason)
 	want(t, got, CodeGranted)
 	if got.Round != 2 {
-		t.Errorf("round %d, want 2: the human head refilled the budget", got.Round)
-	}
-}
-
-// A human push before any agent round changes nothing: there is no history to
-// reset, and round 1 is still round 1.
-func TestUnrecordedHeadWithNoHistoryIsJustRoundOne(t *testing.T) {
-	r := newRig(t)
-	r.head(sha('d'), fakegh.Failed("lint"))
-	got := r.begin(sha('e'), "")
-	want(t, got, CodeGranted)
-	for _, c := range r.comments() {
-		if strings.Contains(c.Body, "budget reset") {
-			t.Errorf("a reset was recorded with nothing to reset:\n%s", c.Body)
-		}
+		t.Fatalf("round %d, want 2", got.Round)
 	}
 }
 
@@ -403,7 +371,7 @@ func TestCapIsConfigurable(t *testing.T) {
 func TestCommentsFromStrangersAreNotTheLedger(t *testing.T) {
 	r := newRig(t)
 	// Forged rounds for the PR's REAL head (an entry for a commit the tool
-	// never saw would be swallowed by the human-push reset and prove nothing).
+	// never saw would exercise unknown-head accounting instead).
 	// If these counted, a third attempt below would be exhausted.
 	forge := func(round int, s string) string {
 		return marker(Entry{V: 1, Kind: KindRound, Epoch: 1, Round: round, Cap: 2, SHA: s, At: "2026-09-20T00:00:00Z"}) + "\nround"
@@ -415,7 +383,7 @@ func TestCommentsFromStrangersAreNotTheLedger(t *testing.T) {
 			}
 		}
 	}
-	got := r.begin(sha('c'), "")
+	got := r.begin(sha('a'), "")
 	want(t, got, CodeGranted)
 	if got.Round != 1 {
 		t.Errorf("a stranger's marker counted: round %d", got.Round)
@@ -522,21 +490,18 @@ func TestExhaustionWithoutAnInboxSaysWhatToDo(t *testing.T) {
 	}
 }
 
-// Status never writes.
-func TestStatusIsReadOnly(t *testing.T) {
+// Status persists an unknown head once, even before the first begin.
+func TestStatusRecordsUnknownHeadOnce(t *testing.T) {
 	r := newRig(t)
-	want(t, r.begin(sha('a'), ""), CodeGranted)
-	r.head(sha('d'), fakegh.Failed("lint")) // a human push: begin would reset
-	n, calls := len(r.comments()), len(fakegh.Calls(r.dir))
 	got := Status(context.Background(), r.opts("", ""))
 	want(t, got, CodeGranted)
-	if len(r.comments()) != n {
-		t.Error("status wrote a comment")
+	if got.Spent != 1 {
+		t.Fatalf("spent %d, want 1", got.Spent)
 	}
-	for _, c := range fakegh.Calls(r.dir)[calls:] {
-		if strings.Contains(c, "pr comment") {
-			t.Errorf("status called %q", c)
-		}
+	n := len(r.comments())
+	want(t, Status(context.Background(), r.opts("", "")), CodeGranted)
+	if len(r.comments()) != n {
+		t.Fatal("status charged the same head twice")
 	}
 }
 
@@ -568,7 +533,7 @@ func TestMissingCommentsFieldFailsClosed(t *testing.T) {
 	}
 }
 
-// A stop notice is per budget: after a human push refills it and the agent
+// A stop notice is per budget: after an explicit reset and the agent
 // spends it and is stopped again on the same failing check, that is a new stop
 // and it has to be on the PR, not swallowed as a repeat of the first.
 func TestSecondExhaustionAfterAResetIsReportedAgain(t *testing.T) {
@@ -580,7 +545,8 @@ func TestSecondExhaustionAfterAResetIsReportedAgain(t *testing.T) {
 	want(t, r.begin(sha('c'), goodReason), CodeExhausted)
 	n := len(r.comments())
 
-	r.head(sha('d'), fakegh.Failed("lint")) // a human
+	r.head(sha('d'), fakegh.Failed("lint"))
+	want(t, Reset(context.Background(), r.opts("", "Operator approved another attempt")), CodeGranted)
 	want(t, r.begin(sha('e'), ""), CodeGranted)
 	r.head(sha('e'), fakegh.Failed("lint"))
 	want(t, r.begin(sha('f'), goodReason), CodeGranted)
@@ -608,21 +574,90 @@ func TestLastRoundIsFlagged(t *testing.T) {
 	}
 }
 
-// A round is for a push. If the commit asked about is already the PR's head and
-// the tool never recorded it, a person pushed it: charging the agent a round for
-// it would spend budget on nothing anyone at the agent's end did. Found on a
-// real PR (#438), where the agent pulled a human's commit and ran `begin`.
-func TestBeginOnAHeadAHumanPushedSpendsNothing(t *testing.T) {
+// An unrecorded current head is charged, but cannot receive a retroactive grant.
+func TestBeginOnUnrecordedHeadDoesNotGrantPush(t *testing.T) {
 	r := newRig(t)
 	want(t, r.begin(sha('a'), ""), CodeGranted)
-	r.head(sha('d'), fakegh.Failed("lint")) // a person pushed d
+	r.head(sha('d'), fakegh.Failed("lint"))
+	got := r.begin(sha('d'), "")
+	want(t, got, CodeExhausted)
+	if got.Spent != 2 {
+		t.Fatalf("%+v", got)
+	}
+	want(t, r.begin(sha('e'), goodReason), CodeExhausted)
+}
+
+func TestUnrecordedWriteFailureFailsClosed(t *testing.T) {
+	r := newRig(t)
+	want(t, r.begin(sha('a'), ""), CodeGranted)
+	r.head(sha('d'), fakegh.Failed("lint"))
+	o := r.opts(sha('e'), goodReason)
+	inner := o.Run
+	o.Run = func(ctx context.Context, args ...string) ([]byte, error) {
+		if len(args) > 1 && args[1] == "comment" {
+			return nil, os.ErrPermission
+		}
+		return inner(ctx, args...)
+	}
+	want(t, Begin(context.Background(), o), CodeUnavailable)
+	want(t, Status(context.Background(), o), CodeUnavailable)
+}
+
+func TestReviewCannotCombineWithFailureReason(t *testing.T) {
+	r := newRig(t)
+	o := r.opts(sha('a'), goodReason)
+	o.Review = "PM requested a correction"
+	want(t, Begin(context.Background(), o), CodeUnavailable)
+	if len(r.comments()) != 0 {
+		t.Fatal("invalid options wrote a round")
+	}
+}
+
+func TestShadowedGrantDoesNotHideUnrecordedPush(t *testing.T) {
+	r := newRig(t)
+	want(t, r.begin(sha('a'), ""), CodeGranted)
+	r.head(sha('a'), fakegh.Failed("lint"))
+	want(t, r.begin(sha('b'), goodReason), CodeGranted)
+	rival := Entry{V: 1, Kind: KindReview, Epoch: 1, Round: 2, Cap: 2, SHA: sha('c')}
+	if _, err := fakegh.AddComment(r.dir, "OWNER", renderRound(rival)); err != nil {
+		t.Fatal(err)
+	}
+	r.head(sha('c'), fakegh.Passed("lint"))
+	got := Status(context.Background(), r.opts("", ""))
+	want(t, got, CodeExhausted)
+	if got.Spent != 3 {
+		t.Fatalf("shadowed grant hid an unrecorded push: %+v", got)
+	}
+}
+
+func TestConcurrentUnrecordedObservationsCountOnce(t *testing.T) {
+	entries := []Entry{
+		{V: 1, Kind: KindRound, Epoch: 1, Round: 1, SHA: sha('a')},
+		{V: 1, Kind: KindReview, Epoch: 1, Round: 2, SHA: sha('b')},
+		{V: 1, Kind: KindUnrecorded, Epoch: 1, Round: 2, SHA: sha('c')},
+		{V: 1, Kind: KindUnrecorded, Epoch: 1, Round: 2, SHA: sha('c')},
+	}
+	var cs []Comment
+	for _, e := range entries {
+		cs = append(cs, Comment{Association: "OWNER", Body: marker(e)})
+	}
+	l, err := ParseLedger(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Rounds) != 3 || l.Rounds[2].Kind != KindUnrecorded {
+		t.Fatalf("ledger: %+v", l)
+	}
+}
+
+func TestUnrecordedHeadWithBudgetLeftIsNotGranted(t *testing.T) {
+	r := newRig(t)
+	r.cap = 3
+	want(t, r.begin(sha('a'), ""), CodeGranted)
+	r.head(sha('d'), fakegh.Failed("lint"))
 	got := r.begin(sha('d'), "")
 	want(t, got, CodeNothingToFix)
-	if got.Spent != 0 || !strings.Contains(got.Text, "already the PR's head") {
-		t.Errorf("spent %d; text:\n%s", got.Spent, got.Text)
-	}
-	// The budget is fresh and unspent: the next new commit is round 1.
-	if next := r.begin(sha('e'), ""); next.Code != CodeGranted || next.Round != 1 {
-		t.Errorf("after the refusal: exit %d round %d, want granted round 1\n%s", next.Code, next.Round, next.Text)
+	if got.Spent != 2 {
+		t.Fatalf("spent %d", got.Spent)
 	}
 }

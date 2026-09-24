@@ -393,3 +393,14 @@ reports as a violation with the ratio, not as a pass. If a project genuinely
 cannot comply yet, add a time-boxed `[baseline.relax]` entry to `.lacquer.toml`
 with a reason — an expired relaxation is a hard failure, so the debt stays
 visible rather than becoming policy by default.
+
+## CI round budget
+
+Use `lacquer ci-round begin <N>` before pushing a follow-up to an open PR.
+Failure-driven rounds need `--reason "<failed check and what changed>"`;
+review-requested changes use `--review "<what was asked, and by whom>"` instead,
+even on green CI. Both spend the same two-round budget (or the configured cap).
+A push without `begin` spends an `unrecorded` round when `begin` or `status`
+next observes it; it never refills the budget. Stop on exit 10 and surface the
+ACTION. Only a human-authorized `lacquer ci-round reset <N> --reason "<why>"`
+starts a fresh budget; never reset yourself to bypass the cap.

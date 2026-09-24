@@ -98,7 +98,13 @@ Extract 20-50 lines before failure with error messages and stack traces.
 
 **Plan:** **REQUIRED** - Use `EnterPlanMode`. Never skip for "simple fixes".
 
-**Implement:** After approval: code changes → tests → commit → push
+**Implement:** After approval: code changes → tests → commit → `lacquer ci-round begin <N> --reason "<failed check and what changed>"` → push the granted SHA.
+For review-requested changes use `--review "<what was asked, and by whom>"`
+instead of `--reason`, even on green CI. Review rounds spend the same budget.
+A push without `begin` spends an `unrecorded` round when next observed by
+`begin` or `status`; only a human-authorized
+`lacquer ci-round reset <N> --reason "<why>"` refills the budget.
+Exit 10 means stop and surface the ACTION, never reset yourself to bypass it.
 
 **Verify:** `gh pr checks <pr>` then `gh run view <run-id> --log-failed` if still failing
 
