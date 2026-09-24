@@ -14,12 +14,6 @@ func TestBackgroundDispatchWithDifferentPathCase(t *testing.T) {
 			if err := os.MkdirAll(filepath.Join(repo, "Sources"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			initGitRepo(t, repo)
-			if err := os.WriteFile(filepath.Join(repo, "Sources", "file.txt"), []byte("source"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			git(t, repo, "add", ".")
-			git(t, repo, "commit", "-qm", "source")
 			dir := filepath.Join(parent, "PROJECT")
 			if sub != "" {
 				dir = filepath.Join(dir, "SOURCES")
@@ -29,6 +23,12 @@ func TestBackgroundDispatchWithDifferentPathCase(t *testing.T) {
 			} else if err != nil {
 				t.Fatal(err)
 			}
+			initGitRepo(t, repo)
+			if err := os.WriteFile(filepath.Join(repo, "Sources", "file.txt"), []byte("source"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			git(t, repo, "add", ".")
+			git(t, repo, "commit", "-qm", "source")
 			calls := fakeClaude(t)
 			launch, err := dispatchCallers[0].run(t, "alpha", dir, "task", Background)
 			if err != nil {
