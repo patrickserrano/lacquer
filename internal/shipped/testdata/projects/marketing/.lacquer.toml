@@ -1,0 +1,9 @@
+# Minimal explicitly selected marketing profile; no detectable technical stack.
+[project]
+name = "Marketing"
+github_org = "example-org"
+tools = ["claude", "codex", "antigravity"]
+
+[[component]]
+path = "."
+profiles = ["marketing"]

@@ -42,7 +42,8 @@ def verify():
         config = Path("Config/Paid.xcconfig").read_text()
         versions = re.findall(r"(?m)^MARKETING_VERSION\s*=\s*([^\n]+)$", config)
         return scope_ok and versions == ["3.0.2"]
-    raise ValueError("this case has no state verifier")
+    from scenarios import verify as scenario_verify
+    return scenario_verify(kind, state)
 
 
 if __name__ == "__main__":

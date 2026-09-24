@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.1",
+  "name": "negative-control",
+  "context": {
+    "scaffold_script": "scaffold.sh"
+  },
+  "graders": [
+    {
+      "name": "verified-outcome",
+      "type": "regex",
+      "target": {
+        "source": "file",
+        "path": "result.json"
+      },
+      "pattern": "^\\{\"passed\": true\\}\\s*$"
+    },
+    {
+      "name": "record-state",
+      "type": "tool_used",
+      "tool": "Bash",
+      "input_match": "python3\\s+verify\\.py"
+    },
+    {
+      "name": "method",
+      "type": "tool_used",
+      "tool": "Bash",
+      "input_match": "(\"command\"\\s*:\\s*\"|[;&|]\\s*|\\\\u0026\\s*|\\\\n\\s*)(PATH=\\S+\\s+)?(\\./)?bin/test(\\s|[;&|\"]|\\\\u0026|$)"
+    }
+  ]
+}

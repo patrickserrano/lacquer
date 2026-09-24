@@ -35,7 +35,7 @@ set +e
   --model claude-sonnet-5 --ablation none --runs 1 --max-cost-usd 1.5 \
   --no-publish --scaffold --trust-plugin --case "${1:-*}" \
   --output-dir "$run_dir" --json "$run_dir/result.json" \
-  --allow-tools Bash Write Edit 2>&1 | tee "$run_dir/run.log"
+  --allow-tools Bash Write Edit Skill 2>&1 | tee "$run_dir/run.log"
 code=${PIPESTATUS[0]}
 set -e
 printf '%s\n' "$code" > "$run_dir/exit-code.txt"

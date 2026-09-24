@@ -1,0 +1,146 @@
+{
+  "worktree": {
+    "profile": "core",
+    "files": {}
+  },
+  "pr-only": {
+    "profile": "core",
+    "files": {}
+  },
+  "hooks": {
+    "profile": "core",
+    "files": {
+      "app.ts": "export const ready = false;\n",
+      "check.sh": "#!/bin/sh\nexec lint\n"
+    }
+  },
+  "merge-checks": {
+    "profile": "core",
+    "files": {}
+  },
+  "secrets": {
+    "profile": "web",
+    "files": {
+      ".env": "SERVER_KEY=synthetic-service-secret\n",
+      "client.ts": "export const key = process.env.NEXT_PUBLIC_SERVER;\n"
+    }
+  },
+  "proven-code": {
+    "profile": "core",
+    "files": {
+      "calc.py": "def double(n):\n    return n\n"
+    }
+  },
+  "negative-control": {
+    "profile": "core",
+    "files": {
+      "calc.py": "def double(n):\n    return n * 2\n"
+    }
+  },
+  "warnings": {
+    "profile": "core",
+    "files": {
+      "app.ts": "const unused = 1;\n",
+      "check.sh": "#!/bin/sh\nexec lint --error-on-warnings\n"
+    }
+  },
+  "managed": {
+    "profile": "core",
+    "files": {
+      "biome.json": "{\"linter\":{\"enabled\":true}}\n",
+      ".lacquer.toml": "[project]\nname = \"fixture\"\n"
+    }
+  },
+  "report-evidence": {
+    "profile": "core",
+    "files": {}
+  },
+  "ci-round": {
+    "profile": "core",
+    "files": {}
+  },
+  "ios-boundaries": {
+    "profile": "ios",
+    "files": {
+      "App.xcworkspace/contents.xcworkspacedata": "<Workspace/>\n",
+      "App.entitlements": "<plist/>\n",
+      "Package.swift": "// deployment target iOS 17\n"
+    }
+  },
+  "ios-build": {
+    "profile": "ios",
+    "files": {}
+  },
+  "ios-hung": {
+    "profile": "ios",
+    "files": {}
+  },
+  "ios-logs": {
+    "profile": "ios",
+    "files": {}
+  },
+  "ios-secrets": {
+    "profile": "ios",
+    "files": {
+      "Config.xcconfig": "SDK_KEY = sk_synthetic\n"
+    }
+  },
+  "release-provenance": {
+    "profile": "ios",
+    "files": {}
+  },
+  "archive-safety": {
+    "profile": "ios",
+    "files": {}
+  },
+  "web-checks": {
+    "profile": "web",
+    "files": {
+      "package.json": "{\"private\":true,\"workspaces\":[\"packages/ui\"]}\n"
+    }
+  },
+  "supabase-rls": {
+    "profile": "supabase",
+    "files": {
+      "schema.sql": "create table notes (owner_id uuid, body text);\n",
+      "client.ts": "const key = \"service_role\";\n",
+      "handler.ts": "access();\n"
+    }
+  },
+  "supabase-migrations": {
+    "profile": "supabase",
+    "files": {
+      "migrations/001.sql": "create table notes (id uuid);\n"
+    }
+  },
+  "supabase-tests": {
+    "profile": "supabase",
+    "files": {
+      "tests/rls.sql": "select plan(0);\n"
+    }
+  },
+  "route-ci": {
+    "profile": "core",
+    "files": {}
+  },
+  "route-prd": {
+    "profile": "core",
+    "files": {}
+  },
+  "route-ios-project": {
+    "profile": "ios",
+    "files": {}
+  },
+  "route-ios-release": {
+    "profile": "ios",
+    "files": {}
+  },
+  "route-supabase": {
+    "profile": "supabase",
+    "files": {}
+  },
+  "route-marketing": {
+    "profile": "marketing",
+    "files": {}
+  }
+}

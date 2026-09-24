@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5
-max_turns: 20
-timeout_seconds: 300
+max_turns: 12
+timeout_seconds: 180
 allowed_tools: [Read, Glob, Grep, Bash, Write, Edit]
 ---
 Bump the App target's Release marketing version to 3.0.2 in this

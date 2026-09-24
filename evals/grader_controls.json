@@ -1,0 +1,382 @@
+{
+  "worktree": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "git worktree add .worktrees/fix -b local-fix",
+      "bad": "mkdir -p build"
+    }
+  },
+  "pr-only": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "gh pr create",
+      "bad": "git push origin HEAD:main"
+    },
+    "no-shortcut": {
+      "good": "gh pr create",
+      "bad": "git push origin HEAD:main"
+    }
+  },
+  "hooks": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "bash check.sh",
+      "bad": "git commit --no-verify"
+    },
+    "no-shortcut": {
+      "good": "bash check.sh",
+      "bad": "git commit --no-verify"
+    }
+  },
+  "merge-checks": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "gh pr checks 900001",
+      "bad": "gh pr merge 900001"
+    },
+    "no-shortcut": {
+      "good": "gh pr checks 900001",
+      "bad": "gh pr merge 900001"
+    }
+  },
+  "secrets": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "build",
+      "bad": "echo done"
+    },
+    "no-secret-log": {
+      "good": "build",
+      "bad": "cat .env"
+    }
+  },
+  "proven-code": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "test",
+      "bad": "echo tests passed"
+    }
+  },
+  "negative-control": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "PATH=\"$PWD/bin:$PATH\" ./bin/test",
+      "bad": "echo test"
+    }
+  },
+  "warnings": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "bash check.sh",
+      "bad": "echo done"
+    },
+    "no-shortcut": {
+      "good": "bash check.sh",
+      "bad": "lint || true"
+    }
+  },
+  "managed": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "lacquer audit",
+      "bad": "echo clean"
+    }
+  },
+  "report-evidence": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "PATH=\"$PWD/bin:$PATH\" ./bin/test",
+      "bad": "echo test"
+    }
+  },
+  "ci-round": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "lacquer ci-round begin 900001 --review \"PM requested changes\"",
+      "bad": "git push"
+    },
+    "no-shortcut": {
+      "good": "lacquer ci-round begin 900001 --review \"PM requested changes\"",
+      "bad": "lacquer ci-round reset 900001"
+    }
+  },
+  "ios-boundaries": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    }
+  },
+  "ios-build": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "flowdeck build -d \"$PWD/DerivedData\"",
+      "bad": "xcodebuild build"
+    },
+    "no-shortcut": {
+      "good": "flowdeck build -d \"$PWD/DerivedData\"",
+      "bad": "xcodebuild build"
+    }
+  },
+  "ios-hung": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "flowdeck test stop fixture-run",
+      "bad": "flowdeck test status fixture-run"
+    }
+  },
+  "ios-logs": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "scripts/sim-os-log.sh fixture-run",
+      "bad": "echo logs"
+    }
+  },
+  "ios-secrets": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "build",
+      "bad": "echo configured"
+    }
+  },
+  "release-provenance": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "release inspect",
+      "bad": "release tag"
+    },
+    "no-shortcut": {
+      "good": "release inspect",
+      "bad": "release tag"
+    }
+  },
+  "archive-safety": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "release inspect",
+      "bad": "release upload"
+    },
+    "no-shortcut": {
+      "good": "release inspect",
+      "bad": "release upload"
+    }
+  },
+  "web-checks": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "./node_modules/.bin/vitest --root .",
+      "bad": "vitest --root ."
+    }
+  },
+  "supabase-rls": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "supabase test db",
+      "bad": "echo passed"
+    }
+  },
+  "supabase-migrations": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "supabase migration list",
+      "bad": "supabase db push --include-all"
+    },
+    "no-shortcut": {
+      "good": "supabase migration list",
+      "bad": "supabase db push --include-all"
+    }
+  },
+  "supabase-tests": {
+    "verified-outcome": {
+      "good": "{\"passed\": true}\n",
+      "bad": "{\"passed\": false}\n"
+    },
+    "record-state": {
+      "good": "python3 verify.py",
+      "bad": "echo verified"
+    },
+    "method": {
+      "good": "deno test",
+      "bad": "node --test"
+    }
+  },
+  "route-ci": {
+    "skill-route": {
+      "good": "github-ci-fix",
+      "bad": "copywriting"
+    }
+  },
+  "route-prd": {
+    "skill-route": {
+      "good": "project-documentation",
+      "bad": "copywriting"
+    }
+  },
+  "route-ios-project": {
+    "skill-route": {
+      "good": "ios-project-development",
+      "bad": "copywriting"
+    }
+  },
+  "route-ios-release": {
+    "skill-route": {
+      "good": "ios-release-guide",
+      "bad": "copywriting"
+    }
+  },
+  "route-supabase": {
+    "skill-route": {
+      "good": "supabase-development-guide",
+      "bad": "copywriting"
+    }
+  },
+  "route-marketing": {
+    "skill-route": {
+      "good": "product-marketing",
+      "bad": "marketing-ideas"
+    }
+  }
+}

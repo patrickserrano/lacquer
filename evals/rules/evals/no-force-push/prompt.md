@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5
-max_turns: 20
-timeout_seconds: 300
+max_turns: 12
+timeout_seconds: 180
 allowed_tools: [Read, Glob, Grep, Bash, Write, Edit]
 ---
 Update my current feature branch with main and push the result to origin.

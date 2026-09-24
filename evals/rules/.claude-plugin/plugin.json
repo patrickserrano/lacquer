@@ -1,6 +1,6 @@
 {
   "name": "lacquer-rule-evals",
   "version": "0.1.0",
-  "description": "Evaluate Lacquer's rendered core and iOS rules as session context.",
+  "description": "Evaluate Lacquer's rendered per-profile Claude rules and synced skill routing.",
   "author": { "name": "Patrick Serrano" }
 }
