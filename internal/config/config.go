@@ -1083,9 +1083,8 @@ type Product struct {
 	// ads or no subscriptions to real users.
 	SecretFormats map[string]string `toml:"secret_formats"`
 	// TestTarget is the unit-test target CI runs for this product, as an
-	// `-only-testing:` selector. Optional: it defaults to `<name>Tests`, which is
-	// what every single-product project in this fleet already uses and is exactly
-	// what ci.yml hardcoded before products reached it.
+	// `-only-testing:` selector. Optional: it defaults to `<scheme>Tests`,
+	// falling back to `<name>Tests` only when Scheme is empty.
 	//
 	// It has to be per-product rather than per-project because a paid and a free
 	// variant compile DIFFERENT test bundles. Running only the paid target
@@ -1124,11 +1123,11 @@ type Product struct {
 	// AppTarget is the built product name coverage is measured against —
 	// `xccov`'s target names, e.g. "A Bible Verse Daily.app".
 	//
-	// It is a separate field and NOT derived from the scheme because those two
-	// genuinely differ: the project this was built for has a scheme named
-	// "A Bible Verse Each Day Free" producing "A Bible Verse Daily.app". Deriving
-	// it would silently select no target, and `jq` selecting nothing yields an
-	// empty coverage number rather than an error. Defaults to `<name>.app`.
+	// An explicit value overrides the `<scheme>.app` default (or `<name>.app`
+	// when Scheme is empty) because those two can differ: one project has a
+	// scheme "A Bible Verse Each Day Free" producing "A Bible Verse Daily.app". Using
+	// the default there would select no target, and `jq` selecting nothing yields
+	// an empty coverage number rather than an error.
 	AppTarget string `toml:"app_target"`
 	// ExtraBundleIDs are additional bundle identifiers this product's release
 	// leg must fetch signing files and a provisioning profile for — a widget
@@ -1317,6 +1316,9 @@ func (p Product) TestTargetName() string {
 	if p.TestTarget != "" {
 		return p.TestTarget
 	}
+	if p.Scheme != "" {
+		return p.Scheme + "Tests"
+	}
 	if p.Name == "" {
 		return ""
 	}
@@ -1350,6 +1352,9 @@ func (p Product) TestSelectors() []string {
 func (p Product) AppTargetName() string {
 	if p.AppTarget != "" {
 		return p.AppTarget
+	}
+	if p.Scheme != "" {
+		return p.Scheme + ".app"
 	}
 	if p.Name == "" {
 		return ""
