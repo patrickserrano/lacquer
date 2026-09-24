@@ -48,14 +48,14 @@ func TestTightenAndLoosen(t *testing.T) {
 		t.Fatalf("improved: %v %v", findings, err)
 	}
 	before, _ := Read(root)
-	if before.Ratchet[ClaudeLines] != 2 {
+	if before.Ratchet[ClaudeProjectLines] != 2 {
 		t.Fatal("audit wrote baseline")
 	}
 	if _, err := Tighten(root, cfg, false); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := Read(root)
-	if b.Ratchet[ClaudeLines] != 1 || b.Ratchet[Suppressions] != 0 {
+	if b.Ratchet[ClaudeProjectLines] != 1 || b.Ratchet[Suppressions] != 0 {
 		t.Fatalf("not tightened: %+v", b)
 	}
 	put(t, root, "source.ts", "// eslint-disable no-console\n")
@@ -94,7 +94,7 @@ func TestMeasureTrackedSourcesAndUniqueDestinations(t *testing.T) {
 	put(t, root, "untracked.ts", "// eslint-disable\n")
 	put(t, root, "AGENTS.md", "not counted\n")
 	values, err := Measure(root, cfg)
-	if err != nil || values[ClaudeLines] != 3 || values[Suppressions] != 1 {
+	if err != nil || values[ClaudeProjectLines] != 3 || values[Suppressions] != 1 {
 		t.Fatalf("values=%v err=%v", values, err)
 	}
 	if err := os.Remove(filepath.Join(root, "source.ts")); err != nil {
@@ -107,10 +107,10 @@ func TestMeasureTrackedSourcesAndUniqueDestinations(t *testing.T) {
 
 func TestRejectInvalidBaselines(t *testing.T) {
 	for _, body := range []string{
-		"[ratchet]\nclaude_lines = -1\nunjustified_suppressions = 0\n",
-		"[ratchet]\nclaude_lines = 1\n",
-		"[ratchet]\nclaude_lines = 1\nunjustified_suppressions = 0\ntypo = 0\n",
-		"[ratchet]\nclaude_lines = 1\nunjustified_suppressions = 0\n[unknown]\na = 1\n",
+		"[ratchet]\nclaude_md_project_lines = -1\nunjustified_suppressions = 0\n",
+		"[ratchet]\nclaude_md_project_lines = 1\n",
+		"[ratchet]\nclaude_md_project_lines = 1\nunjustified_suppressions = 0\ntypo = 0\n",
+		"[ratchet]\nclaude_md_project_lines = 1\nunjustified_suppressions = 0\n[unknown]\na = 1\n",
 		"bad toml [[",
 	} {
 		t.Run(body, func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestNoBaselineDoesNotSilentlyEnroll(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, Name)); !os.IsNotExist(err) {
 		t.Fatal("sync enrolled without measurement")
 	}
-	if !strings.Contains(Format([]Finding{{ClaudeLines, 2, 1}}), "improved 2 → 1") {
+	if !strings.Contains(Format([]Finding{{ClaudeProjectLines, 2, 1}}), "improved 2 → 1") {
 		t.Fatal("missing diagnostic")
 	}
 }
@@ -213,5 +213,36 @@ func TestTrackedSymlinkIsNotAnotherSourceBlob(t *testing.T) {
 	values, err := Measure(root, cfg)
 	if err != nil || values[Suppressions] != 1 {
 		t.Fatalf("alias counted twice: %v %v", values, err)
+	}
+}
+
+func TestMeasureProjectLinesOutsideManagedRegions(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		want       int
+		invalid    bool
+	}{
+		{"empty", "", 0, false},
+		{"project_only", "one\ntwo", 2, false},
+		{"regions_and_prose", "before\n<!-- lacquer:core:start v1 -->\nmanaged\n<!-- lacquer:core:end -->\n\nbetween\n<!-- lacquer:web:start v1.2.3 -->\nmanaged\n<!-- lacquer:web:end -->\nafter", 4, false},
+		{"dangling", "<!-- lacquer:core:start v1 -->\nprose", 0, true},
+		{"mismatched", "<!-- lacquer:core:start v1 -->\n<!-- lacquer:web:end -->\n", 0, true},
+		{"orphan_end", "<!-- lacquer:core:end -->", 0, true},
+		{"nested", "<!-- lacquer:core:start v1 -->\n<!-- lacquer:web:start v1 -->\n<!-- lacquer:web:end -->\n<!-- lacquer:core:end -->", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, cfg := fixture(t)
+			put(t, root, "CLAUDE.md", tc.body)
+			values, err := Measure(root, cfg)
+			if tc.invalid {
+				if err == nil {
+					t.Fatal("accepted malformed managed region")
+				}
+				return
+			}
+			if err != nil || values[ClaudeProjectLines] != tc.want {
+				t.Fatalf("values=%v err=%v, want %d project lines", values, err, tc.want)
+			}
+		})
 	}
 }

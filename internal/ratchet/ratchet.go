@@ -14,10 +14,10 @@ import (
 )
 
 const Name = ".lacquer.ratchet.toml"
-const ClaudeLines = "claude_lines"
+const ClaudeProjectLines = "claude_md_project_lines"
 const Suppressions = "unjustified_suppressions"
 
-var metrics = []string{ClaudeLines, Suppressions}
+var metrics = []string{ClaudeProjectLines, Suppressions}
 
 type Baseline struct {
 	Ratchet map[string]int    `toml:"ratchet"`
@@ -107,7 +107,7 @@ func Read(root string) (*Baseline, error) {
 	return &b, nil
 }
 
-func known(key string) bool { return key == ClaudeLines || key == Suppressions }
+func known(key string) bool { return key == ClaudeProjectLines || key == Suppressions }
 
 func write(root string, b *Baseline) error {
 	// Atomic replacement avoids a truncated baseline after an interrupted write.

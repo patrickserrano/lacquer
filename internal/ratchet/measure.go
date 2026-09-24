@@ -10,14 +10,15 @@ import (
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/region"
 	"github.com/patrickserrano/lacquer/internal/safepath"
 )
 
-// Measure counts current rendered root/component CLAUDE.md files (once per
-// destination, including project prose), and directives in tracked source.
+// Measure counts project-owned lines outside managed regions in root/component
+// CLAUDE.md files (once per destination), and directives in tracked source.
 // It does not render, run tools from the project, or write to its checkout.
 func Measure(root string, cfg *config.Config) (map[string]int, error) {
-	values := map[string]int{ClaudeLines: 0, Suppressions: 0}
+	values := map[string]int{ClaudeProjectLines: 0, Suppressions: 0}
 	paths := map[string]bool{"CLAUDE.md": true}
 	for _, c := range cfg.Components {
 		if len(c.Profiles) > 0 {
@@ -34,11 +35,11 @@ func Measure(root string, cfg *config.Config) (map[string]int, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ratchet: measure %s: %w", path, err)
 		}
-		n := strings.Count(string(data), "\n")
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			n++
+		n, err := region.ProjectLines(string(data))
+		if err != nil {
+			return nil, fmt.Errorf("ratchet: measure %s: %w", path, err)
 		}
-		values[ClaudeLines] += n
+		values[ClaudeProjectLines] += n
 	}
 	cmd := exec.Command("git", "ls-files", "-z", "--stage")
 	cmd.Dir = root

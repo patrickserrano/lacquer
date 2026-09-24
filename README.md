@@ -211,7 +211,7 @@ metric decisions out of `.lacquer.lock`, which sync regenerates as content hashe
 
 ```toml
 [ratchet]
-claude_lines = 1200
+claude_md_project_lines = 120
 unjustified_suppressions = 7
 ```
 
@@ -235,10 +235,12 @@ Malformed baselines, unknown metrics, and empty loosening reasons are errors.
 
 Metric definitions:
 
-- `claude_lines`: total physical lines in the current root and profiled-component
-  `CLAUDE.md` files, counting each destination once and including project-owned
-  prose and managed markers. `AGENTS.md` mirrors are not counted. This measures
-  the rendered files on disk, not a proposed future template rendering.
+- `claude_md_project_lines`: physical lines outside Lacquer managed-region markers
+  in current root and profiled-component `CLAUDE.md` files, counting each
+  destination once. Managed bodies and marker lines are excluded; blank lines
+  outside regions count. `AGENTS.md` mirrors are not counted. Malformed region
+  boundaries fail measurement. A Lacquer content increase cannot consume the
+  project prose budget. This measures files on disk, not future rendering.
 - `unjustified_suppressions`: directive comments in tracked Swift, JavaScript,
   TypeScript, Vue, Svelte, CSS, and JSONC source. Counts `swiftlint:disable`,
   `biome-ignore`, and `eslint-disable` variants without a trailing justification.
@@ -246,6 +248,12 @@ Metric definitions:
   separators. Empty punctuation is not a reason. Enable/end directives and
   quoted examples are excluded. Git symlink entries and submodules are not source
   blobs; tracked regular targets are counted once. Untracked files are excluded.
+
+Lacquer owns a separate CI ceiling in
+`internal/shipped/claude_ratchet_test.go`: the existing rootapp, multistack,
+duoapp, and spmpackage fixtures are rendered and their managed lines (including
+markers) must stay at or below pinned constants. Lower those constants in the
+same PR whenever the managed text shrinks, including work on #453.
 
 Measurement errors fail closed. Stage source deletions before tightening; a
 missing tracked file is an error, not an improvement. Doctor exercises both

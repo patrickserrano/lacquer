@@ -55,7 +55,7 @@ func runRatchet(args []string, root string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	fmt.Fprintf(stdout, "ratchet: claude_lines = %d\nratchet: unjustified_suppressions = %d\n", values[ratchet.ClaudeLines], values[ratchet.Suppressions])
+	fmt.Fprintf(stdout, "ratchet: claude_md_project_lines = %d\nratchet: unjustified_suppressions = %d\n", values[ratchet.ClaudeProjectLines], values[ratchet.Suppressions])
 	findings, err := ratchet.Check(root, cfg)
 	if err != nil {
 		return fail(stderr, err)
@@ -176,7 +176,7 @@ func proveRatchet(dir string) error {
 	if err := os.WriteFile(claude, append(data, []byte("extra prose\n")...), 0o644); err != nil {
 		return err
 	}
-	if code := invoke("audit"); code != 4 || !strings.Contains(out.String(), "ratchet: claude_lines regressed") {
+	if code := invoke("audit"); code != 4 || !strings.Contains(out.String(), "ratchet: claude_md_project_lines regressed") {
 		return fmt.Errorf("CLAUDE regression = %d: %s", code, &out)
 	}
 	return nil
