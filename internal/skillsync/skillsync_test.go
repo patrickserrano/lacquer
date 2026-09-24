@@ -3,11 +3,13 @@ package skillsync
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // fakeAdd simulates the `skills` CLI's project-scoped `add` behavior closely
@@ -245,5 +247,81 @@ func TestInstallBridgeNeverClobbersExisting(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(existing, "SKILL.md"))
 	if err != nil || string(data) != "pre-existing lacquer-synced content" {
 		t.Errorf("pre-existing content was clobbered: data=%q err=%v", data, err)
+	}
+}
+
+// A clean tracked copy is still project-owned. Even a missing tracked file
+// must not be silently resurrected with upstream content.
+func TestInstallRefusesTrackedSkill(t *testing.T) {
+	for _, base := range []string{".agents/skills", ".claude/skills", ".codex/skills"} {
+		for _, deleted := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/deleted=%v", base, deleted), func(t *testing.T) {
+				dir := t.TempDir()
+				gittest.Init(t, dir)
+				path := filepath.Join(dir, base, "owned", "SKILL.md")
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("project-owned"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				cmd := exec.Command("git", "add", "--", path)
+				cmd.Dir = dir
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("git add: %v: %s", err, out)
+				}
+				cmd = exec.Command("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "project-owned skill")
+				cmd.Dir = dir
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("git commit: %v: %s", err, out)
+				}
+
+				if deleted {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				}
+				orig := Runner
+				defer func() { Runner = orig }()
+				var calls []string
+				Runner = func(dir string, args ...string) ([]byte, error) {
+					calls = append(calls, args[3])
+					return fakeAdd(t, nil)(dir, args...)
+				}
+				res, err := Install(dir, []config.SkillEntry{{Source: "owner/repo", Name: "owned"}, {Source: "owner/repo", Name: "new"}}, []string{"claude", "codex"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(calls) != 1 || calls[0] != "new" {
+					t.Errorf("installer calls = %v; must only install new", calls)
+				}
+				if !strings.Contains(res.Failed["owned"], "tracked") {
+					t.Errorf("missing tracked-path refusal: %+v", res)
+				}
+				data, err := os.ReadFile(path)
+				if deleted {
+					if !os.IsNotExist(err) {
+						t.Errorf("tracked deletion restored: %q, %v", data, err)
+					}
+				} else if err != nil || string(data) != "project-owned" {
+					t.Errorf("tracked file changed: %q, %v", data, err)
+				}
+			})
+		}
+	}
+}
+
+func TestMissingOnlyReturnsAbsentEntries(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "skills-lock.json"), []byte(`{"skills":{"present":{"source":"owner/repo"},"orphan":{}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries := []config.SkillEntry{{Source: "owner/repo", Name: "missing"}, {Source: "owner/repo", Name: "present"}}
+	missing, err := Missing(dir, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 1 || missing[0] != entries[0] {
+		t.Fatalf("Missing = %v, want only %v", missing, entries[0])
 	}
 }

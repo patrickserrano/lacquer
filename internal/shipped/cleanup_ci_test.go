@@ -510,10 +510,12 @@ func TestCleanupCISelectsOnlyThisRunnersOrphans(t *testing.T) {
 			t.Errorf("pid %d was signalled but is %s\n%s", pid, why, r.calls)
 		}
 	}
-	// The workflow logs at most 160 command characters. A worktree-local
-	// TMPDIR can put the DerivedData suffix beyond that limit.
+	// The script caps logged commands at 160 characters. A worktree-local
+	// TMPDIR can make the fixture path alone longer than that limit.
 	loggedCommand := w + "/repo/repo/DerivedData"
-	loggedCommand = loggedCommand[:min(len(loggedCommand), 160)]
+	if len(loggedCommand) > 160 {
+		loggedCommand = loggedCommand[:160]
+	}
 	if !strings.Contains(r.out, "TERM pid=101 age=5h00m cmd="+loggedCommand) {
 		t.Errorf("the kill of pid 101 is not logged with pid, age and command:\n%s", r.out)
 	}
