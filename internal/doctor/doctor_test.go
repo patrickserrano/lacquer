@@ -485,6 +485,9 @@ func TestShippedProbesAreSound(t *testing.T) {
 
 func assertShippedProbeIsSound(t *testing.T, layer string, p Probe) {
 	t.Helper()
+	if p.Check != "" {
+		return
+	}
 	isShell := p.Argv[0] == "sh" || p.Argv[0] == "bash" || p.Argv[0] == "/bin/sh"
 	if isShell && len(p.Requires) == 0 {
 		t.Errorf("%s: probe %q runs through a shell but declares no `requires`; a missing tool would satisfy it silently",

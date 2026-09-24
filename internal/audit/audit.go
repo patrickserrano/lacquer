@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/patrickserrano/lacquer/internal/actionlint"
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/gitattributes"
@@ -120,6 +121,7 @@ func regions(lacquerRoot string, cfg *config.Config, plan []assets.Asset) ([]reg
 	// regions rather than markdown, and both are derived rather than read off
 	// disk; a region sync writes but audit does not re-derive is a region that
 	// audit reports as an orphan forever.
+	srcs = append(srcs, regionSrc{actionlint.Name, actionlint.Key, actionlint.Body(), "", actionlint.Syntax})
 	return append(srcs, regionSrc{gitattributes.Name, gitattributes.Key, gitattributes.Body(cfg), "", gitattributes.Syntax}), nil
 }
 

@@ -1669,7 +1669,14 @@ type Baseline struct {
 	Relax map[string]baseline.Relax `toml:"relax"`
 }
 
+// Web holds optional shared web-profile configuration. Patterns use Biome's
+// negated files.includes syntax, relative to each web component.
+type Web struct {
+	BiomeIgnores []string `toml:"biome_ignores"`
+}
+
 type Config struct {
+	Web        Web         `toml:"web"`
 	Project    Project     `toml:"project"`
 	Components []Component `toml:"component"`
 	Product    []Product   `toml:"product"`
@@ -2161,6 +2168,11 @@ func Load(path string) (*Config, error) {
 					"the rules merge, so one entry's until date silently stops meaning anything", c.Path, d.Dependency)
 			}
 			seenDep[d.Dependency] = true
+		}
+	}
+	for _, pattern := range cfg.Web.BiomeIgnores {
+		if !strings.HasPrefix(pattern, "!") || strings.TrimSpace(strings.TrimLeft(pattern, "!")) == "" || strings.ContainsAny(pattern, "\r\n") {
+			return nil, fmt.Errorf("web.biome_ignores entries must be nonempty negated Biome patterns, got %q", pattern)
 		}
 	}
 	return &cfg, nil

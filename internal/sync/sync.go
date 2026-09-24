@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/patrickserrano/lacquer/internal/actionlint"
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/baseline"
@@ -147,6 +148,23 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// region rather than shipped as a file because three fleet repositories keep
 	// LFS filters and their own linguist rules in theirs.
 	regions = append(regions, regionWrite{gitattributes.Name, gitattributes.Key, gitattributes.Body(cfg), "", gitattributes.Syntax})
+	regions = append(regions, regionWrite{actionlint.Name, actionlint.Key, actionlint.Body(), "", actionlint.Syntax})
+
+	// Check the YAML merge before any region or asset is written.
+	actionPath, err := safepath.Resolve(projectRoot, actionlint.Name)
+	if err != nil {
+		return Result{}, err
+	}
+	if fi, err := os.Lstat(actionPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return Result{}, fmt.Errorf("refusing to write through symlink: %s", actionPath)
+	}
+	actionData, err := os.ReadFile(actionPath)
+	if err != nil && !os.IsNotExist(err) {
+		return Result{}, err
+	}
+	if _, err := actionlint.Merge(string(actionData), ver); err != nil {
+		return Result{}, fmt.Errorf("merge actionlint: %w", err)
+	}
 
 	// Token preflight — fail closed before any write.
 	var missing []string
@@ -309,6 +327,9 @@ func mergeInto(projectRoot, rel, key string, ver version.Version, body string, s
 		return fmt.Errorf("read %s: %w", target, err)
 	}
 	merged, err := syn.Merge(string(existing), key, ver, body)
+	if rel == actionlint.Name {
+		merged, err = actionlint.Merge(string(existing), ver)
+	}
 	if err != nil {
 		return fmt.Errorf("merge %s region in %s: %w", key, target, err)
 	}

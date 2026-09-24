@@ -76,6 +76,10 @@ func Render(a Asset, cfg *config.Config) ([]byte, []string, error) {
 			return nil, nil, fmt.Errorf("read asset %s: %w", a.Src, err)
 		}
 		body, missing := tokens.Substitute(string(data), tokens.Values(cfg, a.Prefix))
+		if filepath.Base(a.Dest) == "biome.json" {
+			rendered, err := renderBiomeIgnores([]byte(body), cfg.Web.BiomeIgnores)
+			return rendered, missing, err
+		}
 		return []byte(body), missing, nil
 	}
 
