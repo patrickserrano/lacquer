@@ -197,10 +197,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		} else if entries, err := syncManifest.Project.ParsedSkills(); err != nil {
 			fmt.Fprintf(stderr, "warning: [project].skills: %v\n", err)
 		} else if len(entries) > 0 {
-			fmt.Fprintf(stdout, "\n[project].skills declares %d skill(s); sync does not install them (it stays offline) — run `lacquer skills` to install:\n",
-				len(entries))
-			for _, e := range entries {
-				fmt.Fprintf(stdout, "  %s\n", e)
+			missing, err := skillsync.Missing(projectRoot, entries)
+			if err != nil {
+				fmt.Fprintf(stderr, "warning: [project].skills: %v\n", err)
+			} else if len(missing) > 0 {
+				fmt.Fprintf(stdout, "\n[project].skills has %d skill(s) missing from skills-lock.json; sync does not install them (it stays offline) — run `lacquer skills` to install:\n", len(missing))
+				for _, e := range missing {
+					fmt.Fprintf(stdout, "  %s\n", e)
+				}
 			}
 		}
 
