@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -265,6 +266,43 @@ func TestSyncHintsAtDeclaredSkillsWithoutInstallingThem(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".agents", "skills", "healthkit")); err == nil {
 		t.Error("sync installed the declared skill onto disk — it must only hint, never install")
 	}
+	// A second sync requires the first sync's managed files to be committed.
+	for _, args := range [][]string{{"add", "-A"}, {"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "synced"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+
+	for _, tc := range []struct {
+		name        string
+		lock        string
+		wantHint    bool
+		wantWarning bool
+	}{
+		{"installed", `{"skills":{"healthkit":{"source":"dpearson2699/swift-ios-skills"}}}`, false, false},
+		{"unrelated", `{"skills":{"storekit":{"source":"dpearson2699/swift-ios-skills"}}}`, true, false},
+		{"malformed", `{`, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(dir, "skills-lock.json"), []byte(tc.lock), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out.Reset()
+			errb.Reset()
+			if code := run([]string{"sync"}, env, &out, &errb); code != 0 {
+				t.Fatalf("sync = %d: %s", code, &errb)
+			}
+			if got := strings.Contains(out.String(), "lacquer skills"); got != tc.wantHint {
+				t.Errorf("hint = %v, want %v: %s", got, tc.wantHint, &out)
+			}
+			if got := strings.Contains(errb.String(), "skills-lock.json"); got != tc.wantWarning {
+				t.Errorf("lock warning = %v, want %v: %s", got, tc.wantWarning, &errb)
+			}
+		})
+	}
+
 }
 
 // lacquerRootWithPlugins builds a minimal lacquer checkout (VERSION,
