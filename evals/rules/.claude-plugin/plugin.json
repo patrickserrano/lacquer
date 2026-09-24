@@ -1,0 +1,6 @@
+{
+  "name": "lacquer-rule-evals",
+  "version": "0.1.0",
+  "description": "Evaluate Lacquer's rendered core and iOS rules as session context.",
+  "author": { "name": "Patrick Serrano" }
+}

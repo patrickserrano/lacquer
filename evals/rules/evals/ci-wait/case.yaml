@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: ci-wait
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - {"name": "outcome", "type": "regex", "target": {"source": "file", "path": "ci-result.txt"}, "pattern": "^FAIL\\s*$"}
+  - {"name": "sanctioned-wait", "type": "tool_used", "tool": "Bash", "input_match": "\\blacquer\\s+wait\\s+pr\\s+900001\\b"}
+  - {"name": "no-gh-watch", "type": "tool_used", "tool": "Bash", "input_match": "\\bgh\\s+pr\\s+checks\\b[^\"\\r\\n]*--watch\\b", "min": 0, "max": 0}
