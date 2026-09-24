@@ -586,18 +586,6 @@ func assertCredentialsIgnored(t *testing.T, p *project) {
 	}
 }
 
-// actionlintConfig declares the non-GitHub runner labels this fleet uses.
-// actionlint cannot know a third-party provider's or a self-hosted box's
-// labels, so it reports every one as unknown — a finding about actionlint's
-// knowledge, not about the workflow. Registering them here is what keeps that
-// noise out without suppressing the check itself.
-//
-// `dedicated` is the macOS box that owns all Xcode work. `pi-gate` is a ROLE
-// label, carried by both the Raspberry Pi and the Synology so either can serve
-// a gate job. `blacksmith-4vcpu-ubuntu-2404` is the third-party Linux runner
-// the fleet's ordinary Linux jobs moved to.
-const actionlintConfig = "self-hosted-runner:\n  labels:\n    - dedicated\n    - pi-gate\n    - blacksmith-4vcpu-ubuntu-2404\n    - blacksmith-2vcpu-ubuntu-2404-arm\n"
-
 // runActionlint lints the rendered workflows when actionlint is installed, and
 // skips cleanly when it is not.
 //
@@ -619,11 +607,7 @@ func runActionlint(t *testing.T, p *project) {
 	if err != nil || len(entries) == 0 {
 		t.Skip("this project has no rendered workflows")
 	}
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "actionlint.yaml")
-	if err := os.WriteFile(cfgPath, []byte(actionlintConfig), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	cfgPath := filepath.Join(p.root, ".github", "actionlint.yaml")
 	args := []string{"-config-file", cfgPath, "-shellcheck=", "-pyflakes="}
 	for _, e := range entries {
 		args = append(args, filepath.Join(dir, e.Name()))
@@ -1734,6 +1718,11 @@ func TestDoctorWebProbesNeedAnInstall(t *testing.T) {
 		t.Fatal("the web profile ships no doctor probes at all")
 	}
 	for _, pr := range probes {
+		// Built-in probes are covered by TestLintConfigDoctorRejectsMissingValues
+		// without requiring a node toolchain.
+		if pr.Check != "" {
+			continue
+		}
 		var needsInstall bool
 		for _, req := range pr.Requires {
 			if strings.Contains(req, "node_modules/.bin/") {

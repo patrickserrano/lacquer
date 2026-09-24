@@ -66,9 +66,9 @@ func TestRowsReportBehindAndUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Rows: %v", err)
 	}
-	// core, ios, the .gitignore region and the .gitattributes region.
-	if len(rows) != 4 {
-		t.Fatalf("got %d rows, want 4", len(rows))
+	// core, ios, .gitignore, .gitattributes and actionlint regions.
+	if len(rows) != 5 {
+		t.Fatalf("got %d rows, want 5", len(rows))
 	}
 	if rows[0].Key != "core" || rows[0].Stamped != v(5) || rows[0].Behind {
 		t.Errorf("core row = %+v, want stamped=5 behind=false", rows[0])

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/patrickserrano/lacquer/internal/actionlint"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/gitattributes"
 	"github.com/patrickserrano/lacquer/internal/gitignore"
@@ -52,6 +53,7 @@ func Rows(lacquerRoot, projectRoot string) ([]Row, error) {
 	// whose GitHub language bar is still counting ~620KB of lacquer-shipped
 	// Python as its own source.
 	rows = append(rows, rowFor(projectRoot, gitattributes.Name, gitattributes.Key, latest, gitattributes.Syntax))
+	rows = append(rows, rowFor(projectRoot, actionlint.Name, actionlint.Key, latest, actionlint.Syntax))
 	return rows, nil
 }
 

@@ -248,3 +248,9 @@ git add supabase_config.toml
 bash {component}/scripts/check-secrets.sh
 """]
 expect = "pass"
+
+[[probe]]
+name = "actionlint knows the shipped custom runner labels"
+why = "Workflows and their actionlint configuration must agree; an empty label list is not a passing check."
+check = "actionlint-labels"
+expect = "pass"

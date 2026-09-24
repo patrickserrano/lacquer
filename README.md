@@ -473,6 +473,27 @@ This too is a region rather than a file, and for a sharper reason than
 Git LFS filters, line-ending normalization, their own linguist overrides.
 Shipping a whole file would have broken LFS.
 
+## Shared lint configuration
+
+Sync manages a runner-label region in `.github/actionlint.yaml`, using the
+same custom-label list tested against the rendered workflows. Existing labels,
+`paths`, `config-variables`, and comments survive. First adoption may normalize existing YAML formatting to create the block
+sequence; subsequent syncs replace only the marked region. `audit`, `status`, and the lock track that region.
+
+Web projects can keep generated files out of Biome without excluding the shared
+`biome.json`. Declare extra negated `files.includes` patterns in `.lacquer.toml`:
+
+```toml
+[web]
+biome_ignores = ["!**/payload-types.ts"]
+```
+
+Patterns apply relative to each web component's `biome.json`. With no entries,
+the rendered config is byte-identical to the default. The file remains wholly
+managed, so future shared lint improvements still arrive. Doctor checks the
+synced runner labels and declared ignores, with negative controls that reject
+missing values; these configuration checks need no external linter binary.
+
 ## Docs
 
 `docs/plans/` holds the design and build plans. The design doc
