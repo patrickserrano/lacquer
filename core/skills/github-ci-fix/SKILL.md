@@ -1,6 +1,6 @@
 ---
 name: github-ci-fix
-description: Use when PR checks fail, CI is red, or GitHub Actions workflows break - systematically inspects failing checks via gh CLI, pulls logs, checks for flakiness and scopes the breaking commit, scopes external checks, then creates fix plan using existing plan skill
+description: Fix failing PR checks, debug GitHub Actions, or account for CI follow-up rounds and wait for verification.
 ---
 
 # GitHub CI Fix
@@ -171,3 +171,13 @@ gh run rerun <run-id> --failed
 
 **Before:** Changes without seeing errors, confusion on check scope, inline plans, fixes chasing flaky tests
 **After:** Auth verification, systematic logs, flaky-vs-real triage, breaking-commit scoping, proper boundaries, plan workflow integration
+
+## Project conventions
+
+Read [references/project-rules.md](references/project-rules.md) for the relevant
+section when handling this task. Read only what applies; examples do not
+authorize releases, deployments or changes outside the user's scope.
+Always-loaded safety rules still apply.
+
+- CI Hygiene
+- CI round budget

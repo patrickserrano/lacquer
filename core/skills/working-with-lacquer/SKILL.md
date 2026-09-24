@@ -1,13 +1,6 @@
 ---
 name: working-with-lacquer
-description: >
-  Use when working in a lacquer-managed project (one with a .lacquer.toml) and
-  anything about that management comes up: the drift audit inside the
-  "Detect changed paths" CI job fails,
-  `lacquer audit` exits 3/4/6, a lint config or CI workflow you edited reverts
-  on the next sync, a hook or workflow needs changing, the project can't meet a
-  baseline yet, a new stack (Swift package, backend, web app) is added to the
-  repo, or a project needs onboarding.
+description: Fix Lacquer drift, sync or onboard a project, change managed checks, relax a baseline, refuse a dependency update, or retire a project.
 ---
 
 # Working With Lacquer
@@ -209,3 +202,13 @@ lacquer checkout (`LACQUER_ROOT=~/Developer/lacquer lacquer sync`).
   A relaxation that cannot expire is a redefinition of the standard. `--force`
   is for adopting the lacquer's version over a local edit, not for silencing a
   finding.
+
+## Project conventions
+
+Read [references/project-rules.md](references/project-rules.md) for the relevant
+section when handling this task. Read only what applies; examples do not
+authorize releases, deployments or changes outside the user's scope.
+Always-loaded safety rules still apply.
+
+- Local Checks Match CI
+- Warnings as Errors

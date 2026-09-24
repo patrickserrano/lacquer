@@ -1,11 +1,6 @@
 ---
 name: ios-secrets-setup
-description: >
-  Use when wiring a new app-runtime service key (RevenueCat, Aptabase, …)
-  into a project — setting up `Secrets.xcconfig`, surfacing a key through
-  `project.yml` into `Info.plist`, and reading it at runtime. Distinct from
-  CI/server secrets, which live in GitHub Actions secrets and never touch an
-  xcconfig — see the project's `CLAUDE.md` Secrets section for that split.
+description: Configure iOS service keys, Secrets.xcconfig, CI signing credentials, or release secret injection and provenance.
 ---
 
 # iOS App-Runtime Secrets Setup
@@ -57,5 +52,14 @@ belongs on a server, never in the app.
 > compile into the app. RevenueCat's **REST API** uses a separate **secret
 > key** (`sk_…`) that grants full account access — it must **never** go in
 > `Secrets.xcconfig` or the binary. That's a CI/server secret
-> (`REVENUECAT_REST_API_KEY`), set via `gh secret set` per the project's
-> `CLAUDE.md` Secrets section.
+> (`REVENUECAT_REST_API_KEY`), set via `gh secret set` per the
+> CI/server secrets section in [references/project-rules.md](references/project-rules.md).
+
+## Project conventions
+
+Read [references/project-rules.md](references/project-rules.md) for the relevant
+section when handling this task. Read only what applies; examples do not
+authorize releases, deployments or changes outside the user's scope.
+Always-loaded safety rules still apply.
+
+- Secrets & Service Keys

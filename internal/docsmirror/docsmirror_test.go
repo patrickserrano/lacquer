@@ -245,7 +245,12 @@ func TestMirrorsShowNoCodeTheSourceDoesNot(t *testing.T) {
 
 			blocks := CodeBlocks(mirror)
 			if len(blocks) == 0 {
-				t.Fatalf("%s has no fenced code blocks — either the page lost its examples or CodeBlocks stopped finding them; either way this check is asserting nothing", p.Mirror)
+				// Recipes now live in skills. A prose-only mirror must carry the
+				// complete compact source, so an empty page still cannot pass.
+				if len(CodeBlocks(source)) != 0 || strings.TrimSpace(source) == "" ||
+					!strings.HasSuffix(strings.TrimSpace(mirror), strings.TrimSpace(source)) {
+					t.Fatalf("%s has no code examples and does not mirror the complete prose-only source", p.Mirror)
+				}
 			}
 
 			for _, f := range MissingBlocks(source, mirror) {
