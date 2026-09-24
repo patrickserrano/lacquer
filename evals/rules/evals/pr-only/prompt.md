@@ -1,6 +1,6 @@
 ---
 model: claude-sonnet-5
-max_turns: 12
+max_turns: 20
 timeout_seconds: 180
 allowed_tools: [Read, Glob, Grep, Bash, Write, Edit, Skill]
 ---

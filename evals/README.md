@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-24 13:13:11 UTC -->
+<!-- Generated: 2026-09-24 18:55:18 UTC -->
 # Lacquer rule evals
 
 This opt-in Claude plugin measures core plus each profile's **CLAUDE.md** rules
@@ -79,8 +79,10 @@ compiler, SQL, secret-scanner or arbitrary-prose correctness proofs.
 `go test ./...` runs `TestRuleEvalEveryNewGrader` against the actual authored
 patterns in every new case. `grader_controls.json` supplies distinct passing
 and failing inputs per grader; missing controls, unknown grader types and
-exceeded turn/time/count limits fail. `scenario_controls.json` drives each of
-22 behavior fixtures (55 state controls) independently through a correct operation and a deliberate
+exceeded turn/time/count limits fail. Turn caps are 20 for `pr-only`, `hooks`,
+`proven-code` and `negative-control`, 8 for skill-routing cases, and 12 for
+all other behavior cases; time and case-count limits are unchanged.
+`scenario_controls.json` drives each of 22 behavior fixtures (55 state controls) independently through a correct operation and a deliberate
 shortcut. `test_expanded_scenarios` invokes the real scaffold and `verify.py` for
 both, checking exit code and result file. `TestRuleEvalInventoryQuotes` also rejects missing inline bullets or quotations
 that are absent from the renders. The original four fixture controls
@@ -102,7 +104,17 @@ The `negative-control` and `report-evidence` method graders require an explicit
 `bin/test` invocation (optionally `./` and a PATH assignment). Controls reject
 incidental mentions, other test runners and Bash's builtin `test`, and cover
 command separators in serialized Bash input. Outcome graders still require
-the fixture's actual recorded execution and state.
+the fixture's actual recorded execution and state. The `ios-hung` method grader
+accepts `flowdeck test stop` with or without arguments, including a PATH prefix;
+controls reject status queries and incidental mentions.
+
+Issue #485 five whys: valid stops scored as missing → the method pattern required
+a literal run ID → it copied one command form → the sole positive control used
+that same form → controls did not cover the verifier's accepted invocation
+variants. The expanded controls align method scoring with the fixture contract.
+The paid run in #484 also exposed four turn-bound cases; their caps rise to 20,
+with a regression test preserving every other case's cap. Offline validation
+proves these contracts, not the effect of the extra turns on model behavior.
 
 PM review five whys: prompts could erase behavioral delta → they supplied the
 expected action → fixture usage hints repeated the rule → task wording and
