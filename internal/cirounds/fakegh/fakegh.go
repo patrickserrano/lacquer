@@ -74,6 +74,21 @@ func SetRollup(dir, state, head string, checks ...Check) error {
 	return os.WriteFile(filepath.Join(dir, "rollup.json"), b, 0o644)
 }
 
+// SetCommit plants the REST commit metadata for a head.
+func SetCommit(dir, head, email string, parents ...string) error {
+	ps := make([]map[string]string, 0, len(parents))
+	for _, p := range parents {
+		ps = append(ps, map[string]string{"sha": p})
+	}
+	b, err := json.Marshal(map[string]any{
+		"sha": head, "commit": map[string]any{"committer": map[string]string{"email": email}}, "parents": ps,
+	})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "commit-"+head+".json"), b, 0o644)
+}
+
 // Failed, Passed and Running are shorthand for planted checks.
 func Failed(name string) Check  { return Check{Name: name, Status: "COMPLETED", Conclusion: "FAILURE"} }
 func Passed(name string) Check  { return Check{Name: name, Status: "COMPLETED", Conclusion: "SUCCESS"} }
@@ -132,6 +147,14 @@ func Run(dir string, args ...string) ([]byte, error) {
 	if err == nil {
 		fmt.Fprintln(f, strings.ReplaceAll(strings.Join(args, " "), "\n", `\n`))
 		f.Close()
+	}
+	if len(args) == 2 && args[0] == "api" && strings.Contains(args[1], "/commits/") {
+		head := args[1][strings.LastIndex(args[1], "/")+1:]
+		b, err := os.ReadFile(filepath.Join(dir, "commit-"+head+".json"))
+		if os.IsNotExist(err) {
+			return json.Marshal(map[string]any{"sha": head, "commit": map[string]any{"committer": map[string]string{"email": "developer@example.com"}}, "parents": []any{}})
+		}
+		return b, err
 	}
 	if len(args) < 2 || args[0] != "pr" {
 		return nil, fmt.Errorf("fakegh: unhandled call: gh %s", strings.Join(args, " "))

@@ -14,6 +14,8 @@ const (
 	KindRound      Kind = "round"
 	KindReview     Kind = "review"
 	KindUnrecorded Kind = "unrecorded"
+	// KindUpdate: a GitHub-created merge records a known head without spending.
+	KindUpdate Kind = "update"
 	// KindReset: an explicit operator decision starts a fresh budget.
 	KindReset Kind = "reset"
 	// KindExhausted: an agent asked for a round past the cap and was refused.
@@ -82,8 +84,10 @@ type Ledger struct {
 	Rounds   []Entry
 	Shadowed []Entry
 	// Known is every commit the tool has recorded, in any epoch. A head not in
-	// it was not pushed through this tool.
+	// it has not been recorded by this tool.
 	Known map[string]bool
+	// LastHead is the most recent accepted round, reset or neutral update SHA.
+	LastHead string
 	// Exhausted are the stop notices already on the PR for the current epoch.
 	Exhausted []Entry
 	// Any is whether the ledger has any entries at all.
@@ -139,8 +143,16 @@ func ParseLedger(cs []Comment) (Ledger, error) {
 		}
 		l.Any = true
 		switch e.Kind {
+		case KindUpdate:
+			l.Known[e.SHA] = true
+			if e.Epoch == l.Epoch {
+				l.LastHead = e.SHA
+			}
 		case KindReset:
 			l.Known[e.SHA] = true
+			if e.Epoch >= l.Epoch {
+				l.LastHead = e.SHA
+			}
 			if e.Epoch > l.Epoch {
 				l.Epoch, l.Rounds, l.Exhausted = e.Epoch, nil, nil
 			}
@@ -168,6 +180,7 @@ func ParseLedger(cs []Comment) (Ledger, error) {
 				continue
 			}
 			l.Known[e.SHA] = true
+			l.LastHead = e.SHA
 			l.Rounds = append(l.Rounds, e)
 		case KindExhausted:
 			if e.Epoch == l.Epoch {
@@ -234,6 +247,10 @@ func renderRound(e Entry) string {
 		b.WriteString("\nThis was the last round the agent gets on this PR. If checks still fail, it stops and hands the PR to a human; it will not push again.\n")
 	}
 	return b.String()
+}
+
+func renderUpdate(e Entry) string {
+	return marker(e) + fmt.Sprintf("\n**GitHub branch update** · `%s` · %s\n\nNeutral update: no round spent; the budget is unchanged.\n", short(e.SHA), e.At)
 }
 
 func renderReset(e Entry) string {

@@ -661,3 +661,134 @@ func TestUnrecordedHeadWithBudgetLeftIsNotGranted(t *testing.T) {
 		t.Fatalf("spent %d", got.Spent)
 	}
 }
+
+// GitHub's update-branch merge is remembered without charging or resetting.
+func TestGitHubUpdateBranchLeavesNextRoundAvailable(t *testing.T) {
+	r := newRig(t)
+	want(t, r.begin(sha('a'), ""), CodeGranted)
+	if err := fakegh.SetCommit(r.dir, sha('b'), "noreply@github.com", sha('a'), sha('f')); err != nil {
+		t.Fatal(err)
+	}
+	r.head(sha('b'), fakegh.Failed("lint"))
+	got := Status(context.Background(), r.opts("", ""))
+	want(t, got, CodeGranted)
+	if got.Spent != 1 {
+		t.Fatalf("update spent a round: %+v", got)
+	}
+	ledger, err := ParseLedger(toComments(r.comments()))
+	if err != nil || ledger.Epoch != 1 || !ledger.Known[sha('b')] || len(ledger.Rounds) != 1 {
+		t.Fatalf("update must be known without resetting or charging: %+v, %v", ledger, err)
+	}
+	if body := r.comments()[1].Body; !strings.Contains(body, `"kind":"update"`) || !strings.Contains(body, "no round spent") {
+		t.Fatalf("missing neutral update entry: %s", body)
+	}
+	n := len(r.comments())
+	want(t, Status(context.Background(), r.opts("", "")), CodeGranted)
+	if len(r.comments()) != n {
+		t.Fatal("repeat observation recorded the update again")
+	}
+	got = r.begin(sha('c'), goodReason)
+	want(t, got, CodeGranted)
+	if got.Round != 2 || got.Spent != 2 {
+		t.Fatalf("next begin must grant round 2: %+v", got)
+	}
+}
+
+// The exception must not extend to a local merge pushed without begin, even
+// when it follows a neutral GitHub update (which must not be charged again).
+func TestLocalMergeWithoutBeginIsCharged(t *testing.T) {
+	r := newRig(t)
+	want(t, r.begin(sha('a'), ""), CodeGranted)
+	if err := fakegh.SetCommit(r.dir, sha('b'), "noreply@github.com", sha('a'), sha('f')); err != nil {
+		t.Fatal(err)
+	}
+	r.head(sha('b'), fakegh.Failed("lint"))
+	want(t, Status(context.Background(), r.opts("", "")), CodeGranted)
+	if err := fakegh.SetCommit(r.dir, sha('c'), "developer@example.com", sha('b'), sha('f')); err != nil {
+		t.Fatal(err)
+	}
+	r.head(sha('c'), fakegh.Failed("lint"))
+	got := r.begin(sha('d'), goodReason)
+	want(t, got, CodeExhausted)
+	ledger, err := ParseLedger(toComments(r.comments()))
+	if err != nil || ledger.Epoch != 1 || len(ledger.Rounds) != 2 ||
+		ledger.Rounds[1].Kind != KindUnrecorded || ledger.Rounds[1].SHA != sha('c') {
+		t.Fatalf("local merge must spend exactly one unrecorded round: %+v, %v", ledger, err)
+	}
+	n := len(r.comments())
+	want(t, r.begin(sha('d'), goodReason), CodeExhausted)
+	if len(r.comments()) != n {
+		t.Fatal("repeat observation charged the local merge again")
+	}
+}
+
+func TestUpdateExceptionRequiresGitHubMergeOfPreviousHead(t *testing.T) {
+	for _, tc := range []struct {
+		name, email string
+		parents     []string
+	}{
+		{"local merge", "developer@example.com", []string{sha('a'), sha('f')}},
+		{"GitHub single parent", "noreply@github.com", []string{sha('a')}},
+		{"GitHub octopus", "noreply@github.com", []string{sha('a'), sha('f'), sha('e')}},
+		{"GitHub unrelated merge", "noreply@github.com", []string{sha('e'), sha('f')}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			want(t, r.begin(sha('a'), ""), CodeGranted)
+			if err := fakegh.SetCommit(r.dir, sha('b'), tc.email, tc.parents...); err != nil {
+				t.Fatal(err)
+			}
+			r.head(sha('b'), fakegh.Failed("lint"))
+			got := Status(context.Background(), r.opts("", ""))
+			want(t, got, CodeExhausted)
+			if got.Spent != 2 {
+				t.Fatalf("unknown head escaped charge: %+v", got)
+			}
+		})
+	}
+}
+
+func TestConsecutiveGitHubUpdatesRemainNeutral(t *testing.T) {
+	r := newRig(t)
+	want(t, r.begin(sha('a'), ""), CodeGranted)
+	previous := sha('a')
+	for _, head := range []string{sha('b'), sha('c')} {
+		// Either parent may be the previous known head.
+		if err := fakegh.SetCommit(r.dir, head, "noreply@github.com", sha('f'), previous); err != nil {
+			t.Fatal(err)
+		}
+		r.head(head, fakegh.Failed("lint"))
+		got := Status(context.Background(), r.opts("", ""))
+		want(t, got, CodeGranted)
+		if got.Spent != 1 {
+			t.Fatalf("update was charged: %+v", got)
+		}
+		previous = head
+	}
+	want(t, r.begin(sha('d'), goodReason), CodeGranted)
+}
+
+func TestUnknownHeadCommitAPIFailureDoesNotGrantPush(t *testing.T) {
+	for _, response := range []string{"error", "invalid JSON"} {
+		t.Run(response, func(t *testing.T) {
+			r := newRig(t)
+			want(t, r.begin(sha('a'), ""), CodeGranted)
+			r.head(sha('b'), fakegh.Failed("lint"))
+			o := r.opts(sha('c'), goodReason)
+			inner := o.Run
+			o.Run = func(ctx context.Context, args ...string) ([]byte, error) {
+				if args[0] == "api" {
+					if response == "error" {
+						return nil, os.ErrPermission
+					}
+					return []byte(response), nil
+				}
+				return inner(ctx, args...)
+			}
+			want(t, Begin(context.Background(), o), CodeUnavailable)
+			if len(r.comments()) != 1 {
+				t.Fatal("failed inspection wrote a ledger entry")
+			}
+		})
+	}
+}

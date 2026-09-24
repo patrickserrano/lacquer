@@ -21,8 +21,9 @@
 // silently refunds a round, whereas two racing appends are ordered by GitHub and
 // the later one is told it lost.
 //
-// Unknown PR heads spend an unrecorded round; authorship cannot be inferred
-// from the shared account. Only an explicit reset starts a fresh budget.
+// Unknown PR heads spend an unrecorded round, except GitHub-created merges
+// containing the previous known head: those are neutral updates, not resets.
+// Only an explicit reset starts a fresh budget.
 // Review-requested changes spend the same budget without requiring failed CI.
 package cirounds
 
@@ -240,20 +241,66 @@ func load(ctx context.Context, o Options) (ciwait.Reading, Ledger, *Result) {
 		return ciwait.Reading{}, Ledger{}, &r
 	}
 	// The first begin may register the push that opened the PR. Every other
-	// unknown head must be charged, including a first observation by status.
+	// unknown head is charged unless commit metadata proves a GitHub update.
 	if !ledger.Known[rd.Head] && (ledger.Any || o.SHA != rd.Head) {
 		e := Entry{V: 1, Kind: KindUnrecorded, Epoch: ledger.Epoch, Round: len(ledger.Rounds) + 1, Cap: o.Cap, SHA: rd.Head, At: now.UTC().Format(time.RFC3339)}
-		if _, err := post(ctx, o, renderRound(e)); err != nil {
-			r := unavailable(o, "could not record unrecorded push: "+err.Error())
+		update, err := githubUpdate(ctx, o, rd.Head, ledger.LastHead)
+		if err != nil {
+			r := unavailable(o, "could not inspect unknown head: "+err.Error())
+			return rd, ledger, &r
+		}
+		body := renderRound(e)
+		if update {
+			e.Kind, e.Round = KindUpdate, 0
+			body = renderUpdate(e)
+		}
+		if _, err := post(ctx, o, body); err != nil {
+			r := unavailable(o, "could not record observed head: "+err.Error())
 			return rd, ledger, &r
 		}
 		ledger, err = readLedger(ctx, o)
 		if err != nil || !ledger.Known[rd.Head] {
-			r := unavailable(o, fmt.Sprintf("unrecorded push WAS written but could not be verified: %v", err))
+			r := unavailable(o, fmt.Sprintf("observed head WAS written but could not be verified: %v", err))
 			return rd, ledger, &r
 		}
 	}
 	return rd, ledger, nil
+}
+
+// githubUpdate recognizes the update-branch exception from the commit itself,
+// never from its message or the shared account's author identity. A regular
+// locally committed merge does not have GitHub's committer email.
+func githubUpdate(ctx context.Context, o Options, head, previous string) (bool, error) {
+	if previous == "" {
+		return false, nil
+	}
+	repo := o.Repo
+	if repo == "" {
+		// gh api expands these from the checkout.
+		repo = "{owner}/{repo}"
+	}
+	out, err := o.Run(ctx, "api", "repos/"+repo+"/commits/"+head)
+	if err != nil {
+		return false, err
+	}
+	var c struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Committer struct {
+				Email string `json:"email"`
+			} `json:"committer"`
+		} `json:"commit"`
+		Parents []struct {
+			SHA string `json:"sha"`
+		} `json:"parents"`
+	}
+	if err := json.Unmarshal(out, &c); err != nil {
+		return false, err
+	}
+	if c.SHA != head || c.Commit.Committer.Email != "noreply@github.com" || len(c.Parents) != 2 {
+		return false, nil
+	}
+	return c.Parents[0].SHA == previous || c.Parents[1].SHA == previous, nil
 }
 
 func readLedger(ctx context.Context, o Options) (Ledger, error) {
