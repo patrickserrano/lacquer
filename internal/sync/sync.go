@@ -110,20 +110,23 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 		}
 	}
 
-	// Mirror every CLAUDE.md region into a sibling AGENTS.md when a tool that reads
-	// it (Codex, Google Antigravity) is enabled in [project].tools. AGENTS.md is
-	// the cross-tool rules file; gating it on the same `tools` switch as skill
-	// provisioning keeps the model coherent and leaves claude-only projects with
-	// just CLAUDE.md. Identical key/body/prefix — only the destination filename
-	// differs, so the token preflight and merge below handle it transparently.
 	if cfg.Project.WantsAgentsMd() {
-		mirror := make([]regionWrite, 0, len(regions))
+		// Separate sources, with the same keys/destinations so existing locks migrate.
+		agents := make([]regionWrite, 0, len(regions))
 		for _, r := range regions {
-			m := r
-			m.rel = filepath.Join(filepath.Dir(r.rel), "AGENTS.md")
-			mirror = append(mirror, m)
+			source := filepath.Join(lacquerRoot, "profiles", r.key, "AGENTS."+r.key+".md")
+			if r.key == "core" {
+				source = filepath.Join(lacquerRoot, "core", "AGENTS.core.md")
+			}
+			body, err := os.ReadFile(source)
+			if err != nil {
+				return Result{}, fmt.Errorf("read AGENTS body: %w", err)
+			}
+			r.rel = filepath.Join(filepath.Dir(r.rel), "AGENTS.md")
+			r.body = string(body)
+			agents = append(agents, r)
 		}
-		regions = append(regions, mirror...)
+		regions = append(regions, agents...)
 	}
 
 	plan, err := assets.Plan(lacquerRoot, cfg)

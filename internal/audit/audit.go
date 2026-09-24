@@ -81,7 +81,7 @@ type regionSrc struct {
 func regionKey(dest, marker string) string { return dest + "#" + marker }
 
 // regions re-derives every managed region for this project: the core +
-// per-profile CLAUDE.md regions, mirrored into AGENTS.md when a tool that reads
+// per-profile instruction regions, including AGENTS.md when a tool that reads
 // it is enabled, then .gitignore.
 //
 // plan is passed in because the .gitignore region's skill rules are derived from
@@ -104,13 +104,22 @@ func regions(lacquerRoot string, cfg *config.Config, plan []assets.Asset) ([]reg
 		}
 	}
 	if cfg.Project.WantsAgentsMd() {
-		mirror := make([]regionSrc, 0, len(srcs))
+		// Separate sources, with the same keys/destinations so existing locks migrate.
+		agents := make([]regionSrc, 0, len(srcs))
 		for _, r := range srcs {
-			m := r
-			m.dest = filepath.Join(filepath.Dir(r.dest), "AGENTS.md")
-			mirror = append(mirror, m)
+			source := filepath.Join(lacquerRoot, "profiles", r.key, "AGENTS."+r.key+".md")
+			if r.key == "core" {
+				source = filepath.Join(lacquerRoot, "core", "AGENTS.core.md")
+			}
+			body, err := os.ReadFile(source)
+			if err != nil {
+				return nil, fmt.Errorf("read AGENTS body: %w", err)
+			}
+			r.dest = filepath.Join(filepath.Dir(r.dest), "AGENTS.md")
+			r.body = string(body)
+			agents = append(agents, r)
 		}
-		srcs = append(srcs, mirror...)
+		srcs = append(srcs, agents...)
 	}
 	ignoreBody, err := gitignore.Body(cfg, plan)
 	if err != nil {
@@ -126,7 +135,7 @@ func regions(lacquerRoot string, cfg *config.Config, plan []assets.Asset) ([]reg
 }
 
 // managed re-derives every unit the lacquer would write for this project: the
-// core + per-profile CLAUDE.md regions (mirrored into AGENTS.md when a tool that
+// core + per-profile instruction regions (including AGENTS.md when a tool that
 // reads it is enabled), then the whole-file assets. It mirrors sync's set exactly
 // so the lock written by sync and the units audited here line up.
 func managed(lacquerRoot, projectRoot string) ([]unit, version.Version, error) {

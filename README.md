@@ -492,6 +492,20 @@ The version is stamped into each managed region's marker so `lacquer status` can
 report stamped-vs-latest. A project last synced before semver carries the old
 integer form (`v70`); that reads as `0.70.0` and is re-stamped on its next sync.
 
+## Codex instructions and guards
+
+Projects enabling `codex` or `antigravity` receive dedicated `AGENTS.md` regions
+from `core/AGENTS.core.md` and `profiles/*/AGENTS.*.md`; these retain the safety
+rules and concrete checks without copying tool-specific procedures. Tests cap
+rendered core plus profile instructions at 10,000 bytes. Project-owned prose
+survives updates; existing locks migrate through the same region keys.
+`CLAUDE.md` sources and rendering are unchanged.
+
+Codex projects also receive `.codex/hooks.json`, a Python guard and an activation
+README. Project and hook trust review is required; synchronization alone does
+not enable enforcement. See [Codex instructions](docs/codex-instructions.md) for
+coverage, limitations and regression commands.
+
 ## Managed regions
 
 A **region** is a block the lacquer owns inside a file the project also owns.

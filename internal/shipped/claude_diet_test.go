@@ -11,7 +11,7 @@ import (
 )
 
 // Count what an agent loads: root guidance plus the component's guidance, not
-// just the profile in isolation. Mirrors must carry the same safety contract.
+// just the profile in isolation. AGENTS.md has its own contract test.
 func TestRenderedClaudeContextBudget(t *testing.T) {
 	for _, tc := range []struct{ fixture, component string }{
 		{"rootapp", "."}, {"multistack", "ios"},
@@ -28,10 +28,6 @@ func TestRenderedClaudeContextBudget(t *testing.T) {
 			for _, path := range paths {
 				body := p.read(path)
 				lines += strings.Count(body, "\n")
-				mirror := filepath.Join(filepath.Dir(path), "AGENTS.md")
-				if body != p.read(mirror) {
-					t.Errorf("%s differs from %s", path, mirror)
-				}
 			}
 			t.Logf("loaded CLAUDE.md lines (core + component): %d", lines)
 			if lines > 300 {
