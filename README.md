@@ -52,6 +52,10 @@ message rather than an opaque missing-file error.
 - **`web`** — TypeScript + Biome + Vitest; CI + git hooks via `lefthook`.
 - **`supabase`** — Deno Edge Functions + Postgres/RLS; CI + git hooks via
   `lefthook`.
+- **`marketing`** — no CI, no hooks, skills only: ~50 marketing/growth skills
+  (ads, SEO, copywriting, funnels, lifecycle, pricing, planning). Never
+  auto-detected — there is no marketing "stack" on disk to find, so add it to a
+  component's `profiles` deliberately when marketing work is in scope.
 
 A component detected as an unshipped stack (e.g. Rust/Go, or a bare SwiftPM
 package) is recorded in the manifest with an empty profile list and a notice —
@@ -201,9 +205,14 @@ skills = [
 `lacquer init` seeds this list automatically by scanning the project's actual
 Swift imports (see `internal/skillsuggest`) — review and trim before running
 `lacquer skills`, which installs exactly what's declared, project-scoped, via
-`npx skills add <source> -s <name> -p -y`. Idempotent: re-running only adds
-what's missing. It also flags any *installed* skill no longer declared in the
-manifest (informational — nothing is auto-removed).
+`npx skills add <source> -s <name> -p -y`. Before invoking the installer, lacquer
+refuses entries whose destination contains tracked files (including clean files
+and local deletions), preserving project-owned skills while continuing with other
+entries. It also flags any *installed* skill no longer declared in the manifest
+(informational — nothing is auto-removed).
+
+`sync` reads `skills-lock.json` offline and only reminds you about declared skills
+missing from that record. An unreadable or malformed lock file produces a warning.
 
 This is deliberately a separate command from `sync`: `sync` stays fully
 offline and deterministic (its whole test suite depends on that), while
@@ -324,7 +333,7 @@ decision: App Store Connect keys (`*.p8`), signing material, `Secrets.xcconfig`,
 `.env.example`, `.env.schema`) re-included. It also names the third-party skill
 trees installed from `[project].skills`, one by one, so the skills the lacquer
 syncs into the same directories stay tracked and auditable. `skills-lock.json`
-is deliberately tracked: it is a lockfile.
+is ignored as local installation state.
 
 Everything else in a project's `.gitignore` — `DerivedData/`, build outputs,
 per-project junk — stays project-owned and survives every sync.

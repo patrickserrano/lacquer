@@ -459,3 +459,83 @@ func TestBumpMarketingVersionCatchesAnExtraLine(t *testing.T) {
 	mustContain(t, "the failure", out, "added")
 	r.wantUntouched(t)
 }
+
+// Generated project edits disappear on regeneration (#445). Refuse before
+// writing, including the otherwise-successful already-at-this-version path.
+func TestBumpMarketingVersionRefusesGeneratedProject(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, pbx, spec, version     string
+		explicit, ignored, untracked bool
+	}{
+		{name: "root spec", pbx: "App.xcodeproj/project.pbxproj", spec: "project.yml", version: "1.1"},
+		{name: "already current", pbx: "App.xcodeproj/project.pbxproj", spec: "project.yml", version: "1.0"},
+		{name: "untracked with spec", pbx: "App.xcodeproj/project.pbxproj", spec: "project.yml", version: "1.1", ignored: true, untracked: true},
+		{name: "nested automatic", pbx: "ios/App.xcodeproj/project.pbxproj", spec: "ios/project.yml", version: "1.1"},
+		{name: "nested explicit", pbx: "ios/App.xcodeproj/project.pbxproj", spec: "ios/project.yml", version: "1.1", explicit: true},
+		{name: "ancestor spec", pbx: "ios/Generated/App.xcodeproj/project.pbxproj", spec: "ios/project.yml", version: "1.1", explicit: true},
+		{name: "yaml spec", pbx: "App.xcodeproj/project.pbxproj", spec: "project.yaml", version: "1.1"},
+		{name: "ignored tracked", pbx: "App.xcodeproj/project.pbxproj", version: "1.1", ignored: true},
+		{name: "ignored untracked", pbx: "App.xcodeproj/project.pbxproj", version: "1.1", explicit: true, ignored: true, untracked: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newBumpRepo(t, tc.pbx, "")
+			if tc.spec != "" {
+				if err := os.WriteFile(filepath.Join(r.dir, tc.spec), []byte("name: App\nsettings:\n  MARKETING_VERSION: 1.0\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.ignored {
+				if err := os.WriteFile(filepath.Join(r.dir, ".gitignore"), []byte("*.xcodeproj/\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.untracked {
+				gitIn(t, r.dir, "rm", "--cached", r.pbx)
+			}
+			gitIn(t, r.dir, "add", "-A")
+			gitIn(t, r.dir, "commit", "-qm", "generator inputs")
+			args := []string{tc.version}
+			if tc.explicit {
+				args = append(args, filepath.Join(r.dir, r.pbx))
+			}
+			out, code := runBump(t, r.dir, "", args...)
+			if code == 0 {
+				t.Errorf("generated project reported success (exit 0):\n%s", out)
+			}
+			mustContain(t, "the refusal", out, "refusing", "MARKETING_VERSION", "xcconfig")
+			if tc.spec != "" {
+				mustContain(t, "the source path", out, tc.spec, "xcodegen generate")
+			}
+			if tc.ignored && tc.spec == "" {
+				mustContain(t, "the ignored project", out, "gitignored")
+			}
+			r.wantUntouched(t)
+			if diff := gitIn(t, r.dir, "status", "--porcelain"); strings.TrimSpace(diff) != "" {
+				t.Errorf("refusal changed repository state: %s", diff)
+			}
+		})
+	}
+}
+
+// A spec for another component must not disable a hand-maintained project.
+func TestBumpMarketingVersionIgnoresSiblingGenerator(t *testing.T) {
+	t.Parallel()
+	r := newBumpRepo(t, "manual/App.xcodeproj/project.pbxproj", "")
+	if err := os.Mkdir(filepath.Join(r.dir, "generated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.dir, "generated/project.yml"), []byte("name: Other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, r.dir, "add", "-A")
+	gitIn(t, r.dir, "commit", "-qm", "sibling generator")
+	out, code := runBump(t, r.dir, "", "1.1")
+	if code != 0 {
+		t.Fatalf("unrelated generator blocked manual project (exit %d):\n%s", code, out)
+	}
+	want := strings.ReplaceAll(r.orig, "\t\t\t\tMARKETING_VERSION = 1.0;", "\t\t\t\tMARKETING_VERSION = 1.1;")
+	if got := r.read(t); got != want {
+		t.Errorf("manual project was not bumped: %s", firstLineDiff(want, got))
+	}
+}
