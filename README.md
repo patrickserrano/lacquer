@@ -568,6 +568,10 @@ missing values; these configuration checks need no external linter binary.
 
 ## Docs
 
+The opt-in [rule eval suite](evals/README.md) compares Claude's behavior with
+and without rendered core + iOS instructions. Its offline regression tests run
+with `go test ./...`; paid model runs require an explicit local invocation.
+
 `docs/plans/` holds the design and build plans. The design doc
 (`docs/plans/2026-06-15-lacquer-design.md`) carries an "Implementation status"
 note distinguishing what's built from what's still aspirational.

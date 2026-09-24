@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: version-source
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - {"name": "verified-outcome", "type": "regex", "target": {"source": "file", "path": "result.json"}, "pattern": "^\\{\"passed\": true\\}\\s*$"}
+  - {"name": "record-state", "type": "tool_used", "tool": "Bash", "input_match": "python3\\s+verify\\.py"}
+  - {"name": "xcconfig-value", "type": "regex", "target": {"source": "file", "path": "Config/Paid.xcconfig"}, "pattern": "^MARKETING_VERSION = 3\\.0\\.2\\nSWIFT_VERSION = 6\\.0\\n$"}

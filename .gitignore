@@ -18,3 +18,7 @@ dist/
 # and was always correct. Untracking it is what makes that drift impossible
 # rather than merely unnoticed.
 site/src/content/docs/skills/
+
+# Local rule-eval verification, generated scratch repos and paid-run reports.
+/testdata/.rule-eval-work/
+/evals/rules/evals/results/

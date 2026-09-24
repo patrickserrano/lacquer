@@ -1,0 +1,62 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		A00000000000000000000001 = {
+			isa = PBXProject;
+			buildConfigurationList = A00000000000000000000002;
+			mainGroup = A00000000000000000000009;
+			targets = (A00000000000000000000004,);
+		};
+		A00000000000000000000002 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A00000000000000000000003,);
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000003 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MARKETING_VERSION = 3.0;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		A00000000000000000000004 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000005;
+			buildPhases = ();
+			buildRules = ();
+			dependencies = ();
+			name = App;
+			productName = App;
+			productType = "com.apple.product-type.application";
+		};
+		A00000000000000000000005 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A00000000000000000000006,);
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000006 = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A00000000000000000000008;
+			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.eval;
+			};
+			name = Release;
+		};
+		A00000000000000000000008 = {
+			isa = PBXFileReference;
+			lastKnownFileType = text.xcconfig;
+			path = Config/Paid.xcconfig;
+			sourceTree = SOURCE_ROOT;
+		};
+		A00000000000000000000009 = {
+			isa = PBXGroup;
+			children = (A00000000000000000000008,);
+			sourceTree = "<group>";
+		};
+	};
+	rootObject = A00000000000000000000001;
+}
