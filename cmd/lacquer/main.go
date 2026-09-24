@@ -77,6 +77,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	}
 
 	switch args[0] {
+	case "settings":
+		return runSettings(args[1:], stdout, stderr)
 	case "init":
 		// init reads lacquerRoot to gate detected profiles to those that ship;
 		// with it unset (default ".") every profile would be silently dropped.
@@ -1109,6 +1111,7 @@ func isDir(path string) bool {
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage: lacquer <command>")
 	fmt.Fprintln(w, "commands:")
+	fmt.Fprintln(w, "  settings [--project P] [--target T] [--configuration C] [--json] [--xcode [--compare]] [SETTING...]")
 	fmt.Fprintln(w, "  init [--stack S]             detect components and write .lacquer.toml")
 	fmt.Fprintln(w, "  init --list-stacks           print the archetypes --stack accepts")
 	fmt.Fprintln(w, "  onboard --org O [--no-repo]  init, then create a private GitHub repo")
