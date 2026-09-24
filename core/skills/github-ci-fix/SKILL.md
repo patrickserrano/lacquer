@@ -22,7 +22,8 @@ gh auth status  # Required scopes: repo, workflow
 | Task | Command |
 |------|---------|
 | Find current PR | `gh pr view --json number,url` |
-| Check PR status | `gh pr checks <pr>` |
+| Inspect PR status (snapshot only) | `gh pr checks <pr>` |
+| Wait for CI | `lacquer wait pr <N>` |
 | View run details | `gh run view <run-id>` |
 | Get failed logs | `gh run view <run-id> --log-failed` |
 | Full run log | `gh run view <run-id> --log` |
@@ -55,7 +56,7 @@ flaky test pass on the next run isn't actually verified.
 **Flakiness probe:**
 ```bash
 gh run rerun <run-id> --failed   # same commit, no code change
-gh run view <run-id> --json conclusion --jq .conclusion  # poll until done
+lacquer wait pr <N>  # Wait for the rerun, then inspect its outcome
 ```
 If it now passes with nothing changed, it's flaky — report that (test name,
 run URL, "passed on rerun with no changes") rather than diagnosing a bug that
@@ -110,7 +111,22 @@ and other unknown heads are still charged. Only a human-authorized
 `lacquer ci-round reset <N> --reason "<why>"` refills the budget.
 Exit 10 means stop and surface the ACTION, never reset yourself to bypass it.
 
-**Verify:** `gh pr checks <pr>` then `gh run view <run-id> --log-failed` if still failing
+**Verify:** `lacquer wait pr <N>` then `gh run view <run-id> --log-failed` if a check failed.
+Run the wait in the background and read its exit code when it finishes; it sleeps
+between polls. Use `--repo owner/name` when outside the PR's checkout.
+
+| Exit | Outcome | Action |
+|------|---------|--------|
+| `0` | passed | Every check is terminal and none failed; read the skipped-check warnings, since skipped checks did not run. |
+| `1` | failed | Inspect the named failures and pull their logs. |
+| `2` | timed out | Checks are still running; the result is unknown, not a pass. |
+| `3` | no checks | Never green: nothing tested this PR. Investigate missing checks. |
+| `4` | wait failed | The wait itself failed; fix the reported error before claiming a CI result. |
+
+`gh pr checks --watch` exits 0 even when checks fail; do not use its exit code
+as proof of green CI. A `gh pr checks` snapshot is for inspection only.
+
+Older binaries without `lacquer wait`: inspect `gh pr view <N> --json statusCheckRollup` until a nonempty list is terminal, explicitly checking each result; empty conclusions (`""`), pending statuses, and an empty list are never green.
 
 ## Common Patterns
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/patrickserrano/lacquer"
 	"github.com/patrickserrano/lacquer/internal/fleet"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
 	"github.com/patrickserrano/lacquer/internal/skillsync"
@@ -107,8 +108,39 @@ func TestVersionPrints(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	// A legacy bare VERSION renders in canonical semver form: 31 -> 0.31.0.
-	if strings.TrimSpace(out.String()) != "0.31.0" {
-		t.Errorf("version output = %q, want 0.31.0", out.String())
+	resolved, err := filepath.EvalSymlinks(hr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "0.31.0 (content) / built from " + strings.TrimSpace(lacquer.BuiltVersion) + "\nroot: " + resolved + "\n"
+	if out.String() != want {
+		t.Errorf("version output = %q, want %q", out.String(), want)
+	}
+}
+
+// A relative root must identify the actual content directory, even when its
+// version matches the binary: matching versions do not imply matching roots.
+func TestVersionResolvesRelativeRoot(t *testing.T) {
+	hr := t.TempDir()
+	if err := os.WriteFile(filepath.Join(hr, "VERSION"), []byte(lacquer.BuiltVersion), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(hr, "profiles"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, hr)
+	resolved, err := filepath.EvalSymlinks(hr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"version"}, envMap(nil), &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	v := strings.TrimSpace(lacquer.BuiltVersion)
+	want := v + " (content) / built from " + v + "\nroot: " + resolved + "\n"
+	if out.String() != want {
+		t.Errorf("version output = %q, want %q", out.String(), want)
 	}
 }
 
