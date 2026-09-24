@@ -497,3 +497,18 @@ func TestInTermNotRunInCIDoesNotBlock(t *testing.T) {
 		t.Errorf("the horizon omits a dated declaration: %s", got)
 	}
 }
+
+func TestNewlyShippedCollisionRemainsCountedAsUntracked(t *testing.T) {
+	lq := lacquerRoot(t)
+	dir := project(t, "collision", "")
+	const dest = ".github/workflows/web-ci.yml"
+	write(t, filepath.Join(dir, dest), "name: Project CI\n")
+	write(t, filepath.Join(dir, ".lacquer.lock"), `{"version":"1.0.0","files":{}}`)
+	r := inspect(lq, Entry{Name: "collision", Path: dir}, day("2026-09-24"))
+	if r.Error != "" {
+		t.Fatal(r.Error)
+	}
+	if r.Audit.Untracked != 1 || len(r.Clobbered) != 1 || r.Clobbered[0] != dest {
+		t.Fatalf("collision must be counted and block the fleet: %+v", r)
+	}
+}

@@ -190,6 +190,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, err)
 		}
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
+		if len(res.Replaced) > 0 {
+			fmt.Fprintf(stdout, "first sync replaced pre-existing content (no lock baseline):\n  %s\n", strings.Join(res.Replaced, "\n  "))
+		}
 		// After the success line on purpose: a warning above it reads as part of
 		// the preamble and is scrolled past.
 		if w := root.Warning(); w != "" {

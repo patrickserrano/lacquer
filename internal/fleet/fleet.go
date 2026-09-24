@@ -323,7 +323,7 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 			r.Audit.Modified++
 		case audit.Conflict:
 			r.Audit.Conflict++
-		case audit.Untracked:
+		case audit.Untracked, audit.Collision:
 			r.Audit.Untracked++
 		}
 	}

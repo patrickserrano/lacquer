@@ -25,6 +25,8 @@ import (
 // and the number of whole-file assets copied.
 type Result struct {
 	Regions, Assets int
+	// Replaced lists pre-existing units adopted on first sync (no lock baseline).
+	Replaced []string
 }
 
 // region is a managed region to write: destination rel path, marker key, body,
@@ -188,18 +190,38 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 			strings.Join(leftover, "\n  "))
 	}
 
-	// Clobber guard: refuse to overwrite a managed unit the project has locally
-	// changed (and the lacquer has not), unless forced. This is detectable only
-	// with a .lacquer.lock baseline, so a project syncing for the first time is
-	// never blocked — the lock bootstraps below. See internal/audit.
-	if !force {
-		rows, _, err := audit.Classify(lacquerRoot, projectRoot)
-		if err != nil {
-			return Result{}, fmt.Errorf("audit before sync: %w", err)
+	// Classify before writing, even on first sync so callers can report which
+	// pre-existing units were adopted. A baseline missing a unit is not consent
+	// to take ownership of it; only a missing baseline permits bootstrapping.
+	rows, _, err := audit.Classify(lacquerRoot, projectRoot)
+	if err != nil {
+		return Result{}, fmt.Errorf("audit before sync: %w", err)
+	}
+	var replaced, collisions, modified []string
+	for _, row := range rows {
+		label := row.Dest
+		if row.Kind == "region" {
+			label += "#" + row.Detail
 		}
-		if clob := audit.Clobbered(rows); len(clob) > 0 {
-			return Result{}, fmt.Errorf("refusing to overwrite local changes the lacquer did not make — run `lacquer audit` to review, then either promote the change into the lacquer or re-sync with --force to take the lacquer version:\n  %s",
-				strings.Join(clob, "\n  "))
+		switch row.Status {
+		case audit.Untracked:
+			replaced = append(replaced, label)
+		case audit.Collision:
+			collisions = append(collisions, label)
+		case audit.Modified, audit.Conflict:
+			modified = append(modified, label)
+		}
+	}
+	if !force {
+		var refusals []string
+		if len(modified) > 0 {
+			refusals = append(refusals, "refusing to overwrite local changes the lacquer did not make — run `lacquer audit` to review, then either promote the change into the lacquer or re-sync with --force to take the lacquer version:\n  "+strings.Join(modified, "\n  "))
+		}
+		if len(collisions) > 0 {
+			refusals = append(refusals, "refusing to overwrite newly shipped units the project already has (no entry in the existing lock):\n  "+strings.Join(collisions, "\n  ")+"\nreview, then --force to take lacquer's content, or exclude/disown it")
+		}
+		if len(refusals) > 0 {
+			return Result{}, fmt.Errorf("%s", strings.Join(refusals, "\n\n"))
 		}
 	}
 
@@ -253,7 +275,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 		return Result{}, fmt.Errorf("write %s: %w", lock.Name, err)
 	}
 
-	return Result{Regions: len(regions), Assets: len(plan)}, nil
+	return Result{Regions: len(regions), Assets: len(plan), Replaced: replaced}, nil
 }
 
 // mergeInto resolves rel under projectRoot (confining it within the root even
