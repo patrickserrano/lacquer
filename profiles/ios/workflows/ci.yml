@@ -607,6 +607,25 @@ jobs:
           chmod +x "$RUNNER_TEMP/lacquer"
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile ios
 
+      # Keep host evidence even when an earlier step fails or times out. No
+      # checkout dependency: setup itself may have failed. Bound a stuck probe.
+      - name: Report host load
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          set -o pipefail
+          echo "Host load averages (1, 5, 15 minutes):"
+          uptime || echo "::warning::Could not read host load"
+          echo "Running build processes:"
+          ps -axo comm= | awk '
+            /(^|\/)xcodebuild$/ { builds++ }
+            /(^|\/)swift-frontend$/ { frontends++ }
+            END { printf "xcodebuild: %d\nswift-frontend: %d\n", builds, frontends }
+          ' || echo "::warning::Could not count build processes"
+          echo "Booted simulators:"
+          xcrun simctl list devices booted || echo "::warning::Could not list booted simulators"
+
   build-release:
     name: Build (Release){{IOS_CI_PRODUCT_SUFFIX}}
     runs-on: [self-hosted, macOS, ARM64, dedicated]
@@ -937,6 +956,25 @@ jobs:
             exit 1
           }
 
+      # Keep host evidence even when an earlier step fails or times out. No
+      # checkout dependency: setup itself may have failed. Bound a stuck probe.
+      - name: Report host load
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          set -o pipefail
+          echo "Host load averages (1, 5, 15 minutes):"
+          uptime || echo "::warning::Could not read host load"
+          echo "Running build processes:"
+          ps -axo comm= | awk '
+            /(^|\/)xcodebuild$/ { builds++ }
+            /(^|\/)swift-frontend$/ { frontends++ }
+            END { printf "xcodebuild: %d\nswift-frontend: %d\n", builds, frontends }
+          ' || echo "::warning::Could not count build processes"
+          echo "Booted simulators:"
+          xcrun simctl list devices booted || echo "::warning::Could not list booted simulators"
+
   test:
     name: Test{{IOS_CI_PRODUCT_SUFFIX}}
     runs-on: [self-hosted, macOS, ARM64, dedicated]
@@ -966,7 +1004,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
     # Per-step fail-fast timeouts below catch silent hangs; this is the generous
     # backstop with headroom for a cold, cache-cold build.
-    timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
+    timeout-minutes: 40{{IOS_CI_TEST_STRATEGY}}
     steps:
       # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
       # host arrives with no PR and no warning, and its first symptom is a red
@@ -1390,9 +1428,9 @@ jobs:
         id: tests
         # The hang-prone step: `xcodebuild test` drives a simulator test session
         # that can stall silently (hence the heartbeat watchdog below). Normal
-        # ~1-2 min; ~5x that as a fail-fast ceiling so a hung session frees the
-        # runner instead of squatting it for the job max.
-        timeout-minutes: 10
+        # ~5 minutes on the shared Mac when quiet; allow 4x that under load.
+        # The 40-minute job budget leaves room for setup and always() diagnostics.
+        timeout-minutes: 20
         run: |
           set -o pipefail
           DEVICE_ID="${{ steps.simulator.outputs.device_id }}"
@@ -1720,7 +1758,7 @@ jobs:
       # the runs that would otherwise leak, and cancellation is common here
       # because same-ref runs cancel each other by design.
       #
-      # LAST in the job, deliberately: placed before "Collect Simulator
+      # After simulator diagnostics, deliberately: placed before "Collect Simulator
       # Diagnostics" it would delete the simulator that step exists to inspect.
       - name: Delete this run's simulators
         if: always()
@@ -1740,6 +1778,25 @@ jobs:
             xcrun simctl shutdown "$id" 2>/dev/null || true
             xcrun simctl delete "$id" 2>/dev/null || true
           done
+
+      # Keep host evidence even when an earlier step fails or times out. No
+      # checkout dependency: setup itself may have failed. Bound a stuck probe.
+      - name: Report host load
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          set -o pipefail
+          echo "Host load averages (1, 5, 15 minutes):"
+          uptime || echo "::warning::Could not read host load"
+          echo "Running build processes:"
+          ps -axo comm= | awk '
+            /(^|\/)xcodebuild$/ { builds++ }
+            /(^|\/)swift-frontend$/ { frontends++ }
+            END { printf "xcodebuild: %d\nswift-frontend: %d\n", builds, frontends }
+          ' || echo "::warning::Could not count build processes"
+          echo "Booted simulators:"
+          xcrun simctl list devices booted || echo "::warning::Could not list booted simulators"
 
   baseline:
     name: Baseline
@@ -1988,7 +2045,26 @@ jobs:
             echo "::error::Project baseline not met. See profiles/ios/baseline.toml in the lacquer, or add a time-boxed [baseline.relax] entry to .lacquer.toml."
             exit 1
           fi
-          echo "Project baseline met."{{IOS_CI_WATCH_TEST_JOB}}
+          echo "Project baseline met."
+
+      # Keep host evidence even when an earlier step fails or times out. No
+      # checkout dependency: setup itself may have failed. Bound a stuck probe.
+      - name: Report host load
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          set -o pipefail
+          echo "Host load averages (1, 5, 15 minutes):"
+          uptime || echo "::warning::Could not read host load"
+          echo "Running build processes:"
+          ps -axo comm= | awk '
+            /(^|\/)xcodebuild$/ { builds++ }
+            /(^|\/)swift-frontend$/ { frontends++ }
+            END { printf "xcodebuild: %d\nswift-frontend: %d\n", builds, frontends }
+          ' || echo "::warning::Could not count build processes"
+          echo "Booted simulators:"
+          xcrun simctl list devices booted || echo "::warning::Could not list booted simulators"{{IOS_CI_WATCH_TEST_JOB}}
 
   ci-ok:
     name: CI OK

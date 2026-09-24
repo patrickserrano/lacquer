@@ -563,6 +563,18 @@ jobs:
             -exportPath {{COMPONENT_PREFIX}}build/ \
             2>&1 | xcbeautify --renderer github-actions
 
+      # Keep the delivered binary beside this run's existing .xcarchive.
+      # Reuse the resolved destination so archive_root overrides apply to both.
+      - name: Archive exported IPA
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          if [ ! -d "$ARCHIVE_DIR" ]; then
+            echo "::warning::IPA archive directory unavailable: $ARCHIVE_DIR"
+          elif ! cp "{{COMPONENT_PREFIX}}build/"*.ipa "$ARCHIVE_DIR/"; then
+            echo "::warning::Could not archive exported IPA in $ARCHIVE_DIR"
+          fi
+
       - name: Prepare TestFlight release notes
         id: whats_new
         # `github.event.inputs` is null on a tag push, so `!= 'true'` used to let
@@ -873,6 +885,25 @@ jobs:
           # after the job. It is momentary — the next use prompts once — unlike
           # the settings change above, which lasted days.
           security lock-keychain "$KEYCHAIN"
+
+      # Keep host evidence even when an earlier step fails or times out. No
+      # checkout dependency: setup itself may have failed. Bound a stuck probe.
+      - name: Report host load
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          set -o pipefail
+          echo "Host load averages (1, 5, 15 minutes):"
+          uptime || echo "::warning::Could not read host load"
+          echo "Running build processes:"
+          ps -axo comm= | awk '
+            /(^|\/)xcodebuild$/ { builds++ }
+            /(^|\/)swift-frontend$/ { frontends++ }
+            END { printf "xcodebuild: %d\nswift-frontend: %d\n", builds, frontends }
+          ' || echo "::warning::Could not count build processes"
+          echo "Booted simulators:"
+          xcrun simctl list devices booted || echo "::warning::Could not list booted simulators"
 
   notify-on-failure:
     name: Notify on Failure

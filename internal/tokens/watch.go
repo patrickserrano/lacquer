@@ -472,7 +472,7 @@ const watchJobBody = `
           if-no-files-found: ignore
           retention-days: 1
 
-      # LAST in the job, and scoped to this leg's exact name. always(), so
+      # After simulator diagnostics, and scoped to this leg's exact name. always(), so
       # cancelled and failed runs clean up too -- those are precisely the runs
       # that leak, and same-ref runs cancel each other here by design. Without
       # this every run leaves a simulator behind until the nightly cleanup, and a
@@ -486,4 +486,23 @@ const watchJobBody = `
             echo "Deleting this run's watch simulator: $id"
             xcrun simctl shutdown "$id" 2>/dev/null || true
             xcrun simctl delete "$id" 2>/dev/null || true
-          done`
+          done
+
+      # Keep host evidence even when an earlier step fails or times out. No
+      # checkout dependency: setup itself may have failed. Bound a stuck probe.
+      - name: Report host load
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          set -o pipefail
+          echo "Host load averages (1, 5, 15 minutes):"
+          uptime || echo "::warning::Could not read host load"
+          echo "Running build processes:"
+          ps -axo comm= | awk '
+            /(^|\/)xcodebuild$/ { builds++ }
+            /(^|\/)swift-frontend$/ { frontends++ }
+            END { printf "xcodebuild: %d\nswift-frontend: %d\n", builds, frontends }
+          ' || echo "::warning::Could not count build processes"
+          echo "Booted simulators:"
+          xcrun simctl list devices booted || echo "::warning::Could not list booted simulators"`

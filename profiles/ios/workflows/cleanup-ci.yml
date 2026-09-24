@@ -683,3 +683,22 @@ jobs:
 
       - name: Disk
         run: df -h ~ | head -2
+
+      # Keep host evidence even when an earlier step fails or times out. No
+      # checkout dependency: setup itself may have failed. Bound a stuck probe.
+      - name: Report host load
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          set -o pipefail
+          echo "Host load averages (1, 5, 15 minutes):"
+          uptime || echo "::warning::Could not read host load"
+          echo "Running build processes:"
+          ps -axo comm= | awk '
+            /(^|\/)xcodebuild$/ { builds++ }
+            /(^|\/)swift-frontend$/ { frontends++ }
+            END { printf "xcodebuild: %d\nswift-frontend: %d\n", builds, frontends }
+          ' || echo "::warning::Could not count build processes"
+          echo "Booted simulators:"
+          xcrun simctl list devices booted || echo "::warning::Could not list booted simulators"
