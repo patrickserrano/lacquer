@@ -371,6 +371,14 @@ func TestAllBridgedFindingsPrintNoRunningOnNothingFooter(t *testing.T) {
 	if strings.Contains(out, "running on nothing") {
 		t.Errorf("a bridged-only report still says its gates run on nothing:\n%s", out)
 	}
+
+	// Removing the bridge makes the same config unenforced: its warning must
+	// return, rather than being suppressed for every foreign hook.
+	write(t, dir, "lefthook.yml", "pre-commit:\n  commands: {}\n")
+	out = Format(Check(dir))
+	if !strings.Contains(out, "running on nothing") || strings.Contains(out, "Nothing to fix") {
+		t.Errorf("removing the bridge did not restore the warning:\n%s", out)
+	}
 }
 
 // A mix: the footer still has to fire for the config that IS unenforced, and it

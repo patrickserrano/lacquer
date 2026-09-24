@@ -140,6 +140,13 @@ lacquer sync     # apply; refuses to clobber a locally-modified managed unit
 lacquer sync --force   # adopt the lacquer version over a local change
 ```
 
+`fleet` uses the same blocking policy as `audit`, including still-present
+orphans, and names those orphans in its report. The uncalled-script report
+recognizes scripts named in rendered `CLAUDE.md` instructions as agent entry
+points (including their script helpers). Removing that documentation exposes an
+otherwise uncalled script again; other Markdown files do not grant exemptions.
+This checks wiring or documented use, not proof that a script executed.
+
 Sync writes a `.lacquer.lock` baseline so `audit` can tell "the project edited
 this" from "the lacquer moved on". With an existing lock, sync also refuses
 `untracked-conflict` units: lacquer now ships a path (or managed region) where
