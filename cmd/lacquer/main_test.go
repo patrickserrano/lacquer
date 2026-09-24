@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -217,6 +218,92 @@ func TestSkillsReportsFailureAndExitsNonZero(t *testing.T) {
 type errFake struct{}
 
 func (errFake) Error() string { return "boom" }
+
+// TestSyncHintsAtDeclaredSkillsWithoutInstallingThem pins the offline
+// contract the README states outright: "sync stays fully offline and
+// deterministic". Before this test's line of production code existed, Steps
+// had declared [project].skills for months with nothing ever telling anyone
+// to run `lacquer skills` — the entries were gitignored by name, absent on
+// disk, and sync's own success output said nothing about them. skillsync.Runner
+// is injected to FAIL if sync ever calls it, so this fails loudly the day
+// someone routes an install through sync instead of a printed hint.
+func TestSyncHintsAtDeclaredSkillsWithoutInstallingThem(t *testing.T) {
+	lq := realLacquer(t)
+	dir := fixtureProject(t, lq)
+	manifest := filepath.Join(dir, ".lacquer.toml")
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// skills must land under [project], not after the last [[component]] table
+	// — TOML would otherwise attach it to whatever table precedes it in the file.
+	data = bytes.Replace(data, []byte("[project]\n"),
+		[]byte("[project]\nskills = [\"dpearson2699/swift-ios-skills@healthkit\"]\n"), 1)
+	if err := os.WriteFile(manifest, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+
+	orig := skillsync.Runner
+	skillsync.Runner = func(d string, args ...string) ([]byte, error) {
+		t.Fatal("sync must never invoke the skills CLI — it is meant to stay offline")
+		return nil, nil
+	}
+	defer func() { skillsync.Runner = orig }()
+
+	var out, errb bytes.Buffer
+	env := envMap(map[string]string{"LACQUER_ROOT": lq})
+	code := run([]string{"sync"}, env, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "dpearson2699/swift-ios-skills@healthkit") {
+		t.Errorf("stdout missing declared skill entry: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "lacquer skills") {
+		t.Errorf("stdout does not point at `lacquer skills`: %q", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".agents", "skills", "healthkit")); err == nil {
+		t.Error("sync installed the declared skill onto disk — it must only hint, never install")
+	}
+	// A second sync requires the first sync's managed files to be committed.
+	for _, args := range [][]string{{"add", "-A"}, {"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "synced"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+
+	for _, tc := range []struct {
+		name        string
+		lock        string
+		wantHint    bool
+		wantWarning bool
+	}{
+		{"installed", `{"skills":{"healthkit":{"source":"dpearson2699/swift-ios-skills"}}}`, false, false},
+		{"unrelated", `{"skills":{"storekit":{"source":"dpearson2699/swift-ios-skills"}}}`, true, false},
+		{"malformed", `{`, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(dir, "skills-lock.json"), []byte(tc.lock), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out.Reset()
+			errb.Reset()
+			if code := run([]string{"sync"}, env, &out, &errb); code != 0 {
+				t.Fatalf("sync = %d: %s", code, &errb)
+			}
+			if got := strings.Contains(out.String(), "lacquer skills"); got != tc.wantHint {
+				t.Errorf("hint = %v, want %v: %s", got, tc.wantHint, &out)
+			}
+			if got := strings.Contains(errb.String(), "skills-lock.json"); got != tc.wantWarning {
+				t.Errorf("lock warning = %v, want %v: %s", got, tc.wantWarning, &errb)
+			}
+		})
+	}
+
+}
 
 // lacquerRootWithPlugins builds a minimal lacquer checkout (VERSION,
 // profiles/, core/bootstrap/plugins.toml) so `plugins` finds a manifest.

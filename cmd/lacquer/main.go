@@ -182,6 +182,32 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if w := root.Warning(); w != "" {
 			fmt.Fprintln(stderr, w)
 		}
+
+		// [project].skills is a separate concern from everything sync just wrote:
+		// sync stays fully offline and deterministic (the README says so, and its
+		// whole test suite depends on that), while installing a third-party skill
+		// needs the network. So this never installs anything — it only says, out
+		// loud, that there's a step left. Before this, a project could declare a
+		// skill in [project].skills and never actually get it: gitignored by name
+		// (internal/gitignore's skills() rule), absent on disk, no skills-lock.json,
+		// and sync's own output never mentioned it — there was nothing here to
+		// notice the gap. Measured on Steps: exactly that state, for `healthkit`.
+		if syncManifest, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml")); err != nil {
+			fmt.Fprintf(stderr, "warning: could not re-read manifest for [project].skills: %v\n", err)
+		} else if entries, err := syncManifest.Project.ParsedSkills(); err != nil {
+			fmt.Fprintf(stderr, "warning: [project].skills: %v\n", err)
+		} else if len(entries) > 0 {
+			missing, err := skillsync.Missing(projectRoot, entries)
+			if err != nil {
+				fmt.Fprintf(stderr, "warning: [project].skills: %v\n", err)
+			} else if len(missing) > 0 {
+				fmt.Fprintf(stdout, "\n[project].skills has %d skill(s) missing from skills-lock.json; sync does not install them (it stays offline) — run `lacquer skills` to install:\n", len(missing))
+				for _, e := range missing {
+					fmt.Fprintf(stdout, "  %s\n", e)
+				}
+			}
+		}
+
 		if *doFix {
 			if code := runFixers(lacquerRoot, projectRoot, stdout, stderr); code != 0 {
 				return code
