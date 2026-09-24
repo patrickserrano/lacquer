@@ -22,6 +22,7 @@ every project regardless.
 | `lacquer sync [--force] [--fix]` | Render core + per-profile content into the project (managed regions + whole-file assets); `--fix` then runs the autofixers. |
 | `lacquer fix` | Run each profile's autofixers (formatter, `lint --fix`) over the project source. |
 | `lacquer settings [--project P] [--target T] [--configuration C] [--json] [SETTING...]` | Inspect static build settings with provenance; `--xcode` queries Xcode, `--xcode --compare` compares both. |
+| `lacquer ratchet [--write]` | Measure project ceilings; `--write` enrolls or tightens the committed baseline. |
 | `lacquer doctor` | Prove each check can fail: feed known-bad input and assert it's rejected (exit 5 if one can't). |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
@@ -201,6 +202,55 @@ Review it, then use `--force` to take lacquer's content or exclude/disown the
 unit. First sync, with no lock at all, still adopts existing content and prints
 which units it replaced. Identical content is accepted without a clobber warning;
 uncommitted asset changes remain protected even with `--force`.
+
+## Ratcheting measured improvements
+
+After syncing a project, run `lacquer ratchet --write` and commit
+`.lacquer.ratchet.toml` to enroll it. The separate project-owned TOML file keeps
+metric decisions out of `.lacquer.lock`, which sync regenerates as content hashes:
+
+```toml
+[ratchet]
+claude_lines = 1200
+unjustified_suppressions = 7
+```
+
+`lacquer ratchet` measures without writing. `audit` and `fleet` compare enrolled
+projects against their ceilings. A regression prints both numbers and gates with
+exit 4 (audit's destructive-drift exit 3 still takes precedence). An improvement
+prints `ratchet: METRIC improved A → B`. `sync` and `ratchet --write` save lower
+values automatically; neither raises an existing ceiling. Sync completes its
+normal rendering before measuring, and returns 4 if a metric still regressed.
+Without a baseline, audit reports how to enroll; it does not invent a ceiling.
+
+To accept a specific increase, run:
+
+```sh
+lacquer ratchet --loosen unjustified_suppressions --reason "Legacy migration requires this suppression"
+```
+
+This records the **current value** and a per-metric string in `[reasons]`.
+Commit that diff for review. A historical reason never exempts later increases.
+Malformed baselines, unknown metrics, and empty loosening reasons are errors.
+
+Metric definitions:
+
+- `claude_lines`: total physical lines in the current root and profiled-component
+  `CLAUDE.md` files, counting each destination once and including project-owned
+  prose and managed markers. `AGENTS.md` mirrors are not counted. This measures
+  the rendered files on disk, not a proposed future template rendering.
+- `unjustified_suppressions`: directive comments in tracked Swift, JavaScript,
+  TypeScript, Vue, Svelte, CSS, and JSONC source. Counts `swiftlint:disable`,
+  `biome-ignore`, and `eslint-disable` variants without a trailing justification.
+  Biome uses `:`, ESLint uses `--`, and SwiftLint accepts `//`, dash, or colon
+  separators. Empty punctuation is not a reason. Enable/end directives and
+  quoted examples are excluded. Git symlink entries and submodules are not source
+  blobs; tracked regular targets are counted once. Untracked files are excluded.
+
+Measurement errors fail closed. Stage source deletions before tightening; a
+missing tracked file is an error, not an improvement. Doctor exercises both
+metrics through the real audit path in a scratch project: establish a baseline,
+improve, sync, pass a clean audit, then prove each regression is rejected.
 
 ## Regeneration drift and dead relaxations
 

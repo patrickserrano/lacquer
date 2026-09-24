@@ -44,6 +44,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/depignore"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/exclusion"
+	"github.com/patrickserrano/lacquer/internal/ratchet"
 	"github.com/patrickserrano/lacquer/internal/suppress"
 	"github.com/patrickserrano/lacquer/internal/testtargets"
 	"github.com/patrickserrano/lacquer/internal/xcodegendrift"
@@ -223,6 +224,9 @@ type Report struct {
 	Drift      []DriftFinding   `json:"drift,omitempty"`
 	Exclusions []Exclusion      `json:"exclusions,omitempty"`
 
+	// Ratchets reports changes against the project-owned numeric ceilings.
+	Ratchets []ratchet.Finding `json:"ratchets,omitempty"`
+
 	// Xcodegen reports regeneration differences without changing the fleet gate.
 	Xcodegen []xcodegendrift.Finding `json:"xcodegen,omitempty"`
 
@@ -259,7 +263,7 @@ func (r Report) ExitCode() int {
 	if r.Error != "" {
 		return 1
 	}
-	g := audit.Gate{Clobbered: len(r.Clobbered), Orphans: len(r.Orphans)}
+	g := audit.Gate{Clobbered: len(r.Clobbered), Orphans: len(r.Orphans), Baseline: ratchet.Blocking(r.Ratchets)}
 	for _, b := range r.Baseline {
 		g.Baseline += len(b.Violations)
 	}
@@ -311,6 +315,11 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		return r
 	}
 
+	r.Ratchets, err = ratchet.Check(e.Path, cfg)
+	if err != nil {
+		r.Error = err.Error()
+		return r
+	}
 	r.Retired = cfg.Project.Retired
 	r.Xcodegen = xcodegendrift.Check(e.Path, cfg.BaselineTargets())
 

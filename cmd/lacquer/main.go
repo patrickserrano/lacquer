@@ -33,6 +33,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
 	"github.com/patrickserrano/lacquer/internal/protection"
+	"github.com/patrickserrano/lacquer/internal/ratchet"
 	"github.com/patrickserrano/lacquer/internal/retire"
 	"github.com/patrickserrano/lacquer/internal/rootcheck"
 	"github.com/patrickserrano/lacquer/internal/shadow"
@@ -77,6 +78,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	}
 
 	switch args[0] {
+	case "ratchet":
+		return runRatchet(args[1:], projectRoot, stdout, stderr)
 	case "settings":
 		return runSettings(args[1:], stdout, stderr)
 	case "init":
@@ -192,6 +195,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err != nil {
 			return fail(stderr, err)
 		}
+		fmt.Fprint(stdout, ratchet.Format(res.Ratchets))
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
 		if len(res.Replaced) > 0 {
 			fmt.Fprintf(stdout, "first sync replaced pre-existing content (no lock baseline):\n  %s\n", strings.Join(res.Replaced, "\n  "))
@@ -232,6 +236,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return code
 			}
 		}
+		if ratchet.Blocking(res.Ratchets) > 0 {
+			return 4
+		}
 	case "doctor":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -262,9 +269,15 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err != nil {
 			return fail(stderr, err)
 		}
-		if len(results) == 0 {
-			fmt.Fprintln(stdout, "  (no profile in this project ships self-tests)")
-			return 0
+		probe := ratchetProbe()
+		results = append(results, probe)
+		mark := "ok"
+		if !probe.OK {
+			mark = "FAIL"
+		}
+		fmt.Fprintf(stdout, "  %s  %s\n", mark, probe.Name)
+		if !probe.OK {
+			fmt.Fprintln(stdout, probe.Detail)
 		}
 		bad := doctor.Failures(results)
 		fmt.Fprintf(stdout, "\n%d/%d checks proved they can fail.\n", len(results)-len(bad), len(results))
@@ -413,6 +426,16 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, err)
 		}
 		fmt.Fprint(stdout, audit.Format(rows, ver))
+		ratchets, err := ratchet.Check(projectRoot, cfg)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		fmt.Fprint(stdout, ratchet.Format(ratchets))
+		if b, err := ratchet.Read(projectRoot); err != nil {
+			return fail(stderr, err)
+		} else if b == nil {
+			fmt.Fprintln(stdout, "ratchet: no baseline; run lacquer ratchet --write and commit the file")
+		}
 
 		reports, err := baselineReports(lacquerRoot, projectRoot)
 		if err != nil {
@@ -598,7 +621,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fmt.Fprint(stdout, audit.FormatUncalledScripts(uncalled))
 
 		return (audit.Gate{
-			Clobbered: len(audit.Clobbered(rows)), Baseline: baseline.Blocking(reports),
+			Clobbered: len(audit.Clobbered(rows)), Baseline: baseline.Blocking(reports) + ratchet.Blocking(ratchets),
 			Exclusions: exclusion.Blocking(exclusions), DepIgnores: depignore.Blocking(ignores),
 			NotRunInCI: notRunExpired, Orphans: len(orphans), Undeclared: len(detect.Adoptable(findings)),
 		}).ExitCode()
@@ -1119,6 +1142,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  sync [--force] [--fix]       render lacquer content into the project")
 	fmt.Fprintln(w, "  skills                       install [project].skills via the `skills` CLI (vercel-labs/skills)")
 	fmt.Fprintln(w, "  plugins                      install core/bootstrap/plugins.toml via `claude plugin` (machine-level)")
+	fmt.Fprintln(w, "  ratchet [--write | --loosen METRIC --reason TEXT]  measure or update metric ceilings")
 	fmt.Fprintln(w, "  doctor [--profile P]         prove each check can fail (exit 5 if one cannot); --profile")
 	fmt.Fprintln(w, "                               limits it to one stack's checks, for a runner that has only that toolchain")
 	fmt.Fprintln(w, "  fix                          run the profiles' autofixers (formatters, lint --fix) over the project")
