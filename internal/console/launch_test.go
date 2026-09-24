@@ -532,7 +532,26 @@ func TestBackgroundDispatchLaunchesNothingWithoutAWorktree(t *testing.T) {
 	for _, c := range dispatchCallers {
 		t.Run(c.name, func(t *testing.T) {
 			calls := fakeClaude(t)
-			notARepo := t.TempDir()
+			// Reproduce a workspace-local TMPDIR without touching the checkout
+			// running this test: an empty fixture can discover its parent repo.
+			parent := realPath(t, t.TempDir())
+			initGitRepo(t, parent)
+			before := git(t, parent, "worktree", "list", "--porcelain")
+			t.Cleanup(func() {
+				if after := git(t, parent, "worktree", "list", "--porcelain"); after != before {
+					t.Errorf("non-repository fixture changed enclosing worktrees:\nbefore:\n%s\nafter:\n%s", before, after)
+				}
+			})
+			notARepo := filepath.Join(parent, "not-a-repo")
+			if err := os.Mkdir(notARepo, 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			// An invalid .git file stops discovery at this non-repository,
+			// even with TMPDIR inside a checkout; no caller-side ceiling needed.
+			if err := os.WriteFile(filepath.Join(notARepo, ".git"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
 
 			launch, err := c.run(t, "alpha", notARepo, "the task", Background)
 			if err == nil {
@@ -573,7 +592,8 @@ func TestConcurrentBackgroundDispatchesDoNotCollide(t *testing.T) {
 	for i := 0; i < n; i++ {
 		r := <-results
 		if r.err != nil {
-			t.Fatalf("%v\n%s", r.err, r.launch.Output)
+			t.Errorf("%v\n%s", r.err, r.launch.Output)
+			continue // drain every worker before TempDir cleanup
 		}
 		worktrees[r.launch.Record.Worktree] = true
 		branches[r.launch.Record.Branch] = true

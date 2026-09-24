@@ -224,6 +224,11 @@ func branchDirName(branch string) string {
 // createWorktree makes a new worktree and branch for one bg dispatch, on
 // branch when one is named (see planWorktree).
 func createWorktree(dir, branch string) (dispatchWorktree, error) {
+	lock, err := lockWorktrees(dir)
+	if err != nil {
+		return dispatchWorktree{}, err
+	}
+	defer lock.Close()
 	p, err := planWorktree(dir, branch, true)
 	if err != nil {
 		return dispatchWorktree{}, err
