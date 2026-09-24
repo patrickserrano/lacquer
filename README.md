@@ -21,6 +21,7 @@ every project regardless.
 | `lacquer adopt` | Re-detect, and record any stack that appeared since `init` into `.lacquer.toml`. Only ever adds. |
 | `lacquer sync [--force] [--fix]` | Render core + per-profile content into the project (managed regions + whole-file assets); `--fix` then runs the autofixers. |
 | `lacquer fix` | Run each profile's autofixers (formatter, `lint --fix`) over the project source. |
+| `lacquer settings [--project P] [--target T] [--configuration C] [--json] [SETTING...]` | Inspect static build settings with provenance; `--xcode` queries Xcode, `--xcode --compare` compares both. |
 | `lacquer doctor` | Prove each check can fail: feed known-bad input and assert it's rejected (exit 5 if one can't). |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
@@ -30,6 +31,35 @@ every project regardless.
 | `lacquer version` | Print labeled content and build versions, plus the resolved content root path. |
 
 `lacquer --help` prints usage.
+
+## Inspecting build settings
+
+```sh
+lacquer settings --project App.xcodeproj --target App --configuration Release
+lacquer settings --project App.xcodeproj --json MARKETING_VERSION
+lacquer settings --project App.xcodeproj --target App --configuration Release --xcode --compare
+```
+
+Static output is labelled `static resolution by lacquer: not Xcode's evaluation;
+defaults and conditionals are not applied`. It uses the baseline reader's layers:
+project xcconfig, project pbxproj, target xcconfig, target pbxproj. Each setting
+shows its winning layer/file, `UNSET` when no declaration exists, or `UNKNOWN`
+with a reason when the reader cannot determine it. UNSET does not imply Xcode
+has no default. An unreadable project or unmatched selection exits non-zero.
+
+The default keys are `SWIFT_VERSION`, `SWIFT_TREAT_WARNINGS_AS_ERRORS`, and
+`SWIFT_STRICT_CONCURRENCY`; positional keys replace that list. With no project,
+exactly one `.xcodeproj` must exist in the current directory. Omitted target or
+configuration selects all target configurations. Put flags before setting names.
+
+`--xcode` calls `xcodebuild -showBuildSettings -json` for each selected pair;
+it does not build. Each invocation supplies a temporary `-derivedDataPath`,
+`-disableAutomaticPackageResolution`, and `-skipPackageUpdates`, then removes
+the temporary directory. Failures report stderr and exit non-zero without a
+static fallback. Xcode output identifies its evaluator, but does not expose a
+winning source file. `--compare` requires `--xcode` and marks `MATCH`, `DIFF`, or
+`UNKNOWN comparison`; differences are informational, not an exit-code gate.
+`--json` retains the label and explicit `set`/`unset`/`unknown` states.
 
 ## Dispatch model and effort
 
