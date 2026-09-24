@@ -19,8 +19,9 @@ description: Every lacquer CLI subcommand.
 | `lacquer fleet diff A.json B.json` | What changed between two snapshots; exit 4 on a regression. |
 | `lacquer protection [--repo O/N] [--branch B] [--roster F]` | Compare what branch protection **requires** against what CI can **post**. GitHub counts a skipped check as satisfying a required one, so a repo passes only if it requires the always-running `CI OK` aggregate — or some other context posted by a job nothing can skip. Reaches the GitHub API through `gh`, so it is opt-in and separate from `audit`. Exit 4 on a finding; **exit 7 if a repository could not be checked** — never reported as a pass. |
 | `lacquer wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json]` | Block, in one process, until every check on PR `N` is terminal, then print each check's name, conclusion and duration. **The sanctioned way to wait for CI.** It sleeps between polls, so waiting costs no model tokens: run it in the background and you are woken once, when it returns. Defaults: `--timeout 20m`, `--interval 15s`; `--repo` is inferred by `gh` from the checkout. Four outcomes, each its own exit code, never conflated — see [Waiting for CI](#waiting-for-ci-lacquer-wait-pr). |
-| `lacquer ci-round begin <N> [--reason TEXT] [--sha SHA] [--repo O/N] [--inbox F] [--manifest-ref REF]` | Ask for one of the rounds of CI an **agent** gets on PR `N` (default 2, `[project].ci_round_cap`), *before* the push it covers. The count is recorded on the PR, so a session ending, or a new one picking the PR up, changes nothing. Round 2 must name a check the first reported failing; a third attempt is refused with a report, never a failure. See [Capping CI rounds](#capping-ci-rounds-lacquer-ci-round). |
-| `lacquer ci-round status <N>` | Read-only: rounds spent and left on PR `N`. Exit `10` if exhausted, else `0`. |
+| `lacquer ci-round begin <N> [--reason TEXT] [--review TEXT] [--sha SHA] [--repo O/N] [--inbox F] [--manifest-ref REF]` | Ask for one of the rounds of CI an **agent** gets on PR `N` (default 2, `[project].ci_round_cap`), *before* the push it covers. The count is recorded on the PR, so a session ending, or a new one picking the PR up, changes nothing. Round 2 must name a failing check or a review request; a third attempt is refused with a report, never a failure. See [Capping CI rounds](#capping-ci-rounds-lacquer-ci-round). |
+| `lacquer ci-round reset <N> --reason TEXT` | Explicitly authorize a fresh budget, retaining the ledger audit trail. |
+| `lacquer ci-round status <N>` | Record unknown heads as unrecorded pushes or neutral GitHub updates; show rounds by kind and rounds left on PR `N`. Exit `10` if exhausted, else `0`. |
 | `lacquer console --roster F` | One screen: fleet truth + live sessions + open PRs. |
 | `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, check, relaunch, or stop work on a project or a named role. `--mode bg` runs `claude --bg` in a new git worktree and branch under `<repo>/.claude/worktrees/`, and launches nothing if one cannot be made. `--mode tmux` starts a detached tmux session in the checkout itself, which it edits directly; attach with `tmux attach -t <name>`, and a session already running under that name is left alone. `--worktree <path>` runs the session, in either mode, in an existing worktree instead: for the worktree a PM created and named in an IC's brief. It must be a registered worktree of the project's repository (and, for bg, not the checkout itself), or nothing launches; lacquer never creates or removes it, adds `.metadata_never_index` before launch (ignored through global excludes), and records it like one it made, so a relaunch resumes in it and `kill` keeps it. `--branch <name>` (bg only) names the branch of the worktree bg creates, under `.claude/worktrees/` with `/` flattened to `-`, instead of `dispatch/<id>`: for a branch a PM chose. It is refused if the branch or directory already exists (pass `--worktree` for that), and together with `--worktree`. Every console flag works on either side of the subcommand, with the same meaning (`watch --relaunch` is `--relaunch watch`), and among a dispatch task's words, so a trailing `--dry-run` is a dry run; a task word that starts with `-` goes after `--`, which ends the flags (`dispatch <project> -- <task>`). An unknown flag, or one the subcommand has no use for (`--dry-run` with `kill`), is an error; `--roster`, `--roles`, `--sessions` and `--inbox` are accepted by every subcommand. Both modes pass `--dangerously-skip-permissions` with the sandbox off, and neither needs a terminal, so an agent can dispatch. With `--sessions`, every launch attempt is recorded, a failed one included, and `watch` reports a failed launch as failed. `watch --relaunch` puts the relaunched session's record in place of the dead one (a bg session resumes in its recorded worktree), and stops retrying a record after 3 failed launches in a row, leaving it for you. See `lacquer help` for the flag combinations each takes. |
 | `lacquer version` | Print labeled content and build versions, plus the resolved content root path. |
@@ -431,23 +432,30 @@ lacquer ci-round begin 431 ...                   # exit 10: EXHAUSTED. Do not pu
 
 `begin` records the commit you are about to push (`--sha`, default `git rev-parse
 HEAD`), so run it **before** `git push` and push exactly that commit. It is
-idempotent for a commit it already recorded.
+idempotent for a commit it already granted.
+
+For a review-requested correction, use
+`lacquer ci-round begin 431 --review "PM requested correcting the misleading comment"`
+instead of `--reason`. This works on green CI and consumes a round under the same
+cap. The ledger records kind `review`; status shows, for example,
+`2/2 used (1 failure, 1 review)`. There is no comment-only exemption.
 
 | Exit | Meaning |
 |------|---------|
 | `0` | Granted, or already recorded: push this commit. |
 | `10` | **Exhausted.** A report, not a failure: the PR is not failed or closed and nothing is pushed. It comments on the PR with what is still failing, raises an inbox ACTION if `--inbox` / `$LACQUER_INBOX` is set (otherwise it prints the exact `console inbox add` command to run), and prints what was spent. Do not push; say what you do not understand. |
-| `11` | Round 2 or later needs `--reason` naming at least one check the previous round reported failing (at a word boundary, in a reason of four or more words). The refusal lists the names it will accept. Nothing was recorded. |
-| `12` | **Nothing to spend a round on.** Either the previous round reported no failure (its checks are still running, `lacquer wait pr` exit 2; it has none, exit 3; or they passed), or the commit you named is already the PR's head and was pushed by a person, so there is nothing of yours to push. No round is spent; escalate rather than push to find out. |
-| `13` | The tool **could not check**: `gh` failing (`lacquer wait pr` exit 4), the PR closed, an unreadable ledger or manifest, bad usage. Nothing was recorded and it cannot say a round is allowed, so do not push. |
+| `11` | Round 2 or later needs `--reason` naming at least one check the previous round reported failing (at a word boundary, in a reason of four or more words). The refusal lists the names it will accept. Reset also requires a non-empty reason. No new push is granted; an observed unrecorded head still counts. |
+| `12` | **Nothing to spend a round on.** Either the previous round reported no failure (its checks are still running, `lacquer wait pr` exit 2; it has none, exit 3; or they passed), without a review request, or the commit you named is already the PR's head without a grant. No new push is granted; an observed unrecorded head still spends a round. |
+| `13` | The tool **could not check**: `gh` failing (`lacquer wait pr` exit 4), the PR closed, an unreadable ledger or manifest, bad usage. It cannot say a round is allowed, so do not push. |
 
 The codes start at 10 so none is read as `lacquer wait pr`'s 0-4. The mapping to
 that command is the point: only a wait that exits **1** leaves something concrete
-to fix, and only that justifies a round. Exits 2, 3 and 4 do not spend one.
+to fix for a failure-driven round. Review requests use `--review` instead;
+exits 2, 3 and 4 do not themselves justify a failure-driven round.
 
 Choices worth knowing:
 
-- **The count lives on the PR.** Each round, reset and stop is one comment opening
+- **The count lives on the PR.** Each round, update, reset and stop is one comment opening
   with an HTML-comment marker holding one JSON object (round number, head SHA, UTC
   time, the failing checks addressed, the reason), above prose saying the same
   thing, so the stop is visible without opening CI *and* parseable. Append-only,
@@ -456,17 +464,24 @@ Choices worth knowing:
   lost. Only comments from an `OWNER`, `MEMBER` or `COLLABORATOR` count, so a
   stranger on a public repo cannot forge a stop or a reset. A ledger comment the
   tool cannot read is exit 13, never skipped.
-- **A round belongs to an agent because the tool recorded it.** Agents and humans
-  push as the same account, so authorship cannot tell them apart. A head no entry
-  names was not pushed through this command, so a person pushed it.
-- **A human push resets the budget** (it is not merely excluded). Someone looked at
-  what the agent could not solve and moved the PR; a fresh, still-bounded budget on
-  top of that is exactly when trying again is reasonable, and it needs no operator
-  step. The reset is written to the PR, never silent. The limit of this: an agent
-  that pushes *without* running `begin` looks like a human, so it refills its own
-  budget. The command cannot see a push it was not told about; closing that is a
-  pre-push hook that runs `begin`.
-- **Round 2 must address round 1.** The cap is on guessing, not on rounds. A reason
+- **An unrecorded push spends a round.** Agents and humans share an account, so
+  the tool cannot infer authorship. Both `begin` and `status` append an
+  `unrecorded` entry for a newly observed unknown head, once per SHA, except for
+  the GitHub update-branch case below. Local merge commits pushed without `begin`
+  are charged too.
+  The initial `begin` can register the head that opened the PR as round 1.
+  Only observed heads can be accounted for; this does not inspect every intervening
+  push or install a pre-push hook.
+- **GitHub update-branch merges are neutral.** For an unknown head, the commit API
+  must report committer email `noreply@github.com`, exactly two parents, and the
+  previous known head as one parent. The tool records kind `update`, marks the SHA
+  known, and neither spends a round nor resets the budget. Later observations
+  do not charge it. Any other unknown head is still `unrecorded`; if the commit
+  API fails, no push is granted (exit 13).
+- **Only explicit reset refills the budget.** A human authorizes
+  `lacquer ci-round reset <N> --reason "<why>"`. This writes a `reset` entry;
+  subsequent rounds count fresh, while earlier entries remain on the PR.
+- **Failure-driven round 2 must address round 1.** The cap is on guessing, not on rounds. A reason
   that is empty, too short, or names no failing check is refused. It is a forcing
   function for saying which failure you understand, not proof that you fixed it.
 - **Check state is `lacquer wait pr`'s**, not re-derived: a cancelled job from a

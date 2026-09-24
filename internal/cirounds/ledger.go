@@ -6,14 +6,17 @@ import (
 	"strings"
 )
 
-// Kind is which of the three things a ledger comment records.
+// Kind is which event a ledger comment records.
 type Kind string
 
 const (
 	// KindRound: an agent spent a CI round, on the commit named SHA.
-	KindRound Kind = "round"
-	// KindReset: the PR's head moved to a commit this tool never recorded, so
-	// a human pushed, and the budget starts over from there.
+	KindRound      Kind = "round"
+	KindReview     Kind = "review"
+	KindUnrecorded Kind = "unrecorded"
+	// KindUpdate: a GitHub-created merge records a known head without spending.
+	KindUpdate Kind = "update"
+	// KindReset: an explicit operator decision starts a fresh budget.
 	KindReset Kind = "reset"
 	// KindExhausted: an agent asked for a round past the cap and was refused.
 	// It carries no count; it is the stop notice, so a human sees it.
@@ -36,11 +39,11 @@ type Entry struct {
 	V     int  `json:"v"`
 	Kind  Kind `json:"kind"`
 	Epoch int  `json:"epoch"`
-	// Round is 1-based within the epoch (KindRound only).
+	// Round is 1-based within the epoch (round, review or unrecorded).
 	Round int `json:"round,omitempty"`
 	Cap   int `json:"cap,omitempty"`
 	// SHA is the commit the entry is about: the commit pushed for a round, the
-	// unrecorded head for a reset, the head that was still failing for a stop.
+	// current head for a reset, the head that was still failing for a stop.
 	SHA string `json:"sha"`
 	At  string `json:"at,omitempty"` // UTC, RFC 3339
 	// Addressing is the failing checks the previous round reported that this
@@ -73,7 +76,7 @@ func trusted(association string) bool {
 
 // Ledger is the PR's history as the comments record it.
 type Ledger struct {
-	// Epoch is the current budget's number, 1 until a human push resets it.
+	// Epoch is the current budget's number, 1 until an explicit reset.
 	Epoch int
 	// Rounds are the current epoch's rounds, in order. When two sessions raced
 	// for the same round number the earlier comment owns it and the other is in
@@ -81,8 +84,10 @@ type Ledger struct {
 	Rounds   []Entry
 	Shadowed []Entry
 	// Known is every commit the tool has recorded, in any epoch. A head not in
-	// it was not pushed through this tool.
+	// it has not been recorded by this tool.
 	Known map[string]bool
+	// LastHead is the most recent accepted round, reset or neutral update SHA.
+	LastHead string
 	// Exhausted are the stop notices already on the PR for the current epoch.
 	Exhausted []Entry
 	// Any is whether the ledger has any entries at all.
@@ -138,23 +143,44 @@ func ParseLedger(cs []Comment) (Ledger, error) {
 		}
 		l.Any = true
 		switch e.Kind {
+		case KindUpdate:
+			l.Known[e.SHA] = true
+			if e.Epoch == l.Epoch {
+				l.LastHead = e.SHA
+			}
 		case KindReset:
 			l.Known[e.SHA] = true
+			if e.Epoch >= l.Epoch {
+				l.LastHead = e.SHA
+			}
 			if e.Epoch > l.Epoch {
 				l.Epoch, l.Rounds, l.Exhausted = e.Epoch, nil, nil
 			}
-		case KindRound:
-			l.Known[e.SHA] = true
+		case KindRound, KindReview, KindUnrecorded:
 			if e.Epoch > l.Epoch {
 				l.Epoch, l.Rounds, l.Exhausted = e.Epoch, nil, nil
 			}
 			if e.Epoch < l.Epoch {
 				continue // a straggler from a budget a human already reset
 			}
+			if e.Kind == KindUnrecorded {
+				duplicate := false
+				for _, r := range l.Rounds {
+					if r.SHA == e.SHA {
+						duplicate = true
+					}
+				}
+				if duplicate {
+					continue
+				}
+				e.Round = len(l.Rounds) + 1
+			}
 			if l.hasRound(e.Round) {
 				l.Shadowed = append(l.Shadowed, e)
 				continue
 			}
+			l.Known[e.SHA] = true
+			l.LastHead = e.SHA
 			l.Rounds = append(l.Rounds, e)
 		case KindExhausted:
 			if e.Epoch == l.Epoch {
@@ -210,7 +236,7 @@ func codeList(names []string) string {
 func renderRound(e Entry) string {
 	var b strings.Builder
 	b.WriteString(marker(e) + "\n")
-	fmt.Fprintf(&b, "**Agent CI round %d of %d** · `%s` · %s\n", e.Round, e.Cap, short(e.SHA), e.At)
+	fmt.Fprintf(&b, "**Agent CI round %d of %d** · %s · `%s` · %s\n", e.Round, e.Cap, e.Kind, short(e.SHA), e.At)
 	if len(e.Addressing) > 0 {
 		fmt.Fprintf(&b, "\nAddressing what the previous round reported failing: %s\n", codeList(e.Addressing))
 	}
@@ -223,11 +249,15 @@ func renderRound(e Entry) string {
 	return b.String()
 }
 
+func renderUpdate(e Entry) string {
+	return marker(e) + fmt.Sprintf("\n**GitHub branch update** · `%s` · %s\n\nNeutral update: no round spent; the budget is unchanged.\n", short(e.SHA), e.At)
+}
+
 func renderReset(e Entry) string {
 	var b strings.Builder
 	b.WriteString(marker(e) + "\n")
 	fmt.Fprintf(&b, "**Agent CI round budget reset** · `%s` · %s\n", short(e.SHA), e.At)
-	fmt.Fprintf(&b, "\nThe head moved to `%s`, a commit `lacquer ci-round` never recorded, so it was pushed by a person, not an agent. The agent's budget starts over: 0 of %d rounds spent.\n", short(e.SHA), e.Cap)
+	fmt.Fprintf(&b, "\nExplicit reset: %s. Budget starts over: 0 of %d rounds spent.\n", oneLine(e.Reason), e.Cap)
 	return b.String()
 }
 
@@ -249,7 +279,7 @@ func renderExhausted(e Entry, rounds []Entry) string {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("\nThe PR is not failed or closed. To give the agent a fresh budget, push a commit yourself: a head the tool did not record is read as a human push and resets the count.\n")
+	b.WriteString("\nThe PR is not failed or closed. To give the agent a fresh budget, explicitly run `lacquer ci-round reset <N> --reason \"<why>\"`. Unrecorded pushes spend rounds.\n")
 	return b.String()
 }
 
