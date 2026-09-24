@@ -25,7 +25,7 @@ type Role struct {
 	// Name identifies the role and its tmux session.
 	Name string `toml:"name"`
 	// Mode is almost always Tmux: a role is long-lived and supervisory, not a
-	// one-shot task with a natural end, so a disposable worktree (Background)
+	// one-shot task with a natural end, so a worktree of its own (Background)
 	// rarely fits. Declared per-role rather than hardcoded so an operator can
 	// still choose Background for a role that genuinely wants worktree
 	// isolation. Defaults to Tmux when left blank.
@@ -33,7 +33,8 @@ type Role struct {
 	// Task is the role's starting prompt.
 	Task string `toml:"task"`
 	// Dir is where the role's session runs. Relative paths resolve against
-	// the roles file's own directory, matching fleet.Entry.Path. Empty means
+	// the roles file's own directory, matching fleet.Entry.Path, and after
+	// LoadRoleRoster it is always absolute. Empty means
 	// the roles file's own directory -- the natural default, since that's
 	// where the project roster and `lacquer console`/`fleet` commands expect
 	// to be run from.
@@ -75,7 +76,12 @@ func LoadRoleRoster(path string) (RoleRoster, error) {
 	if len(r.Role) == 0 {
 		return r, fmt.Errorf("roles file %s declares no roles", path)
 	}
-	base := filepath.Dir(path)
+	// Absolute, as fleet.LoadRoster's entry paths are: a relative Dir means
+	// something different to every consumer whose cwd is not this one's.
+	base, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return r, fmt.Errorf("roles file %s: resolve its directory: %w", path, err)
+	}
 	seen := map[string]bool{}
 	for i := range r.Role {
 		role := &r.Role[i]
@@ -110,7 +116,8 @@ func LoadRoleRoster(path string) (RoleRoster, error) {
 	return r, nil
 }
 
-// DispatchRole starts (or, for Tmux mode, re-attaches) a role session. task,
+// DispatchRole starts a role session (leaving an already-running tmux
+// session of that name alone). task,
 // when non-empty, overrides the role's declared starting task -- the
 // override a relaunch will need to hand a role "you died, here's where you
 // left off" instead of its original brief.
@@ -123,7 +130,19 @@ func LoadRoleRoster(path string) (RoleRoster, error) {
 // signature would leave most of it unused by whichever caller isn't project
 // dispatch. They do share the actual argv-building and process-launch code,
 // in runDispatch (dispatch.go).
-func DispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRun bool) (string, error) {
+func DispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRun bool) (Launch, error) {
+	return DispatchRolePlaced(roles, sessions, name, task, dryRun, Placement{})
+}
+
+// DispatchRolePlaced is DispatchRole into the worktree, or onto the branch,
+// that its dispatcher chose (Placement).
+func DispatchRolePlaced(roles RoleRoster, sessions []Session, name, task string, dryRun bool, place Placement) (Launch, error) {
+	return dispatchRole(roles, sessions, name, task, dryRun, place, "")
+}
+
+// dispatchRole is DispatchRolePlaced, plus the recorded worktree a bg
+// relaunch resumes in (Relaunch, watchdog.go).
+func dispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRun bool, place Placement, resume string) (Launch, error) {
 	var role *Role
 	for i := range roles.Role {
 		if roles.Role[i].Name == name {
@@ -132,10 +151,15 @@ func DispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRu
 		}
 	}
 	if role == nil {
-		return "", fmt.Errorf("no role named %q in the roles file (known: %s)", name, strings.Join(roleNames(roles), ", "))
+		return Launch{}, fmt.Errorf("no role named %q in the roles file (known: %s)", name, strings.Join(roleNames(roles), ", "))
 	}
 	if task = strings.TrimSpace(task); task == "" {
 		task = role.Task
+	}
+	if role.Mode == Tmux {
+		if err := tmuxCollision(role.Name, roleNames(roles)); err != nil {
+			return Launch{}, err
+		}
 	}
 
 	// Matched by name, not by directory the way project Dispatch is: a role
@@ -149,7 +173,7 @@ func DispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRu
 		}
 	}
 
-	return runDispatch("dispatch role", role.Name, role.Dir, task, role.Mode, warning, dryRun)
+	return runDispatch(launchSpec{verb: "dispatch role", kind: RoleKind, name: role.Name, dir: role.Dir, task: task, mode: role.Mode, warning: warning, dryRun: dryRun, place: place, resume: resume})
 }
 
 func roleNames(r RoleRoster) []string {

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -44,12 +46,14 @@ func upstreamAndClone(t *testing.T) (origin, clone string) {
 	if err := os.MkdirAll(origin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	run(t, origin, "git", "init", "--quiet", "--initial-branch=main")
+	gittest.Init(t, origin, "--quiet", "--initial-branch=main")
 	write(t, filepath.Join(origin, "VERSION"), "0.1.0\n")
 	run(t, origin, "git", "add", "-A")
 	run(t, origin, "git", "commit", "--quiet", "-m", "first")
 
-	run(t, base, "git", "clone", "--quiet", origin, clone)
+	if err := gittest.Clone(origin, clone, "--quiet"); err != nil {
+		t.Fatal(err)
+	}
 	return origin, clone
 }
 
@@ -156,7 +160,7 @@ func TestInspectHandlesNonGitRoot(t *testing.T) {
 // into a repo) cannot be behind anything, and must not warn as if it were.
 func TestInspectNoUpstreamDoesNotWarn(t *testing.T) {
 	dir := t.TempDir()
-	run(t, dir, "git", "init", "--quiet", "--initial-branch=main")
+	gittest.Init(t, dir, "--quiet", "--initial-branch=main")
 	write(t, filepath.Join(dir, "VERSION"), "1.0.0\n")
 	run(t, dir, "git", "add", "-A")
 	run(t, dir, "git", "commit", "--quiet", "-m", "only")

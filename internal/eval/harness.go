@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // repoRoot is the lacquer checkout running this test binary. Unlike
@@ -98,7 +100,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 // initGitRepo turns dir into a git repository with everything committed.
 func initGitRepo(t *testing.T, dir, msg string) {
 	t.Helper()
-	runGit(t, dir, "init", "-q", "--initial-branch=main")
+	gittest.Init(t, dir, "-q", "--initial-branch=main")
 	runGit(t, dir, "add", "-A")
 	runGit(t, dir, "commit", "-q", "-m", msg)
 }

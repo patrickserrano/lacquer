@@ -133,6 +133,15 @@ type Project struct {
 	// reads each from `secrets`, so an unset secret is empty rather than
 	// baked in.
 	BuildEnv []string `toml:"build_env"`
+	// CIRoundCapSetting is how many rounds of CI an agent gets on one pull
+	// request before `lacquer ci-round` refuses another and escalates. OPTIONAL;
+	// read it through CIRoundCap, which supplies the default of 2.
+	//
+	// A pointer so "unset" and "0" differ: an absent key means the default, and
+	// an explicit 0 is an error (it would forbid the push that opens the PR).
+	// Bounded above too — a cap of 100 is no cap, and is more likely a typo than
+	// a decision. See internal/cirounds for what a round is.
+	CIRoundCapSetting *int `toml:"ci_round_cap"`
 	// Retired marks a project that is no longer worth investing in but is not
 	// being deleted. Nil for every ordinary project. See Retirement.
 	Retired *Retirement `toml:"retired"`
@@ -166,6 +175,11 @@ type Project struct {
 	// apart from "something outside the managed workflows runs this". See
 	// CoveredElsewhere.
 	CoveredElsewhere []CoveredElsewhere `toml:"covered_elsewhere"`
+	// NotRunInCI names test targets that deliberately run in no CI job, each with
+	// a reason and a review date, so the uncovered-target report can tell "nobody
+	// wired this" apart from "this is run somewhere CI cannot reach, on purpose".
+	// See NotRunInCI.
+	NotRunInCI []NotRunInCI `toml:"not_run_in_ci"`
 	// WatchTests is the single-product spelling of [product.watch_tests], folded
 	// into the product Products() synthesises when a manifest declares no
 	// [[product]] block — exactly as ExtraTestTargets is, and for the same
@@ -179,6 +193,27 @@ type Project struct {
 	// for the same reason as extra_test_targets: which product the watch bundle
 	// belongs to would have to be guessed.
 	WatchTests *WatchTests `toml:"watch_tests"`
+	// Secrets, SecretsFile and SecretFormats are the single-product spelling of
+	// [[product]].secrets, .secrets_file and .secret_formats, folded into the
+	// product Products() synthesises when a manifest declares no [[product]]
+	// block — exactly as ExtraTestTargets and WatchTests are. See Product.Secrets
+	// for what each one means; nothing about them differs here.
+	//
+	// They were the one release-shaped field [project] could not spell, and the
+	// cost was not restatement but silence. flare, kit, port-of-entry and
+	// multimeter all read build-time keys — a RevenueCat appl_ key, Aptabase, a
+	// Sentry DSN, an API key — from a gitignored Secrets.xcconfig and declare no
+	// [[product]]. With no way to name those keys, the release never wrote the
+	// file, and each of them was one tag away from shipping placeholders: a dead
+	// paywall, no analytics, no crash reports, all behind a green run.
+	//
+	// Declaring any of them here AND a [[product]] block is rejected rather than
+	// merged: which product the keys belong to would have to be guessed, and a
+	// paid app's key written into the free app's build is a bad release, not a
+	// failed one.
+	Secrets       map[string]string `toml:"secrets"`
+	SecretsFile   string            `toml:"secrets_file"`
+	SecretFormats map[string]string `toml:"secret_formats"`
 }
 
 // Retirement is the [project].retired entry: a project the fleet keeps but stops
@@ -263,6 +298,20 @@ func (r Retirement) SinceDate() (time.Time, error) { return time.Parse("2006-01-
 
 // IsRetired reports whether this project has been retired.
 func (p Project) IsRetired() bool { return p.Retired != nil }
+
+// Bounds of [project].ci_round_cap and the value an absent key means.
+const (
+	DefaultCIRoundCap = 2
+	maxCIRoundCap     = 10
+)
+
+// CIRoundCap is how many CI rounds an agent may spend on one pull request.
+func (p Project) CIRoundCap() int {
+	if p.CIRoundCapSetting == nil {
+		return DefaultCIRoundCap
+	}
+	return *p.CIRoundCapSetting
+}
 
 // Exclusion is one [project].exclude entry: a path the lacquer neither
 // distributes nor tracks.
@@ -556,7 +605,16 @@ var (
 	// globPatternVal is the charset allowed in a secret_formats glob. It is
 	// rendered unquoted into a shell `case`, so (, ), |, & and every quoting or
 	// substitution character are excluded.
-	globPatternVal = regexp.MustCompile(`^[A-Za-z0-9_~.:/*?-]+$`)
+	//
+	// `@` is allowed because a Sentry DSN cannot be shaped without it
+	// ("https://*@*/*"). It is inert in a `case` pattern: its only meaning is
+	// extglob's `@(...)`, which needs the parentheses excluded above.
+	//
+	// scripts/write-release-config.sh re-checks every pattern against its own
+	// copy of this set and refuses anything outside it, so the two must stay
+	// IDENTICAL. A character allowed here but not there loads cleanly and then
+	// fails every release. TestSecretFormatCharsetIsExactly pins this side.
+	globPatternVal = regexp.MustCompile(`^[A-Za-z0-9_~.:/*?@-]+$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -599,6 +657,9 @@ func validateProject(p Project) error {
 	}
 	if err := check("stack", p.Stack, stackVal); err != nil {
 		return err
+	}
+	if c := p.CIRoundCapSetting; c != nil && (*c < 1 || *c > maxCIRoundCap) {
+		return fmt.Errorf("invalid [project].ci_round_cap %d (want 1-%d; below 1 would refuse the push that opens a PR, and a large cap is no cap)", *c, maxCIRoundCap)
 	}
 	for _, t := range p.Tools {
 		if !knownTools[t] {
@@ -678,10 +739,109 @@ func validateProject(p Project) error {
 		}
 		seenCovered[c.Target] = true
 	}
+	// Shape only, again: whether the term has run out, and whether the target
+	// still exists and still runs nowhere, are audit-time questions. See
+	// internal/testtargets.Deliberate.
+	seenNotRun := map[string]bool{}
+	for i, n := range p.NotRunInCI {
+		if err := validateNotRunInCI(i, n); err != nil {
+			return err
+		}
+		if seenNotRun[n.Target] {
+			return fmt.Errorf("[[project.not_run_in_ci]][%d] names %q twice; one suite has one reason "+
+				"and one review date, and a second entry is a second answer nobody will reconcile", i, n.Target)
+		}
+		seenNotRun[n.Target] = true
+		if seenCovered[n.Target] {
+			return fmt.Errorf("[[project.not_run_in_ci]][%d] %q is also declared in [[project.covered_elsewhere]]; "+
+				"one says a workflow runs it and the other that nothing in CI does, and at most one is true", i, n.Target)
+		}
+		if p.Xcodeproj == "" {
+			// The audit reads test targets from the Xcode project. Without one it
+			// reads none, so this declaration — and its expiry — would never be
+			// evaluated: a date that looks enforced and is not.
+			return fmt.Errorf("[[project.not_run_in_ci]][%d] %q needs [project].xcodeproj; the audit reads "+
+				"test targets from it, and without one this declaration and its until date are never checked", i, n.Target)
+		}
+	}
 	if _, err := p.ParsedSkills(); err != nil {
 		return err
 	}
 	return validateXcodeproj(p.Xcodeproj)
+}
+
+// NotRunInCI is one test target that deliberately runs in no CI job.
+//
+//	[[project.not_run_in_ci]]
+//	target = "MomFriendCoreTests"
+//	reason = "needs on-device models; built in CI, run on device before release"
+//	until  = "2026-12-31"
+//
+// It exists because the uncovered-target report had no honest answer for a
+// suite that is run on purpose, somewhere CI cannot reach. momfriend's
+// MomFriendCoreTests is built in CI and never run there: it needs on-device
+// models, and is written to fail rather than skip without them. None of the
+// fixes the report offers fits — a selector or a `swift test` step would run it
+// on a runner where it cannot pass, and covered_elsewhere would claim a
+// workflow runs it when none does — so the entry stayed reported forever. A
+// finding nobody can act on trains people to skip the report, which costs the
+// findings they can act on.
+//
+// It is the opposite claim to CoveredElsewhere ("CI runs this, just not the
+// managed workflow") and carries the opposite rule about time. That one has no
+// expiry because the project holds no remedy a date could force. This one
+// REQUIRES `until`, the rule [[component]].dependabot_ignore and
+// [baseline.relax] follow, because the project does hold the remedies: provide
+// the models on a runner, rewrite the suite to skip without them, or decide the
+// on-device run is no longer happening. A gap in CI coverage with no term is a
+// gap nobody revisits. Past `until`, `lacquer audit` reports the target as
+// uncovered again and exits 4.
+//
+// A declaration is also reported as stale when it stops being needed: the target
+// no longer exists, or something now covers it (a selector, a verified
+// covered_elsewhere, a workflow that runs it). Declaring a target in both tables
+// is rejected at load, since the two cannot both be true.
+//
+// A plain struct, not a custom UnmarshalTOML, so manifestTables' reflection and
+// rejectUnknownKeys see its interior: an unknown key is named with the keys this
+// table accepts, and a TOML date written unquoted fails to decode rather than
+// being dropped.
+type NotRunInCI struct {
+	// Target is the test target's EXACT name, as project.pbxproj or the local
+	// package's Package.swift spells it. Compared case-sensitively.
+	Target string `toml:"target"`
+	// Reason is why nothing in CI runs it, and where it IS run. Required, and
+	// printed beside the target on every audit.
+	Reason string `toml:"reason"`
+	// Until is the review date, YYYY-MM-DD. Required. Through that whole day the
+	// declaration holds; after it, the audit reports it expired and exits 4.
+	Until string `toml:"until"`
+}
+
+// UntilDate parses Until.
+func (n NotRunInCI) UntilDate() (time.Time, error) { return time.Parse("2006-01-02", n.Until) }
+
+// validateNotRunInCI checks one entry's shape. Every field is required.
+func validateNotRunInCI(i int, n NotRunInCI) error {
+	where := fmt.Sprintf("[[project.not_run_in_ci]][%d]", i)
+	if n.Target == "" {
+		return fmt.Errorf("%s needs a target (the test target's exact name)", where)
+	}
+	if !projNameVal.MatchString(n.Target) {
+		return fmt.Errorf("%s has an invalid target %q (must match %s)", where, n.Target, projNameVal.String())
+	}
+	if strings.TrimSpace(n.Reason) == "" {
+		return fmt.Errorf("%s %q needs a reason (why nothing in CI runs it, and where it is run); "+
+			"it is printed on every audit, and it is the only thing the next reader will have", where, n.Target)
+	}
+	if n.Until == "" {
+		return fmt.Errorf("%s %q needs an until date (YYYY-MM-DD); a coverage gap with no term never "+
+			"comes back for review, and is indistinguishable from one nobody noticed", where, n.Target)
+	}
+	if _, err := n.UntilDate(); err != nil {
+		return fmt.Errorf("%s %q has an invalid until %q (want YYYY-MM-DD)", where, n.Target, n.Until)
+	}
+	return nil
 }
 
 // validateXcodeproj accepts a blank value, or a relative, non-escaping,
@@ -912,7 +1072,8 @@ type Product struct {
 	// file and .gitignore already assume.
 	SecretsFile string `toml:"secrets_file"`
 	// SecretFormats optionally constrains the SHAPE of a secret's value, as a
-	// shell glob checked at release time: "appl_*", "ca-app-pub-*~*".
+	// shell glob checked at release time: "appl_*", "ca-app-pub-*~*", or
+	// "https://*@*/*" for a Sentry DSN.
 	//
 	// Non-empty is not the same as correct. The keys these guard are copied
 	// between dashboards by hand, and the two ways they go wrong — pasting the
@@ -1552,6 +1713,12 @@ func (c *Config) Products() []Product {
 		// folding it here is what lets every renderer and the audit read one
 		// field instead of branching on where it was written.
 		WatchTests: c.Project.WatchTests,
+		// And the release secrets, for the same reason. Validated in Load
+		// against the synthesised product by the same validateSecrets a declared
+		// product goes through, so the [project] route skips none of its guards.
+		Secrets:       c.Project.Secrets,
+		SecretsFile:   c.Project.SecretsFile,
+		SecretFormats: c.Project.SecretFormats,
 	}}
 }
 
@@ -1860,48 +2027,8 @@ func Load(path string) (*Config, error) {
 		if p.TagPrefix != "" && !tagPrefixVal.MatchString(p.TagPrefix) {
 			return nil, fmt.Errorf("[[product]] %q: invalid tag_prefix %q (letters, digits, - and _ only)", p.Name, p.TagPrefix)
 		}
-		for key, secret := range p.Secrets {
-			// The xcconfig key. Written to the left of `=` in a generated
-			// Secrets.xcconfig, so it stays on the identifier charset.
-			if !envNameVal.MatchString(key) {
-				return nil, fmt.Errorf("[[product]] %q: invalid secrets key %q", p.Name, key)
-			}
-			if !secretNameVal.MatchString(secret) {
-				return nil, fmt.Errorf("[[product]] %q: secrets.%s must be the NAME of a GitHub secret, not a value (got %q)", p.Name, key, secret)
-			}
-			// The whole point is that the value lives in GitHub and the name
-			// lives here. A manifest is committed; a pasted key is a leaked key,
-			// and these prefixes are what the real ones actually look like.
-			for _, prefix := range []string{"appl_", "goog_", "sk_", "sk-", "ca-app-pub-", "https://"} {
-				if strings.HasPrefix(secret, prefix) {
-					return nil, fmt.Errorf("[[product]] %q: secrets.%s looks like a real credential, not a secret name — this file is committed", p.Name, key)
-				}
-			}
-			if strings.HasPrefix(secret, "GITHUB_") {
-				return nil, fmt.Errorf("[[product]] %q: secrets.%s = %q — GitHub refuses secret names starting with GITHUB_", p.Name, key, secret)
-			}
-		}
-		for key, pattern := range p.SecretFormats {
-			if _, ok := p.Secrets[key]; !ok {
-				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s has no matching entry in secrets", p.Name, key)
-			}
-			if pattern == "" {
-				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s is empty", p.Name, key)
-			}
-			// Rendered UNQUOTED as a `case` pattern, where (, ), | and & change
-			// the parse. Restricting the charset is what keeps a manifest from
-			// injecting shell into a release.
-			if !globPatternVal.MatchString(pattern) {
-				return nil, fmt.Errorf("[[product]] %q: secret_formats.%s = %q has characters that are unsafe in a shell pattern", p.Name, key, pattern)
-			}
-		}
-		if p.SecretsFile != "" {
-			if filepath.IsAbs(p.SecretsFile) || !filepath.IsLocal(p.SecretsFile) {
-				return nil, fmt.Errorf("[[product]] %q: secrets_file %q must be a relative path inside the project", p.Name, p.SecretsFile)
-			}
-			if len(p.Secrets) == 0 {
-				return nil, fmt.Errorf("[[product]] %q: secrets_file set but no secrets declared", p.Name)
-			}
+		if err := validateSecrets(fmt.Sprintf("[[product]] %q", p.Name), p); err != nil {
+			return nil, err
 		}
 		if err := validateWatchTests(fmt.Sprintf("[[product]] %q", p.Name), p.WatchTests, seenTarget); err != nil {
 			return nil, err
@@ -1961,6 +2088,31 @@ func Load(path string) (*Config, error) {
 			seen[t] = true
 		}
 		if err := validateWatchTests("[project]", cfg.Project.WatchTests, seen); err != nil {
+			return nil, err
+		}
+	}
+
+	// [project].secrets, .secrets_file and .secret_formats: the same story
+	// again. The product loop only sees DECLARED products, so without this the
+	// [project] route would skip the pasted-credential check and the shell-
+	// pattern charset — the one thing keeping manifest text out of an unquoted
+	// `case` in the release. Each field is refused on its own alongside a
+	// [[product]] block, so a stray secret_formats cannot slip through merely
+	// because secrets was written on the product.
+	for _, f := range []struct {
+		field string
+		set   bool
+	}{
+		{"secrets", len(cfg.Project.Secrets) > 0},
+		{"secrets_file", cfg.Project.SecretsFile != ""},
+		{"secret_formats", len(cfg.Project.SecretFormats) > 0},
+	} {
+		if f.set && len(cfg.Product) > 0 {
+			return nil, fmt.Errorf("[project].%s is set alongside %d [[product]] block(s) — it is the single-product spelling of [[product]].%s, and which product these belong to would have to be guessed. Declare them on the product instead", f.field, len(cfg.Product), f.field)
+		}
+	}
+	if len(cfg.Product) == 0 {
+		if err := validateSecrets("[project]", cfg.Products()[0]); err != nil {
 			return nil, err
 		}
 	}
@@ -2037,6 +2189,58 @@ func componentOwns(component, path string) bool {
 		return true
 	}
 	return strings.HasPrefix(path, component+"/")
+}
+
+// validateSecrets checks one product's release secrets, from either spelling.
+// label is how the containing table is written in a manifest ("[[product]]
+// \"Free\"" or "[project]"), so the error names the line the reader has to go and
+// fix. One function for both routes is what makes the guards impossible to
+// diverge: a check added here reaches [project] without anyone remembering to.
+func validateSecrets(label string, p Product) error {
+	for key, secret := range p.Secrets {
+		// The xcconfig key. Written to the left of `=` in a generated
+		// Secrets.xcconfig, so it stays on the identifier charset.
+		if !envNameVal.MatchString(key) {
+			return fmt.Errorf("%s: invalid secrets key %q", label, key)
+		}
+		if !secretNameVal.MatchString(secret) {
+			return fmt.Errorf("%s: secrets.%s must be the NAME of a GitHub secret, not a value (got %q)", label, key, secret)
+		}
+		// The whole point is that the value lives in GitHub and the name
+		// lives here. A manifest is committed; a pasted key is a leaked key,
+		// and these prefixes are what the real ones actually look like.
+		for _, prefix := range []string{"appl_", "goog_", "sk_", "sk-", "ca-app-pub-", "https://"} {
+			if strings.HasPrefix(secret, prefix) {
+				return fmt.Errorf("%s: secrets.%s looks like a real credential, not a secret name — this file is committed", label, key)
+			}
+		}
+		if strings.HasPrefix(secret, "GITHUB_") {
+			return fmt.Errorf("%s: secrets.%s = %q — GitHub refuses secret names starting with GITHUB_", label, key, secret)
+		}
+	}
+	for key, pattern := range p.SecretFormats {
+		if _, ok := p.Secrets[key]; !ok {
+			return fmt.Errorf("%s: secret_formats.%s has no matching entry in secrets", label, key)
+		}
+		if pattern == "" {
+			return fmt.Errorf("%s: secret_formats.%s is empty", label, key)
+		}
+		// Rendered UNQUOTED as a `case` pattern, where (, ), | and & change
+		// the parse. Restricting the charset is what keeps a manifest from
+		// injecting shell into a release.
+		if !globPatternVal.MatchString(pattern) {
+			return fmt.Errorf("%s: secret_formats.%s = %q has characters that are unsafe in a shell pattern", label, key, pattern)
+		}
+	}
+	if p.SecretsFile != "" {
+		if filepath.IsAbs(p.SecretsFile) || !filepath.IsLocal(p.SecretsFile) {
+			return fmt.Errorf("%s: secrets_file %q must be a relative path inside the project", label, p.SecretsFile)
+		}
+		if len(p.Secrets) == 0 {
+			return fmt.Errorf("%s: secrets_file set but no secrets declared", label)
+		}
+	}
+	return nil
 }
 
 // validateWatchTests checks one watch_tests table, from either spelling. label

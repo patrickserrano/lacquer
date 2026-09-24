@@ -23,11 +23,30 @@ pre-commit:
     # Mirrors the `Docs` job in supabase-ci.yml — cheap, so it belongs at
     # pre-commit. Scoped to _shared/ for the same reason CI is: a function's
     # index.ts is an HTTP entry point, not an API other code imports.
+    #
+    # scripts/docs-relaxation.sh and .lacquer.toml are resolved from the
+    # REPOSITORY root: `root:` has already cd'd into the component, where
+    # neither exists, and a missing one fails loudly rather than reading as
+    # "not relaxed". The root is resolved with GIT_DIR cleared, because git
+    # exports it to hooks in a linked worktree and `--show-toplevel` then
+    # answers the component. See the `docs` command in
+    # profiles/web/root/lefthook.yml for both defects.
     docs:
       root: "{{COMPONENT_PREFIX}}"
       glob: "supabase/functions/_shared/*.ts"
       run: |
-        state=$(scripts/docs-relaxation.sh .lacquer.toml 2>/dev/null || echo none)
+        top=$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --show-toplevel) || exit 1
+        for f in scripts/docs-relaxation.sh .lacquer.toml; do
+          if [ ! -f "$top/$f" ]; then
+            echo "docs: $f is missing from the repository root ($top), so [baseline.relax] cannot be read." >&2
+            echo "      Every lacquer-managed repository has it; restore it (lacquer sync writes the script)." >&2
+            exit 1
+          fi
+        done
+        if ! state=$(cd "$top" && scripts/docs-relaxation.sh .lacquer.toml); then
+          echo "docs: scripts/docs-relaxation.sh failed, so [baseline.relax] cannot be read." >&2
+          exit 1
+        fi
         if [ "$state" = "relaxed" ]; then
           echo "docs: relaxed by [baseline.relax] in .lacquer.toml — skipping"
         else
@@ -81,9 +100,19 @@ pre-push:
     typecheck:
       root: "{{COMPONENT_PREFIX}}"
       run: deno check supabase/functions/*/index.ts
+    # `deno test` exits non-zero when it finds no test modules, so a component
+    # with edge functions and no tests could never push. `--permit-no-files`
+    # alone would make zero tests pass silently — the check that cannot fail —
+    # so this mirrors the supabase-ci.yml `Test` step exactly: permit the empty
+    # set AND say so. A hook has no ::warning:: annotations, so it prints.
     test:
       root: "{{COMPONENT_PREFIX}}"
-      run: deno test --allow-all supabase/functions/
+      run: |
+        count=$(find supabase/functions \( -name '*_test.ts' -o -name '*.test.ts' \) | wc -l | tr -d ' ')
+        if [ "$count" -eq 0 ]; then
+          echo "warning: No Deno tests found under supabase/functions/ — edge functions are shipping untested." >&2
+        fi
+        deno test --allow-all --permit-no-files supabase/functions/
 
 commit-msg:
   commands:

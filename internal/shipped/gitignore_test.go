@@ -10,6 +10,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/gitignore"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/sync"
 )
 
@@ -98,7 +99,7 @@ func syncedProjectWith(t *testing.T, files map[string]string) string {
 	r := root(t)
 	project := t.TempDir()
 
-	git(t, project, "init", "-q")
+	gittest.Init(t, project, "-q")
 	// Commits happen below (idempotence needs a clean tree); a runner with no
 	// global identity would otherwise fail there rather than here.
 	git(t, project, "config", "user.email", "test@example.com")
@@ -389,12 +390,9 @@ func TestGitignoreSkillRulesFollowTheManifest(t *testing.T) {
 		t.Errorf("the collision is not explained in the block, so it reads as a renderer bug:\n%s", body)
 	}
 
-	// A lockfile is tracked. skills-lock.json pins the resolved source of every
-	// installed skill: committing it is what makes an install reproducible and
-	// what lets a reviewer see a skill's source change. One project currently
-	// leaves it untracked-but-unignored, which is the worst of both.
-	if ignored(t, project, "skills-lock.json") {
-		t.Error("skills-lock.json is ignored — a lockfile that is not committed pins nothing")
+	// Local installation state must not leave untracked noise after skills installs.
+	if !ignored(t, project, "skills-lock.json") {
+		t.Error("skills-lock.json is not ignored")
 	}
 }
 

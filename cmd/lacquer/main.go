@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +28,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/fixcmd"
 	"github.com/patrickserrano/lacquer/internal/fleet"
 	"github.com/patrickserrano/lacquer/internal/hooks"
+	"github.com/patrickserrano/lacquer/internal/inbox"
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
@@ -179,6 +182,32 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if w := root.Warning(); w != "" {
 			fmt.Fprintln(stderr, w)
 		}
+
+		// [project].skills is a separate concern from everything sync just wrote:
+		// sync stays fully offline and deterministic (the README says so, and its
+		// whole test suite depends on that), while installing a third-party skill
+		// needs the network. So this never installs anything — it only says, out
+		// loud, that there's a step left. Before this, a project could declare a
+		// skill in [project].skills and never actually get it: gitignored by name
+		// (internal/gitignore's skills() rule), absent on disk, no skills-lock.json,
+		// and sync's own output never mentioned it — there was nothing here to
+		// notice the gap. Measured on Steps: exactly that state, for `healthkit`.
+		if syncManifest, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml")); err != nil {
+			fmt.Fprintf(stderr, "warning: could not re-read manifest for [project].skills: %v\n", err)
+		} else if entries, err := syncManifest.Project.ParsedSkills(); err != nil {
+			fmt.Fprintf(stderr, "warning: [project].skills: %v\n", err)
+		} else if len(entries) > 0 {
+			missing, err := skillsync.Missing(projectRoot, entries)
+			if err != nil {
+				fmt.Fprintf(stderr, "warning: [project].skills: %v\n", err)
+			} else if len(missing) > 0 {
+				fmt.Fprintf(stdout, "\n[project].skills has %d skill(s) missing from skills-lock.json; sync does not install them (it stays offline) — run `lacquer skills` to install:\n", len(missing))
+				for _, e := range missing {
+					fmt.Fprintf(stdout, "  %s\n", e)
+				}
+			}
+		}
+
 		if *doFix {
 			if code := runFixers(lacquerRoot, projectRoot, stdout, stderr); code != 0 {
 				return code
@@ -357,11 +386,28 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// Declared [[product]].secrets that no workflow here will write. See
 		// internal/audit/inert.go.
 		fmt.Fprint(stdout, audit.FormatInertSecrets(audit.InertSecretDeclarations(projectRoot, cfg)))
+		// Workflow steps that kill or wipe simulators for every job on a shared
+		// runner. See internal/audit/machinewide.go.
+		fmt.Fprint(stdout, audit.FormatMachineWide(audit.MachineWideSteps(projectRoot)))
+		// A committed Package.resolved that the declared package requirements
+		// contradict: the build re-resolves and ships the requirement, so the
+		// lockfile lies. See internal/audit/packagepins.go.
+		fmt.Fprint(stdout, audit.FormatPackagePins(audit.PackagePinFindings(projectRoot)))
+		// Rendered agents, skills and commands Claude Code would skip silently.
+		// Report-only. See internal/audit/plugindefs.go.
+		fmt.Fprint(stdout, audit.FormatPluginDefs(audit.PluginDefinitions(projectRoot)))
 
 		// Both directions of the test-selector comparison. Reported, not gated,
 		// for the same reason as the hooks check: a project whose widget suite
 		// nobody wired is not DRIFTED -- every managed file is exactly right,
 		// which is why this went unnoticed three times in one repo.
+		// [[project.not_run_in_ci]]: suites deliberately run in no CI job. An
+		// expired one gates below, with the other expired exemptions.
+		var notRun []testtargets.NotRun
+		for _, n := range cfg.Project.NotRunInCI {
+			notRun = append(notRun, testtargets.NotRun{Target: n.Target, Reason: n.Reason, Until: n.Until})
+		}
+		notRunExpired := 0
 		if cfg.Project.Xcodeproj != "" {
 			pbx := filepath.Join(projectRoot, cfg.Project.Xcodeproj, "project.pbxproj")
 			declared, read, err := testtargets.Parse(pbx)
@@ -410,7 +456,20 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				}
 				claims := testtargets.Verify(projectRoot, decls, declared, managed)
 				report := testtargets.Apply(testtargets.Compare(declared, selectors), claims)
+				report = testtargets.Deliberate(report, declared, notRun, time.Now())
 				fmt.Fprint(stdout, testtargets.Format(report))
+				notRunExpired = testtargets.Blocking(report)
+			} else if len(notRun) > 0 {
+				// [[project.not_run_in_ci]] carries a date, and a date must not
+				// stop being enforced because the project could not be read:
+				// that would be an expiry that silently never fires. Nothing is
+				// compared (see above), so every declaration is read against an
+				// unreadable project -- never stale, never applied to anything,
+				// but expired if its term ran out.
+				unread := []testtargets.Target{{Unread: cfg.Project.Xcodeproj + " could not be read"}}
+				report := testtargets.Deliberate(testtargets.Report{}, unread, notRun, time.Now())
+				fmt.Fprint(stdout, testtargets.Format(report))
+				notRunExpired = testtargets.Blocking(report)
 			}
 		}
 
@@ -528,7 +587,11 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// filename directly, and deleting the file out from under it breaks that
 		// live job). This WILL fail every fleet repo carrying one of the three
 		// workflows issue #354 tracks until each syncs and then cleans up.
-		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0 || depignore.Blocking(ignores) > 0 || len(orphans) > 0:
+		//
+		// An expired [[project.not_run_in_ci]] shares it for the same reason the
+		// expired exclusion and dependabot ignore do: a time-boxed exemption whose
+		// term ran out. The suite it excused is back in the report above.
+		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0 || depignore.Blocking(ignores) > 0 || len(orphans) > 0 || notRunExpired > 0:
 			return 4
 		// Exit 6 when the project runs a stack the lacquer manages but the manifest
 		// never declared. Distinct from 3/4 because the fix is different in kind:
@@ -675,6 +738,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		case protection.Unchecked(reports) > 0:
 			return 7
 		}
+	case "wait":
+		// Reaches the GitHub API through gh and reads nothing from a lacquer
+		// checkout, so — like protection — no requireLacquerRoot.
+		return waitCmd(args[1:], stdout, stderr)
+	case "ci-round":
+		// Reaches the GitHub API through gh and reads only the project's own
+		// manifest (from a git ref), so — like wait — no requireLacquerRoot.
+		return ciRoundCmd(args[1:], getenv, stdout, stderr)
 	case "console":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -684,16 +755,45 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		rosterPath := fs.String("roster", getenv("LACQUER_ROSTER"), "path to the roster file (or $LACQUER_ROSTER)")
 		rolesPath := fs.String("roles", getenv("LACQUER_ROLES"), "path to the roles file (or $LACQUER_ROLES) — dispatch-role/watch only")
 		sessionsPath := fs.String("sessions", getenv("LACQUER_SESSIONS"), "path to the sessions file (or $LACQUER_SESSIONS) — enables tracking for `watch`")
-		mode := fs.String("mode", "", "dispatch target: bg (worktree-isolated background agent) or tmux (interactive, edits the checkout)")
+		inboxPath := fs.String("inbox", getenv("LACQUER_INBOX"), "path to the inbox file (or $LACQUER_INBOX) — decisions awaiting the operator and finished work, shown as ACTION/UNREAD and required by `inbox add`/`resolve`/`list`")
+		mode := fs.String("mode", "", "dispatch target: bg (background agent in a new git worktree and branch under <repo>/.claude/worktrees/) or tmux (detached tmux session in the checkout itself, edits it)")
 		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role/watch --relaunch: print the command without starting anything")
 		relaunch := fs.Bool("relaunch", false, "with watch: re-dispatch every session found dead")
 		live := fs.Bool("live", false, "with watch: keep refreshing in place every --interval until Ctrl-C, instead of checking once")
 		interval := fs.Duration("interval", 2*time.Second, "with watch --live: refresh interval")
 		force := fs.Bool("force", false, "with kill: kill even a session Check reports Alive")
-		if err := fs.Parse(args[1:]); err != nil {
+		worktree := fs.String("worktree", "", "with dispatch/dispatch-role: run in this existing, registered worktree of the project's repository instead of creating one (bg) or using the checkout (tmux) -- for a worktree a PM assigned")
+		branch := fs.String("branch", "", "with bg dispatch/dispatch-role: name the branch of the worktree bg creates (directory derived from it) instead of dispatch/<id>; refused if it exists, and in tmux mode")
+		entryType := fs.String("type", "", `with inbox add: "action" (needs a human decision) or "unread" (finished, unacknowledged)`)
+		entryTitle := fs.String("title", "", "with inbox add: one-line summary (required)")
+		entryBody := fs.String("body", "", "with inbox add: optional detail")
+		entryRef := fs.String("ref", "", `with inbox add: optional reference, e.g. "#374" or a URL`)
+		entryProject := fs.String("project", "", "with inbox add: optional project/roster name")
+		all := fs.Bool("all", false, "with inbox list: include resolved entries")
+		rest, err := parseConsoleArgs(fs, args[1:])
+		if err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				fs.Usage()
+				return 2
+			}
+			// A task word that looks like a flag is the one case with a
+			// remedy worth naming at the point of failure.
+			if len(rest) > 0 && (rest[0] == "dispatch" || rest[0] == "dispatch-role") {
+				err = fmt.Errorf("%w; a word of the task that starts with - goes after --, which ends the flags: lacquer console ... %s <name> -- <task>", err, rest[0])
+			}
+			fmt.Fprintln(stderr, "error:", err)
 			return 2
 		}
-		rest := fs.Args()
+		sub, err := consoleSubcommand(rest)
+		if err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
+		if err := checkConsoleFlagScope(fs, sub); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
+		place := console.Placement{Worktree: *worktree, Branch: *branch}
 		// watch and dispatch-role both need neither --mode nor a project
 		// roster's own gate below, so both are checked first: a watch-only or
 		// dispatch-role-only invocation should never have to set up config it
@@ -719,15 +819,14 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				}
 			}
 			if *live {
-				// A live loop re-checks the same records over and over, so it
-				// must never also relaunch: Watch has no way to update a
-				// record's DaemonID in place, so a relaunched session would
-				// still read as Failed on the very next tick (its old
-				// DaemonID's state file, now dead) and get relaunched again
-				// every --interval, forever. --relaunch stays a one-shot,
-				// deliberate action; --live stays a read-only dashboard.
+				// A live loop is a read-only dashboard: it redraws every
+				// --interval (2s by default), and starting sessions and
+				// rewriting the sessions file on that cadence is not what
+				// anyone watching a screen asked for. Watch does now replace a
+				// relaunched record, so the old every-tick relaunch loop is
+				// gone, but --relaunch stays a one-shot, deliberate action.
 				if *relaunch {
-					fmt.Fprintln(stderr, "note: --relaunch is ignored with --live (a live loop would relaunch the same failed record every tick)")
+					fmt.Fprintln(stderr, "note: --relaunch is ignored with --live (a live dashboard only reads; run `watch --relaunch` once to relaunch)")
 				}
 				return watchLive(stdout, *sessionsPath, roster, roles, *interval)
 			}
@@ -791,15 +890,26 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, err)
 			}
 			taskOverride := strings.Join(rest[2:], " ")
-			out, err := console.DispatchRole(roles, console.Sessions(), rest[1], taskOverride, *dryRun)
-			fmt.Fprint(stdout, out)
-			if err != nil {
-				return fail(stderr, err)
+			launch, err := console.DispatchRolePlaced(roles, console.Sessions(), rest[1], taskOverride, *dryRun, place)
+			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
+		}
+		// inbox needs neither --mode nor a project roster, same reasoning as
+		// watch/dispatch-role above: it operates entirely on the inbox file.
+		if len(rest) > 0 && rest[0] == "inbox" {
+			if *inboxPath == "" {
+				return fail(stderr, fmt.Errorf("inbox needs a path: pass --inbox <path> or set LACQUER_INBOX"))
 			}
-			if *sessionsPath != "" && !*dryRun {
-				recordRoleDispatch(stderr, *sessionsPath, roles, rest[1], taskOverride, out)
+			if len(rest) < 2 {
+				return fail(stderr, fmt.Errorf("usage: lacquer console --inbox F inbox <add|resolve|list> ..."))
 			}
-			return 0
+			switch rest[1] {
+			case "add":
+				return runInboxAdd(*inboxPath, *entryType, inbox.Entry{Title: *entryTitle, Body: *entryBody, Ref: *entryRef, Project: *entryProject}, stdout, stderr)
+			case "resolve":
+				return runInboxResolve(*inboxPath, rest[2:], stdout, stderr)
+			default: // list; consoleSubcommand refused anything else
+				return runInboxList(*inboxPath, *all, stdout, stderr)
+			}
 		}
 		if *rosterPath == "" {
 			return fail(stderr, fmt.Errorf("console needs a roster: pass --roster <path> or set LACQUER_ROSTER"))
@@ -813,23 +923,16 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, fmt.Errorf("usage: lacquer console [--roster F] --mode bg|tmux dispatch <project> \"<task>\""))
 			}
 			if *mode == "" {
-				// No default on purpose: bg is worktree-isolated and cannot edit
-				// the main checkout, tmux edits it directly. Guessing would
-				// silently change where the work lands.
+				// No default on purpose: bg runs in a worktree of its own and
+				// does not edit the main checkout, tmux edits it directly.
+				// Guessing would silently change where the work lands.
 				return fail(stderr, fmt.Errorf("dispatch needs --mode bg or --mode tmux"))
 			}
 			task := strings.Join(rest[2:], " ")
-			out, err := console.Dispatch(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun)
-			fmt.Fprint(stdout, out)
-			if err != nil {
-				return fail(stderr, err)
-			}
-			if *sessionsPath != "" && !*dryRun {
-				recordProjectDispatch(stderr, *sessionsPath, roster, rest[1], task, console.Mode(*mode), out)
-			}
-			return 0
+			launch, err := console.DispatchPlaced(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun, place)
+			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
-		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now()))
+		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now(), *inboxPath))
 	case "status":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -928,25 +1031,62 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               \"CI OK\" aggregate, or a context no job can skip. Reaches the API")
 	fmt.Fprintln(w, "                               via `gh` (exit 4 on a finding; exit 7 if a repo could NOT be")
 	fmt.Fprintln(w, "                               checked — which is never reported as a pass)")
-	fmt.Fprintln(w, "  console --roster F           one screen: fleet truth + live sessions + open PRs")
-	fmt.Fprintln(w, "  console ... --mode bg|tmux dispatch <project> \"<task>\"")
-	fmt.Fprintln(w, "                               start work on one project (bg = isolated worktree; tmux = the checkout)")
-	fmt.Fprintln(w, "  console --roles R dispatch-role <name> [\"<task override>\"]")
-	fmt.Fprintln(w, "                               start (or re-attach) a named role — a lead/PM supervising many")
-	fmt.Fprintln(w, "                               projects, not editing one; mode and task come from the roles file")
+	usageWait(w)
+	usageCIRound(w)
+	fmt.Fprintln(w, "  console --roster F [--inbox F]")
+	fmt.Fprintln(w, "                               one screen: fleet truth + live sessions + open PRs + inbox")
+	fmt.Fprintln(w, "                               (decisions awaiting the operator, finished work awaiting")
+	fmt.Fprintln(w, "                               acknowledgement) shown first, as ACTION/UNREAD, when --inbox is set.")
+	fmt.Fprintln(w, "                               Every console flag works on either side of the subcommand, with the")
+	fmt.Fprintln(w, "                               same meaning: `watch --relaunch` == `--relaunch watch`. An unknown")
+	fmt.Fprintln(w, "                               flag, or one the subcommand has no use for, is an error. --roster,")
+	fmt.Fprintln(w, "                               --roles, --sessions and --inbox are accepted by every subcommand;")
+	fmt.Fprintln(w, "                               -- ends the flags")
+	fmt.Fprintln(w, "  console ... --mode bg|tmux [--worktree P | --branch B] dispatch <project> \"<task>\"")
+	fmt.Fprintln(w, "                               start work on one project. bg = `claude --bg` in a new git worktree")
+	fmt.Fprintln(w, "                               and branch under <repo>/.claude/worktrees/ (nothing is launched if")
+	fmt.Fprintln(w, "                               one cannot be made); tmux = a detached tmux session in the checkout")
+	fmt.Fprintln(w, "                               itself (attach with `tmux attach -t <name>`). Both run claude with")
+	fmt.Fprintln(w, "                               --dangerously-skip-permissions and the sandbox off. Neither needs a")
+	fmt.Fprintln(w, "                               terminal; a tmux session already running is left alone.")
+	fmt.Fprintln(w, "                               --worktree P runs in P, an existing registered worktree of the")
+	fmt.Fprintln(w, "                               project's repo (either mode; never created, changed or removed), for")
+	fmt.Fprintln(w, "                               the worktree a PM assigned an IC in its brief. --branch B (bg only)")
+	fmt.Fprintln(w, "                               names the branch bg creates instead of dispatch/<id>, in a directory")
+	fmt.Fprintln(w, "                               named B with / as - under .claude/worktrees/, for a branch a PM")
+	fmt.Fprintln(w, "                               chose; refused if either exists. An unusable --worktree or --branch")
+	fmt.Fprintln(w, "                               launches nothing. Flags are read anywhere, among the task's words")
+	fmt.Fprintln(w, "                               too, so a trailing --dry-run is a dry run; a task word that starts")
+	fmt.Fprintln(w, "                               with - goes after --: dispatch <project> -- <task>")
+	fmt.Fprintln(w, "  console --roles R [--worktree P | --branch B] dispatch-role <name> [\"<task override>\"]")
+	fmt.Fprintln(w, "                               start a named role — a lead/PM supervising many projects, not")
+	fmt.Fprintln(w, "                               editing one; mode and task come from the roles file, modes and")
+	fmt.Fprintln(w, "                               --worktree/--branch as above")
 	fmt.Fprintln(w, "  console --sessions S [--roster F] [--roles R] watch [--relaunch] [--live] [--interval D]")
 	fmt.Fprintln(w, "                               check every recorded dispatch's liveness; --relaunch re-dispatches")
-	fmt.Fprintln(w, "                               each one found dead (Blocked and Missing are reported, not")
-	fmt.Fprintln(w, "                               auto-relaunched). --live keeps redrawing every --interval (default")
+	fmt.Fprintln(w, "                               each one found dead, a failed launch included (Blocked and Missing")
+	fmt.Fprintln(w, "                               are reported, not auto-relaunched); a bg session resumes in its")
+	fmt.Fprintln(w, "                               recorded worktree, and the relaunched session's record replaces the")
+	fmt.Fprintf(w, "                               dead one. After %d failed launches in a row a record is held for you,\n", console.MaxFailedLaunches)
+	fmt.Fprintln(w, "                               not relaunched again. --live keeps redrawing every --interval (default")
 	fmt.Fprintln(w, "                               2s) instead of checking once, until Ctrl-C; ignores --relaunch.")
-	fmt.Fprintln(w, "                               --sessions on dispatch/dispatch-role enables recording; nothing")
-	fmt.Fprintln(w, "                               is tracked unless you pass it")
+	fmt.Fprintln(w, "                               --sessions on dispatch/dispatch-role records every launch attempt,")
+	fmt.Fprintln(w, "                               a failed one included; nothing is tracked unless you pass it")
 	fmt.Fprintln(w, "  console --sessions S kill <name-or-daemon-id> [--force]")
 	fmt.Fprintln(w, "                               stop one recorded session and drop it from the sessions file.")
 	fmt.Fprintln(w, "                               Refuses an Alive session unless --force. For bg mode this removes")
 	fmt.Fprintln(w, "                               the job's own ~/.claude/jobs/<id> directory (a blocked bg daemon")
 	fmt.Fprintln(w, "                               holds no live process to signal, so this is what actually stops")
-	fmt.Fprintln(w, "                               it being respawned) — for tmux mode it kills the tmux session")
+	fmt.Fprintln(w, "                               it being respawned) and keeps the session's own worktree, printing")
+	fmt.Fprintln(w, "                               its path — for tmux mode it kills the tmux session")
+	fmt.Fprintln(w, "  console --inbox F inbox add --type action|unread --title T [--body B] [--ref R] [--project P]")
+	fmt.Fprintln(w, "                               record a decision awaiting the operator, or finished work")
+	fmt.Fprintln(w, "                               awaiting acknowledgement; prints the new entry's id on success")
+	fmt.Fprintln(w, "                               (usable non-interactively, e.g. from an agent's own shell)")
+	fmt.Fprintln(w, "  console --inbox F inbox resolve <id>")
+	fmt.Fprintln(w, "                               mark one inbox entry resolved")
+	fmt.Fprintln(w, "  console --inbox F inbox list [--all]")
+	fmt.Fprintln(w, "                               list open inbox entries (--all also lists resolved ones)")
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
@@ -1055,72 +1195,243 @@ func watchLive(w io.Writer, sessionsPath string, roster fleet.Roster, roles cons
 	}
 }
 
-// absDir resolves dir to an absolute path, falling back to the original
-// string if that fails for any reason. A relaunch may run from a different
-// working directory than the original dispatch (a later invocation, a cron
-// sweep) -- a relative Dir recorded against today's CWD would silently point
-// somewhere else, or nowhere, by then.
-func absDir(dir string) string {
-	abs, err := filepath.Abs(dir)
+// parseConsoleArgs parses console's flags wherever they appear -- before the
+// subcommand, after it, or among its arguments -- and returns the arguments
+// that are not flags, in order. "--" ends the flags: everything after it is
+// an argument, which is how a dispatch task carries a word starting with -.
+//
+// Go's flag package stops at the first argument that is not a flag, and every
+// console subcommand is one. So a flag after the subcommand was never parsed:
+// `watch --relaunch`, the form fleet-ops documents, printed the status and
+// relaunched nothing; `kill x --force` refused as if --force were absent; and
+// #399 had to refuse a flag after dispatch, or `dispatch p "task" --dry-run`
+// would have launched for real with the flag as task text. Nothing reported
+// the first two. The syntax is the flag package's own (-name or --name, a
+// value after = or as the next argument, none for a bool unless after =), so
+// a flag means the same on either side of the subcommand.
+//
+// A word that is not a flag of this set is an error, never an argument: a
+// typo'd flag, or one a task needed and did not put after --, would otherwise
+// be folded silently into the task.
+func parseConsoleArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return append(positional, args[i+1:]...), nil
+		}
+		if len(a) < 2 || a[0] != '-' {
+			positional = append(positional, a)
+			continue
+		}
+		name, value, hasValue := strings.Cut(strings.TrimPrefix(a[1:], "-"), "=")
+		if name == "" || name[0] == '-' {
+			return positional, fmt.Errorf("bad flag syntax: %s", a)
+		}
+		f := fs.Lookup(name)
+		if f == nil {
+			if name == "h" || name == "help" {
+				return positional, flag.ErrHelp
+			}
+			typed, _, _ := strings.Cut(a, "=")
+			return positional, fmt.Errorf("unknown flag %s", typed)
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			if !hasValue {
+				value = "true"
+			}
+		} else if !hasValue {
+			if i+1 == len(args) {
+				return positional, fmt.Errorf("--%s needs a value", name)
+			}
+			i++
+			value = args[i]
+		}
+		if err := fs.Set(name, value); err != nil {
+			return positional, fmt.Errorf("invalid value %q for --%s: %v", value, name, err)
+		}
+	}
+	return positional, nil
+}
+
+// consoleSubcommand names the subcommand args select ("" for the dashboard,
+// "inbox add" for an inbox one), refusing one that does not exist and
+// arguments it would not read. Too few arguments are left to each
+// subcommand's own usage message.
+func consoleSubcommand(args []string) (string, error) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	sub, max := args[0], 0
+	switch sub {
+	case "watch":
+		max = 1
+	case "kill":
+		max = 2
+	case "dispatch", "dispatch-role":
+		return sub, nil // the rest is the target and the task
+	case "inbox":
+		if len(args) < 2 {
+			return sub, nil
+		}
+		switch args[1] {
+		case "add", "list":
+			sub, max = "inbox "+args[1], 2
+		case "resolve":
+			sub, max = "inbox resolve", 3
+		default:
+			return "", fmt.Errorf("unknown inbox subcommand %q (want add, resolve, or list)", args[1])
+		}
+	default:
+		return "", fmt.Errorf("unknown console subcommand %q (want watch, kill, dispatch, dispatch-role or inbox; none for the dashboard)", sub)
+	}
+	if len(args) > max {
+		return "", fmt.Errorf("unexpected argument %q to %s", args[max], sub)
+	}
+	return sub, nil
+}
+
+// consoleFlagScope is the subcommands each console flag applies to ("" is the
+// dashboard). A flag set for a subcommand it does not apply to is refused
+// rather than ignored: ignored, it reads as honoured, and `--dry-run kill`
+// would kill for real. A flag missing from this table is refused everywhere,
+// so a new one cannot pass unscoped.
+//
+// The file flags apply everywhere, because fleet-ops' console.sh passes
+// --roster, --roles and --sessions on every invocation, whatever follows.
+var consoleFlagScope = map[string][]string{
+	"roster":   nil,
+	"roles":    nil,
+	"sessions": nil,
+	"inbox":    nil,
+	"mode":     {"dispatch"},
+	"dry-run":  {"dispatch", "dispatch-role", "watch"},
+	"worktree": {"dispatch", "dispatch-role"},
+	"branch":   {"dispatch", "dispatch-role"},
+	"relaunch": {"watch"},
+	"live":     {"watch"},
+	"interval": {"watch"},
+	"force":    {"kill"},
+	"type":     {"inbox add"},
+	"title":    {"inbox add"},
+	"body":     {"inbox add"},
+	"ref":      {"inbox add"},
+	"project":  {"inbox add"},
+	"all":      {"inbox list"},
+}
+
+// checkConsoleFlagScope refuses the first flag set on fs that sub has no use
+// for (see consoleFlagScope).
+func checkConsoleFlagScope(fs *flag.FlagSet, sub string) error {
+	var err error
+	fs.Visit(func(f *flag.Flag) {
+		if err != nil {
+			return
+		}
+		scope, known := consoleFlagScope[f.Name]
+		if known && (scope == nil || slices.Contains(scope, sub)) {
+			return
+		}
+		if !known {
+			err = fmt.Errorf("--%s has no declared scope; this is a lacquer bug", f.Name)
+			return
+		}
+		where := sub
+		if where == "" {
+			where = "the dashboard (no subcommand)"
+		}
+		err = fmt.Errorf("--%s applies only to %s, not to %s", f.Name, strings.Join(scope, " and "), where)
+	})
+	return err
+}
+
+// finishDispatch prints a dispatch's output, records it when a sessions file
+// is configured, and turns its error into an exit code. Shared by dispatch
+// and dispatch-role.
+//
+// What gets recorded is decided by console (Launch.Record), not here. A
+// failure to write the record is a warning, not a hard error: the dispatch
+// itself already happened, and the operator's request should not fail just
+// because tracking could not be written.
+func finishDispatch(stdout, stderr io.Writer, sessionsPath string, launch console.Launch, err error) int {
+	fmt.Fprint(stdout, launch.Output)
+	if sessionsPath != "" && launch.Record != nil {
+		if rerr := console.AppendRecord(sessionsPath, *launch.Record); rerr != nil {
+			fmt.Fprintf(stderr, "warning: could not record session: %v\n", rerr)
+		}
+	}
 	if err != nil {
-		return dir
+		return fail(stderr, err)
 	}
-	return abs
+	return 0
 }
 
-// recordProjectDispatch appends a Record for a successful project dispatch,
-// so a later `watch` pass can find it again. A failure to record is a
-// warning, not a hard error: the dispatch itself already succeeded, and the
-// operator's actual request should not fail just because tracking couldn't
-// be written.
-func recordProjectDispatch(stderr io.Writer, sessionsPath string, roster fleet.Roster, name, task string, mode console.Mode, dispatchOut string) {
-	for i := range roster.Project {
-		if roster.Project[i].Name != name {
-			continue
-		}
-		rec := console.Record{
-			Kind:      console.ProjectKind,
-			Name:      roster.Project[i].Name,
-			Mode:      mode,
-			Dir:       absDir(roster.Project[i].Path),
-			Task:      task,
-			DaemonID:  console.DaemonID(dispatchOut),
-			StartedAt: time.Now().UTC(),
-		}
-		if err := console.AppendRecord(sessionsPath, rec); err != nil {
-			fmt.Fprintf(stderr, "warning: could not record session: %v\n", err)
-		}
-		return
+// runInboxAdd is `lacquer console --inbox F inbox add`. Must be usable
+// non-interactively by an agent in one shell line, so the ONLY thing it prints
+// on success is the assigned id — a script capturing stdout gets exactly the
+// id and nothing else to strip. Its flags (--type, --title, --body, --ref,
+// --project) are console's, parsed on either side of the subcommand.
+func runInboxAdd(path, typ string, e inbox.Entry, stdout, stderr io.Writer) int {
+	switch typ {
+	case string(inbox.Action):
+		e.Type = inbox.Action
+	case string(inbox.Unread):
+		e.Type = inbox.Unread
+	default:
+		return fail(stderr, fmt.Errorf("inbox add needs --type action or --type unread, got %q", typ))
 	}
+	e, err := inbox.Add(path, e)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintln(stdout, e.ID)
+	return 0
 }
 
-// recordRoleDispatch mirrors recordProjectDispatch for a role dispatch.
-// taskOverride, when blank, means the role's own declared task was used --
-// the record needs the ACTUAL task that ran, not an empty override, so the
-// role's declared Task is substituted here rather than left blank.
-func recordRoleDispatch(stderr io.Writer, sessionsPath string, roles console.RoleRoster, name, taskOverride, dispatchOut string) {
-	for i := range roles.Role {
-		if roles.Role[i].Name != name {
+// runInboxResolve is `lacquer console --inbox F inbox resolve <id>`.
+func runInboxResolve(path string, args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		return fail(stderr, fmt.Errorf("usage: lacquer console --inbox F inbox resolve <id>"))
+	}
+	e, err := inbox.Resolve(path, args[0])
+	if err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintf(stdout, "resolved %s [%s]: %s\n", e.ID, e.Type, e.Title)
+	return 0
+}
+
+// runInboxList is `lacquer console --inbox F inbox list [--all]`. Defaults to
+// open entries only, matching what the console dashboard itself shows;
+// --all also lists resolved ones, for an operator auditing what has already
+// been handled.
+func runInboxList(path string, all bool, stdout, stderr io.Writer) int {
+	entries, malformed, err := inbox.ReadAll(path)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if malformed > 0 {
+		fmt.Fprintf(stderr, "warning: skipped %d malformed inbox line(s)\n", malformed)
+	}
+	var shown int
+	for _, e := range entries {
+		if !all && !e.Open() {
 			continue
 		}
-		task := strings.TrimSpace(taskOverride)
-		if task == "" {
-			task = roles.Role[i].Task
+		shown++
+		status := "open"
+		if !e.Open() {
+			status = "resolved " + e.ResolvedAt.Format(time.RFC3339)
 		}
-		rec := console.Record{
-			Kind:      console.RoleKind,
-			Name:      roles.Role[i].Name,
-			Mode:      roles.Role[i].Mode,
-			Dir:       absDir(roles.Role[i].Dir),
-			Task:      task,
-			DaemonID:  console.DaemonID(dispatchOut),
-			StartedAt: time.Now().UTC(),
+		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", e.ID, e.Type, status, e.CreatedAt.Format(time.RFC3339), e.Title)
+		if e.Body != "" {
+			fmt.Fprintf(stdout, "\t\t\t\t  %s\n", e.Body)
 		}
-		if err := console.AppendRecord(sessionsPath, rec); err != nil {
-			fmt.Fprintf(stderr, "warning: could not record session: %v\n", err)
-		}
-		return
 	}
+	if shown == 0 {
+		fmt.Fprintln(stdout, "no inbox entries")
+	}
+	return 0
 }
 
 // runFixers loads the manifest and runs every declared profile's autofixers.

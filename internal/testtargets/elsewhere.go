@@ -49,6 +49,16 @@ type Claim struct {
 	Problems []string
 	// Stale is why this declaration is not doing anything, and "" when it is.
 	Stale string
+	// Detected marks a claim nobody declared: the audit's own search of the
+	// workflows for one that runs a local-package suite (runs.go). Confirmed
+	// means a command running it was found, and Workflow and Reason say which;
+	// Undecided means none was, but something that might be could not be read,
+	// and Problems says what. Neither means it runs nowhere that the audit can
+	// see.
+	Detected  bool
+	Undecided bool
+	// PackageDir is a detected claim's package directory, repo-relative.
+	PackageDir string
 }
 
 // autoEvents are the `on:` triggers that fire a workflow from a code change.
@@ -105,10 +115,18 @@ var testAction = regexp.MustCompile(`(^|\s)(test|test-without-building|build-for
 // file, so any coverage it did provide can vanish without the declaration
 // noticing. An empty set skips the check rather than guessing — see Parse on why
 // "could not look" is not "it is not there".
+//
+// It also returns one Detected claim per local-package suite: whether a
+// workflow here runs it on its own, with no declaration (see runs.go for
+// exactly what counts). Apply uses those only for suites no selector names.
 func Verify(projectRoot string, decls []Declaration, project []Target, managed map[string]bool) []Claim {
+	// Every target Compare's uncovered direction can report, native or package:
+	// that is the list a declaration can take a target out of.
 	have := make(map[string]bool, len(project))
 	for _, t := range project {
-		have[t.Name] = true
+		if t.Unread == "" {
+			have[t.Name] = true
+		}
 	}
 
 	out := make([]Claim, 0, len(decls))
@@ -126,6 +144,51 @@ func Verify(projectRoot string, decls []Declaration, project []Target, managed m
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Target < out[j].Target })
+	return append(out, detect(projectRoot, project)...)
+}
+
+// detect searches the workflows for each local-package suite.
+func detect(projectRoot string, project []Target) []Claim {
+	root, rootErr := filepath.Abs(projectRoot)
+	var out []Claim
+	var suites []suite
+	for _, t := range project {
+		if t.Package == "" || t.Unread != "" {
+			continue
+		}
+		c := Claim{Declaration: Declaration{Target: t.Name}, Detected: true}
+		dir, err := filepath.Abs(t.dir)
+		rel := ""
+		if err == nil && rootErr == nil {
+			rel, err = filepath.Rel(root, dir)
+		}
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			c.PackageDir = t.Package
+			c.Undecided = true
+			c.Problems = []string{fmt.Sprintf("the package (%s) is outside this repository, so no workflow here is expected to run it", t.Package)}
+			out = append(out, c)
+			continue
+		}
+		c.PackageDir = filepath.ToSlash(rel)
+		suites = append(suites, suite{name: t.Name, dir: c.PackageDir})
+		out = append(out, c)
+	}
+	runs := findRuns(root, suites)
+	for i := range out {
+		o, ok := runs[out[i].Target]
+		if !ok || out[i].Undecided {
+			continue
+		}
+		switch {
+		case o.workflow != "":
+			out[i].Confirmed = true
+			out[i].Workflow = o.workflow
+			out[i].Reason = o.command
+		case len(o.unsure) > 0:
+			out[i].Undecided = true
+			out[i].Problems = o.unsure
+		}
+	}
 	return out
 }
 
@@ -342,14 +405,33 @@ func describe(events []string) string {
 // the target and the declaration is a second answer to a question that was not
 // asked — harmless today, misleading the day somebody reads it as the reason the
 // target is covered.
+//
+// Detected claims (runs.go) are applied after the declarations, to the
+// package suites still uncovered: one a workflow runs moves to Ran, one that
+// could not be decided moves to Unchecked, and the rest stay, with the
+// package's repo-relative directory filled in for the report.
 func Apply(r Report, claims []Claim) Report {
 	confirmed := map[string]bool{}
 	uncovered := map[string]bool{}
 	for _, t := range r.Uncovered {
 		uncovered[t.Name] = true
 	}
+	detected := map[string]Claim{}
+	for _, c := range claims {
+		if c.Detected {
+			detected[c.Target] = c
+		}
+	}
 	for i := range claims {
 		c := &claims[i]
+		if c.Detected {
+			continue
+		}
+		if d, ok := detected[c.Target]; ok && d.Confirmed && c.Stale == "" && uncovered[c.Target] {
+			// A second answer to a question the workflows already answer. It reads
+			// as the reason the suite is covered, and it is not.
+			c.Stale = fmt.Sprintf("%s already runs this package's tests (%s); the declaration is not needed", d.Workflow, d.Reason)
+		}
 		if c.Stale == "" && c.Confirmed && !uncovered[c.Target] {
 			c.Stale = "a managed test selector already covers this target"
 		}
@@ -367,9 +449,21 @@ func Apply(r Report, claims []Claim) Report {
 	}
 	var kept []Target
 	for _, t := range r.Uncovered {
-		if !confirmed[t.Name] {
-			kept = append(kept, t)
+		if confirmed[t.Name] {
+			continue
 		}
+		if d, ok := detected[t.Name]; ok && t.Package != "" {
+			t.PackageDir = d.PackageDir
+			switch {
+			case d.Confirmed:
+				r.Ran = append(r.Ran, d)
+				continue
+			case d.Undecided:
+				r.Unchecked = append(r.Unchecked, Unchecked{Package: d.PackageDir, Suite: t.Name, Reason: strings.Join(d.Problems, "; ")})
+				continue
+			}
+		}
+		kept = append(kept, t)
 	}
 	r.Uncovered = kept
 	return r

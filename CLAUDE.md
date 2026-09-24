@@ -100,6 +100,11 @@ output. These are specific to this machine and they recur:
   Use an array.
 - **Do not read indentation off piped output.** `sed 's/^/  /'` adds two spaces;
   anchors copied from it fail to match. Measure the file.
+- **Wait for CI with `lacquer wait pr <N>`, not a hand-rolled loop.** Run it in
+  the background and read its exit code: 0 passed, 1 a check failed, 2 timed out,
+  3 no checks (never green), 4 the wait itself failed. `gh pr checks --watch
+  --fail-fast` exits 0 even when a check fails, and a `// "PENDING"` jq default
+  misses the `conclusion: ""` a check in flight reports.
 - **A flag after a script name is passed to the script.** `pnpm run lint
   --silent` hands `--silent` to biome, which rejects it — inventing three
   failures that were then investigated as real.

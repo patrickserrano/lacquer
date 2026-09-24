@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/patrickserrano/lacquer/internal/inbox"
 )
 
 // Text renders the merged view.
@@ -13,7 +15,16 @@ import (
 // one people stop opening. Detail is indented under the project it belongs to
 // rather than spread across columns: notes vary wildly in length, and a table
 // that wraps is harder to read than a list that does not.
+//
+// ACTION prints first, before every project row, and UNREAD prints right
+// after it -- both ahead of the roster entirely, including the "roster is
+// empty" short-circuit below. A decision blocked on the operator outranks the
+// state of any single project; showing it below a page of project rows is how
+// it gets scrolled past.
 func Text(w io.Writer, res Result) {
+	printInboxSection(w, "ACTION", "!!", res.Actions)
+	printInboxSection(w, "UNREAD", "  ", res.Unread)
+
 	if len(res.Rows) == 0 {
 		fmt.Fprintln(w, "roster is empty")
 		return
@@ -60,14 +71,51 @@ func Text(w io.Writer, res Result) {
 		}
 	}
 
-	fmt.Fprintf(w, "\n%d project(s) · %d session(s) (%d working) · %d open PR(s)\n",
-		len(res.Rows), idle+working, working, prs)
+	fmt.Fprintf(w, "\n%d project(s) · %d session(s) (%d working) · %d open PR(s) · %d action(s) · %d unread\n",
+		len(res.Rows), idle+working, working, prs, len(res.Actions), len(res.Unread))
 
 	// Named loudly. A console missing a source looks exactly like a quiet
 	// fleet, and the difference matters most when something is broken.
 	for _, u := range res.Unavailable {
 		fmt.Fprintf(w, "unavailable: %s — that column is blank, not empty\n", u)
 	}
+}
+
+// printInboxSection renders one inbox.Entry section (ACTION or UNREAD) if it
+// has anything to show, and nothing at all otherwise -- an empty header line
+// with nothing under it is the "state indistinguishable from working" shape
+// this repo's CLAUDE.md warns about (looks like "checked, found nothing" when
+// it is actually "nothing to check").
+//
+// mark reuses the same two-column mark convention the project rows already
+// use ("!!" for Blocking, two spaces otherwise): ACTION gets "!!" because a
+// stalled decision is exactly the kind of thing that mark exists to flag;
+// UNREAD does not, because finished-but-unacknowledged work is informational,
+// not blocking. · and # are the same prefixes the project rows use for a note
+// and a numbered reference, respectively -- reused rather than invented, so
+// the visual language stays one language across the whole screen.
+func printInboxSection(w io.Writer, header, mark string, entries []inbox.Entry) {
+	if len(entries) == 0 {
+		return
+	}
+	fmt.Fprintln(w, header)
+	for _, e := range entries {
+		fmt.Fprintf(w, "%s %s  [%s]\n", mark, e.Title, e.ID)
+		if e.Body != "" {
+			fmt.Fprintf(w, "   · %s\n", e.Body)
+		}
+		var tail []string
+		if e.Ref != "" {
+			tail = append(tail, "#"+strings.TrimPrefix(e.Ref, "#"))
+		}
+		if e.Project != "" {
+			tail = append(tail, e.Project)
+		}
+		if len(tail) > 0 {
+			fmt.Fprintf(w, "   %s\n", strings.Join(tail, "   "))
+		}
+	}
+	fmt.Fprintln(w)
 }
 
 // summary is the one-line right-hand side: the shape of this project right now.

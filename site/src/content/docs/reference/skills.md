@@ -48,16 +48,22 @@ are generic productivity, not fleet engineering). See `docs/references.md`.
 | `skill-tuning-loop` | Empirically testing whether a skill needs an edit — mines session transcripts for friction (or audits against skill-authoring-standard when evidence is thin), proposes a bounded fix, validates against held-out cases before it ships. | [skill-tuning-loop](https://github.com/patrickserrano/lacquer/blob/main/core/skills/skill-tuning-loop/SKILL.md) |
 | `working-with-lacquer` | Working in a lacquer-managed project and the management itself comes up — the drift audit in `Detect changed paths` fails, `lacquer audit` exits 3/4/6, a synced config reverts on the next sync, or a baseline can't be met yet. | [working-with-lacquer](https://github.com/patrickserrano/lacquer/blob/main/core/skills/working-with-lacquer/SKILL.md) |
 
-### core — marketing
+## marketing
 
 Vendored wholesale from [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills)
-(MIT; the upstream licence is kept at `core/skills/LICENSE-upstream-marketingskills`).
-They sit in `core` rather than a profile because they apply to any project with
-a public-facing app or site, not just an iOS one. Two were edited on the way in
-rather than copied blind: `video` used `npm install`, which the web profile
-bans in favour of `pnpm` against a committed lockfile, and `cold-email` used
-`{{FirstName}}`-shaped mail-merge placeholders that collide with lacquer's own
-`{{TOKEN}}` substitution syntax and made `sync` correctly refuse to render them.
+(MIT; the upstream licence is kept at `profiles/marketing/skills/LICENSE-upstream-marketingskills`).
+They used to sit in `core`, on the reasoning that they apply to any project
+with a public-facing app or site, not just an iOS one — but `core` ships to
+every project regardless of what it does, and most projects in this fleet are
+apps with no marketing surface of their own. They now ship only to a component
+that deliberately declares the `marketing` profile (see [Profiles that
+ship](https://github.com/patrickserrano/lacquer#profiles-that-ship) in the
+README) — never auto-detected, since there is no marketing "stack" on disk to
+find. Two were edited on the way in rather than copied blind: `video` used
+`npm install`, which the web profile bans in favour of `pnpm` against a
+committed lockfile, and `cold-email` used `{{FirstName}}`-shaped mail-merge
+placeholders that collide with lacquer's own `{{TOKEN}}` substitution syntax
+and made `sync` correctly refuse to render them.
 
 | Skill | Fires when |
 |-------|-----------|

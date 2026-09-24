@@ -2,10 +2,13 @@ package console
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patrickserrano/lacquer/internal/fleet"
+	"github.com/patrickserrano/lacquer/internal/inbox"
 )
 
 // A background session runs in a git worktree BENEATH the project, so equality
@@ -139,7 +142,8 @@ func TestDispatchRejectsUnknownMode(t *testing.T) {
 // knows about is not. Warn, do not refuse.
 func TestDispatchWarnsAboutExistingSessionsButProceeds(t *testing.T) {
 	sessions := []Session{{Name: "alpha-1", Status: "working", CWD: "/w/alpha"}}
-	out, err := Dispatch(rosterOf("alpha"), sessions, "alpha", "task", Background, true)
+	outLaunch, err := Dispatch(rosterOf("alpha"), sessions, "alpha", "task", Tmux, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatalf("an existing session must not block dispatch: %v", err)
 	}
@@ -154,12 +158,17 @@ func TestDispatchWarnsAboutExistingSessionsButProceeds(t *testing.T) {
 // The mode decides whether edits land in an isolated worktree or the real
 // checkout, so the command must differ accordingly.
 func TestDispatchModesTargetDifferentPlaces(t *testing.T) {
-	bg, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Background, true)
+	repo := realPath(t, t.TempDir())
+	initGitRepo(t, repo)
+	roster := fleet.Roster{Project: []fleet.Entry{{Name: "alpha", Path: repo}}}
+	bgLaunch, err := Dispatch(roster, nil, "alpha", "task", Background, true)
+	bg := bgLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
 	// claude has no --cwd flag; the working directory is set via exec.Cmd.Dir,
-	// not an argument, so the display line shows it as a `cd` prefix instead.
+	// not an argument, so the display line shows it as a `cd` prefix instead
+	// -- into a worktree of its own, never the checkout.
 	//
 	// --dangerously-skip-permissions bypasses the permission-PROMPT layer only
 	// -- it has nothing to do with the sandbox, a separate execution-level
@@ -168,21 +177,30 @@ func TestDispatchModesTargetDifferentPlaces(t *testing.T) {
 	// needs, and git add/commit/push/checkout -b/worktree remove all get
 	// silently denied -- indistinguishable from success until the operator
 	// reads the job's own transcript.
-	if !strings.Contains(bg, `cd /w/alpha && claude --bg --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task`) {
-		t.Errorf("bg mode must launch a background agent in the project directory with the sandbox disabled, not just permission prompts skipped:\n%s", bg)
+	if !strings.Contains(bg, "(cd "+filepath.Join(repo, ".claude", "worktrees", "dispatch-")) ||
+		!strings.Contains(bg, ` && claude --bg --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task)`) {
+		t.Errorf("bg mode must launch a background agent in a worktree of its own with the sandbox disabled, not just permission prompts skipped:\n%s", bg)
 	}
-	tm, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Tmux, true)
+	if strings.Contains(bg, "(cd "+repo+" &&") {
+		t.Errorf("bg mode must not run in the checkout:\n%s", bg)
+	}
+	tmLaunch, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Tmux, true)
+	tm := tmLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(tm, "tmux new-session -A -s alpha -c /w/alpha") {
-		t.Errorf("tmux mode must attach-or-create the project session:\n%s", tm)
+	if !strings.Contains(tm, `tmux new-session -d -s alpha -c /w/alpha claude --dangerously-skip-permissions --settings {"sandbox":{"enabled":false}} task`) {
+		t.Errorf("tmux mode must start a detached session in the checkout, with bypass permissions:\n%s", tm)
+	}
+	if strings.Contains(tm, " -A ") {
+		t.Errorf("-A attaches an existing session, which fails with no terminal even alongside -d:\n%s", tm)
 	}
 }
 
 // Dry run is the guard that makes the two modes safe to explore.
 func TestDryRunStartsNothing(t *testing.T) {
-	out, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Background, true)
+	outLaunch, err := Dispatch(rosterOf("alpha"), nil, "alpha", "task", Tmux, true)
+	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,5 +228,141 @@ func TestLiveRowStillReadsAsClear(t *testing.T) {
 	got := summary(Row{Name: "kit"})
 	if len(got) != 1 || got[0] != "clear" {
 		t.Errorf("a live project with nothing to report should still read clear, got %v", got)
+	}
+}
+
+// MUTATION 3: make a missing inbox file a hard error instead of Unavailable,
+// and this fails. Gather must degrade exactly the way it already does for
+// `gh` and `claude agents` -- see console.go's package doc, "A MISSING TOOL
+// DEGRADES, IT DOES NOT FAIL" -- rather than propagating a Go error out of a
+// function whose whole contract is that it never returns one.
+func TestGatherDegradesOnAnUnreadableInbox(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist.jsonl")
+	res := Gather("", fleet.Roster{}, time.Now(), missing)
+	var found bool
+	for _, u := range res.Unavailable {
+		if strings.Contains(u, "inbox") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an inbox entry in Unavailable, got: %v", res.Unavailable)
+	}
+	if len(res.Actions) != 0 || len(res.Unread) != 0 {
+		t.Errorf("an unreadable inbox must yield no entries, got actions=%v unread=%v", res.Actions, res.Unread)
+	}
+}
+
+// An inbox path that is simply never configured (--inbox unset) is a
+// different case from one that is configured but unreadable: it must NOT
+// appear in Unavailable at all, matching how an unset --sessions/--roles
+// simply means that feature is off, not broken.
+func TestGatherWithNoInboxConfiguredIsSilentAboutIt(t *testing.T) {
+	res := Gather("", fleet.Roster{}, time.Now(), "")
+	for _, u := range res.Unavailable {
+		if strings.Contains(u, "inbox") {
+			t.Fatalf("an unconfigured --inbox must not be reported as unavailable, got: %v", res.Unavailable)
+		}
+	}
+}
+
+// Gather must actually surface open inbox entries, split by type, and leave
+// resolved ones out.
+func TestGatherPopulatesActionsAndUnreadFromTheInboxFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "inbox.jsonl")
+	if _, err := inbox.Add(p, inbox.Entry{Type: inbox.Action, Title: "decide the eval gate"}); err != nil {
+		t.Fatal(err)
+	}
+	unread, err := inbox.Add(p, inbox.Entry{Type: inbox.Unread, Title: "cost analysis done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := inbox.Add(p, inbox.Entry{Type: inbox.Unread, Title: "already handled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inbox.Resolve(p, resolved.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	res := Gather("", fleet.Roster{}, time.Now(), p)
+	if len(res.Actions) != 1 || res.Actions[0].Title != "decide the eval gate" {
+		t.Fatalf("Actions = %+v, want exactly the one open action entry", res.Actions)
+	}
+	if len(res.Unread) != 1 || res.Unread[0].ID != unread.ID {
+		t.Fatalf("Unread = %+v, want exactly the one open unread entry (the resolved one must be excluded)", res.Unread)
+	}
+}
+
+// MUTATION 4: remove the ACTION-before-projects ordering in render, and this
+// fails. A blocked decision outranks every project row, so it must render
+// first — burying it below a page of project rows is how it gets scrolled
+// past.
+func TestActionSectionRendersBeforeProjectRows(t *testing.T) {
+	var buf bytes.Buffer
+	Text(&buf, Result{
+		Rows: []Row{{Name: "zzz-last-project"}},
+		Actions: []inbox.Entry{
+			{ID: "abc123", Type: inbox.Action, Title: "decide the eval gate"},
+		},
+	})
+	s := buf.String()
+	actionIdx := strings.Index(s, "ACTION")
+	projectIdx := strings.Index(s, "zzz-last-project")
+	if actionIdx == -1 {
+		t.Fatalf("ACTION section did not render at all:\n%s", s)
+	}
+	if projectIdx == -1 {
+		t.Fatalf("the project row did not render at all:\n%s", s)
+	}
+	if actionIdx > projectIdx {
+		t.Fatalf("ACTION section must render before project rows, got:\n%s", s)
+	}
+	if !strings.Contains(s, "decide the eval gate") {
+		t.Errorf("the action's title is missing from the rendered output:\n%s", s)
+	}
+}
+
+// UNREAD must render too (not just ACTION), and a screen with neither must
+// print no inbox sections at all -- an empty "ACTION"/"UNREAD" header with
+// nothing under it is the exact "looks like it ran, actually found nothing to
+// check" shape this repo's CLAUDE.md warns about.
+func TestUnreadSectionRendersAndEmptySectionsStaySilent(t *testing.T) {
+	var buf bytes.Buffer
+	Text(&buf, Result{
+		Rows:   []Row{{Name: "p"}},
+		Unread: []inbox.Entry{{ID: "def456", Type: inbox.Unread, Title: "cost analysis done"}},
+	})
+	s := buf.String()
+	if !strings.Contains(s, "UNREAD") || !strings.Contains(s, "cost analysis done") {
+		t.Fatalf("UNREAD section is missing its entry:\n%s", s)
+	}
+	if strings.Contains(s, "ACTION") {
+		t.Fatalf("no ACTION entries were given; the header must not appear:\n%s", s)
+	}
+
+	buf.Reset()
+	Text(&buf, Result{Rows: []Row{{Name: "p"}}})
+	s = buf.String()
+	if strings.Contains(s, "ACTION") || strings.Contains(s, "UNREAD") {
+		t.Fatalf("neither section has entries; no header should print at all:\n%s", s)
+	}
+}
+
+// The bottom summary line must count actions/unread too, not just leave the
+// reader to count rendered entries by hand.
+func TestSummaryLineCountsActionsAndUnread(t *testing.T) {
+	var buf bytes.Buffer
+	Text(&buf, Result{
+		Rows:    []Row{{Name: "p"}},
+		Actions: []inbox.Entry{{ID: "a1", Type: inbox.Action, Title: "x"}},
+		Unread:  []inbox.Entry{{ID: "u1", Type: inbox.Unread, Title: "y"}, {ID: "u2", Type: inbox.Unread, Title: "z"}},
+	})
+	s := buf.String()
+	if !strings.Contains(s, "1 action(s)") {
+		t.Errorf("summary line is missing the action count:\n%s", s)
+	}
+	if !strings.Contains(s, "2 unread") {
+		t.Errorf("summary line is missing the unread count:\n%s", s)
 	}
 }

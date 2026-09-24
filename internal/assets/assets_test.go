@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 func write(t *testing.T, path, content string) {
@@ -279,7 +280,8 @@ func TestPlanHonorsExclude(t *testing.T) {
 
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
-	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}} {
+	gittest.Init(t, dir, "-q")
+	for _, args := range [][]string{{"add", "-A"}} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(),

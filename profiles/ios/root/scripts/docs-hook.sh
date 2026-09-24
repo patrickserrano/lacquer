@@ -11,9 +11,38 @@
 # An EXPIRED or malformed relaxation is not a skip. It fails here exactly as it
 # fails in CI, because the whole point of a time-boxed exemption is that time
 # runs out.
+#
+# The script and the manifest are resolved from the REPOSITORY root. pre-commit
+# runs this from there already, but the relaxation lives at the root whichever
+# directory the hook is run from. They used to be read with
+# `2>/dev/null || echo none`, which turned a missing script, a missing manifest
+# or a failing script into "not relaxed" — a correctly dated relaxation silently
+# ignored, and indistinguishable from "read the manifest, found nothing". A
+# missing input is a broken install, so it fails and names the file (#387 fixed
+# the same swallow in the web and supabase lefthook commands).
+#
+# The root is found with GIT_DIR and GIT_WORK_TREE cleared. git exports GIT_DIR
+# to hooks in a linked worktree, and with it set `--show-toplevel` answers the
+# current directory rather than the top of the working tree — right only by
+# accident when run from the root. Cleared, git rediscovers the repository from
+# the current directory, correctly in a main checkout and a worktree alike.
 set -euo pipefail
 
-state=$(scripts/docs-relaxation.sh .lacquer.toml 2>/dev/null || echo none)
+if ! top=$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --show-toplevel); then
+  echo "docs: not inside a git repository, so [baseline.relax] cannot be read." >&2
+  exit 1
+fi
+for f in scripts/docs-relaxation.sh .lacquer.toml; do
+  if [ ! -f "$top/$f" ]; then
+    echo "docs: $f is missing from the repository root ($top), so [baseline.relax] cannot be read." >&2
+    echo "      Every lacquer-managed repository has it; restore it (lacquer sync writes the script)." >&2
+    exit 1
+  fi
+done
+if ! state=$(cd "$top" && scripts/docs-relaxation.sh .lacquer.toml); then
+  echo "docs: scripts/docs-relaxation.sh failed, so [baseline.relax] cannot be read." >&2
+  exit 1
+fi
 
 case "$state" in
   relaxed)

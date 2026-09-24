@@ -12,9 +12,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitguard"
 )
 
 // Runner executes one `skills` CLI invocation in dir and returns its combined
@@ -35,8 +37,8 @@ type Result struct {
 }
 
 // Install ensures every entry is installed at project scope (`skills add
-// <source> -s <name> -p -y`, idempotent — an already-installed skill is a
-// no-op). It keeps going after an individual failure so one bad entry
+// <source> -s <name> -p -y`). Tracked skill destinations are refused before
+// invoking the installer. It keeps going after an individual failure so one bad entry
 // doesn't block the rest, and returns every failure for the caller to report.
 // After installing, it reads the project's skills-lock.json (written by the
 // `skills` CLI) and flags any installed skill the manifest no longer
@@ -52,9 +54,17 @@ type Result struct {
 func Install(projectRoot string, entries []config.SkillEntry, tools []string) (Result, error) {
 	res := Result{Failed: map[string]string{}}
 	declared := map[string]bool{}
+	tracked, err := trackedSkillPaths(projectRoot)
+	if err != nil {
+		return res, fmt.Errorf("check tracked skills: %w", err)
+	}
 
 	for _, e := range entries {
 		declared[e.Name] = true
+		if path := trackedDestination(tracked, e.Name, tools); path != "" {
+			res.Failed[e.Name] = fmt.Sprintf("refusing to install over tracked skill path %s; keep the project-owned copy or remove this entry from [project].skills", path)
+			continue
+		}
 		out, err := Runner(projectRoot, "add", e.Source, "-s", e.Name, "-p", "-y")
 		if err != nil {
 			res.Failed[e.Name] = fmt.Sprintf("%v\n%s", err, out)
@@ -77,6 +87,53 @@ func Install(projectRoot string, entries []config.SkillEntry, tools []string) (R
 		}
 	}
 	return res, nil
+}
+
+// Missing reads the CLI's local installation record without invoking it.
+// Like the undeclared report, membership is determined by skill name.
+func Missing(projectRoot string, entries []config.SkillEntry) ([]config.SkillEntry, error) {
+	installed, err := installedSkills(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("read skills-lock.json: %w", err)
+	}
+	var missing []config.SkillEntry
+	for _, entry := range entries {
+		if !installed[entry.Name] {
+			missing = append(missing, entry)
+		}
+	}
+	return missing, nil
+}
+
+// Read the index before any external installer can overwrite a tracked copy.
+// Unlike a dirty-file check, this also protects clean files and local deletions.
+func trackedSkillPaths(projectRoot string) ([]string, error) {
+	inGit, err := gitguard.InWorkTree(projectRoot)
+	if err != nil || !inGit {
+		return nil, err
+	}
+	cmd := exec.Command("git", "ls-files", "-z", "--", ".")
+	cmd.Dir = projectRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(string(out), "\x00"), nil
+}
+
+func trackedDestination(tracked []string, name string, tools []string) string {
+	cfg := &config.Config{Project: config.Project{Tools: tools}}
+	for _, dir := range assets.SkillDirs(cfg) {
+		target := dir + "/" + name
+		for _, path := range tracked {
+			// A tracked symlink at the destination or an ancestor is also
+			// project-owned, even though ls-files cannot see through it.
+			if path != "" && (path == target || strings.HasPrefix(path, target+"/") || strings.HasPrefix(target, path+"/")) {
+				return path
+			}
+		}
+	}
+	return ""
 }
 
 // bridgeToolDirs makes skillName reachable from every tool dir in tools that

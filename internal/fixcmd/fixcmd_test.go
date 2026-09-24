@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 func writeFile(t *testing.T, path, body string) {
@@ -96,7 +97,8 @@ func TestFixerRunsToAFixedPoint(t *testing.T) {
 		"[[command]]\nname = \"grow\"\nargv = [\"sh\", \"-c\", \"n=$(cat n 2>/dev/null || echo 0); "+
 			"if [ \\\"$n\\\" -lt 2 ]; then echo $((n+1)) > n; fi\"]\n")
 	proj := t.TempDir()
-	for _, c := range [][]string{{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}} {
+	gittest.Init(t, proj)
+	for _, c := range [][]string{{"config", "user.email", "t@t"}, {"config", "user.name", "t"}} {
 		cmd := exec.Command("git", c...)
 		cmd.Dir = proj
 		if err := cmd.Run(); err != nil {

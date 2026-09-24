@@ -14,16 +14,77 @@ description: Every lacquer CLI subcommand.
 | `lacquer doctor [--profile P]` | Prove each check can actually fail; exit 5 if one cannot. `--profile` limits it to one stack's checks, for a runner that has only that toolchain. |
 | `lacquer fix` | Run the profiles' autofixers (formatters, `lint --fix`) over the project. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
-| `lacquer audit` | Classify project drift and check the project baseline. Exit 3 if a sync would clobber a local change, 4 on a baseline violation or an expired `[project].exclude`, 6 if a stack on disk is undeclared (usable as a CI gate). |
+| `lacquer audit` | Classify project drift and check the project baseline. Exit 3 if a sync would clobber a local change, 4 on a baseline violation or an expired `[project].exclude`, `dependabot_ignore` or `[[project.not_run_in_ci]]`, 6 if a stack on disk is undeclared (usable as a CI gate). It also reports, without ever changing the exit code, any rendered agent, skill or command that Claude Code would skip silently (frontmatter missing or not on line 1, an agent with no `name` or a `name` containing `:`), and runs `claude plugin validate --strict` over them when the `claude` CLI is installed (otherwise it says "not checked"). |
 | `lacquer fleet --roster F [--json]` | Audit every project in a roster; exit 4 if any would fail its own audit. `--json` emits a snapshot. |
 | `lacquer fleet diff A.json B.json` | What changed between two snapshots; exit 4 on a regression. |
 | `lacquer protection [--repo O/N] [--branch B] [--roster F]` | Compare what branch protection **requires** against what CI can **post**. GitHub counts a skipped check as satisfying a required one, so a repo passes only if it requires the always-running `CI OK` aggregate — or some other context posted by a job nothing can skip. Reaches the GitHub API through `gh`, so it is opt-in and separate from `audit`. Exit 4 on a finding; **exit 7 if a repository could not be checked** — never reported as a pass. |
+| `lacquer wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json]` | Block, in one process, until every check on PR `N` is terminal, then print each check's name, conclusion and duration. **The sanctioned way to wait for CI.** It sleeps between polls, so waiting costs no model tokens: run it in the background and you are woken once, when it returns. Defaults: `--timeout 20m`, `--interval 15s`; `--repo` is inferred by `gh` from the checkout. Four outcomes, each its own exit code, never conflated — see [Waiting for CI](#waiting-for-ci-lacquer-wait-pr). |
+| `lacquer ci-round begin <N> [--reason TEXT] [--sha SHA] [--repo O/N] [--inbox F] [--manifest-ref REF]` | Ask for one of the rounds of CI an **agent** gets on PR `N` (default 2, `[project].ci_round_cap`), *before* the push it covers. The count is recorded on the PR, so a session ending, or a new one picking the PR up, changes nothing. Round 2 must name a check the first reported failing; a third attempt is refused with a report, never a failure. See [Capping CI rounds](#capping-ci-rounds-lacquer-ci-round). |
+| `lacquer ci-round status <N>` | Read-only: rounds spent and left on PR `N`. Exit `10` if exhausted, else `0`. |
 | `lacquer console --roster F` | One screen: fleet truth + live sessions + open PRs. |
-| `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, re-attach, check, or stop work on a project or a named role. See `lacquer help` for the flag combinations each takes. |
+| `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, check, relaunch, or stop work on a project or a named role. `--mode bg` runs `claude --bg` in a new git worktree and branch under `<repo>/.claude/worktrees/`, and launches nothing if one cannot be made. `--mode tmux` starts a detached tmux session in the checkout itself, which it edits directly; attach with `tmux attach -t <name>`, and a session already running under that name is left alone. `--worktree <path>` runs the session, in either mode, in an existing worktree instead: for the worktree a PM created and named in an IC's brief. It must be a registered worktree of the project's repository (and, for bg, not the checkout itself), or nothing launches; lacquer never creates, changes or removes it, and records it like one it made, so a relaunch resumes in it and `kill` keeps it. `--branch <name>` (bg only) names the branch of the worktree bg creates, under `.claude/worktrees/` with `/` flattened to `-`, instead of `dispatch/<id>`: for a branch a PM chose. It is refused if the branch or directory already exists (pass `--worktree` for that), and together with `--worktree`. Every console flag works on either side of the subcommand, with the same meaning (`watch --relaunch` is `--relaunch watch`), and among a dispatch task's words, so a trailing `--dry-run` is a dry run; a task word that starts with `-` goes after `--`, which ends the flags (`dispatch <project> -- <task>`). An unknown flag, or one the subcommand has no use for (`--dry-run` with `kill`), is an error; `--roster`, `--roles`, `--sessions` and `--inbox` are accepted by every subcommand. Both modes pass `--dangerously-skip-permissions` with the sandbox off, and neither needs a terminal, so an agent can dispatch. With `--sessions`, every launch attempt is recorded, a failed one included, and `watch` reports a failed launch as failed. `watch --relaunch` puts the relaunched session's record in place of the dead one (a bg session resumes in its recorded worktree), and stops retrying a record after 3 failed launches in a row, leaving it for you. See `lacquer help` for the flag combinations each takes. |
 | `lacquer version` | Print the lacquer version. |
 
 `lacquer help` (or `--help`/`-h`) prints usage, including the full `console`
 flag surface this table abbreviates.
+
+## Waiting for CI: `lacquer wait pr`
+
+Waiting for CI is the most common thing an agent does, and hand-rolled waiters
+keep getting it wrong. One reported `FINAL` and exited 0 while both test jobs
+were still running: it branched on `(.conclusion // "PENDING")`, and jq's `//`
+substitutes for `null`, not for the empty string a check **in flight** reports.
+`gh pr checks --watch --fail-fast` is no substitute: it exits 0 even when checks
+fail. `lacquer wait pr` puts the predicate in one tested place.
+
+```sh
+lacquer wait pr 425                      # blocks; prints every check at the end
+lacquer wait pr 425 --timeout 45m --json
+```
+
+| Exit | Outcome | Meaning |
+|------|---------|---------|
+| `0` | passed | Every check is terminal and none failed. Skipped checks are named on a `skipped:` line. |
+| `1` | failed | At least one check failed (or was cancelled, timed out, needs action, or concluded something unrecognised). Each is named. A failure is decisive: if the ceiling hit with other checks still running it is still `1`, and the running ones are listed as abandoned. |
+| `2` | timed out | `--timeout` hit while a check was still running and **none had failed**. The running checks are named. **Not a failure and not a pass**: the result is unknown. |
+| `3` | no checks | The PR reports no checks, so nothing tested it. **Never a pass.** |
+| `4` | could not wait | `gh` is missing or kept failing, the PR is closed or merged, or the usage was wrong. The PR's state is unknown. |
+
+Choices worth knowing:
+
+- **Empty is not green.** "No check is non-terminal" is trivially true of zero
+  checks. An empty rollup is re-checked for `--empty-grace` (default 30s), because
+  workflows register a moment after a PR opens; if checks appear they are judged
+  normally, and if none do the answer is exit 3.
+- **Skipped exits 0, loudly.** A skipped job did not run, and a skipped *required*
+  job is how a PR looks green untested, so every skipped check is named in the
+  output. If every check was skipped it says `PASSED, BUT NOTHING RAN`. Read that
+  line before treating exit 0 as "tested".
+- **Both check shapes are read.** `CheckRun` entries carry `status` and
+  `conclusion`; legacy commit statuses (`StatusContext`) carry `state` and no
+  `status`. A pending commit status is still running.
+- **All terminal must hold for two polls.** The first reading can predate a slower
+  workflow registering; a check that appears in between is not missed.
+- **Only the latest run of a check counts.** The rollup lists every workflow run on
+  the commit, so editing a PR while CI runs leaves a `cancelled` check from the run
+  the concurrency group killed beside the latest run's real one. For the same
+  workflow and check name across different runs, only the newest run is judged, as
+  on GitHub's checks tab; the ignored entries are listed (`ignored, superseded by a
+  newer run`) so nothing is hidden. Two same-named jobs in one run, or entries
+  with no run id, are never collapsed.
+- **A known failure beats a timeout.** A failure is a fact and CI cannot become
+  green from it, whereas a timeout means "not known yet". If the ceiling hits with
+  a failure and some checks still running, the exit is `1`; the running checks are
+  still listed, marked as abandoned, and their results no longer matter. A caller
+  deciding whether to spend another CI round can key on the exit code alone.
+- **A new head commit mid-wait** means new checks. The old commit's results are
+  discarded (and the output says `head moved a -> b`), and the wait continues on the
+  new commit. The ceiling is **not** reset: `--timeout` bounds the whole wait.
+- **A PR that is closed or merged** ends the wait with exit 4; its checks no longer
+  decide anything.
+- **`gh` failures are retried**, five in a row before the wait gives up with exit 4
+  and gh's own message. A failed call is never read as "no checks" or as success,
+  and a `gh` response with no `statusCheckRollup` is an error, not an empty list.
 
 ## Manifest shape
 
@@ -185,6 +246,31 @@ that matched no tests; blank and repeated entries are rejected at load, because
 both render a selector that runs nothing. The pre-commit `Swift Tests` hook runs
 the same extras.
 
+`audit` checks each selector against the targets that exist. A native test
+target in `project.pbxproj` counts, and so does a `.testTarget` in the
+`Package.swift` of a local package the project references
+(`XCLocalSwiftPackageReference`, resolved from the `.xcodeproj`'s directory). A
+selector found in neither place is reported as naming a target that does not
+exist. If a referenced package can't be read, the selector is reported as
+*could not check*, not as missing, and the report gives the reason. That happens
+when the manifest is absent or declares a test target whose name is computed
+rather than written as a string.
+
+Package suites are part of the "no selector covers it" report too, with one
+difference: a package suite can also be run by `swift test` in its package, so
+it is reported only if no workflow a pull request starts runs it either. The
+audit recognises `swift test` in the package (by `--package-path`, a step's or a
+job's `working-directory`, or a `cd`), an `xcodebuild test` or `flowdeck test`
+that selects the suite or runs a scheme testing it (including the scheme Xcode
+generates for a package), and the same commands inside a script in the
+repository that the step runs. It does not recognise `swift build
+--build-tests`, which compiles the suite and runs none of it. A suite run some
+other way can be declared in `[[project.covered_elsewhere]]`, and a suite
+deliberately run in no CI job in `[[project.not_run_in_ci]]`, both below. If the
+package can't be read, or a workflow that might run the suite can't be (a
+`${{ matrix }}` directory, a scheme that isn't committed), the suite is
+reported as *could not check* rather than as running nowhere.
+
 `app_target` is declared, not derived: a scheme and the product it builds
 genuinely differ in real projects, and a wrong target selects no coverage row at
 all — which reports 0.0% rather than failing.
@@ -221,10 +307,68 @@ printed beside it. There is no `until` — the declaration expires by ceasing to
 verify, not on a date, and a declaration naming a target the project no longer
 has is reported as stale.
 
+### A suite deliberately not run in CI
+
+Some suites are run on purpose somewhere CI can't reach. momfriend's
+`MomFriendCoreTests` needs on-device models and is written to fail, not skip,
+without them, so CI builds it and never runs it. The audit is right that nothing
+in CI runs it, and none of its suggested fixes applies. Say so, with a reason and
+a date:
+
+```toml
+[[project.not_run_in_ci]]
+target = "MomFriendCoreTests"
+reason = "needs on-device models; built in CI, run on device before release"
+until  = "2026-12-31"
+```
+
+All three fields are required. `until` is `YYYY-MM-DD` and covers the whole of
+that day. It works for native targets and local-package suites alike, and it
+needs `[project].xcodeproj`, because that is where the audit reads test targets
+from. A target can't be declared in both this and `covered_elsewhere`, since only
+one of them can be true.
+
+While the declaration is in term, the suite leaves the "no selector covers" list
+and is printed on a line of its own, so it stays visible:
+
+```
+deliberately not run in CI: MomFriendCoreTests — needs on-device models; built in CI, run on device before release (until 2026-12-31)
+```
+
+**Past `until`, it expires.** The suite goes back in the report, the expiry is
+named, and `audit` exits 4, the same as an expired `dependabot_ignore`. This is
+the divergence from `covered_elsewhere`, which has no date because the project
+holds no remedy for it. Here the project does hold the remedies: make the suite
+runnable in CI, delete it, or review the reason and set a new date.
+
+A declaration is reported as **stale** when it no longer describes a gap: the
+target doesn't exist, or something now runs it (a selector, a verified
+`covered_elsewhere`, or a workflow the audit sees running the suite). Stale
+declarations are reported but don't gate. Remove them.
+
 ### Release-time secrets
 
-A product that needs real values at release — monetization SDK keys, ad unit
-IDs — maps each xcconfig key to the GitHub secret holding it:
+A project that needs real values at release — monetization SDK keys, ad unit
+IDs, an analytics key, a crash-reporting DSN — maps each xcconfig key to the
+GitHub secret holding it. A single-app project (no `[[product]]` block) declares
+them under `[project]`, where they fold into the product the manifest
+synthesises — the same fallback `scheme`, `bundle_id`, `asc_app_id` and
+`extra_test_targets` have:
+
+```toml
+[project]
+name = "MyApp"
+scheme = "MyApp"
+bundle_id = "com.example.myapp"
+asc_app_id = "1111111110"
+secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
+secret_formats = { REVENUECAT_API_KEY = "appl_*", SENTRY_DSN = "https://*@*/*" }
+```
+
+A project with several products declares them per product, since each app's
+keys are its own. Setting `secrets`, `secrets_file` or `secret_formats` under
+`[project]` alongside any `[[product]]` block is rejected rather than merged,
+because which product they belong to would have to be guessed:
 
 ```toml
 [[product]]
@@ -243,7 +387,10 @@ checked at release time. Non-empty is not the same as correct: the two ways
 these keys actually go wrong — pasting another app's key, or leaving Google's
 public test AdMob ID in place — both produce a perfectly non-empty value that
 builds, signs, uploads and passes review, then serves the wrong ads to real
-users. A mismatch fails the release without echoing the value.
+users. A mismatch fails the release without echoing the value. A pattern may
+use letters, digits and `_ ~ . : / * ? @ -`; anything else (quotes, `|`, `(`,
+`&`, spaces) is rejected at load, because the pattern is used unquoted in a
+shell `case`.
 
 The manifest holds the secret's **name**; the value stays in GitHub. `lacquer`
 rejects a value that looks like a real credential, because this file is
@@ -261,3 +408,76 @@ A `workflow_dispatch` run picks its product from a dropdown, defaulting to
 `all`. Scoping matters there too: a dispatch of `all` after one app has shipped
 a version hits the same closed train. Naming an unknown product fails rather
 than falling back to everything.
+
+## Capping CI rounds: `lacquer ci-round`
+
+An agent gets **at most two rounds of CI on a pull request**. If checks still fail
+after the second push it stops and hands the PR to a human instead of pushing a
+third time. Re-running CI is the most expensive reflex an agent has (minutes of a
+shared Mac, plus a whole agent context to read the result), and a third attempt is
+almost never a fix: it is a guess. Forcing the stop turns "push again and see" into
+"say what you do not understand". Until this command it was persona prose, which
+depends on every agent reading and honouring it; now the tool enforces it.
+
+```sh
+lacquer ci-round begin 431                       # round 1: after the PR exists, before the push
+lacquer wait pr 431                              # exit 1: lint failed
+lacquer ci-round begin 431 --reason "lint failed: unused import in wait.go, removed it"   # round 2
+lacquer ci-round begin 431 ...                   # exit 10: EXHAUSTED. Do not push
+```
+
+`begin` records the commit you are about to push (`--sha`, default `git rev-parse
+HEAD`), so run it **before** `git push` and push exactly that commit. It is
+idempotent for a commit it already recorded.
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Granted, or already recorded: push this commit. |
+| `10` | **Exhausted.** A report, not a failure: the PR is not failed or closed and nothing is pushed. It comments on the PR with what is still failing, raises an inbox ACTION if `--inbox` / `$LACQUER_INBOX` is set (otherwise it prints the exact `console inbox add` command to run), and prints what was spent. Do not push; say what you do not understand. |
+| `11` | Round 2 or later needs `--reason` naming at least one check the previous round reported failing (at a word boundary, in a reason of four or more words). The refusal lists the names it will accept. Nothing was recorded. |
+| `12` | **Nothing to spend a round on.** Either the previous round reported no failure (its checks are still running, `lacquer wait pr` exit 2; it has none, exit 3; or they passed), or the commit you named is already the PR's head and was pushed by a person, so there is nothing of yours to push. No round is spent; escalate rather than push to find out. |
+| `13` | The tool **could not check**: `gh` failing (`lacquer wait pr` exit 4), the PR closed, an unreadable ledger or manifest, bad usage. Nothing was recorded and it cannot say a round is allowed, so do not push. |
+
+The codes start at 10 so none is read as `lacquer wait pr`'s 0-4. The mapping to
+that command is the point: only a wait that exits **1** leaves something concrete
+to fix, and only that justifies a round. Exits 2, 3 and 4 do not spend one.
+
+Choices worth knowing:
+
+- **The count lives on the PR.** Each round, reset and stop is one comment opening
+  with an HTML-comment marker holding one JSON object (round number, head SHA, UTC
+  time, the failing checks addressed, the reason), above prose saying the same
+  thing, so the stop is visible without opening CI *and* parseable. Append-only,
+  not one comment edited in place: a lost update would silently refund a round,
+  whereas two racing appends are ordered by GitHub and the later one is told it
+  lost. Only comments from an `OWNER`, `MEMBER` or `COLLABORATOR` count, so a
+  stranger on a public repo cannot forge a stop or a reset. A ledger comment the
+  tool cannot read is exit 13, never skipped.
+- **A round belongs to an agent because the tool recorded it.** Agents and humans
+  push as the same account, so authorship cannot tell them apart. A head no entry
+  names was not pushed through this command, so a person pushed it.
+- **A human push resets the budget** (it is not merely excluded). Someone looked at
+  what the agent could not solve and moved the PR; a fresh, still-bounded budget on
+  top of that is exactly when trying again is reasonable, and it needs no operator
+  step. The reset is written to the PR, never silent. The limit of this: an agent
+  that pushes *without* running `begin` looks like a human, so it refills its own
+  budget. The command cannot see a push it was not told about; closing that is a
+  pre-push hook that runs `begin`.
+- **Round 2 must address round 1.** The cap is on guessing, not on rounds. A reason
+  that is empty, too short, or names no failing check is refused. It is a forcing
+  function for saying which failure you understand, not proof that you fixed it.
+- **Check state is `lacquer wait pr`'s**, not re-derived: a cancelled job from a
+  superseded run does not read as a failure on a green PR.
+- **The cap is read from `--manifest-ref` (default `origin/main`), not the working
+  tree.** A branch that could edit its own `.lacquer.toml` could raise its own cap.
+  A ref with no manifest means the default.
+
+### `[project].ci_round_cap`
+
+```toml
+[project]
+ci_round_cap = 2   # optional; 1-10, default 2
+```
+
+Below 1 would refuse the push that opens the PR, and a large cap is no cap, so
+both are rejected at load rather than read as "use the default".

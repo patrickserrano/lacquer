@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // This file exists because of lacquer#118, a fleet-wide breakage this repo
@@ -51,8 +53,9 @@ func fixtureProject(t *testing.T, lacquerRoot string) string {
 		}
 	}
 	// assets.Preflight refuses to write outside a git work tree.
+	gittest.Init(t, dir, "-q")
 	for _, args := range [][]string{
-		{"init", "-q"}, {"add", "-A"},
+		{"add", "-A"},
 		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "fixture"},
 	} {
 		cmd := exec.Command("git", args...)
@@ -108,10 +111,8 @@ func TestAuditIgnoresTheLacquerCheckoutItPlantsInTheProject(t *testing.T) {
 	dir := fixtureProject(t, lq)
 
 	// Exactly what the drift job does: put the lacquer inside the workspace.
-	cmd := exec.Command("git", "clone", "-q", "--depth", "1", "file://"+lq,
-		filepath.Join(dir, ".lacquer-checkout"))
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("cannot clone the lacquer into the fixture: %v\n%s", err, out)
+	if err := gittest.Clone("file://"+lq, filepath.Join(dir, ".lacquer-checkout"), "-q", "--depth", "1"); err != nil {
+		t.Skipf("cannot clone the lacquer into the fixture: %v", err)
 	}
 
 	chdir(t, dir)

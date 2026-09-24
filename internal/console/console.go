@@ -1,16 +1,25 @@
-// Package console joins what is TRUE about a fleet with what is IN FLIGHT and
-// what is AWAITING REVIEW, so one screen answers "what should I work on".
+// Package console joins what is TRUE about a fleet with what is IN FLIGHT,
+// what is AWAITING REVIEW, and what is AWAITING THE OPERATOR, so one screen
+// answers "what should I work on".
 //
-// Three sources, none of which is sufficient alone:
+// Four sources, none of which is sufficient alone:
 //
-//	lacquer fleet   what is true in the code       (this repo, deterministic)
-//	claude agents   what is being worked on now    (`claude agents --json`)
-//	gh pr list      what is waiting on a human     (the GitHub API)
+//	lacquer fleet   what is true in the code        (this repo, deterministic)
+//	claude agents   what is being worked on now     (`claude agents --json`)
+//	gh pr list      what is waiting on a human      (the GitHub API)
+//	inbox           what is waiting on THIS human   (internal/inbox, local JSONL)
 //
 // Truth without in-flight tells you to start work that is already underway.
 // In-flight without truth is a list of sessions with no idea why they exist.
 // Either without open pull requests hides the work that is finished and simply
 // unmerged, which in this fleet has repeatedly been the thing actually blocking.
+// All three still miss two things: a decision raised in conversation and never
+// turned into a PR (it is not truth, not in flight, not under review — it is
+// just gone once the terminal closes), and a subagent that finished, reported
+// a result, and exited (claude agents reports LIVE sessions only, so a
+// completed one leaves no trace anywhere else on this screen). internal/inbox
+// exists to hold those two things; see its package doc for why they are worth
+// a fourth source rather than a note to remember better.
 //
 // It answers; it does not decide. Nothing here starts, stops, or modifies
 // anything — Dispatch is a separate, explicit call, and even that only ever
@@ -19,11 +28,13 @@
 // Two properties are deliberate and both are tested:
 //
 //   - A MISSING TOOL DEGRADES, IT DOES NOT FAIL. No `gh`, no network, no Claude
-//     Code — the console still prints what it can and says which source was
-//     unavailable. A console that refuses to run without every dependency is
-//     useless exactly when something is broken, which is when it is most needed.
+//     Code, no readable inbox file — the console still prints what it can and
+//     says which source was unavailable. A console that refuses to run without
+//     every dependency is useless exactly when something is broken, which is
+//     when it is most needed.
 //   - NO PROJECT NAME APPEARS HERE. This ships from a public repo; the roster is
-//     the operator's. Same boundary as internal/fleet, same test guarding it.
+//     the operator's. Same boundary as internal/fleet and internal/inbox, same
+//     test guarding all three (internal/shipped's TestOperatorPackagesNameNoProject).
 package console
 
 import (
@@ -36,6 +47,7 @@ import (
 	"time"
 
 	"github.com/patrickserrano/lacquer/internal/fleet"
+	"github.com/patrickserrano/lacquer/internal/inbox"
 )
 
 // Session is one Claude Code session, as `claude agents --json` reports it.
@@ -74,6 +86,13 @@ type Row struct {
 // Result is the whole console view plus whatever could not be gathered.
 type Result struct {
 	Rows []Row
+	// Actions are open (unresolved) inbox.Action entries -- decisions still
+	// waiting on the operator. Sorted oldest first: the longer a decision has
+	// sat unanswered, the more it outranks everything else on the screen.
+	Actions []inbox.Entry
+	// Unread are open inbox.Unread entries -- finished work nobody has
+	// acknowledged yet. Same ordering as Actions.
+	Unread []inbox.Entry
 	// Unavailable names each source that could not be reached, so a thin report
 	// is never mistaken for a healthy fleet.
 	Unavailable []string
@@ -81,8 +100,36 @@ type Result struct {
 
 // Gather builds the view. It never returns an error: an unreachable source is
 // reported in Unavailable rather than failing the whole console.
-func Gather(lacquerRoot string, roster fleet.Roster, now time.Time) Result {
+//
+// inboxPath is optional, like sessionsPath/rolesPath are for other console
+// subcommands: "" means the operator has not wired up --inbox/$LACQUER_INBOX
+// at all, and the inbox section is simply absent, the same as a `console`
+// invocation with no --sessions never mentioning sessions tracking. Once a
+// path IS given, though, a file that cannot be read is a real Unavailable —
+// see internal/inbox's ReadAll doc comment for why a missing file is treated
+// as a failure here rather than as "nothing waiting yet".
+func Gather(lacquerRoot string, roster fleet.Roster, now time.Time, inboxPath string) Result {
 	var res Result
+
+	if inboxPath != "" {
+		entries, malformed, err := inbox.ListOpen(inboxPath)
+		if err != nil {
+			res.Unavailable = append(res.Unavailable, fmt.Sprintf("inbox (%v)", err))
+		} else {
+			if malformed > 0 {
+				res.Unavailable = append(res.Unavailable, fmt.Sprintf("inbox (%d line(s) could not be parsed and were skipped)", malformed))
+			}
+			sort.Slice(entries, func(i, j int) bool { return entries[i].CreatedAt.Before(entries[j].CreatedAt) })
+			for _, e := range entries {
+				switch e.Type {
+				case inbox.Action:
+					res.Actions = append(res.Actions, e)
+				case inbox.Unread:
+					res.Unread = append(res.Unread, e)
+				}
+			}
+		}
+	}
 
 	reports := fleet.Run(lacquerRoot, roster, now)
 
@@ -129,6 +176,7 @@ func Gather(lacquerRoot string, roster fleet.Roster, now time.Time) Result {
 // (.claude/worktrees/<id>), so an equality check would show every backgrounded
 // agent as belonging to nothing — the sessions most in need of a home.
 func under(cwd, root string) bool {
+	cwd, root = absPath(cwd), absPath(root)
 	return cwd == root || strings.HasPrefix(cwd, strings.TrimSuffix(root, "/")+"/")
 }
 
