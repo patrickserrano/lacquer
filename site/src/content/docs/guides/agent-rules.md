@@ -330,3 +330,19 @@ becoming policy by default.
 
 Treat compiler and linter warnings as errors — ship zero-warning builds. Don't
 suppress a warning; fix the code (see rule 7).
+
+## CI round budget
+
+Before a follow-up push, use `lacquer ci-round begin <N>` with `--reason` naming
+a failed check or `--review` identifying the requested change and reviewer.
+Both spend the same budget. An unknown head spends an `unrecorded` round,
+including a locally made merge pushed without `begin`.
+
+A GitHub-created update-branch merge is the exception: the commit API must show
+committer email `noreply@github.com`, exactly two parents, and the previous known
+head as one parent. It gets a neutral `update` entry, stays known on later reads,
+and neither consumes nor resets the budget. Only a human-authorized
+`lacquer ci-round reset <N> --reason "<why>"` refills it. Exit 10 means stop and
+surface the ACTION; never reset yourself to bypass the cap.
+
+See [the command reference](/reference/commands/#capping-ci-rounds-lacquer-ci-round) for usage and exit codes.

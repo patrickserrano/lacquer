@@ -99,7 +99,17 @@ Extract 20-50 lines before failure with error messages and stack traces.
 
 **Plan:** **REQUIRED** - Use `EnterPlanMode`. Never skip for "simple fixes".
 
-**Implement:** After approval: code changes → tests → commit → push
+**Implement:** After approval: code changes → tests → commit → `lacquer ci-round begin <N> --reason "<failed check and what changed>"` → push the granted SHA.
+For review-requested changes use `--review "<what was asked, and by whom>"`
+instead of `--reason`, even on green CI. Review rounds spend the same budget.
+A push without `begin` spends an `unrecorded` round when next observed by
+`begin` or `status`, except a GitHub-created update-branch merge: commit API
+committer email `noreply@github.com`, exactly two parents, and one parent equal to
+the previous known head. It is recorded as a neutral `update` (known on later
+observations), spending no round and never resetting the budget. Local merges
+and other unknown heads are still charged. Only a human-authorized
+`lacquer ci-round reset <N> --reason "<why>"` refills the budget.
+Exit 10 means stop and surface the ACTION, never reset yourself to bypass it.
 
 **Verify:** `lacquer wait pr <N>` then `gh run view <run-id> --log-failed` if a check failed.
 Run the wait in the background and read its exit code when it finishes; it sleeps
