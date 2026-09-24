@@ -31,6 +31,28 @@ every project regardless.
 
 `lacquer --help` prints usage.
 
+## Dispatch model and effort
+
+`console dispatch` starts ICs on **sonnet** by default. Set top-level
+`ic_model = "opus"` and/or `ic_effort = "low"` in the fleet roster to change
+fleet-wide defaults. `console dispatch-role` instead uses `model`/`effort` in
+its `[[role]]` entry; absent settings inherit Claude's defaults.
+
+Both commands accept `--model M` and `--effort E`, overriding each configured
+value independently in bg and tmux modes. For example:
+
+```sh
+lacquer console --roster fleet.toml --sessions sessions.jsonl --mode bg dispatch app "implement the unit" --model opus --effort low
+```
+
+With `--sessions`, JSONL records keep the requested model and effort, including
+failed launches. The dashboard and `console watch` show those settings, and
+watchdog relaunches retain explicit recorded values. Empty values (including
+old records) display `inherited/unknown`; they do not imply Sonnet. These are
+**requested settings**, not transcript verification of the service's actual
+model. Verify that separately from the session's own transcript when auditing
+model usage. Dry runs print the selected flags and write no session record.
+
 ## LACQUER_ROOT
 
 Every command that reads shipped content (`sync`, `status`, `audit`, `version`)

@@ -22,6 +22,9 @@ import (
 // rather than being retyped by hand at every dispatch the way a project
 // task is.
 type Role struct {
+	// Empty model/effort inherit Claude's settings, unlike an IC dispatch.
+	Model  string `toml:"model"`
+	Effort string `toml:"effort"`
 	// Name identifies the role and its tmux session.
 	Name string `toml:"name"`
 	// Mode is almost always Tmux: a role is long-lived and supervisory, not a
@@ -71,7 +74,7 @@ func LoadRoleRoster(path string) (RoleRoster, error) {
 			keys = append(keys, k.String())
 		}
 		sort.Strings(keys)
-		return r, fmt.Errorf("roles file %s has unknown key(s): %s (known: name, mode, task, dir)", path, strings.Join(keys, ", "))
+		return r, fmt.Errorf("roles file %s has unknown key(s): %s (known: name, mode, task, dir, model, effort)", path, strings.Join(keys, ", "))
 	}
 	if len(r.Role) == 0 {
 		return r, fmt.Errorf("roles file %s declares no roles", path)
@@ -137,12 +140,17 @@ func DispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRu
 // DispatchRolePlaced is DispatchRole into the worktree, or onto the branch,
 // that its dispatcher chose (Placement).
 func DispatchRolePlaced(roles RoleRoster, sessions []Session, name, task string, dryRun bool, place Placement) (Launch, error) {
-	return dispatchRole(roles, sessions, name, task, dryRun, place, "")
+	return DispatchRoleConfigured(roles, sessions, name, task, dryRun, place, ModelOptions{})
+}
+
+// DispatchRoleConfigured is DispatchRolePlaced with model/effort overrides.
+func DispatchRoleConfigured(roles RoleRoster, sessions []Session, name, task string, dryRun bool, place Placement, options ModelOptions) (Launch, error) {
+	return dispatchRole(roles, sessions, name, task, dryRun, place, "", options)
 }
 
 // dispatchRole is DispatchRolePlaced, plus the recorded worktree a bg
 // relaunch resumes in (Relaunch, watchdog.go).
-func dispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRun bool, place Placement, resume string) (Launch, error) {
+func dispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRun bool, place Placement, resume string, options ModelOptions) (Launch, error) {
 	var role *Role
 	for i := range roles.Role {
 		if roles.Role[i].Name == name {
@@ -173,7 +181,8 @@ func dispatchRole(roles RoleRoster, sessions []Session, name, task string, dryRu
 		}
 	}
 
-	return runDispatch(launchSpec{verb: "dispatch role", kind: RoleKind, name: role.Name, dir: role.Dir, task: task, mode: role.Mode, warning: warning, dryRun: dryRun, place: place, resume: resume})
+	options = options.withDefaults(ModelOptions{Model: role.Model, Effort: role.Effort})
+	return runDispatch(launchSpec{options: options, verb: "dispatch role", kind: RoleKind, name: role.Name, dir: role.Dir, task: task, mode: role.Mode, warning: warning, dryRun: dryRun, place: place, resume: resume})
 }
 
 func roleNames(r RoleRoster) []string {

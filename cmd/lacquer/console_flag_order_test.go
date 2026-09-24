@@ -338,6 +338,8 @@ func TestConsoleRefusesAnUnknownOrMisplacedFlag(t *testing.T) {
 		{"--dry-run with kill", []string{"--sessions", S, "--dry-run", "kill", "proj", "--force"}, "--dry-run"},
 		{"--dry-run after kill", []string{"--sessions", S, "kill", "proj", "--force", "--dry-run"}, "--dry-run"},
 		{"--relaunch with kill", []string{"--sessions", S, "kill", "proj", "--relaunch"}, "--relaunch"},
+		{"--model with watch", []string{"--sessions", S, "watch", "--model", "opus"}, "--model"},
+		{"--effort with the dashboard", []string{"--roster", R, "--effort", "low"}, "--effort"},
 		{"--force with watch", []string{"--sessions", S, "watch", "--force"}, "--force"},
 		{"--mode with dispatch-role", []string{"--roles", L, "dispatch-role", "pm-bg", "--mode", "tmux", "--dry-run"}, "--mode"},
 		{"--relaunch with dispatch", []string{"--roster", R, "--mode", "bg", "dispatch", "proj", "t", "--relaunch"}, "--relaunch"},

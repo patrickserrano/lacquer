@@ -122,9 +122,9 @@ func Relaunch(r Record, roster fleet.Roster, roles RoleRoster, sessions []Sessio
 	}
 	switch r.Kind {
 	case ProjectKind:
-		return dispatchProject(roster, sessions, r.Name, task, r.Mode, dryRun, place, resume)
+		return dispatchProject(roster, sessions, r.Name, task, r.Mode, dryRun, place, resume, ModelOptions{Model: r.Model, Effort: r.Effort})
 	case RoleKind:
-		return dispatchRole(roles, sessions, r.Name, task, dryRun, place, resume)
+		return dispatchRole(roles, sessions, r.Name, task, dryRun, place, resume, ModelOptions{Model: r.Model, Effort: r.Effort})
 	default:
 		return Launch{}, fmt.Errorf("record %q has unknown kind %q", r.Name, r.Kind)
 	}
@@ -191,7 +191,7 @@ func WatchText(w io.Writer, results []WatchResult) {
 		if r.Detail != "" {
 			fmt.Fprintf(w, " — %s", r.Detail)
 		}
-		fmt.Fprintln(w)
+		fmt.Fprintf(w, " [requested model=%s effort=%s]\n", inheritedSetting(r.Record.Model), inheritedSetting(r.Record.Effort))
 		if r.CheckErr != nil {
 			fmt.Fprintf(w, "  could not verify: %v\n", r.CheckErr)
 		}
@@ -208,4 +208,11 @@ func WatchText(w io.Writer, results []WatchResult) {
 			}
 		}
 	}
+}
+
+func inheritedSetting(value string) string {
+	if value == "" {
+		return "inherited/unknown"
+	}
+	return value
 }

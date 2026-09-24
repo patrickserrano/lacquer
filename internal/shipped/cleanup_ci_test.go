@@ -510,7 +510,13 @@ func TestCleanupCISelectsOnlyThisRunnersOrphans(t *testing.T) {
 			t.Errorf("pid %d was signalled but is %s\n%s", pid, why, r.calls)
 		}
 	}
-	if !strings.Contains(r.out, "TERM pid=101 age=5h00m cmd="+w+"/repo/repo/DerivedData") {
+	// The log caps commands at 160 characters. A worktree-local TMPDIR can
+	// make even this prefix longer; still require every character it can show.
+	commandPrefix := w + "/repo/repo/DerivedData"
+	if len(commandPrefix) > 160 {
+		commandPrefix = commandPrefix[:160]
+	}
+	if !strings.Contains(r.out, "TERM pid=101 age=5h00m cmd="+commandPrefix) {
 		t.Errorf("the kill of pid 101 is not logged with pid, age and command:\n%s", r.out)
 	}
 }

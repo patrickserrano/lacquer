@@ -753,6 +753,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		sessionsPath := fs.String("sessions", getenv("LACQUER_SESSIONS"), "path to the sessions file (or $LACQUER_SESSIONS) — enables tracking for `watch`")
 		inboxPath := fs.String("inbox", getenv("LACQUER_INBOX"), "path to the inbox file (or $LACQUER_INBOX) — decisions awaiting the operator and finished work, shown as ACTION/UNREAD and required by `inbox add`/`resolve`/`list`")
 		mode := fs.String("mode", "", "dispatch target: bg (background agent in a new git worktree and branch under <repo>/.claude/worktrees/) or tmux (detached tmux session in the checkout itself, edits it)")
+		model := fs.String("model", "", "with dispatch/dispatch-role: Claude model (IC default: roster ic_model or sonnet; role default: role model or inherited)")
+		effort := fs.String("effort", "", "with dispatch/dispatch-role: Claude effort (default: roster ic_effort or role effort, otherwise inherited)")
 		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role/watch --relaunch: print the command without starting anything")
 		relaunch := fs.Bool("relaunch", false, "with watch: re-dispatch every session found dead")
 		live := fs.Bool("live", false, "with watch: keep refreshing in place every --interval until Ctrl-C, instead of checking once")
@@ -886,7 +888,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, err)
 			}
 			taskOverride := strings.Join(rest[2:], " ")
-			launch, err := console.DispatchRolePlaced(roles, console.Sessions(), rest[1], taskOverride, *dryRun, place)
+			launch, err := console.DispatchRoleConfigured(roles, console.Sessions(), rest[1], taskOverride, *dryRun, place, console.ModelOptions{Model: *model, Effort: *effort})
 			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
 		// inbox needs neither --mode nor a project roster, same reasoning as
@@ -925,10 +927,18 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, fmt.Errorf("dispatch needs --mode bg or --mode tmux"))
 			}
 			task := strings.Join(rest[2:], " ")
-			launch, err := console.DispatchPlaced(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun, place)
+			launch, err := console.DispatchConfigured(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun, place, console.ModelOptions{Model: *model, Effort: *effort})
 			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
 		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now(), *inboxPath))
+		if *sessionsPath != "" {
+			results, err := console.Watch(*sessionsPath, roster, console.RoleRoster{}, nil, false, false)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			fmt.Fprintln(stdout, "\nRecorded sessions (requested settings):")
+			console.WatchText(stdout, results)
+		}
 	case "status":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
@@ -1054,6 +1064,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               launches nothing. Flags are read anywhere, among the task's words")
 	fmt.Fprintln(w, "                               too, so a trailing --dry-run is a dry run; a task word that starts")
 	fmt.Fprintln(w, "                               with - goes after --: dispatch <project> -- <task>")
+	fmt.Fprintln(w, "                               --model M / --effort E override Claude launch settings in both modes;")
+	fmt.Fprintln(w, "                               IC model defaults to roster ic_model or sonnet; effort to ic_effort.")
+	fmt.Fprintln(w, "                               Roles use model/effort in their role entry, otherwise inherit.")
+	fmt.Fprintln(w, "                               --sessions records requested settings; dashboard/watch show them.")
 	fmt.Fprintln(w, "  console --roles R [--worktree P | --branch B] dispatch-role <name> [\"<task override>\"]")
 	fmt.Fprintln(w, "                               start a named role — a lead/PM supervising many projects, not")
 	fmt.Fprintln(w, "                               editing one; mode and task come from the roles file, modes and")
@@ -1304,6 +1318,8 @@ var consoleFlagScope = map[string][]string{
 	"dry-run":  {"dispatch", "dispatch-role", "watch"},
 	"worktree": {"dispatch", "dispatch-role"},
 	"branch":   {"dispatch", "dispatch-role"},
+	"model":    {"dispatch", "dispatch-role"},
+	"effort":   {"dispatch", "dispatch-role"},
 	"relaunch": {"watch"},
 	"live":     {"watch"},
 	"interval": {"watch"},

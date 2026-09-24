@@ -70,7 +70,11 @@ type Entry struct {
 
 // Roster is the list of projects to sweep.
 type Roster struct {
-	Project []Entry `toml:"project"`
+	// ICModel and ICEffort are fleet-wide dispatch defaults. An empty model
+	// selects sonnet; an empty effort leaves Claude's effort unchanged.
+	ICModel  string  `toml:"ic_model"`
+	ICEffort string  `toml:"ic_effort"`
+	Project  []Entry `toml:"project"`
 }
 
 // LoadRoster reads and validates a roster file.
@@ -93,7 +97,7 @@ func LoadRoster(path string) (Roster, error) {
 			keys = append(keys, k.String())
 		}
 		sort.Strings(keys)
-		return r, fmt.Errorf("roster %s has unknown key(s): %s (known: name, path, repo)", path, strings.Join(keys, ", "))
+		return r, fmt.Errorf("roster %s has unknown key(s): %s (known: ic_model, ic_effort, project.name, project.path, project.repo)", path, strings.Join(keys, ", "))
 	}
 	if len(r.Project) == 0 {
 		return r, fmt.Errorf("roster %s lists no projects", path)
