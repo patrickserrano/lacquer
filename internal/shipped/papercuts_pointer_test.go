@@ -5,24 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/patrickserrano/lacquer/internal/region"
 )
 
-// The operator keeps ~/Developer/papercuts.md, a machine-wide log of what cost
-// sessions time. CI and cloud sessions never see it — they see only what the
-// repo ships — so the rendered core region carries a pointer to it.
-//
-// The pointer is OPTIONAL by design. The file exists on one machine; its absence
-// is the normal case everywhere else (CI, cloud, a fresh clone). What is pinned
-// here is therefore two things that pull against each other: the pointer is
-// rendered into every project's CLAUDE.md and its AGENTS.md mirror, and the text
-// says outright that nothing depends on the file. A pointer that reads as a
-// requirement would send a cloud session hunting for a path that cannot exist.
-
-// pointerPhrases are the load-bearing claims of the section. Each is asserted on
-// the RENDERED region rather than on core/CLAUDE.core.md, because the region in a
-// project's CLAUDE.md is what an agent reads.
+// The optional machine-local log procedure lives in engineering-workflow.
+// Assert on each delivered skill, not a reference stranded in the source tree.
 var pointerPhrases = []struct{ phrase, why string }{
 	{"~/Developer/papercuts.md", "the path the operator's log lives at"},
 	{"date · symptom · fix · project", "the one-line entry format the log uses"},
@@ -31,24 +17,17 @@ var pointerPhrases = []struct{ phrase, why string }{
 	{"absence is normal", "a session without the file must not treat that as a fault"},
 }
 
-func TestRenderedCoreRegionPointsAtThePapercutsLog(t *testing.T) {
+func TestRenderedSkillPointsAtThePapercutsLog(t *testing.T) {
 	project := syncedProject(t, "")
-
-	// The manifest enables codex, so the AGENTS.md mirror applies. A claude-only
-	// project has no AGENTS.md and is covered by the sync tests for the mirror.
-	for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
-		t.Run(name, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join(project, name))
+	for _, dir := range []string{".claude/skills", ".codex/skills"} {
+		t.Run(dir, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(project, dir, "engineering-workflow/references/project-rules.md"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			body, ok := region.ExtractBody(string(raw), "core")
-			if !ok {
-				t.Fatalf("%s has no core region — this test would assert nothing", name)
-			}
 			for _, p := range pointerPhrases {
-				if !strings.Contains(body, p.phrase) {
-					t.Errorf("%s core region lacks %q (%s)", name, p.phrase, p.why)
+				if !strings.Contains(string(raw), p.phrase) {
+					t.Errorf("%s lacks %q (%s)", dir, p.phrase, p.why)
 				}
 			}
 		})
@@ -59,14 +38,14 @@ func TestRenderedCoreRegionPointsAtThePapercutsLog(t *testing.T) {
 // section is short, so this looks at the whole of it: no MUST-style wording
 // about the file. (Detection is on the shipped source, which is what syncs.)
 func TestPapercutsPointerIsOptional(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(root(t), "core", "CLAUDE.core.md"))
+	raw, err := os.ReadFile(filepath.Join(root(t), "core/skills/engineering-workflow/references/project-rules.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(raw)
 	i := strings.Index(src, "~/Developer/papercuts.md")
 	if i < 0 {
-		t.Fatal("core/CLAUDE.core.md does not mention ~/Developer/papercuts.md")
+		t.Fatal("engineering-workflow does not mention ~/Developer/papercuts.md")
 	}
 	start := strings.LastIndex(src[:i], "\n## ")
 	if start < 0 {
