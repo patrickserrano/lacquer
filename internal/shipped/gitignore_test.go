@@ -390,12 +390,9 @@ func TestGitignoreSkillRulesFollowTheManifest(t *testing.T) {
 		t.Errorf("the collision is not explained in the block, so it reads as a renderer bug:\n%s", body)
 	}
 
-	// A lockfile is tracked. skills-lock.json pins the resolved source of every
-	// installed skill: committing it is what makes an install reproducible and
-	// what lets a reviewer see a skill's source change. One project currently
-	// leaves it untracked-but-unignored, which is the worst of both.
-	if ignored(t, project, "skills-lock.json") {
-		t.Error("skills-lock.json is ignored — a lockfile that is not committed pins nothing")
+	// Local installation state must not leave untracked noise after skills installs.
+	if !ignored(t, project, "skills-lock.json") {
+		t.Error("skills-lock.json is not ignored")
 	}
 }
 
