@@ -76,6 +76,11 @@
 // realLacquer skips when not run from a checkout — and this package
 // deliberately does not copy that part of the pattern.
 //
+// Register each unmarked scenario with recordScenario(t) before setup, without
+// defer. It tallies after subsequent cleanups and subtests finish. The summary
+// counts scenarios only; the accompanying "eval package" line reports m.Run's
+// actual exit status, including helper-contract and pre-registration failures.
+//
 // # Part 2 (content correctness) — extension point, not built here
 //
 // Part 1 above grades BEHAVIOUR: given a repo state, is the right verdict

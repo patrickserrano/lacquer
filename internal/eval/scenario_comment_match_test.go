@@ -41,7 +41,7 @@ import (
 // declared secrets file is inside a `#` comment, with no step that actually
 // writes it, is reported as inert.
 func TestScenarioCommentMatch(t *testing.T) {
-	defer recordScenario(t) // unmarked: the bug this scenario tracked is fixed.
+	recordScenario(t) // unmarked: the bug this scenario tracked is fixed.
 	dir := t.TempDir()
 	workflow := filepath.Join(dir, ".github", "workflows", "ios-release.yml")
 	if err := os.MkdirAll(filepath.Dir(workflow), 0o755); err != nil {
@@ -99,7 +99,7 @@ func TestScenarioCommentMatch(t *testing.T) {
 // shape with an ACTUAL writing step must NOT be flagged, so the grader is not
 // simply "always report inert."
 func TestScenarioCommentMatchRealStepIsQuiet(t *testing.T) {
-	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
+	recordScenario(t) // unmarked: tallied into the package summary as-is.
 	dir := t.TempDir()
 	workflow := filepath.Join(dir, ".github", "workflows", "ios-release.yml")
 	if err := os.MkdirAll(filepath.Dir(workflow), 0o755); err != nil {

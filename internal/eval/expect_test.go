@@ -112,11 +112,9 @@ func (f fakeFailedReporter) Failed() bool { return f.failed }
 // any setup helper in this package calls t.Fatalf) must be tallied as a fail,
 // never a pass.
 //
-// Mutation-tested: temporarily changing recordScenarioInto to unconditionally
-// call s.recordPass() (ignoring Failed() entirely — the "absorbs everything"
-// broken implementation this row of CLAUDE.md's mutation list warns about)
-// makes this test fail: got.fail stays 0 and got.pass becomes 1, caught by
-// the assertions below by name. Reverted after confirming.
+// Mutation-tested for #367: replacing s.recordFail() in recordScenarioInto's
+// failed branch with s.recordExpectedFail("mutated", "#367") makes this test
+// fail with fail=0 and expectedFail=1. Restored after confirming.
 func TestRecordScenarioNeverAbsorbsASetupFailure(t *testing.T) {
 	var s summary
 	recordScenarioInto(fakeFailedReporter{failed: true}, &s)

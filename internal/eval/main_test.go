@@ -18,5 +18,12 @@ import (
 func TestMain(m *testing.M) {
 	code := m.Run()
 	fmt.Println(results.report())
+	// Counts cover registered scenarios, not helper-contract tests or failures
+	// before registration. Always expose the authoritative package outcome.
+	status := "PASS"
+	if code != 0 {
+		status = "FAIL"
+	}
+	fmt.Printf("eval package: %s (exit %d)\n", status, code)
 	os.Exit(code)
 }
