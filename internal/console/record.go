@@ -32,7 +32,11 @@ const (
 // keeps working unchanged. Recording is opt-in per invocation (pass
 // --sessions), not a hidden side effect of dispatching.
 type Record struct {
-	Kind Kind `json:"kind"`
+	// Requested launch settings, not a claim about the model observed in a
+	// transcript. Empty means inherited (or unknown for an older record).
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+	Kind   Kind   `json:"kind"`
 	// Name is the tmux session name (Tmux mode) or the project/role's
 	// display name (Background mode, where there is no tmux session and
 	// DaemonID is the addressable handle instead).

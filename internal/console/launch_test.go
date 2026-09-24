@@ -211,7 +211,11 @@ func TestTmuxDispatchStartsDetachedWithBypassWithoutATerminal(t *testing.T) {
 			if got.cwd != realPath(t, dir) {
 				t.Errorf("claude ran in %s, want %s", got.cwd, realPath(t, dir))
 			}
-			want := []string{"--dangerously-skip-permissions", "--settings", `{"sandbox":{"enabled":false}}`, "the task"}
+			want := []string{"--dangerously-skip-permissions", "--settings", `{"sandbox":{"enabled":false}}`}
+			if c.name == "project" {
+				want = append(want, "--model", "sonnet")
+			}
+			want = append(want, "the task")
 			if strings.Join(got.args, "\x00") != strings.Join(want, "\x00") {
 				t.Errorf("claude argv = %q, want %q", got.args, want)
 			}
@@ -493,7 +497,11 @@ func TestBackgroundDispatchRunsInADedicatedWorktree(t *testing.T) {
 			if got[0].cwd != realPath(t, rec.Worktree) {
 				t.Errorf("claude ran in %s, want its worktree %s", got[0].cwd, rec.Worktree)
 			}
-			want := []string{"--bg", "--dangerously-skip-permissions", "--settings", `{"sandbox":{"enabled":false}}`, "the task"}
+			want := []string{"--bg", "--dangerously-skip-permissions", "--settings", `{"sandbox":{"enabled":false}}`}
+			if c.name == "project" {
+				want = append(want, "--model", "sonnet")
+			}
+			want = append(want, "the task")
 			if strings.Join(got[0].args, "\x00") != strings.Join(want, "\x00") {
 				t.Errorf("claude argv = %q, want %q", got[0].args, want)
 			}
