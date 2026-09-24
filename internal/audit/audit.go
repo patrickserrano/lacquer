@@ -30,19 +30,19 @@ import (
 type Status string
 
 const (
-	OK        Status = "ok"               // on-disk matches what lacquer would write now
-	Add       Status = "add"              // lacquer has it; the project doesn't (sync would create it)
-	Behind    Status = "behind"           // project matches the lock; lacquer advanced (sync updates it)
-	Modified  Status = "locally-modified" // project changed from the lock; lacquer didn't (a deviation)
-	Conflict  Status = "conflict"         // project AND lacquer both changed from the lock
-	Untracked Status = "untracked"        // differs from lacquer-now, but no lock baseline to attribute it
+	OK        Status = "ok"                 // on-disk matches what lacquer would write now
+	Add       Status = "add"                // lacquer has it; the project doesn't (sync would create it)
+	Behind    Status = "behind"             // project matches the lock; lacquer advanced (sync updates it)
+	Modified  Status = "locally-modified"   // project changed from the lock; lacquer didn't (a deviation)
+	Conflict  Status = "conflict"           // project AND lacquer both changed from the lock
+	Collision Status = "untracked-conflict" // existing baseline does not own this differing unit
+	Untracked Status = "untracked"          // differs from lacquer-now, but no lock baseline to attribute it
 )
 
 // Clobbers reports whether syncing over this status would overwrite a local
-// change the lacquer did not make. Only Modified and Conflict qualify — they are
-// detectable only with a lock baseline, so an Untracked (no-lock) project never
-// blocks and the lock simply bootstraps on the next sync.
-func (s Status) Clobbers() bool { return s == Modified || s == Conflict }
+// change the lacquer did not make, including a pre-existing unit absent from an
+// existing baseline. Untracked is reserved for first sync, with no lock at all.
+func (s Status) Clobbers() bool { return s == Modified || s == Conflict || s == Collision }
 
 // Row is one unit's audit result.
 type Row struct {
@@ -202,20 +202,15 @@ func Classify(lacquerRoot, projectRoot string) ([]Row, version.Version, error) {
 			row.Status = OK
 		default:
 			row.Status = classifyDivergence(lk, locked, u.lockKey, lock.Hash(onDisk), lacquerHash)
-			// Only for the statuses that block, and only for whole-file assets.
-			//
-			// Blocking is the point: an Untracked or Behind unit is already going
-			// to be overwritten without anyone being asked, so there is no
-			// decision to inform. Modified and Conflict are the two that stop a
-			// sync and put a human in front of a file they did not knowingly
-			// edit, and "Dependabot bumped an action here" is the answer to the
-			// question they are about to ask.
+			// Attribute action bumps only for previously managed assets. A collision
+			// has no ownership baseline, so it must not suggest that adopting an
+			// unrelated project file is merely a routine Dependabot promotion.
 			//
 			// Assets only because a region is a body the lacquer merges into a
 			// file the project owns — CLAUDE.md, .gitignore, .gitattributes —
 			// and none of them carries workflow steps. Running the line-pair
 			// match over them would burn cycles to always return nil.
-			if row.Status.Clobbers() && u.kind == "asset" {
+			if (row.Status == Modified || row.Status == Conflict) && u.kind == "asset" {
 				row.Bumps = ActionBumps(u.content, onDisk)
 			}
 		}
@@ -238,7 +233,7 @@ func classifyDivergence(lk *lock.Lock, locked bool, key, projectHash, lacquerHas
 	}
 	base, ok := lk.Files[key]
 	if !ok {
-		return Untracked // baseline exists but never recorded this unit
+		return Collision // baseline exists but never recorded this unit
 	}
 	switch {
 	case projectHash == base:
@@ -312,7 +307,7 @@ func LockFor(lacquerRoot, projectRoot string) (*lock.Lock, error) {
 }
 
 // Clobbered returns the destinations whose sync would overwrite a local change
-// (Modified/Conflict). sync uses it to refuse without --force.
+// (Modified/Conflict/Collision). sync uses it to refuse without --force.
 func Clobbered(rows []Row) []string {
 	var out []string
 	for _, r := range rows {
@@ -324,13 +319,14 @@ func Clobbered(rows []Row) []string {
 }
 
 // statusOrder is the report order: most-actionable first.
-var statusOrder = []Status{Conflict, Modified, Untracked, Behind, Add, OK}
+var statusOrder = []Status{Conflict, Modified, Collision, Untracked, Behind, Add, OK}
 
 // statusNote explains what each status means for the operator.
 var statusNote = map[Status]string{
 	Conflict:  "both you and the lacquer changed it — reconcile",
 	Modified:  "you changed it, the lacquer didn't — adopt up or reset with --force",
-	Untracked: "differs, but no lock baseline yet — re-sync to start tracking",
+	Collision: "lacquer now ships this unit and the project already has its own content — review, then --force to take lacquer's, or exclude/disown it",
+	Untracked: "no lock baseline yet — first sync replaces this content and starts tracking",
 	Behind:    "lacquer advanced — sync updates it",
 	Add:       "lacquer has it, project doesn't — sync creates it",
 	OK:        "matches the lacquer",
