@@ -30,11 +30,16 @@ func runSettings(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	project := fs.String("project", "", ".xcodeproj (default: the single bundle in the current directory)")
 	target := fs.String("target", "", "target name (default: all targets)")
+	scheme := fs.String("scheme", "", "scheme name (required with --xcode)")
 	configuration := fs.String("configuration", "", "configuration name (default: all configurations)")
 	jsonOutput := fs.Bool("json", false, "print structured output")
 	xcode := fs.Bool("xcode", false, "ask xcodebuild for authoritative values without building")
 	compare := fs.Bool("compare", false, "compare static values with --xcode")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *xcode && *scheme == "" {
+		fmt.Fprintln(stderr, "error: --xcode requires --scheme")
 		return 2
 	}
 	if *compare && !*xcode {
@@ -76,7 +81,7 @@ func runSettings(args []string, stdout, stderr io.Writer) int {
 		}
 		var authoritative map[string]string
 		if *xcode {
-			authoritative, err = xcodeSettings(path, c.Target, c.Name)
+			authoritative, err = xcodeSettings(path, *scheme, c.Target, c.Name)
 			if err != nil {
 				return fail(stderr, err)
 			}
@@ -166,13 +171,13 @@ func formatSetting(value baseline.Setting) string {
 
 // xcodeSettings never builds and isolates any Xcode scratch output. PATH permits
 // tests to inject a fake executable; stderr and failures are never swallowed.
-func xcodeSettings(project, target, configuration string) (map[string]string, error) {
+func xcodeSettings(project, scheme, target, configuration string) (map[string]string, error) {
 	dir, err := os.MkdirTemp("", "lacquer-settings-*")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	cmd := exec.Command("xcodebuild", "-showBuildSettings", "-json", "-project", project, "-target", target, "-configuration", configuration, "-derivedDataPath", dir, "-disableAutomaticPackageResolution", "-skipPackageUpdates")
+	cmd := exec.Command("xcodebuild", "-showBuildSettings", "-json", "-project", project, "-scheme", scheme, "-configuration", configuration, "-derivedDataPath", dir, "-disableAutomaticPackageResolution", "-skipPackageUpdates")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	output, err := cmd.Output()
@@ -187,10 +192,14 @@ func xcodeSettings(project, target, configuration string) (map[string]string, er
 		return nil, fmt.Errorf("xcodebuild JSON: %w", err)
 	}
 	var settings map[string]string
+	var targets []string
+	targetFound := false
 	for _, result := range results {
+		targets = append(targets, result.Target)
 		if result.Target != target {
 			continue
 		}
+		targetFound = true
 		if config, ok := result.BuildSettings["CONFIGURATION"]; ok && config != configuration {
 			continue
 		}
@@ -198,6 +207,13 @@ func xcodeSettings(project, target, configuration string) (map[string]string, er
 			return nil, fmt.Errorf("xcodebuild: ambiguous results for %s/%s", target, configuration)
 		}
 		settings = result.BuildSettings
+	}
+	if !targetFound {
+		built := strings.Join(targets, ", ")
+		if built == "" {
+			built = "(none)"
+		}
+		return nil, fmt.Errorf("xcodebuild: scheme %q does not build target %q; builds targets: %s", scheme, target, built)
 	}
 	if len(settings) == 0 {
 		return nil, fmt.Errorf("xcodebuild: no matching settings for %s/%s", target, configuration)

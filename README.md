@@ -37,7 +37,7 @@ every project regardless.
 ```sh
 lacquer settings --project App.xcodeproj --target App --configuration Release
 lacquer settings --project App.xcodeproj --json MARKETING_VERSION
-lacquer settings --project App.xcodeproj --target App --configuration Release --xcode --compare
+lacquer settings --project App.xcodeproj --target App --configuration Release --xcode --scheme App --compare
 ```
 
 Static output is labelled `static resolution by lacquer: not Xcode's evaluation;
@@ -52,8 +52,12 @@ The default keys are `SWIFT_VERSION`, `SWIFT_TREAT_WARNINGS_AS_ERRORS`, and
 exactly one `.xcodeproj` must exist in the current directory. Omitted target or
 configuration selects all target configurations. Put flags before setting names.
 
-`--xcode` calls `xcodebuild -showBuildSettings -json` for each selected pair;
-it does not build. Each invocation supplies a temporary `-derivedDataPath`,
+`--xcode` requires an explicit `--scheme S` (missing it is a usage error).
+It calls `xcodebuild -showBuildSettings -json -project P -scheme S -configuration C`
+for each selected pair and filters the JSON by target; it does not build or infer
+a target-to-scheme mapping. If the scheme does not build a selected target, the
+command fails and lists the targets it does build. Each invocation supplies a
+temporary `-derivedDataPath`,
 `-disableAutomaticPackageResolution`, and `-skipPackageUpdates`, then removes
 the temporary directory. Failures report stderr and exit non-zero without a
 static fallback. Xcode output identifies its evaluator, but does not expose a

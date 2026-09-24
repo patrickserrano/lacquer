@@ -106,7 +106,7 @@ printf '%s' '[{"target":"Example App","buildSettings":{"SWIFT_VERSION":"5","CONF
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var out, errout bytes.Buffer
-	code := run([]string{"settings", "--project", project, "--target", "Example App", "--configuration", "Debug", "--xcode", "--compare", "SWIFT_VERSION"}, os.Getenv, &out, &errout)
+	code := run([]string{"settings", "--project", project, "--target", "Example App", "--configuration", "Debug", "--xcode", "--scheme", "App Scheme", "--compare", "SWIFT_VERSION"}, os.Getenv, &out, &errout)
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, &errout)
 	}
@@ -119,7 +119,7 @@ printf '%s' '[{"target":"Example App","buildSettings":{"SWIFT_VERSION":"5","CONF
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"-showBuildSettings\n-json\n-project\n" + project, "-target\nExample App\n-configuration\nDebug", "-derivedDataPath\n", "-disableAutomaticPackageResolution\n-skipPackageUpdates"} {
+	for _, want := range []string{"-showBuildSettings\n-json\n-project\n" + project, "-scheme\nApp Scheme\n-configuration\nDebug", "-derivedDataPath\n", "-disableAutomaticPackageResolution\n-skipPackageUpdates"} {
 		if !strings.Contains(string(argv), want) {
 			t.Errorf("missing %q: %s", want, argv)
 		}
@@ -143,10 +143,10 @@ func TestSettingsErrorsNeverFallBack(t *testing.T) {
 		{"unknown target", []string{"--target", "Missing"}, "", "no matching"},
 		{"unknown configuration", []string{"--configuration", "Absent"}, "", "no matching"},
 		{"compare alone", []string{"--compare"}, "", "requires --xcode"},
-		{"missing tool", []string{"--xcode"}, "", "xcodebuild"},
-		{"failed tool", []string{"--xcode"}, "#!/bin/sh\necho deliberate-failure >&2\nexit 3\n", "deliberate-failure"},
-		{"bad JSON", []string{"--xcode"}, "#!/bin/sh\necho not-json\n", "JSON"},
-		{"empty result", []string{"--xcode"}, "#!/bin/sh\necho '[]'\n", "no matching"},
+		{"missing tool", []string{"--xcode", "--scheme", "App Scheme"}, "", "xcodebuild"},
+		{"failed tool", []string{"--xcode", "--scheme", "App Scheme"}, "#!/bin/sh\necho deliberate-failure >&2\nexit 3\n", "deliberate-failure"},
+		{"bad JSON", []string{"--xcode", "--scheme", "App Scheme"}, "#!/bin/sh\necho not-json\n", "JSON"},
+		{"empty result", []string{"--xcode", "--scheme", "App Scheme"}, "#!/bin/sh\necho '[]'\n", "builds targets: (none)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -204,7 +204,7 @@ printf '%s' '[{"target":"Dependency","buildSettings":{"SWIFT_VERSION":"4"}},{"ta
 	}
 	t.Setenv("PATH", dir)
 	for _, compare := range []bool{false, true} {
-		args := []string{"settings", "--project", project, "--xcode", "--json"}
+		args := []string{"settings", "--project", project, "--xcode", "--scheme", "App Scheme", "--target", "Example App", "--json"}
 		if compare {
 			args = append(args, "--compare")
 		}
@@ -221,6 +221,11 @@ printf '%s' '[{"target":"Dependency","buildSettings":{"SWIFT_VERSION":"4"}},{"ta
 		}
 		if len(report.Settings) != 3 {
 			t.Fatalf("rows: %+v", report.Settings)
+		}
+		for _, row := range report.Settings {
+			if row.Target != "Example App" {
+				t.Fatalf("unselected target: %+v", row)
+			}
 		}
 		if compare {
 			if !strings.Contains(report.Label, staticSettingsLabel) {
@@ -260,7 +265,7 @@ func TestSettingsXcodeFailureCleansScratch(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 	var out, errout bytes.Buffer
-	if code := run([]string{"settings", "--project", project, "--xcode"}, os.Getenv, &out, &errout); code == 0 {
+	if code := run([]string{"settings", "--project", project, "--xcode", "--scheme", "App Scheme"}, os.Getenv, &out, &errout); code == 0 {
 		t.Fatal("unexpected success")
 	}
 	entries, err := os.ReadDir(scratch)
@@ -269,5 +274,35 @@ func TestSettingsXcodeFailureCleansScratch(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("scratch left after failure: %v", entries)
+	}
+}
+
+func TestSettingsXcodeRequiresScheme(t *testing.T) {
+	var out, errout bytes.Buffer
+	code := run([]string{"settings", "--xcode"}, os.Getenv, &out, &errout)
+	if code != 2 || !strings.Contains(errout.String(), "--xcode requires --scheme") || out.Len() != 0 {
+		t.Fatalf("exit %d, stdout %s, stderr %s", code, &out, &errout)
+	}
+}
+
+func TestSettingsXcodeTargetNotBuiltByScheme(t *testing.T) {
+	project := settingsFixture(t, "")
+	dir := t.TempDir()
+	script := `#!/bin/sh
+printf '%s' '[{"target":"Dependency","buildSettings":{"SWIFT_VERSION":"4"}},{"target":"Other App","buildSettings":{"SWIFT_VERSION":"5"}}]'
+`
+	if err := os.WriteFile(filepath.Join(dir, "xcodebuild"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	var out, errout bytes.Buffer
+	code := run([]string{"settings", "--project", project, "--xcode", "--scheme", "App Scheme", "--target", "Example App", "--json"}, os.Getenv, &out, &errout)
+	if code == 0 || out.Len() != 0 {
+		t.Fatalf("exit %d, stdout %s", code, &out)
+	}
+	for _, want := range []string{`scheme "App Scheme" does not build target "Example App"`, "builds targets: Dependency, Other App"} {
+		if !strings.Contains(errout.String(), want) {
+			t.Errorf("missing %q: %s", want, &errout)
+		}
 	}
 }
