@@ -140,7 +140,11 @@ func TestRuleEvalEveryNewGrader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var controls map[string]map[string]struct{ Good, Bad string }
+	var controls map[string]map[string]struct {
+		Good, Bad string
+		GoodCases []string `json:"good_cases"`
+		BadCases  []string `json:"bad_cases"`
+	}
 	if err := json.Unmarshal(data, &controls); err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +188,7 @@ func TestRuleEvalEveryNewGrader(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(parts[1]), &limits); err != nil {
 				t.Fatal(err)
 			}
-			if limits.Turns < 1 || limits.Turns > 12 || limits.Timeout < 1 || limits.Timeout > 180 {
+			if limits.Turns < 1 || limits.Turns > 20 || limits.Timeout < 1 || limits.Timeout > 180 {
 				t.Fatal("invalid budget limits")
 			}
 			for _, g := range spec.Graders {
@@ -203,10 +207,18 @@ func TestRuleEvalEveryNewGrader(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					for _, input := range []struct {
+					type control struct {
 						value string
 						want  bool
-					}{{c.Good, true}, {c.Bad, false}} {
+					}
+					inputs := []control{{c.Good, true}, {c.Bad, false}}
+					for _, value := range c.GoodCases {
+						inputs = append(inputs, control{value, true})
+					}
+					for _, value := range c.BadCases {
+						inputs = append(inputs, control{value, false})
+					}
+					for _, input := range inputs {
 						value := input.value
 						if g.Type == "tool_used" {
 							key := "command"
@@ -325,5 +337,46 @@ func TestRuleEvalInventoryQuotes(t *testing.T) {
 		if !strings.Contains(sources, match[1]) {
 			t.Errorf("quote not in rendered inventory: %s", match[1])
 		}
+	}
+}
+
+// Keep the paid-run adjustment scoped to the four turn-bound cases in #485.
+func TestRuleEvalTurnCaps(t *testing.T) {
+	paths, err := filepath.Glob("rules/evals/*/prompt.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 32 {
+		t.Fatalf("got %d prompts, want 32", len(paths))
+	}
+	for _, path := range paths {
+		name := filepath.Base(filepath.Dir(path))
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts := strings.SplitN(string(data), "---", 3)
+			if len(parts) != 3 {
+				t.Fatal("missing prompt limits")
+			}
+			var limits struct {
+				Turns int `yaml:"max_turns"`
+			}
+			if err := yaml.Unmarshal([]byte(parts[1]), &limits); err != nil {
+				t.Fatal(err)
+			}
+			want := 12
+			if strings.HasPrefix(name, "route-") {
+				want = 8
+			}
+			switch name {
+			case "pr-only", "hooks", "proven-code", "negative-control":
+				want = 20
+			}
+			if limits.Turns != want {
+				t.Errorf("max_turns=%d, want %d", limits.Turns, want)
+			}
+		})
 	}
 }

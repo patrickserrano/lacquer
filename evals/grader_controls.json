@@ -215,8 +215,25 @@
       "bad": "echo verified"
     },
     "method": {
-      "good": "flowdeck test stop fixture-run",
-      "bad": "flowdeck test status fixture-run"
+      "good": "flowdeck test stop",
+      "bad": "flowdeck test status",
+      "good_cases": [
+        "flowdeck test stop fixture-run",
+        "flowdeck test stop --run fixture-run",
+        "PATH=\"$PWD/bin:$PATH\" flowdeck test stop",
+        "pwd && flowdeck test stop",
+        "pwd; flowdeck test stop",
+        "pwd\nflowdeck test stop",
+        "bin/flowdeck test stop fixture-run",
+        "./bin/flowdeck test stop"
+      ],
+      "bad_cases": [
+        "echo flowdeck test stop",
+        "echo \"flowdeck test stop\"",
+        "flowdeck test stopping",
+        "other-flowdeck test stop",
+        "bin/flowdeck test status"
+      ]
     }
   },
   "ios-logs": {
