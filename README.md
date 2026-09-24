@@ -53,6 +53,18 @@ old records) display `inherited/unknown`; they do not imply Sonnet. These are
 model. Verify that separately from the session's own transcript when auditing
 model usage. Dry runs print the selected flags and write no session record.
 
+## Dispatch worktree preparation
+
+Before an agent starts in a new, assigned, or resumed worktree, console writes
+`.metadata_never_index` at its root to exclude build churn from Spotlight.
+The marker is ignored through the user's global `core.excludesFile`, or Git's
+default `$XDG_CONFIG_HOME/git/ignore` (`~/.config/git/ignore` without XDG).
+Console preserves existing entries and appends the marker rule once; it never
+adds it to project `.gitignore` files. An unwritable global file or a repository
+ignore override that exposes the marker prevents launch with an error.
+Dry runs write neither markers nor exclusions. Existing worktree branches and
+source files are preserved. Console does not remove old worktrees.
+
 ## LACQUER_ROOT
 
 Every command that reads shipped content resolves `LACQUER_ROOT` (default `.`)

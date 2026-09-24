@@ -65,28 +65,19 @@ func gitOutput(dir string, args ...string) (string, error) {
 // relative to it, so a session dispatched to a subdirectory starts in the
 // same subdirectory of its worktree.
 //
-// dir is made absolute first. git's toplevel always is, and filepath.Rel of
-// an absolute root against a relative dir fails ("can't make ../proj
-// relative to /.../proj") -- which refused every bg dispatch from a relative
-// --roster in 1.37.3 through 1.37.9. The loaders now resolve their paths to
-// absolute; this does not rely on every caller having done so.
+// Ask Git for the prefix: filepath.Rel compares spelling, so even after
+// EvalSymlinks it can escape the root when dir has different case on macOS.
 func repoRoot(dir string) (root, rel string, err error) {
 	dir = absPath(dir)
 	root, err = gitOutput(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", "", fmt.Errorf("%s is not in a git repository: %w", dir, err)
 	}
-	// --show-toplevel resolves symlinks (/var -> /private/var on macOS), so
-	// dir must be resolved the same way before taking the difference.
-	realDir, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		return "", "", fmt.Errorf("resolve %s: %w", dir, err)
-	}
-	rel, err = filepath.Rel(root, realDir)
+	rel, err = gitOutput(dir, "rev-parse", "--show-prefix")
 	if err != nil {
 		return "", "", err
 	}
-	return root, rel, nil
+	return root, filepath.Clean(rel), nil
 }
 
 // absPath is p made absolute against the process's cwd, or p unchanged if
@@ -240,6 +231,9 @@ func createWorktree(dir, branch string) (dispatchWorktree, error) {
 	if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil { // #nosec G204 -- fixed git subcommand; the path is generated here and the branch passed check-ref-format
 		return dispatchWorktree{}, fmt.Errorf("could not create a worktree for the bg session (%s): %w: %s", strings.Join(argv, " "), err, strings.TrimSpace(string(out)))
 	}
+	if err := prepareWorktree(p.path); err != nil {
+		return dispatchWorktree{}, err
+	}
 	return dispatchWorktree{
 		path:   p.path,
 		branch: p.branch,
@@ -252,7 +246,7 @@ func createWorktree(dir, branch string) (dispatchWorktree, error) {
 // --worktree: a fleet PM decides each IC's branch and worktree, creates them,
 // and names them in the brief (fleet-ops personas/pm.md), so the session must
 // run there, not in one lacquer makes beside it. It is checked, and never
-// created, changed or removed.
+// created or removed. Before launch it receives the Spotlight marker.
 //
 // It must be a registered worktree of dir's repository -- not merely a
 // directory, which could be anything, nor another repository's worktree -- and
@@ -292,7 +286,7 @@ func assignedWorktree(dir, path string, mode Mode) (dispatchWorktree, error) {
 		path:   abs,
 		branch: branch,
 		runDir: runDir,
-		setup:  "running in the assigned worktree " + abs + " (branch " + branch + "); lacquer does not create, change or remove it\n",
+		setup:  "running in the assigned worktree " + abs + " (branch " + branch + "); lacquer keeps its branch and contents; adds only the Spotlight marker\n",
 	}, nil
 }
 
