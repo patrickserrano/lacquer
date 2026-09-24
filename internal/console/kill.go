@@ -104,6 +104,11 @@ func Kill(sessionsPath string, r Record, force bool) (string, error) {
 // remove` refuses it with "is locked" -- unlock first, then remove --force
 // since the killed session left no clean working tree to verify.
 func removeWorktree(mainDir, path string) error {
+	lock, err := lockWorktrees(mainDir)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	// Best-effort: an already-unlocked worktree errors here, which is fine --
 	// the remove below is what actually matters.
 	_ = exec.Command("git", "-C", mainDir, "worktree", "unlock", path).Run()
