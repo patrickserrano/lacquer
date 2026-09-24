@@ -512,3 +512,31 @@ func TestNewlyShippedCollisionRemainsCountedAsUntracked(t *testing.T) {
 		t.Fatalf("collision must be counted and block the fleet: %+v", r)
 	}
 }
+
+func TestFleetReportsUnevaluatedRelaxation(t *testing.T) {
+	lq := lacquerRoot(t)
+	p := project(t, "p", "")
+	file := filepath.Join(p, ".lacquer.toml")
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, file, string(raw)+"\n[baseline.relax]\ndocumentation = { until = \"2099-01-01\", reason = \"docs backlog\" }\n")
+	r := find(t, Run(lq, rosterFor(t, map[string]string{"p": p}), day("2026-09-24")), "p")
+	if r.Error != "" {
+		t.Fatal(r.Error)
+	}
+	if out := strings.Join(Notes(r), "\n"); !strings.Contains(out, "documentation") || !strings.Contains(out, "relaxation NOT CHECKED") {
+		t.Fatalf("fleet hid unchecked relaxation: %s", out)
+	}
+	var out bytes.Buffer
+	if err := JSON(&out, []Report{r}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "relaxation NOT CHECKED") {
+		t.Fatal("JSON hid unchecked relaxation")
+	}
+	if r.Blocking() {
+		t.Fatal("report-only findings changed fleet gate")
+	}
+}
