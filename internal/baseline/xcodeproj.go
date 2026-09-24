@@ -13,6 +13,7 @@ import (
 // the project rather than to a target.
 type Config struct {
 	ID           string
+	Target       string
 	Name         string
 	Settings     map[string]string
 	ProjectLevel bool
@@ -33,6 +34,7 @@ type Declared struct {
 	Source      string
 	ExpectSwift bool
 	resolved    map[string]map[string]resolved
+	paths       map[string]resolved
 }
 
 // SwiftConfigs returns target configurations with an effective language mode.
@@ -88,6 +90,7 @@ const (
 	kindConfigList
 	kindBuildConfig
 	kindFileRef
+	kindTarget
 )
 
 // ReadXcodeproj parses every XCBuildConfiguration in a project, plus enough of
@@ -123,9 +126,12 @@ func ReadXcodeproj(path string) (Declared, error) {
 		cur         *Config                 // build config being filled
 		lists       = map[string][]string{} // config-list id -> member config ids
 		listID      string                  // config list being filled
-		projectList string                  // the PBXProject's buildConfigurationList id
-		fileRefs    = map[string]string{}   // PBXFileReference id -> base name
-		fileRefID   string                  // file reference being filled
+		targetLists = map[string]string{}   // target id -> configuration list
+		targetNames = map[string]string{}   // target id -> name
+		targetID    string
+		projectList string                // the PBXProject's buildConfigurationList id
+		fileRefs    = map[string]string{} // PBXFileReference id -> base name
+		fileRefID   string                // file reference being filled
 		kind        = kindNone
 		prev        string // previous line, for the id lookbehind
 	)
@@ -158,6 +164,8 @@ func ReadXcodeproj(path string) (Declared, error) {
 			id := openingID(prev)
 			cur, kind = nil, kindNone
 			switch strings.TrimSuffix(isa, ";") {
+			case "PBXNativeTarget", "PBXAggregateTarget", "PBXLegacyTarget":
+				kind, targetID = kindTarget, id
 			case "PBXProject":
 				kind = kindProject
 			case "XCConfigurationList":
@@ -175,6 +183,13 @@ func ReadXcodeproj(path string) (Declared, error) {
 		prev = line
 
 		switch kind {
+		case kindTarget:
+			if v, ok := strings.CutPrefix(line, "buildConfigurationList = "); ok {
+				targetLists[targetID] = firstToken(strings.TrimSuffix(v, ";"))
+			}
+			if v, ok := strings.CutPrefix(line, "name = "); ok {
+				targetNames[targetID] = strings.Trim(strings.TrimSuffix(v, ";"), `"`)
+			}
 		case kindProject:
 			if v, ok := strings.CutPrefix(line, "buildConfigurationList = "); ok {
 				projectList = firstToken(strings.TrimSuffix(v, ";"))
@@ -227,7 +242,14 @@ func ReadXcodeproj(path string) (Declared, error) {
 	for _, id := range lists[projectList] {
 		projectMembers[id] = true
 	}
+	targetMembers := map[string]string{}
+	for id, list := range targetLists {
+		for _, member := range lists[list] {
+			targetMembers[member] = targetNames[id]
+		}
+	}
 	for i := range configs {
+		configs[i].Target = targetMembers[configs[i].ID]
 		configs[i].ProjectLevel = projectMembers[configs[i].ID]
 		// Resolved in a second pass: a PBXFileReference can appear anywhere in
 		// the file, including after the configuration that points at it.
@@ -242,7 +264,8 @@ func ReadXcodeproj(path string) (Declared, error) {
 		return Declared{}, err
 	}
 	d := Declared{Configs: configs, Source: path}
-	d.resolveFiles(referencePaths(string(raw), filepath.Dir(filepath.Dir(path))))
+	d.paths = referencePaths(string(raw), filepath.Dir(filepath.Dir(path)))
+	d.resolveFiles()
 	return d, nil
 }
 

@@ -50,7 +50,7 @@ func inlineValue(lower resolved, c Config, key, layer, file string) resolved {
 
 // resolveFiles evaluates low to high: project xcconfig, project pbxproj, target
 // xcconfig, target pbxproj. It never writes a project setting.
-func (d *Declared) resolveFiles(paths map[string]resolved) {
+func (d *Declared) resolveFiles() {
 	d.resolved = map[string]map[string]resolved{}
 	for _, c := range d.Configs {
 		if c.ProjectLevel {
@@ -58,15 +58,7 @@ func (d *Declared) resolveFiles(paths map[string]resolved) {
 		}
 		values := map[string]resolved{}
 		for _, key := range baselineSettings {
-			var r resolved
-			for _, p := range d.Configs {
-				if p.ProjectLevel && p.Name == c.Name {
-					r = configValue(r, p, key, "project xcconfig", paths)
-					r = inlineValue(r, p, key, "project pbxproj", d.Source)
-				}
-			}
-			r = configValue(r, c, key, "target xcconfig", paths)
-			values[key] = inlineValue(r, c, key, "target pbxproj", d.Source)
+			values[key] = d.fileSetting(c, key)
 		}
 		d.resolved[c.ID] = values
 	}
@@ -283,4 +275,39 @@ func referencePaths(raw, projectDir string) map[string]resolved {
 		}
 	}
 	return out
+}
+
+// Setting describes a static scalar lookup, never Xcode's evaluation. State is
+// set, unset (no declaration), or unknown (Reason explains the limitation).
+type Setting struct {
+	State  string `json:"state"`
+	Value  string `json:"value,omitempty"`
+	Source string `json:"source,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// fileSetting applies the shared precedence and uncertainty rules for any key.
+func (d Declared) fileSetting(c Config, key string) resolved {
+	var r resolved
+	for _, p := range d.Configs {
+		if p.ProjectLevel && p.Name == c.Name {
+			r = configValue(r, p, key, "project xcconfig", d.paths)
+			r = inlineValue(r, p, key, "project pbxproj", d.Source)
+		}
+	}
+	r = configValue(r, c, key, "target xcconfig", d.paths)
+	r = inlineValue(r, c, key, "target pbxproj", d.Source)
+	return r
+}
+
+// Setting exposes the static value, winning source, and uncertainty separately.
+func (d Declared) Setting(c Config, key string) Setting {
+	r := d.fileSetting(c, key)
+	if r.unknown != "" {
+		return Setting{State: "unknown", Source: r.source, Reason: r.unknown}
+	}
+	if r.present {
+		return Setting{State: "set", Value: r.value, Source: r.source}
+	}
+	return Setting{State: "unset"}
 }
