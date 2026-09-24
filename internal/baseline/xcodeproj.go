@@ -21,62 +21,40 @@ type Config struct {
 	// base name rather than an object id because the id is meaningless to every
 	// caller, and a project that sets a value ONLY in an xcconfig is otherwise
 	// indistinguishable from one that does not set it at all.
-	BaseConfig string
+	BaseConfig    string
+	baseReference string
+	conditional   map[string]bool
 }
 
 // Declared is what a project's own files say about the build settings the
 // baseline cares about.
 type Declared struct {
-	Configs []Config
+	Configs     []Config
+	Source      string
+	ExpectSwift bool
+	resolved    map[string]map[string]resolved
 }
 
-// SwiftConfigs returns the configurations that compile Swift, identified by
-// declaring SWIFT_VERSION.
-//
-// Xcode writes SWIFT_VERSION into exactly the target configurations that build
-// Swift, which makes its presence the best available marker without resolving
-// the full target graph. Note what this deliberately is NOT: "declares any
-// SWIFT_* setting". Project-level configurations routinely declare
-// SWIFT_OPTIMIZATION_LEVEL and SWIFT_ACTIVE_COMPILATION_CONDITIONS while
-// carrying no language mode, so the looser test inflates the denominator and
-// reports a fully compliant project as short of coverage — a false positive on
-// the very thing this package exists to certify.
-//
-// The blind spot: a configuration that compiles Swift while declaring no
-// SWIFT_VERSION of its own, inheriting it from the project level or an xcconfig,
-// is not counted. That is why CI checks *effective* settings via
-// `xcodebuild -showBuildSettings` — two independent checks at different fidelity,
-// the same defense-in-depth shape ci.yml already uses for its SPM cache.
+// SwiftConfigs returns target configurations with an effective language mode.
+// An uncertain language mode remains in the denominator so it cannot disappear
+// from the report merely because static resolution could not prove its value.
 func (d Declared) SwiftConfigs() []Config {
 	var out []Config
 	for _, c := range d.Configs {
 		if c.ProjectLevel {
 			continue
 		}
-		if _, ok := c.Settings["SWIFT_VERSION"]; ok {
+		if r := d.resolve(c, "SWIFT_VERSION"); r.present || r.unknown != "" {
 			out = append(out, c)
 		}
 	}
 	return out
 }
 
-// Effective resolves key for one configuration: the configuration's own value if
-// it declares one, otherwise the project-level configuration of the same name.
-// That models Xcode's inheritance closely enough to avoid punishing a project
-// that sets a value once at the project level and lets its targets inherit it —
-// a legitimate and common layout.
+// Effective returns a known effective scalar, including both xcconfig layers.
 func (d Declared) Effective(c Config, key string) (string, bool) {
-	if v, ok := c.Settings[key]; ok {
-		return v, true
-	}
-	for _, p := range d.Configs {
-		if p.ProjectLevel && p.Name == c.Name {
-			if v, ok := p.Settings[key]; ok {
-				return v, true
-			}
-		}
-	}
-	return "", false
+	r := d.resolve(c, key)
+	return r.value, r.present && r.unknown == ""
 }
 
 // Coverage reports how many Swift-compiling configurations resolve key to want,
@@ -221,11 +199,20 @@ func ReadXcodeproj(path string) (Declared, error) {
 			// the block, so it is captured on the way past.
 			if v, ok := strings.CutPrefix(line, "baseConfigurationReference = "); ok {
 				cur.BaseConfig = firstToken(strings.TrimSuffix(v, ";"))
+				cur.baseReference = cur.BaseConfig
 			}
 			if v, ok := strings.CutPrefix(line, "name = "); ok {
 				cur.Name = strings.Trim(strings.TrimSuffix(v, ";"), `"`)
 				cur, kind = nil, kindNone // `name` is the block's last field
 				continue
+			}
+			// Conditional overrides cannot certify all SDKs/architectures.
+			if lhs, _, ok := strings.Cut(line, " = "); ok && strings.Contains(lhs, "[") {
+				key, _, _ := strings.Cut(strings.Trim(lhs, `"`), "[")
+				if cur.conditional == nil {
+					cur.conditional = map[string]bool{}
+				}
+				cur.conditional[key] = true
 			}
 			if key, val, ok := settingLine(line); ok {
 				cur.Settings[key] = val
@@ -250,7 +237,13 @@ func ReadXcodeproj(path string) (Declared, error) {
 			configs[i].BaseConfig = ""
 		}
 	}
-	return Declared{Configs: configs}, nil
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Declared{}, err
+	}
+	d := Declared{Configs: configs, Source: path}
+	d.resolveFiles(referencePaths(string(raw), filepath.Dir(filepath.Dir(path))))
+	return d, nil
 }
 
 // inlineSetting reads `key = value;` out of a single-line pbxproj object, where
