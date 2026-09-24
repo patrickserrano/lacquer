@@ -114,7 +114,11 @@ func Notes(r Report) []string {
 	for _, o := range r.Orphans {
 		out = append(out, "orphan still present: "+o.Key)
 	}
+	for _, f := range r.Xcodegen {
+		out = append(out, f.String())
+	}
 	for _, b := range r.Baseline {
+		out = append(out, b.Relaxations...)
 		if len(b.Violations) > 0 {
 			out = append(out, fmt.Sprintf("baseline %s/%s: %s", b.Profile, b.Component, strings.Join(b.Violations, ", ")))
 		}

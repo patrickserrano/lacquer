@@ -46,6 +46,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/exclusion"
 	"github.com/patrickserrano/lacquer/internal/suppress"
 	"github.com/patrickserrano/lacquer/internal/testtargets"
+	"github.com/patrickserrano/lacquer/internal/xcodegendrift"
 )
 
 // Entry is one project in the roster.
@@ -154,6 +155,9 @@ type BaselineReport struct {
 	Component  string   `json:"component"`
 	Violations []string `json:"violations,omitempty"`
 	Unchecked  string   `json:"unchecked,omitempty"`
+
+	// Relaxations carries dead or unevaluated entries, never fabricated passes.
+	Relaxations []string `json:"relaxations,omitempty"`
 }
 
 // DriftFinding is a stack on disk the manifest does not declare.
@@ -218,6 +222,10 @@ type Report struct {
 	Baseline   []BaselineReport `json:"baseline,omitempty"`
 	Drift      []DriftFinding   `json:"drift,omitempty"`
 	Exclusions []Exclusion      `json:"exclusions,omitempty"`
+
+	// Xcodegen reports regeneration differences without changing the fleet gate.
+	Xcodegen []xcodegendrift.Finding `json:"xcodegen,omitempty"`
+
 	// DepIgnores are the project's reviewed Dependabot ignores. An expired one
 	// blocks, exactly as an expired exclusion does.
 	DepIgnores []DependabotIgnore `json:"dependabot_ignores,omitempty"`
@@ -304,6 +312,7 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 	}
 
 	r.Retired = cfg.Project.Retired
+	r.Xcodegen = xcodegendrift.Check(e.Path, cfg.BaselineTargets())
 
 	rows, ver, err := audit.Classify(lacquerRoot, e.Path)
 	if err != nil {
@@ -343,6 +352,11 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		br := BaselineReport{Profile: b.Profile, Component: b.Component, Unchecked: b.Unchecked}
 		for _, f := range baseline.Violations(b.Findings) {
 			br.Violations = append(br.Violations, f.Key)
+		}
+		for _, f := range b.Findings {
+			if note := f.RelaxationNotice(); note != "" {
+				br.Relaxations = append(br.Relaxations, note)
+			}
 		}
 		r.Baseline = append(r.Baseline, br)
 	}

@@ -41,6 +41,7 @@ import (
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
 	"github.com/patrickserrano/lacquer/internal/testtargets"
 	"github.com/patrickserrano/lacquer/internal/version"
+	"github.com/patrickserrano/lacquer/internal/xcodegendrift"
 )
 
 func main() {
@@ -386,6 +387,19 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 		if err != nil {
 			return fail(stderr, fmt.Errorf("load manifest: %w", err))
+		}
+		flags := flag.NewFlagSet("audit", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		xcodegenOnly := flags.Bool("xcodegen-only", false, "report XcodeGen build-setting drift only (never gates)")
+		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if flags.NArg() != 0 {
+			return fail(stderr, fmt.Errorf("unexpected audit arguments: %v", flags.Args()))
+		}
+		fmt.Fprint(stdout, xcodegendrift.Format(xcodegendrift.Check(projectRoot, cfg.BaselineTargets())))
+		if *xcodegenOnly {
+			return 0
 		}
 		// Ahead of the classification, because it explains it. A retired project's
 		// report is SHORT — the scheduled workflows and dependabot.yml are simply
@@ -1111,6 +1125,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               violation, an expired [project].exclude, or a file the lacquer")
 	fmt.Fprintln(w, "                               no longer ships still sitting in the project; exit 6 if a stack")
 	fmt.Fprintln(w, "                               on disk is undeclared — see `adopt`)")
+	fmt.Fprintln(w, "    --xcodegen-only            report regeneration setting drift only; no drift/baseline gates")
 	fmt.Fprintln(w, "  fleet --roster F [--json]    audit every project in a roster (exit 4 if any would fail its own")
 	fmt.Fprintln(w, "                               audit); --json emits a snapshot for a later run to diff against")
 	fmt.Fprintln(w, "  fleet diff A.json B.json     what changed between two snapshots (exit 4 on a regression)")

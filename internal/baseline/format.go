@@ -19,8 +19,11 @@ func Format(profile string, fs []Finding) string {
 	}
 
 	blocking := Violations(fs)
-	var relaxed, expired, unknown int
+	var relaxed, expired, unknown, dead int
 	for _, f := range fs {
+		if f.Relax != nil && (f.Status == StatusOK || f.Status == StatusImplied) {
+			dead++
+		}
 		switch f.Status {
 		case StatusUnknown:
 			unknown++
@@ -33,9 +36,11 @@ func Format(profile string, fs []Finding) string {
 
 	var b strings.Builder
 	switch {
-	case len(blocking) == 0 && relaxed == 0 && unknown == 0:
+	case len(blocking) == 0 && relaxed == 0 && unknown == 0 && dead == 0:
 		fmt.Fprintf(&b, "baseline: ok (%s)\n", profile)
 		return b.String()
+	case dead > 0 && len(blocking) == 0 && relaxed == 0 && unknown == 0:
+		fmt.Fprintf(&b, "baseline: %d dead relaxation(s) (%s)\n", dead, profile)
 	case unknown > 0:
 		fmt.Fprintf(&b, "baseline: UNKNOWN (%s) — %d unresolved checks, %d violations\n", profile, unknown, len(blocking))
 	default:
@@ -44,19 +49,21 @@ func Format(profile string, fs []Finding) string {
 
 	for _, f := range fs {
 		switch f.Status {
-		case StatusOK:
+		case StatusOK, StatusImplied:
 			if f.Relax != nil {
-				fmt.Fprintf(&b, "  ~ %-19s satisfied — the relaxation until %s is stale, remove it\n", f.Key, f.Relax.Until)
+				fmt.Fprintf(&b, "  ~ %s\n", f.RelaxationNotice())
 			}
-		case StatusImplied:
-			// Not a finding an operator needs to act on.
 		case StatusRelaxed:
 			fmt.Fprintf(&b, "  ~ %-19s RELAXED until %s — %s\n", f.Key, f.Relax.Until, f.Relax.Reason)
 		case StatusExpired:
 			fmt.Fprintf(&b, "  ! %-19s EXPIRED %s — %s (%s want %s, %s configs compliant)\n",
 				f.Key, f.Relax.Until, f.Relax.Reason, f.Setting, f.Want, f.Ratio())
 		case StatusUnknown:
-			fmt.Fprintf(&b, "  ? %-19s UNKNOWN — %s\n", f.Key, f.Got)
+			if f.Relax != nil {
+				fmt.Fprintf(&b, "  ? %s\n", f.RelaxationNotice())
+			} else {
+				fmt.Fprintf(&b, "  ? %-19s UNKNOWN — %s\n", f.Key, f.Got)
+			}
 		case StatusViolation:
 			fmt.Fprintf(&b, "  x %-19s want %-9s got %-14s %s  (%s)\n",
 				f.Key, f.Want, f.Got, f.Ratio(), f.Setting)
@@ -101,4 +108,20 @@ func plural(n int, noun string) string {
 		return fmt.Sprintf("%d %s", n, noun)
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// RelaxationNotice reports removable or unevaluated debt. A still-needed
+// relaxation has its ordinary RELAXED/EXPIRED baseline finding instead.
+func (f Finding) RelaxationNotice() string {
+	if f.Relax == nil {
+		return ""
+	}
+	switch f.Status {
+	case StatusOK, StatusImplied:
+		return fmt.Sprintf("%s dead relaxation — baseline passes without it; remove [baseline.relax].%s (until %s — %s)", f.Key, f.Key, f.Relax.Until, f.Relax.Reason)
+	case StatusUnknown:
+		return fmt.Sprintf("%s relaxation NOT CHECKED — %s", f.Key, f.Got)
+	default:
+		return ""
+	}
 }

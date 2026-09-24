@@ -168,6 +168,28 @@ unit. First sync, with no lock at all, still adopts existing content and prints
 which units it replaced. Identical content is accepted without a clobber warning;
 uncommitted asset changes remain protected even with `--force`.
 
+## Regeneration drift and dead relaxations
+
+`audit` and `fleet` report build-setting names present in a tracked `.xcodeproj`
+but absent after `xcodegen generate`, and the reverse, by target/configuration
+and project/configuration. A sibling `project.yml` opts the project into this
+comparison. It compares the current checkout, including local edits, in a scratch
+copy; it does not replace the original project. Value-only changes and effective
+xcconfig values are outside this presence check (the baseline checker still
+resolves its own settings).
+
+XcodeGen and macOS `plutil` are required. Missing tools, unreadable input, failed
+generation, and unsupported inputs such as symlinks or generation hooks report `NOT CHECKED`; they
+never stand in for a clean comparison. Findings are report-only. The iOS Mac lint
+job runs `lacquer audit --xcodegen-only` before doctor, using the same pinned
+release, so CI can report this even though the Linux drift job lacks XcodeGen.
+
+A `[baseline.relax]` entry whose baseline passes in every checked component is
+reported as a **dead relaxation** to remove, including strict concurrency implied
+by Swift 6. Like stale exclusions, this notice does not change the exit code.
+An unknown baseline or a key enforced only by CI (`documentation`, `pgtap`) is
+reported as `relaxation NOT CHECKED`, never assumed live or dead.
+
 ## Proving the checks work
 
 Every serious defect found onboarding this fleet was the same shape: **a check

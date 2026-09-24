@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -119,6 +120,64 @@ func Run(lacquerRoot, projectRoot string, targets []Target, relax map[string]Rel
 		rep.Findings = Check(spec, d, relax, now)
 		reports = append(reports, rep)
 	}
+	// Check evaluates before applying relaxations, so OK/implied already proves
+	// the counterfactual. Missing evidence must be explicit for every entry,
+	// including CI-only keys and components that could not be read.
+	seen := map[string]bool{}
+	keys := make([]string, 0, len(relax))
+	for key := range relax {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for i := range reports {
+		for _, f := range reports[i].Findings {
+			seen[f.Key] = true
+		}
+		unchecked := reports[i].Unchecked
+		for _, f := range reports[i].Findings {
+			if f.Key == "discovery" && f.Status == StatusUnknown {
+				unchecked = f.Got
+			}
+		}
+		if unchecked != "" {
+			for _, key := range keys {
+				if key == "documentation" || key == "pgtap" {
+					continue
+				}
+				r := relax[key]
+				reports[i].Findings = append(reports[i].Findings, Finding{Key: key, Status: StatusUnknown, Got: unchecked, Relax: &r})
+				seen[key] = true
+			}
+		}
+	}
+	for _, key := range keys {
+		if !seen[key] {
+			r := relax[key]
+			reports = append(reports, Report{Profile: "relaxations", Findings: []Finding{{Key: key, Status: StatusUnknown, Got: "no evaluable baseline for this key; run its owning CI check without the relaxation", Relax: &r}}})
+		}
+	}
+	// A manifest relaxation applies across components. A passing component
+	// cannot recommend removing it while another still needs it or is unknown.
+	for _, key := range keys {
+		needed := false
+		for _, rep := range reports {
+			for _, f := range rep.Findings {
+				if f.Key == key && f.Status != StatusOK && f.Status != StatusImplied {
+					needed = true
+				}
+			}
+		}
+		if needed {
+			for i := range reports {
+				for j := range reports[i].Findings {
+					f := &reports[i].Findings[j]
+					if f.Key == key && (f.Status == StatusOK || f.Status == StatusImplied) {
+						f.Relax = nil
+					}
+				}
+			}
+		}
+	}
 	return reports, nil
 }
 
@@ -137,7 +196,6 @@ func FormatReports(reports []Report) string {
 	for _, r := range reports {
 		if r.Unchecked != "" {
 			out += fmt.Sprintf("baseline: NOT CHECKED (%s/%s) — %s\n", r.Profile, r.Component, r.Unchecked)
-			continue
 		}
 		out += Format(r.Profile, r.Findings)
 	}
