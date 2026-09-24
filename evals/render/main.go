@@ -1,4 +1,4 @@
-// Command render refreshes the eval plugin from a real iOS-profile sync.
+// Command render refreshes the eval plugin from real per-profile syncs.
 package main
 
 import (
@@ -29,20 +29,35 @@ func run() error {
 	if err := os.MkdirAll(scratch, 0o755); err != nil {
 		return err
 	}
+	// Prevent a non-Git fixture from discovering this repository's worktree.
+	if err := os.Setenv("GIT_CEILING_DIRECTORIES", scratch); err != nil {
+		return err
+	}
+	for _, tc := range []struct{ profile, fixture, component string }{
+		{"core", "spmpackage", "."},
+		{"ios", "rootapp", "."},
+		{"web", "multistack", "admin"},
+		{"supabase", "multistack", "server"},
+		{"marketing", "marketing", "."},
+	} {
+		if err := render(root, scratch, tc.profile, tc.fixture, tc.component); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func render(root, scratch, profile, fixture, component string) error {
 	dir, err := os.MkdirTemp(scratch, "render-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	// Prevent a non-Git fixture from discovering this repository's worktree.
-	if err := os.Setenv("GIT_CEILING_DIRECTORIES", scratch); err != nil {
-		return err
-	}
 	cmd := exec.Command("git", "-c", "init.templateDir=", "init", "-q", dir)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("initialize render fixture: %w: %s", err, out)
 	}
-	manifest, err := os.ReadFile(filepath.Join(root, "internal/shipped/testdata/projects/rootapp/.lacquer.toml"))
+	manifest, err := os.ReadFile(filepath.Join(root, "internal/shipped/testdata/projects", fixture, ".lacquer.toml"))
 	if err != nil {
 		return err
 	}
@@ -52,25 +67,47 @@ func run() error {
 	if _, err := sync.Run(root, dir, false); err != nil {
 		return err
 	}
-	rendered, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if err != nil {
+	destination := filepath.Join(root, "evals/rules/contexts", profile)
+	if err := os.MkdirAll(destination, 0o755); err != nil {
 		return err
 	}
-	var context string
-	for _, name := range []string{"core", "ios"} {
-		body, ok := region.ExtractBody(string(rendered), name)
-		if !ok {
-			return fmt.Errorf("rendered CLAUDE.md lacks %s region", name)
+	for _, file := range []string{"CLAUDE.md", "AGENTS.md"} {
+		context, err := regionBody(dir, file, "core")
+		if err != nil {
+			return err
 		}
-		context += body + "\n"
+		if profile != "core" {
+			body, err := regionBody(dir, filepath.Join(component, file), profile)
+			if err != nil {
+				return err
+			}
+			context += body
+		}
+		context = strings.TrimRight(context, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(destination, file), []byte(context), 0o644); err != nil {
+			return err
+		}
 	}
-	context = strings.TrimRight(context, "\n") + "\n"
-	if err := os.WriteFile(filepath.Join(root, "evals/rules/rules.md"), []byte(context), 0o644); err != nil {
-		return err
+	if profile == "ios" {
+		helper, err := os.ReadFile(filepath.Join(dir, "scripts/bump-marketing-version.sh"))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(root, "evals/rules/fixtures/bump-marketing-version.sh"), helper, 0o755); err != nil {
+			return err
+		}
 	}
-	helper, err := os.ReadFile(filepath.Join(dir, "scripts/bump-marketing-version.sh"))
+	return nil
+}
+
+func regionBody(dir, file, name string) (string, error) {
+	rendered, err := os.ReadFile(filepath.Join(dir, file))
 	if err != nil {
-		return err
+		return "", err
 	}
-	return os.WriteFile(filepath.Join(root, "evals/rules/fixtures/bump-marketing-version.sh"), helper, 0o755)
+	body, ok := region.ExtractBody(string(rendered), name)
+	if !ok {
+		return "", fmt.Errorf("rendered %s lacks %s region", file, name)
+	}
+	return body + "\n", nil
 }

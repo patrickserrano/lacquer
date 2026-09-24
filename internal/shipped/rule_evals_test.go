@@ -14,32 +14,57 @@ import (
 // Compare against a fresh sync, not against the source templates: token and
 // region rendering are part of the context an agent actually receives.
 func TestRuleEvalPluginMatchesRenderedContext(t *testing.T) {
-	p := fromFixture(t, "rootapp")
-	p.sync()
-	var want string
-	for _, name := range []string{"core", "ios"} {
-		body, ok := region.ExtractBody(p.read("CLAUDE.md"), name)
-		if !ok {
-			t.Fatalf("missing %s region", name)
-		}
-		want += body + "\n"
-	}
-	want = strings.TrimRight(want, "\n") + "\n"
 	plugin := filepath.Join(root(t), "evals/rules")
-	got, err := os.ReadFile(filepath.Join(plugin, "rules.md"))
-	if err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct{ profile, fixture, component string }{
+		{"core", "spmpackage", "."},
+		{"ios", "rootapp", "."},
+		{"web", "multistack", "admin"},
+		{"supabase", "multistack", "server"},
+		{"marketing", "marketing", "."},
+	} {
+		t.Run(tc.profile, func(t *testing.T) {
+			p := fromFixture(t, tc.fixture)
+			p.sync()
+			for _, file := range []string{"CLAUDE.md", "AGENTS.md"} {
+				body, ok := region.ExtractBody(p.read(file), "core")
+				if !ok {
+					t.Fatalf("missing core region in %s", file)
+				}
+				want := body + "\n"
+				if tc.profile != "core" {
+					body, ok = region.ExtractBody(p.read(filepath.Join(tc.component, file)), tc.profile)
+					if !ok {
+						t.Fatalf("missing %s region in %s", tc.profile, file)
+					}
+					want += body + "\n"
+				}
+				want = strings.TrimRight(want, "\n") + "\n"
+				got, err := os.ReadFile(filepath.Join(plugin, "contexts", tc.profile, file))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(got) != want {
+					t.Fatalf("%s context drifted; run go run ./evals/render", file)
+				}
+				if file == "CLAUDE.md" {
+					checkRuleEvalHook(t, plugin, tc.profile, want)
+				}
+			}
+			if tc.profile == "ios" {
+				script, err := os.ReadFile(filepath.Join(plugin, "fixtures/bump-marketing-version.sh"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(script) != p.read("scripts/bump-marketing-version.sh") {
+					t.Fatal("eval version helper drifted from sync")
+				}
+			}
+		})
 	}
-	if string(got) != want {
-		t.Fatal("eval context drifted from sync; run go run ./evals/render")
-	}
-	script, err := os.ReadFile(filepath.Join(plugin, "fixtures/bump-marketing-version.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(script) != p.read("scripts/bump-marketing-version.sh") {
-		t.Fatal("eval version helper drifted from sync")
-	}
+}
+
+func checkRuleEvalHook(t *testing.T, plugin, profile, want string) {
+	t.Helper()
 	hooks, err := os.ReadFile(filepath.Join(plugin, "hooks/hooks.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +83,20 @@ func TestRuleEvalPluginMatchesRenderedContext(t *testing.T) {
 	}
 	cmd := exec.Command("bash", "-c", start[0].Hooks[0].Command)
 	cmd.Env = append(os.Environ(), "CLAUDE_PLUGIN_ROOT="+plugin)
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if profile != "core" {
+		if err := os.WriteFile(filepath.Join(workspace, ".fixture/profile"), []byte(profile+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	input, err := json.Marshal(map[string]string{"cwd": workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stdin = strings.NewReader(string(input))
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)

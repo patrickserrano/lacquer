@@ -1,5 +1,6 @@
 """Known-good and known-bad controls run offline by go test ./...."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -24,6 +25,8 @@ class Fixtures(unittest.TestCase):
     def seed(self, kind):
         self.run_cmd("bash", str(FIXTURES.parent / "evals" / kind / "scaffold.sh"))
         self.assertFalse((self.root / "CLAUDE.md").exists())
+        expected = "ios" if kind in ("version-source", "pbxproj-discipline") else "core"
+        self.assertEqual((self.root / ".fixture/profile").read_text(), expected + "\n")
         origin = self.run_cmd("git", "remote", "get-url", "origin").stdout.strip()
         self.assertEqual(Path(origin).resolve(), (self.root / ".fixture/origin.git").resolve())
 
@@ -86,6 +89,19 @@ class Fixtures(unittest.TestCase):
         self.assertIn("fail", result.stdout)
         # Refuse unknown numbers locally; never fall through to real clients.
         self.assertNotEqual(self.run_cmd("bin/gh", "pr", "checks", "1", ok=False).returncode, 0)
+
+    def test_unknown_profile_refused(self):
+        (self.root / ".fixture").mkdir()
+        for profile in ("unknown", "../ios", ""):
+            (self.root / ".fixture/profile").write_text(profile)
+            result = subprocess.run(
+                ["python3", str(FIXTURES.parent / "hooks/context.py")],
+                input=json.dumps({"cwd": str(self.root)}), text=True,
+                env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(FIXTURES.parent)},
+                capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("unknown eval fixture profile", result.stderr)
 
     def test_existing_workspace_refused(self):
         (self.root / "keep.txt").write_text("existing work")

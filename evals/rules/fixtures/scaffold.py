@@ -75,6 +75,8 @@ case "$*" in *--watch*) exit 0 ;; *) exit 1 ;; esac
     git("add", ".")
     git("commit", "-qm", "initial fixture")
     Path(".fixture").mkdir()
+    profile = "ios" if kind in ("version-source", "pbxproj-discipline") else "core"
+    write(".fixture/profile", profile + "\n")
     origin = root / ".fixture/origin.git"
     git("-c", "init.templateDir=", "init", "--bare", "-q", str(origin))
     git("--git-dir", str(origin), "config", "maintenance.auto", "false")

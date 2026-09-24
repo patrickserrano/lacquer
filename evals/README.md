@@ -6,12 +6,37 @@ Claude's behavior. It is separate from the deterministic `internal/eval` suite
 and does not evaluate skills. No paid runs are wired into CI. Part of #408; the
 PM owns the measured WITH / W/OUT / Δ run and issue closure.
 
-`rules/` is an eval-only Claude plugin. `go run ./evals/render` syncs the real
-rootapp manifest into a temporary Git repository and extracts its core and iOS
-CLAUDE.md regions into `rules/rules.md`. Its SessionStart hook emits that exact
-text as `additionalContext`. The generated version helper comes from the same
-sync. `TestRuleEvalPluginMatchesRenderedContext` rejects drift in either artifact
-and executes the configured hook. Nothing writes CLAUDE.md in an eval workspace.
+`rules/` is an eval-only Claude plugin. `go run ./evals/render` syncs real
+fixture manifests into temporary Git repositories and extracts core-only or
+core + ios/web/supabase/marketing regions into `rules/contexts/<profile>/`.
+Rootapp supplies iOS; multistack supplies web and Supabase; spmpackage supplies
+core-only; a minimal marketing manifest opts into that profile explicitly.
+Both `CLAUDE.md` and `AGENTS.md` are retained for rule inventory, separately.
+
+SessionStart reads the session `cwd` from hook stdin and selects the CLAUDE
+context using `.fixture/profile` there (core-only when absent). Unknown profile
+names fail rather than selecting arbitrary paths. The WITHOUT arm has no plugin
+hook and receives no context. Existing scaffolds write `ios` for version cases
+and `core` for Git/CI cases. Nothing writes CLAUDE.md in an eval workspace.
+The version helper comes from the same iOS sync.
+`TestRuleEvalPluginMatchesRenderedContext` compares all ten context artifacts
+against fresh syncs, checks the helper, and executes the configured hook for
+every profile, including the missing-selector default.
+
+### Scope decision required for #482
+
+The requested all-inline-rule inventory includes AGENTS-only rules. For example,
+`rules/contexts/ios/AGENTS.md` requires test SwiftData containers to use in-memory
+storage and `cloudKitDatabase: .none`; `rules/contexts/marketing/AGENTS.md` prohibits
+publishing, contacting customers or spending money without authorization.
+Neither rule is in the corresponding CLAUDE context. Giving Claude both files
+would not represent a real consumer's instructions.
+
+Should the expanded Claude eval cover CLAUDE rules only, with AGENTS-only rules
+explicitly deferred to a Codex eval, or should a separate AGENTS-context arm be
+added? The case expansion, exhaustive rule table, skill delivery and grader
+controls are pending that decision. This change is only the profile-rendering
+foundation; it does not complete #482 or claim all-rule coverage.
 
 ## Cases and provenance
 
@@ -69,13 +94,15 @@ After review, **the PM only** runs the measured experiment (not run for this PR)
 
 ```sh
 claude plugin eval "$PWD/evals/rules" \
-  --model claude-sonnet-5 --ablation with-without --max-cost-usd 10 \
+  --model claude-sonnet-5 --ablation with-without --max-cost-usd 25 \
   --no-publish --scaffold --trust-plugin --allow-tools Bash Write Edit
 ```
 
 Reuse the local TMPDIR/configuration environment above. Review reported cost
 against the remaining issue budget before starting. Keep the default three runs
-per case per arm. Record WITH, W/OUT and Δ for each case, with CLI/model versions,
+per case per arm. At $0.13 per run, 30 cases estimate $23.40 and 32 estimate
+$24.96, before run-to-run variation; these are estimates, not measured costs.
+Record WITH, W/OUT and Δ for each case, with CLI/model versions,
 cost, errors and sample count; revisit after major model releases.
 
 ## Isolation and interpretation
