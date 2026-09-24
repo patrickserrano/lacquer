@@ -111,6 +111,9 @@ func Notes(r Report) []string {
 	if n := len(r.Clobbered); n > 0 {
 		out = append(out, fmt.Sprintf("%d unit(s) would be overwritten by sync", n))
 	}
+	for _, o := range r.Orphans {
+		out = append(out, "orphan still present: "+o.Key)
+	}
 	for _, b := range r.Baseline {
 		if len(b.Violations) > 0 {
 			out = append(out, fmt.Sprintf("baseline %s/%s: %s", b.Profile, b.Component, strings.Join(b.Violations, ", ")))

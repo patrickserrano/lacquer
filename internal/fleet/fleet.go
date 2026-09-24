@@ -213,6 +213,7 @@ type Report struct {
 	Error      string           `json:"error,omitempty"`
 	Lacquer    string           `json:"lacquer_version,omitempty"`
 	Audit      AuditCounts      `json:"audit"`
+	Orphans    []audit.Orphan   `json:"orphans,omitempty"`
 	Clobbered  []string         `json:"clobbered,omitempty"`
 	Baseline   []BaselineReport `json:"baseline,omitempty"`
 	Drift      []DriftFinding   `json:"drift,omitempty"`
@@ -242,40 +243,39 @@ type Report struct {
 func (r Report) IsRetired() bool { return r.Retired != nil }
 
 // Blocking reports whether this project would fail its own `lacquer audit`.
-// Mirrors that command's exit codes exactly: a clobbered unit, a baseline
-// violation, an expired exclusion, dependabot ignore or not_run_in_ci
-// declaration, or an adoptable undeclared stack. (Orphans are not mirrored yet:
-// lacquer#358.)
-func (r Report) Blocking() bool {
-	if r.Error != "" || len(r.Clobbered) > 0 {
-		return true
+func (r Report) Blocking() bool { return r.ExitCode() != 0 }
+
+// ExitCode applies audit's shared gate to this report. Unreadable projects fail
+// with exit 1, just as the command does before it can classify findings.
+func (r Report) ExitCode() int {
+	if r.Error != "" {
+		return 1
 	}
+	g := audit.Gate{Clobbered: len(r.Clobbered), Orphans: len(r.Orphans)}
 	for _, b := range r.Baseline {
-		if len(b.Violations) > 0 {
-			return true
-		}
+		g.Baseline += len(b.Violations)
 	}
 	for _, e := range r.Exclusions {
 		if e.Status == string(exclusion.StatusExpired) {
-			return true
+			g.Exclusions++
 		}
 	}
 	for _, d := range r.DepIgnores {
 		if d.Status == string(depignore.StatusExpired) {
-			return true
+			g.DepIgnores++
 		}
 	}
 	for _, n := range r.NotRunInCI {
 		if n.Status == "expired" {
-			return true
+			g.NotRunInCI++
 		}
 	}
 	for _, d := range r.Drift {
 		if d.Adoptable {
-			return true
+			g.Undeclared++
 		}
 	}
-	return false
+	return g.ExitCode()
 }
 
 // Run sweeps every project in the roster.
@@ -328,6 +328,11 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		}
 	}
 	r.Clobbered = audit.Clobbered(rows)
+	r.Orphans, err = audit.Orphans(lacquerRoot, e.Path)
+	if err != nil {
+		r.Error = fmt.Sprintf("orphans: %v", err)
+		return r
+	}
 
 	reports, err := baseline.Run(lacquerRoot, e.Path, cfg.BaselineTargets(), cfg.Baseline.Relax, now)
 	if err != nil {

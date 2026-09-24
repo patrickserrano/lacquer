@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/patrickserrano/lacquer/internal/fleet"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
 	"github.com/patrickserrano/lacquer/internal/skillsync"
 )
@@ -647,6 +649,16 @@ func TestAuditExits4OnOrphan(t *testing.T) {
 	if code != 4 {
 		t.Fatalf("exit code = %d, want 4\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
 	}
+	reports := fleet.Run(hr, fleet.Roster{Project: []fleet.Entry{{Name: "probe", Path: pr}}}, time.Now())
+	if reports[0].Error != "" {
+		t.Fatal(reports[0].Error)
+	}
+	if reports[0].ExitCode() != code || reports[0].Blocking() != (code != 0) {
+		t.Fatalf("fleet Blocking = %v, audit exit = %d", reports[0].Blocking(), code)
+	}
+	if notes := strings.Join(fleet.Notes(reports[0]), "\n"); !strings.Contains(notes, "ios-ghost.yml") {
+		t.Fatalf("fleet notes hide orphan: %s", notes)
+	}
 	for _, want := range []string{"no longer managed by the lacquer", "ios-ghost.yml"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("report does not mention %q:\n%s", want, out.String())
@@ -672,5 +684,29 @@ func TestAuditExits0WithNoOrphans(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "no longer managed by the lacquer") {
 		t.Errorf("an empty lock must not report an orphan:\n%s", out.String())
+	}
+}
+
+// Compare the actual CLI with fleet on the same project, not just two sets of
+// hand-built findings. This catches collection omissions as well as policy drift.
+func TestAuditFleetGateParity(t *testing.T) {
+	for _, tt := range []struct {
+		name, pbx, extra string
+		want             int
+	}{
+		{"clean", pbxCompliant, "", 0},
+		{"baseline", pbxPartialWerror, "", 4},
+		{"expired relaxation", pbxPartialWerror, "[baseline.relax.warnings_as_errors]\nreason = \"legacy\"\nuntil = \"2020-01-01\"\n", 4},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			hr, pr := auditFixture(t, tt.pbx, tt.extra)
+			chdir(t, pr)
+			var out, errb bytes.Buffer
+			code := run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+			report := fleet.Run(hr, fleet.Roster{Project: []fleet.Entry{{Name: "probe", Path: pr}}}, time.Now())[0]
+			if code != tt.want || report.ExitCode() != code || report.Blocking() != (code != 0) {
+				t.Fatalf("audit=%d fleet=%d want=%d\n%s\n%s", code, report.ExitCode(), tt.want, &out, &errb)
+			}
+		})
 	}
 }

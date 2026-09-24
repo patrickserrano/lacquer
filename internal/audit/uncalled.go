@@ -70,7 +70,7 @@ func (u UncalledScript) Confirmed() bool { return u.Unconfirmable == "" }
 const scriptSegment = "scripts"
 
 // UncalledScripts returns every script this project's plan ships that nothing in
-// the project will run.
+// the project will run or its rendered CLAUDE.md instructs an agent to run.
 //
 // WHAT THIS RENDERS RATHER THAN GREPS, and why it has to. A caller is not in the
 // profile source. tokens.ProductSecrets builds the write-release-config.sh
@@ -93,6 +93,10 @@ const scriptSegment = "scripts"
 // move here means a profile that adds a Makefile, a new hook runner, or a
 // project that calls a synced script from its own CI is counted without anyone
 // remembering to extend a list.
+//
+// Rendered CLAUDE.md regions also serve as entry points for agent-facing
+// scripts. The exemption disappears when those instructions stop naming the
+// script; other prose remains diagnostic evidence, not an exemption.
 //
 // WHAT IT DOES NOT PROVE, and no wording in the report should imply otherwise:
 // that a caller that exists ever RUNS. A caller behind a false `if:`, in a job
@@ -118,6 +122,7 @@ func UncalledScripts(lacquerRoot, projectRoot string) ([]UncalledScript, error) 
 	var scripts []string
 	var callers []source
 	var docs []source
+	var agentDocs []source
 
 	for _, u := range units {
 		dest := filepath.ToSlash(u.dest)
@@ -128,6 +133,9 @@ func UncalledScripts(lacquerRoot, projectRoot string) ([]UncalledScript, error) 
 			// lacquer's, and the rest still belongs to the project.
 			if isProse(dest) {
 				docs = append(docs, source{regionKey(dest, u.regionKey), u.content})
+				if path.Base(dest) == "CLAUDE.md" {
+					agentDocs = append(agentDocs, source{dest, u.content})
+				}
 			}
 		case isShippedScript(dest, skillDirs):
 			isManaged[dest] = true
@@ -165,7 +173,15 @@ func UncalledScripts(lacquerRoot, projectRoot string) ([]UncalledScript, error) 
 	owned, incomplete := ownedCallers(projectRoot, isManaged)
 	callers = append(callers, owned...)
 
-	reached := reachable(scripts, body, callers)
+	// Agent-facing scripts are rooted in rendered instructions. Reuse the
+	// reachability closure so helpers called by those scripts count too.
+	roots := append([]source(nil), callers...)
+	for _, s := range scripts {
+		if len(documenters(agentDocs, s)) > 0 {
+			roots = append(roots, source{s, s})
+		}
+	}
+	reached := reachable(scripts, body, roots)
 
 	var out []UncalledScript
 	for _, s := range scripts {

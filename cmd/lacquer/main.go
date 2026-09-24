@@ -568,68 +568,22 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		}
 		fmt.Fprint(stdout, audit.FormatOrphansWithRefs(orphans, refs))
 
-		// The orphan report's mirror image: an orphan is a file the lacquer
-		// stopped shipping and something may still call, this is a file the
-		// lacquer still ships and nothing calls. Reported and not gated for the
-		// same reason — it is dead weight, not a broken project — but reported
-		// out loud because the documentation describes some of these as running,
-		// which is what let scripts/write-release-config.sh sit inert in every
-		// project that declares no [[product]].secrets.
+		// Still-shipped scripts with no caller or rendered agent instructions
+		// remain informational: unlike orphans they do not leave retired code
+		// executing. Documented manual entry points are accounted for by the
+		// detector rather than permanently appearing as false positives.
 		uncalled, err := audit.UncalledScripts(lacquerRoot, projectRoot)
 		if err != nil {
 			return fail(stderr, fmt.Errorf("resolve script callers: %w", err))
 		}
 		fmt.Fprint(stdout, audit.FormatUncalledScripts(uncalled))
 
-		// Exit codes, in precedence order. Unchanged from when each returned
-		// early — only the reporting above moved.
-		switch {
-		// Exit 3 when a project change would be clobbered, so `lacquer audit` is
-		// usable as a CI drift gate (documented in usage()). Clobbering takes
-		// precedence over a baseline violation when both fire: losing a local
-		// change is destructive, a policy violation is not.
-		case len(audit.Clobbered(rows)) > 0:
-			return 3
-		// Exit 4 on a baseline violation — a distinct code so a CI gate can tell
-		// "sync would destroy work" apart from "this project is out of standard".
-		// An expired exclusion shares the code: it is the same finding (a
-		// time-boxed exemption whose term ran out) wearing a different spelling,
-		// and a separate code would mean touching every project's CI to teach it
-		// one more number for no diagnostic gain — the output already says which.
-		// An expired dependabot ignore shares this code with an expired exclusion
-		// and a baseline violation, for the reason already argued for the second
-		// of those: it is the same finding — a time-boxed exemption whose term ran
-		// out — wearing a different spelling. A fourth number would mean teaching
-		// every project's CI one more exit code for no diagnostic gain, when the
-		// output above already says which one fired.
-		//
-		// An orphan shares it too, as of issue #354's second half. It is a
-		// different SHAPE of finding — nothing here is a time-boxed exemption —
-		// but the same argument applies to the exit code: this tool already has a
-		// number that means "this project is out of standard, go read the
-		// output", and an orphan is exactly that. Unlike the other three, an
-		// orphan cannot be cleared by fixing a manifest field; `sync` never
-		// deletes a project file (see internal/audit/orphan.go), so a repo that
-		// hits this exits 4 until a human removes the file by hand — which, for
-		// a project still stamped below the version that un-shipped it, is only
-		// safe to do AFTER `sync` has brought in whatever fixed the file that
-		// used to reference it by name (see internal/retire.Unshipped and PR
-		// #325 for why: an old ios-cleanup-ci.yml queries a retired workflow's
-		// filename directly, and deleting the file out from under it breaks that
-		// live job). This WILL fail every fleet repo carrying one of the three
-		// workflows issue #354 tracks until each syncs and then cleans up.
-		//
-		// An expired [[project.not_run_in_ci]] shares it for the same reason the
-		// expired exclusion and dependabot ignore do: a time-boxed exemption whose
-		// term ran out. The suite it excused is back in the report above.
-		case baseline.Blocking(reports) > 0 || exclusion.Blocking(exclusions) > 0 || depignore.Blocking(ignores) > 0 || len(orphans) > 0 || notRunExpired > 0:
-			return 4
-		// Exit 6 when the project runs a stack the lacquer manages but the manifest
-		// never declared. Distinct from 3/4 because the fix is different in kind:
-		// nothing is wrong with the code, the manifest is just out of date with it.
-		case len(detect.Adoptable(findings)) > 0:
-			return 6
-		}
+		return (audit.Gate{
+			Clobbered: len(audit.Clobbered(rows)), Baseline: baseline.Blocking(reports),
+			Exclusions: exclusion.Blocking(exclusions), DepIgnores: depignore.Blocking(ignores),
+			NotRunInCI: notRunExpired, Orphans: len(orphans), Undeclared: len(detect.Adoptable(findings)),
+		}).ExitCode()
+
 	case "fleet":
 		fs := flag.NewFlagSet("fleet", flag.ContinueOnError)
 		fs.SetOutput(stderr)
