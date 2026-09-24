@@ -107,6 +107,172 @@ rel=$(git -C "$repo" ls-files --full-name -- "$file")
 
 git_() { git -C "$repo" "$@"; }
 
+# Resolve base configurations before the no-op too: the project-level value can
+# already equal the request while an xcconfig still supplies an older version.
+# This is deliberately not an Xcode build-settings evaluator. Any referenced
+# xcconfig defining the setting is refused (even if a pbxproj override exists),
+# and unsupported paths/syntax fail closed. No Xcode invocation or build needed.
+verify_hint='Verify the resolved MARKETING_VERSION for each target/configuration with xcodebuild -showBuildSettings -derivedDataPath DerivedData -project <project> -scheme <scheme> -configuration <configuration>, or read CFBundleShortVersionString in the built Info.plist.'
+unknown_source() {
+  die "refusing: cannot determine the MARKETING_VERSION source: $*. Inspect the referenced xcconfig and change it at its source. $verify_hint"
+}
+
+# Tokenize the OpenStep object graph with portable awk, including comments and
+# quoted paths. Resolve <group> through parents, not relative to the pbxproj or
+# by searching the repository (which can select a stale copy in a worktree).
+config_paths=""
+if grep -q baseConfigurationReference "$file"; then
+  if ! config_paths=$(awk '
+    function fail(message) { print message; exit 1 }
+    function resolve(id,    tree,prefix) {
+      if (visiting[id]++) fail("cyclic group/reference " id)
+      if (!(id in kind)) fail("missing file/group reference " id)
+      tree=source[id]
+      if (tree == "SOURCE_ROOT") prefix=""
+      else if (tree == "<absolute>") {
+        if (substr(path[id],1,1) != "/") fail("nonabsolute path " path[id])
+        prefix=""
+      } else if (tree == "<group>") {
+        if (id in parent) prefix=resolve(parent[id])
+        else if (id != main) fail("unresolved group for " path[id])
+      } else fail("unsupported sourceTree for " path[id] ": " tree)
+      visiting[id]--
+      if (prefix != "" && path[id] != "") prefix=prefix "/"
+      return prefix path[id]
+    }
+    { input=input $0 "\n" }
+    END {
+      # Lex once so braces/comments inside quoted strings are not structure.
+      for (i=1; i<=length(input);) {
+        c=substr(input,i,1); pair=substr(input,i,2)
+        if (c ~ /[[:space:]]/) { i++; continue }
+        if (pair == "//") {
+          while (i<=length(input) && substr(input,i,1)!="\n") i++
+          continue
+        }
+        if (pair == "/*") {
+          i+=2
+          while (i<=length(input) && substr(input,i,2)!="*/") i++
+          if (i>length(input)) fail("unterminated project comment")
+          i+=2; continue
+        }
+        value=""
+        if (c == "\"") {
+          i++
+          while (i<=length(input) && substr(input,i,1)!="\"") {
+            c=substr(input,i++,1)
+            if (c == "\\") fail("escaped project string; inspect baseConfigurationReference")
+            value=value c
+          }
+          if (i>length(input)) fail("unterminated project string")
+          i++
+        } else if (c ~ /[{}()=;,]/) { value=c; i++ }
+        else {
+          while (i<=length(input) && substr(input,i,1) !~ /[[:space:]{}()=;,]/)
+            value=value substr(input,i++,1)
+        }
+        token[++n]=value
+      }
+      for (i=1; i<=n; i++) {
+        v=token[i]
+        if (v == "{") { depth++; if (depth==3) id=token[i-2]; continue }
+        if (v == "}") { depth--; continue }
+        if (v ~ /^baseConfigurationReference/ && v != "baseConfigurationReference")
+          fail("unsupported xcconfig reference " v)
+        if (v == "baseConfigurationReference") {
+          if (depth!=3 || token[i+1]!="=" || token[i+3]!=";") fail("unsupported baseConfigurationReference")
+          refs[token[i+2]]=1
+        }
+        if (depth!=3 || token[i+1]!="=") continue
+        val=token[i+2]
+        if (v=="isa") kind[id]=val
+        if (v=="path") path[id]=val
+        if (v=="sourceTree") source[id]=val
+        if (v=="mainGroup") main=val
+        if (v=="projectDirPath" && val!="") fail("nonempty projectDirPath")
+        if (v=="children") {
+          if (val!="(") fail("unsupported group children")
+          for (j=i+3; j<=n && token[j]!=")"; j++) {
+            child=token[j]; if (child==",") continue
+            if (child in parent) fail("ambiguous group parent for " child)
+            parent[child]=id
+          }
+        }
+      }
+      if (depth!=0) fail("unbalanced project objects")
+      for (ref in refs) {
+        if (kind[ref]!="PBXFileReference") fail("unresolved xcconfig reference " ref)
+        result=resolve(ref)
+        if (result=="") fail("empty xcconfig path for " ref)
+        print result
+      }
+    }
+  ' "$file"); then
+    unknown_source "$config_paths"
+  fi
+fi
+
+# Walk both include forms relative to the including file. A missing optional
+# include is harmless; a required missing file, variable path, or cycle is not.
+config_sources=()
+scan_config() {
+  local config=$1 stack=$2 depth=${3:-0} directory line include optional records
+  case $config in
+    *'$'* | *'`'* | *$'\n'* | *'|'*) unknown_source "$config (unsupported path)" ;;
+  esac
+  [ -f "$config" ] && [ -r "$config" ] || unknown_source "$config (missing or unreadable xcconfig)"
+  directory=$(cd "$(dirname "$config")" && pwd -P) || unknown_source "$config"
+  config=$directory/$(basename "$config")
+  case $stack in *"|$config|"*) unknown_source "$config (include cycle)" ;; esac
+  # Bound recursion even for symlink aliases of the same include cycle.
+  [ "$depth" -lt 64 ] || unknown_source "$config (include chain too deep)"
+  if ! records=$(awk '
+    {
+      text=$0; clean=""
+      while (length(text)) {
+        if (comment) {
+          end=index(text,"*/"); if (!end) { text=""; break }
+          text=substr(text,end+2); comment=0
+        } else {
+          start=index(text,"/*")
+          if (!start) { clean=clean text; break }
+          clean=clean substr(text,1,start-1); text=substr(text,start+2); comment=1
+        }
+      }
+      sub(/\/\/.*$/, "", clean)
+      sub(/^[[:space:]]+/, "", clean); sub(/[[:space:]]+$/, "", clean)
+      if (clean ~ /^MARKETING_VERSION([^A-Za-z0-9_]|$)/) print "version"
+      else if (clean ~ /^#include\??[[:space:]]+"[^"\n]+"$/) print clean
+      else if (clean ~ /^#/ || clean ~ /\\$/ || clean ~ /^\$/) { print "unsupported: " clean; exit 1 }
+    }
+    END { if (comment) { print "unterminated comment"; exit 1 } }
+  ' "$config"); then
+    unknown_source "$config: $records"
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if [ "$line" = version ]; then
+      config_sources+=("$config")
+      continue
+    fi
+    optional=false
+    case $line in '#include?'*) optional=true ;; esac
+    include=${line#*\"}; include=${include%\"}
+    case $include in *'$'* | *'`'* | *\\*) unknown_source "$config: $include" ;; esac
+    case $include in /*) ;; *) include=$directory/$include ;; esac
+    if [ "$optional" = true ] && [ ! -e "$include" ]; then continue; fi
+    scan_config "$include" "$stack|$config|" "$((depth + 1))"
+  done <<< "$records"
+}
+while IFS= read -r config; do
+  [ -n "$config" ] || continue
+  case $config in /*) ;; *) config=$(dirname "$dir")/$config ;; esac
+  scan_config "$config" ""
+done <<< "$config_paths"
+if [ "${#config_sources[@]}" -gt 0 ]; then
+  die "refusing to edit $rel: a referenced xcconfig sets MARKETING_VERSION. Change it in $(printf '%s\n' "${config_sources[@]}" | sort -u | tr '\n' ' '). $verify_hint"
+fi
+
 # --- what is there now --------------------------------------------------------
 setting='^[[:space:]]*MARKETING_VERSION = [^;]*;[[:space:]]*$'
 olds=$(grep -E "$setting" "$file" | sed -E 's/^[[:space:]]*MARKETING_VERSION = ([^;]*);.*$/\1/' || true)

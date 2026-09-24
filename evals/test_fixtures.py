@@ -25,7 +25,7 @@ class Fixtures(unittest.TestCase):
         self.run_cmd("bash", str(FIXTURES.parent / "evals" / kind / "scaffold.sh"))
         self.assertFalse((self.root / "CLAUDE.md").exists())
         origin = self.run_cmd("git", "remote", "get-url", "origin").stdout.strip()
-        self.assertEqual(Path(origin), self.root / ".fixture/origin.git")
+        self.assertEqual(Path(origin).resolve(), (self.root / ".fixture/origin.git").resolve())
 
     def verdict(self, want):
         result = self.run_cmd("python3", "verify.py", ok=False)
