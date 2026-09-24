@@ -180,3 +180,42 @@ func ExtractBody(content, key string) (string, bool) { return Markdown.ExtractBo
 func Merge(content, key string, v version.Version, body string) (string, error) {
 	return Markdown.Merge(content, key, v, body)
 }
+
+// ProjectLines counts physical Markdown lines outside managed regions, excluding
+// the markers themselves. Reject broken ownership boundaries rather than silently
+// treating the remainder of a project document as managed text.
+func ProjectLines(content string) (int, error) {
+	if content == "" {
+		return 0, nil
+	}
+	active := ""
+	seen := map[string]bool{}
+	count := 0
+	for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
+		marker := markdownLineMarker.FindStringSubmatch(strings.TrimSuffix(line, "\r"))
+		if marker != nil {
+			key := marker[1]
+			if strings.HasPrefix(marker[2], "start ") {
+				if active != "" || seen[key] {
+					return 0, fmt.Errorf("malformed lacquer:%s region (nested or duplicate start)", key)
+				}
+				active, seen[key] = key, true
+			} else {
+				if active != key {
+					return 0, fmt.Errorf("malformed lacquer:%s region (unmatched end)", key)
+				}
+				active = ""
+			}
+			continue
+		}
+		if active == "" {
+			count++
+		}
+	}
+	if active != "" {
+		return 0, fmt.Errorf("malformed lacquer:%s region (missing end)", active)
+	}
+	return count, nil
+}
+
+var markdownLineMarker = regexp.MustCompile(`^` + Markdown.markerRe(`lacquer:([^:\s]+):(start `+stampPat+`|end)`) + `$`)

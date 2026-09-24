@@ -16,6 +16,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/gitattributes"
 	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/lock"
+	"github.com/patrickserrano/lacquer/internal/ratchet"
 	"github.com/patrickserrano/lacquer/internal/region"
 	"github.com/patrickserrano/lacquer/internal/safepath"
 	"github.com/patrickserrano/lacquer/internal/tokens"
@@ -26,6 +27,7 @@ import (
 // and the number of whole-file assets copied.
 type Result struct {
 	Regions, Assets int
+	Ratchets        []ratchet.Finding
 	// Replaced lists pre-existing units adopted on first sync (no lock baseline).
 	Replaced []string
 }
@@ -59,6 +61,11 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 	if err != nil {
 		return Result{}, fmt.Errorf("load manifest: %w", err)
+	}
+
+	// Reject a malformed baseline before writing any managed content.
+	if _, err := ratchet.Read(projectRoot); err != nil {
+		return Result{}, err
 	}
 
 	// Re-run detection. `init` detected once, at onboarding, and nothing ever
@@ -293,7 +300,11 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 		return Result{}, fmt.Errorf("write %s: %w", lock.Name, err)
 	}
 
-	return Result{Regions: len(regions), Assets: len(plan), Replaced: replaced}, nil
+	ratchets, err := ratchet.Tighten(projectRoot, cfg, false)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Regions: len(regions), Assets: len(plan), Replaced: replaced, Ratchets: ratchets}, nil
 }
 
 // mergeInto resolves rel under projectRoot (confining it within the root even

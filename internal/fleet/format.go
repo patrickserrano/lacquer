@@ -6,6 +6,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/patrickserrano/lacquer/internal/ratchet"
 )
 
 // JSON writes the sweep as an indented array, which is the form a later run
@@ -116,6 +118,9 @@ func Notes(r Report) []string {
 	}
 	for _, f := range r.Xcodegen {
 		out = append(out, f.String())
+	}
+	if text := strings.TrimSpace(ratchet.Format(r.Ratchets)); text != "" {
+		out = append(out, strings.Split(text, "\n")...)
 	}
 	for _, b := range r.Baseline {
 		out = append(out, b.Relaxations...)
