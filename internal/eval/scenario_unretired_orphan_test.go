@@ -42,7 +42,9 @@ func TestScenarioUnretiredOrphan(t *testing.T) {
 	bin := buildLacquer(t)
 	root := repoRoot(t)
 	project := webSupabaseFixtureProject(t)
-	env := map[string]string{"LACQUER_ROOT": root}
+	// root is this checkout on a feature branch, not a pinned release tag; the
+	// override is needed so `sync` (gated by issue #350's fix) still runs here.
+	env := map[string]string{"LACQUER_ROOT": root, "LACQUER_ALLOW_UNVERIFIED_ROOT": "1"}
 
 	syncRes := runLacquer(t, bin, project, env, "sync")
 	if syncRes.Code != 0 {
@@ -135,7 +137,9 @@ func TestScenarioUnretiredOrphanRetiredProjectIsQuiet(t *testing.T) {
 	bin := buildLacquer(t)
 	root := repoRoot(t)
 	project := webSupabaseFixtureProject(t)
-	env := map[string]string{"LACQUER_ROOT": root}
+	// root is this checkout on a feature branch, not a pinned release tag; the
+	// override is needed so `sync` (gated by issue #350's fix) still runs here.
+	env := map[string]string{"LACQUER_ROOT": root, "LACQUER_ALLOW_UNVERIFIED_ROOT": "1"}
 
 	if res := runLacquer(t, bin, project, env, "sync"); res.Code != 0 {
 		t.Fatalf("setup failed: `lacquer sync` exited %d:\n%s", res.Code, res.Combined())

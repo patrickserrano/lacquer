@@ -82,6 +82,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
+		}
 		fs := flag.NewFlagSet("init", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		stack := fs.String("stack", "", "archetype to seed the manifest from (see --list-stacks)")
@@ -102,6 +105,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
+		}
 		fs := flag.NewFlagSet("onboard", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		// No default org: the lacquer must not bake in any one org's identity, so
@@ -120,6 +126,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	case "adopt":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
+		}
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
 		}
 		summary, changed, err := adoptcmd.Run(lacquerRoot, projectRoot)
 		if err != nil {
@@ -145,12 +154,16 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
-		// Say which checkout this is rendering from, before rendering. sync is
-		// only ever as current as LACQUER_ROOT, and a stale root does not fail
-		// — it reports success and writes the previous version, which is
-		// indistinguishable from having had nothing to do.
-		root := rootcheck.Inspect(lacquerRoot, getenv("LACQUER_NO_FETCH") == "")
-		fmt.Fprintln(stdout, root.Describe())
+		// Say which checkout this is rendering from, before rendering, and
+		// refuse unless it is PROVABLY a pinned release. sync is only ever as
+		// current as LACQUER_ROOT, and a stale or unverified root does not fail
+		// — left unchecked it reports success and writes whatever the root
+		// happened to hold, which is indistinguishable from having had nothing
+		// to do. See stampAndVerifyRoot and issue #350.
+		root, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr)
+		if code != 0 {
+			return code
+		}
 
 		// Fail closed on a stale binary. It renders TODAY's profiles with the
 		// logic of whatever tree it was compiled from, and every symptom looks
@@ -217,6 +230,12 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
+		// doctor is exactly the command someone runs to decide whether their
+		// checks can be trusted -- it must not itself run against an unverified
+		// root and say nothing (issue #350).
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
+		}
 		dfs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 		dfs.SetOutput(stderr)
 		// Repeatable: --profile ios --profile supabase. A CI job proves the
@@ -252,6 +271,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	case "fix":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
+		}
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
 		}
 		if code := runFixers(lacquerRoot, projectRoot, stdout, stderr); code != 0 {
 			return code
@@ -298,6 +320,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// not project-scoped, so it needs lacquerRoot but not projectRoot.
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
+		}
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
 		}
 		manifestPath := filepath.Join(lacquerRoot, "core", "bootstrap", "plugins.toml")
 		manifest, err := pluginbootstrap.Load(manifestPath)
@@ -348,6 +373,12 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	case "audit":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
+		}
+		// audit is precisely what someone runs to decide whether a project is
+		// safe -- a guard that only covers sync's WRITE path leaves the
+		// diagnostic command confidently wrong (issue #350).
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
 		}
 		cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 		if err != nil {
@@ -635,6 +666,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
+		}
 		if *rosterPath == "" {
 			return fail(stderr, fmt.Errorf("fleet needs a roster: pass --roster <path> or set LACQUER_ROSTER"))
 		}
@@ -667,9 +701,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// have), and a repository cannot usefully judge a setting that decides
 		// whether its own verdict can be ignored.
 		//
-		// No requireLacquerRoot: this renders nothing and compares against
-		// nothing the lacquer ships, so demanding a lacquer checkout would stop
-		// an operator running it from the repo they are looking at.
+		// No requireLacquerRoot, and no rootcheck for the same reason: this
+		// renders nothing and compares against nothing the lacquer ships, so
+		// demanding a lacquer checkout would stop an operator running it from
+		// the repo they are looking at.
 		fs := flag.NewFlagSet("protection", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		repo := fs.String("repo", "", "repository as owner/name (default: this checkout's origin remote)")
@@ -749,6 +784,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	case "console":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
+		}
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
 		}
 		fs := flag.NewFlagSet("console", flag.ContinueOnError)
 		fs.SetOutput(stderr)
@@ -947,6 +985,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
+		// status is the FIRST thing anyone runs to ask "is this project fine?"
+		// -- see the field incident recorded on stampAndVerifyRoot and issue
+		// #350: this command answered that question off a stale root, twice,
+		// with a clean table and exit 0.
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
+		}
 		cfg, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml"))
 		if err != nil {
 			return fail(stderr, fmt.Errorf("load manifest: %w", err))
@@ -960,6 +1005,29 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, err)
 		}
 		fmt.Fprint(stdout, status.Format(rows))
+		for _, row := range rows {
+			if !row.Found || !row.Behind {
+				continue
+			}
+			content, _, err := audit.Classify(lacquerRoot, projectRoot)
+			if err != nil {
+				return fail(stderr, fmt.Errorf("compare managed content: %w", err))
+			}
+			matches := true
+			for _, unit := range content {
+				if unit.Status != audit.OK {
+					matches = false
+					break
+				}
+			}
+			if matches {
+				fmt.Fprintln(stdout, "Only version stamps are behind; managed content matches this lacquer root.")
+			} else {
+				fmt.Fprintln(stdout, "Version stamps are behind and managed content differs; run `lacquer audit` for content drift.")
+			}
+			break
+		}
+
 		// Informational here: status reports, audit is the gate.
 		reports, err := baselineReports(lacquerRoot, projectRoot)
 		if err != nil {
@@ -976,6 +1044,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	case "version":
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
+		}
+		if _, code := stampAndVerifyRoot(lacquerRoot, getenv, stderr); code != 0 {
+			return code
 		}
 		v, err := version.Read(lacquerRoot)
 		if err != nil {
@@ -1000,6 +1071,57 @@ func requireLacquerRoot(lacquerRoot string) error {
 	}
 	return fmt.Errorf("%q is not a lacquer checkout (no VERSION file and/or profiles/ dir); "+
 		"set LACQUER_ROOT to your lacquer repo, e.g. `LACQUER_ROOT=~/Developer/lacquer lacquer <command>`", lacquerRoot)
+}
+
+// stampAndVerifyRoot inspects lacquerRoot, prints its resolved provenance to
+// stderr on every call, preserving machine-readable stdout. It refuses unless the
+// root is PROVABLY a pinned release: detached HEAD, sitting exactly on a tag
+// matching VERSION, clean tree. Every command in this file that reads shipped
+// content from lacquerRoot calls this immediately after requireLacquerRoot.
+//
+// The provenance line always carries the root PATH now, not just a version
+// and a ref — issue #350's field incident: "lacquer: 1.35.0 from HEAD @
+// 2775df3" was read by a session as naming provenance when it named nothing,
+// because the one variable that differs between a safe run and a dangerous
+// one is WHICH DIRECTORY LACQUER_ROOT points at, and that used to be the one
+// thing this line omitted. See rootcheck.State.Describe.
+//
+// "I could not verify this root" and "this root is fine" must never share an
+// exit code (issue #350) — so a root whose state cannot be determined at all
+// (not a git checkout, git unavailable, detached at an untagged commit)
+// refuses exactly like a confirmed branch checkout or dirty tree, never like
+// success. That symmetry is the entire fix: a guard that only refuses a
+// DETECTED bad state reproduces the original bug one level up, because the
+// absence of detection would then read as safety — the same defect family as
+// a skipped CI check satisfying a required one.
+//
+// LACQUER_ALLOW_UNVERIFIED_ROOT overrides the refusal for deliberate
+// development — building lacquer from a feature worktree to test an
+// unreleased change is normal here, the same shape LACQUER_ALLOW_STALE_BINARY
+// (see the sync case above) already exists to permit. Unlike a silent bypass,
+// it prints a loud warning to stderr on EVERY invocation it is honored, not
+// just the first: a scrollback line from ten minutes ago must never be
+// mistaken for tonight's verified run, which is exactly how this bug hid for
+// three separate sessions in the first place.
+func stampAndVerifyRoot(lacquerRoot string, getenv func(string) string, stderr io.Writer) (rootcheck.State, int) {
+	root := rootcheck.Inspect(lacquerRoot, false)
+	fmt.Fprintln(stderr, root.Describe())
+
+	err := root.Verify()
+	if err == nil {
+		return root, 0
+	}
+	if getenv("LACQUER_ALLOW_UNVERIFIED_ROOT") != "" {
+		fmt.Fprintf(stderr, "** LACQUER_ALLOW_UNVERIFIED_ROOT is set: %v **\n"+
+			"** output below is UNREVIEWED — this root is not a verified pinned release **\n", err)
+		return root, 0
+	}
+	fmt.Fprintf(stderr, "refusing to run: %v\n"+
+		"\"I could not verify this root\" and \"this root is fine\" must not look the same (issue #350).\n"+
+		"Point LACQUER_ROOT at a pinned release checkout, or set LACQUER_ALLOW_UNVERIFIED_ROOT=1 if you are\n"+
+		"deliberately developing against a feature worktree — every invocation will then warn loudly that\n"+
+		"its output is unreviewed.\n", err)
+	return root, 1
 }
 
 func isFile(path string) bool {
@@ -1104,6 +1226,9 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  version                      print the lacquer version")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
+	fmt.Fprintln(w, "     LACQUER_ALLOW_UNVERIFIED_ROOT=1 (run against a root that is not a pinned release --")
+	fmt.Fprintln(w, "                               e.g. a feature worktree during development; warns loudly")
+	fmt.Fprintln(w, "                               on every invocation that output is unreviewed, see issue #350)")
 }
 
 // baselineReports loads the project manifest and checks every component against
