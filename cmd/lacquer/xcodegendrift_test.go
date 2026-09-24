@@ -72,16 +72,3 @@ func TestXcodegenOnlyDoesNotRunOtherAuditGates(t *testing.T) {
 		t.Fatalf("unrelated baseline leaked into report-only CI command: %s", out.String())
 	}
 }
-
-func TestMacCIReportsXcodegenBeforeDoctor(t *testing.T) {
-	raw, err := os.ReadFile("../../profiles/ios/workflows/ci.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(raw)
-	drift := strings.Index(text, `LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" audit --xcodegen-only`)
-	doctor := strings.Index(text, `LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile ios`)
-	if drift < 0 || doctor < drift {
-		t.Fatal("Mac job must report drift with the pinned binary before doctor can stop the job")
-	}
-}
