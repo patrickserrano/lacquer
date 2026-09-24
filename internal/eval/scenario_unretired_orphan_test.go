@@ -38,7 +38,7 @@ import (
 // of exit code, which a consumer relying on exit code alone would miss
 // entirely.
 func TestScenarioUnretiredOrphan(t *testing.T) {
-	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
+	recordScenario(t) // unmarked: tallied into the package summary as-is.
 	bin := buildLacquer(t)
 	root := repoRoot(t)
 	project := webSupabaseFixtureProject(t)
@@ -133,7 +133,7 @@ func plantOrphanLockEntry(t *testing.T, dir, rel string) {
 // and is exactly the false-positive shape CLAUDE.md's "Three defects" warns
 // against.
 func TestScenarioUnretiredOrphanRetiredProjectIsQuiet(t *testing.T) {
-	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
+	recordScenario(t) // unmarked: tallied into the package summary as-is.
 	bin := buildLacquer(t)
 	root := repoRoot(t)
 	project := webSupabaseFixtureProject(t)

@@ -70,26 +70,13 @@ func (s *summary) report() string {
 	return out
 }
 
-// recordScenario tallies t's own final pass/fail state into the package-level
-// summary. Call it as the FIRST line of an UNMARKED scenario test function —
-// `defer recordScenario(t)` — and nowhere else.
-//
-// This works whether the test fails via t.Errorf (soft) or t.Fatalf (hard):
-// Fatal calls t.FailNow, which calls runtime.Goexit, and Goexit still runs
-// deferred functions in the failing goroutine before the goroutine exits — so
-// this defer observes the test's real, final t.Failed() state either way,
-// including a setup failure that fires before the scenario ever reaches its
-// own verdict check.
-//
-// Never add this to a MARKED scenario's test function. expectKnownFailure
-// below already owns that scenario's bookkeeping, and a marked scenario that
-// reaches its verdict check without erroring (the normal, expected-for-this-
-// suite outcome) has NOT called t.Errorf/t.Fatalf — t.Failed() is false — so
-// a second recordScenario on the same test would double-count it as an
-// ordinary pass on top of the expected-fail expectKnownFailure already
-// recorded.
+// recordScenario registers an UNMARKED scenario before any setup runs.
+// Call it as the first statement, without defer. Cleanups run last-in-first-out
+// after subtests finish, so this observes failures in setup, verdicts, subtests,
+// and subsequently registered cleanups. Marked verdicts use
+// expectKnownFailure instead; do not double-count them here.
 func recordScenario(t *testing.T) {
-	recordScenarioInto(t, &results)
+	t.Cleanup(func() { recordScenarioInto(t, &results) })
 }
 
 // failedReporter is the one method recordScenarioInto needs. *testing.T
