@@ -29,7 +29,7 @@ import (
 // behaviour directly; TestScenarioStaleRootPinnedRootIsQuiet below is the
 // positive control proving a genuinely pinned root still works normally.
 func TestScenarioStaleRoot(t *testing.T) {
-	defer recordScenario(t) // unmarked: issue #350 is fixed, this is an ordinary scenario now.
+	recordScenario(t) // unmarked: issue #350 is fixed, this is an ordinary scenario now.
 	bin := buildLacquer(t)
 
 	// A synthetic, self-contained lacquer root — decoupled from this repo's
@@ -87,7 +87,7 @@ func TestScenarioStaleRoot(t *testing.T) {
 // with a clean tree, must run `status` normally — the fix must refuse the bad
 // state without also refusing the good one.
 func TestScenarioStaleRootPinnedRootIsQuiet(t *testing.T) {
-	defer recordScenario(t) // unmarked: tallied into the package summary as-is.
+	recordScenario(t) // unmarked: tallied into the package summary as-is.
 	bin := buildLacquer(t)
 	root := pinnedLacquerRoot(t, "2.0.0") // detached at v2.0.0: genuinely pinned
 	project := minimalProject(t)
