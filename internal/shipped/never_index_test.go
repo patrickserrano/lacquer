@@ -1,8 +1,14 @@
 package shipped
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/console"
+	"github.com/patrickserrano/lacquer/internal/fleet"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // Spotlight indexing build output is a recurring, expensive failure that does
@@ -148,4 +154,32 @@ func TestWatchDerivedDataIsExcludedToo(t *testing.T) {
 		}
 	}
 	t.Error("WatchDerivedData is created but no marker write covers it")
+}
+
+// The runtime counterpart to the CI guard: a real dispatch must prepare its
+// worktree before the agent (and therefore any build it starts) can run.
+func TestConsoleWorktreeExcludesSpotlightBeforeAgent(t *testing.T) {
+	repo := t.TempDir()
+	gittest.Init(t, repo, "-q")
+	gitIn(t, repo, "commit", "--allow-empty", "-qm", "initial")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "config"))
+	gitIn(t, repo, "config", "--global", "core.excludesFile", filepath.Join(t.TempDir(), "ignore"))
+	bin := t.TempDir()
+	script := `#!/bin/sh
+ test -f .metadata_never_index || { echo 'Spotlight marker missing'; exit 21; }
+ test -z "$(git status --porcelain)" || { echo 'worktree is dirty'; exit 22; }
+ echo 'backgrounded · 1234abcd'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	roster := fleet.Roster{Project: []fleet.Entry{{Name: "app", Path: repo}}}
+	launch, err := console.Dispatch(roster, nil, "app", "build", console.Background, false)
+	if err != nil {
+		t.Fatalf("dispatch: %v\n%s", err, launch.Output)
+	}
+	if launch.Record == nil || launch.Record.DaemonID != "1234abcd" {
+		t.Fatalf("agent never started: %+v", launch.Record)
+	}
 }

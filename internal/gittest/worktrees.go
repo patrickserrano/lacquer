@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -12,6 +13,23 @@ import (
 // worktrees unchanged. An empty TempDir inside a checkout is NOT a repository
 // boundary: git can discover and modify the enclosing repository (#461).
 func Run(m *testing.M) int {
+	// Dispatch may update the global excludes file. Never let a test write
+	// the developer's config; subprocesses inherit this isolated global file.
+	scratch, err := os.MkdirTemp("", "lacquer-git-global-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer os.RemoveAll(scratch)
+	config := filepath.Join(scratch, "config")
+	if out, err := exec.Command("git", "config", "--file", config, "core.excludesFile", filepath.Join(scratch, "ignore")).CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "isolate global excludes: %v: %s", err, out)
+		return 1
+	}
+	if err := os.Setenv("GIT_CONFIG_GLOBAL", config); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -86,8 +86,8 @@ func DispatchConfigured(roster fleet.Roster, sessions []Session, name, task stri
 // ambiguous.
 type Placement struct {
 	// Worktree is an existing, registered worktree of the project's
-	// repository to run in, in either mode. lacquer never creates, changes or
-	// removes it, and records it like one it made, so a relaunch resumes in
+	// repository to run in, in either mode. lacquer never creates or
+	// removes it; it adds the Spotlight marker and records it, so a relaunch resumes in
 	// it and kill keeps it.
 	Worktree string
 	// Branch names the branch of the worktree a bg dispatch creates, whose
@@ -336,6 +336,9 @@ func runBackground(sp launchSpec) (Launch, error) {
 	rec.Worktree = wt.path
 	rec.Branch = wt.branch
 	line := prefix + wt.setup + prefix + "(cd " + wt.runDir + " && " + claudeLine + ")\n"
+	if err := prepareWorktree(wt.path); err != nil {
+		return launchFailed(sp, line, rec, err)
+	}
 
 	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is built from the roster/roles file and an operator-supplied task, never a shell string
 	cmd.Dir = wt.runDir
@@ -403,6 +406,23 @@ func runTmux(sp launchSpec) (Launch, error) {
 	}
 	if found {
 		return Launch{Output: sp.warning + sp.verb + ": tmux session " + running + " is already running; not starting a second claude in it (attach: tmux attach -t '" + running + "')\n"}, nil
+	}
+
+	// A roster can point directly into a linked checkout without --worktree.
+	// Plain tmux roles outside Git remain valid; only linked checkouts need
+	// this preparation when no explicit placement was supplied.
+	markerRoot := wt.path
+	if markerRoot == "" {
+		if root, _, err := repoRoot(dir); err == nil {
+			if paths, err := worktreePaths(root); err == nil && len(paths) > 0 && root != paths[0] {
+				markerRoot = root
+			}
+		}
+	}
+	if markerRoot != "" {
+		if err := prepareWorktree(markerRoot); err != nil {
+			return launchFailed(sp, line, rec, err)
+		}
 	}
 
 	// tmux runs its command directly (no shell) when given several

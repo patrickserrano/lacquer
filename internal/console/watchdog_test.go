@@ -13,22 +13,12 @@ import (
 
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
 	gittest.Init(t, dir, "-q")
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run("add", "f.txt")
-	run("commit", "-q", "-m", "initial commit")
+	git(t, dir, "add", "f.txt")
+	git(t, dir, "commit", "-q", "-m", "initial commit")
 }
 
 // The minimum viable handoff a relaunch can give: the original task, plus
