@@ -83,7 +83,7 @@ func Format(rows []Row) string {
 		if !r.Found {
 			status = "missing"
 		} else if r.Behind {
-			status = "behind"
+			status = "stamp-behind"
 		}
 		stamped := r.Stamped.String()
 		if !r.Found {

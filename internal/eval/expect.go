@@ -8,18 +8,8 @@ import (
 	"testing"
 )
 
-// Known, tracked bugs a marked scenario is allowed to reproduce without
-// turning the eval-suite job red. Each one names the issue tracking whether
-// and how it gets fixed. Do not add to this list to make an unrelated
-// scenario quiet — see expectKnownFailure's doc comment.
-const (
-	issueStaleRoot = "https://github.com/patrickserrano/lacquer/issues/350"
-	// issueCommentMatch (issue #363) tracked InertSecretDeclarations treating a
-	// `#` comment naming the declared secrets file as proof it was written.
-	// Fixed and removed from this list: TestScenarioCommentMatch in
-	// scenario_comment_match_test.go is now an ordinary, unmarked pin of the
-	// fixed behavior rather than a strict expected-failure.
-)
+// Issues #350 (stale root) and #363 (comment match) are now ordinary
+// regression scenarios; neither retains an expected-failure marker.
 
 // summary tallies scenario-level outcomes for one run of
 // `go test -tags eval ./internal/eval/...`: pass (an unmarked scenario
