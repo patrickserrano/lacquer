@@ -11,6 +11,7 @@ import (
 type Status string
 
 const (
+	StatusUnknown   Status = "unknown"   // static resolution cannot establish compliance
 	StatusOK        Status = "ok"        // every Swift-compiling config satisfies it
 	StatusViolation Status = "violation" // it does not, and nothing excuses that
 	StatusRelaxed   Status = "relaxed"   // violated, but explicitly and unexpiredly excused
@@ -66,7 +67,8 @@ type Finding struct {
 	Want, Got   string // expected value, and what the project actually resolves to
 	Have, Total int    // Swift-compiling configs satisfying it, out of how many
 	Status      Status
-	Relax       *Relax // set whenever the manifest carries one, even if unneeded
+	Details     []string // configuration, winning layer/file, or resolution failure
+	Relax       *Relax   // set whenever the manifest carries one, even if unneeded
 }
 
 // Ratio renders coverage for a report line.
@@ -95,12 +97,14 @@ func Violations(fs []Finding) []Finding {
 // now is a parameter rather than a call to time.Now so relaxation expiry is
 // deterministic under test.
 //
-// A project with no Swift-compiling configurations yields no findings at all —
-// there is nothing to enforce, and emitting a wall of violations for a
-// non-Swift component would be noise.
+// Empty discovery is UNKNOWN when the manifest declares a Swift component.
+// Callers without that declaration retain the non-Swift exemption.
 func Check(spec Spec, d Declared, relax map[string]Relax, now time.Time) []Finding {
 	total := len(d.SwiftConfigs())
 	if total == 0 {
+		if d.ExpectSwift {
+			return []Finding{{Key: "discovery", Status: StatusUnknown, Got: "no target configurations with effective SWIFT_VERSION in " + d.Source + "; inspect the project/target build settings and baseConfigurationReference include chains, then verify effective settings with the build toolchain"}}
+		}
 		return nil
 	}
 
@@ -147,6 +151,29 @@ func coverageBy(d Declared, key, setting, want string, total int, ok func(string
 	}
 	if have == total {
 		f.Status = StatusOK
+	}
+	knownViolation := false
+	uncertain := false
+	for _, c := range d.SwiftConfigs() {
+		r := d.resolve(c, setting)
+		detail := fmt.Sprintf("%s/%s: %s", c.ID, c.Name, setting)
+		switch {
+		case r.unknown != "":
+			uncertain = true
+			detail += " UNKNOWN — " + r.unknown
+		case !r.present:
+			knownViolation = true
+			detail += " <unset> (none found in project/target pbxproj or xcconfig layers of " + d.Source + ")"
+		default:
+			if !ok(r.value) {
+				knownViolation = true
+			}
+			detail += " = " + r.value + " (from " + r.source + ")"
+		}
+		f.Details = append(f.Details, detail)
+	}
+	if uncertain && !knownViolation {
+		f.Status = StatusUnknown
 	}
 	f.Got = observed(d, setting)
 	return f

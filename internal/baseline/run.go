@@ -115,6 +115,7 @@ func Run(lacquerRoot, projectRoot string, targets []Target, relax map[string]Rel
 		if err != nil {
 			return nil, err
 		}
+		d.ExpectSwift = true // selected by a manifest profile that asserts a baseline
 		rep.Findings = Check(spec, d, relax, now)
 		reports = append(reports, rep)
 	}
