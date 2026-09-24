@@ -976,28 +976,39 @@ func TestWatchTargetLoad(t *testing.T) {
 	}
 }
 
-// Defaults keep every single-app project on the values ci.yml hardcoded before
-// products existed. Blank Name yields blank rather than "Tests", so a manifest
-// missing project_name still fails the sync loudly instead of rendering
-// `-only-testing:Tests` against a scheme nobody named.
+// Defaults follow the Xcode scheme, not the human display label (#296).
+// Explicit overrides win; missing schemes retain the historical name fallback.
 func TestProductCITargetDefaults(t *testing.T) {
-	p := Product{Name: "Solo"}
-	if got := p.TestTargetName(); got != "SoloTests" {
-		t.Errorf("TestTargetName = %q, want SoloTests", got)
-	}
-	if got := p.AppTargetName(); got != "Solo.app" {
-		t.Errorf("AppTargetName = %q, want Solo.app", got)
-	}
-	explicit := Product{Name: "Free", TestTarget: "FreeUnit", AppTarget: "Daily.app"}
-	if got := explicit.TestTargetName(); got != "FreeUnit" {
-		t.Errorf("a declared test_target must win, got %q", got)
-	}
-	if got := explicit.AppTargetName(); got != "Daily.app" {
-		t.Errorf("a declared app_target must win, got %q", got)
-	}
-	var blank Product
-	if blank.TestTargetName() != "" || blank.AppTargetName() != "" {
-		t.Error("a nameless product must derive nothing, so the missing value fails closed at substitution")
+	for _, tt := range []struct {
+		name     string
+		product  Product
+		wantTest string
+		wantApp  string
+	}{
+		{"display label differs", Product{Name: "Steps Lite", Scheme: "StepsFree"}, "StepsFreeTests", "StepsFree.app"},
+		{"matching name and scheme", Product{Name: "Solo", Scheme: "Solo"}, "SoloTests", "Solo.app"},
+		{"no scheme", Product{Name: "Solo"}, "SoloTests", "Solo.app"},
+		{"scheme only", Product{Scheme: "StepsFree"}, "StepsFreeTests", "StepsFree.app"},
+		{"explicit overrides", Product{Name: "Steps Lite", Scheme: "StepsFree", TestTarget: "FreeUnit", AppTarget: "Daily.app"}, "FreeUnit", "Daily.app"},
+		{"blank", Product{}, "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.product.TestTargetName(); got != tt.wantTest {
+				t.Errorf("TestTargetName = %q, want %q", got, tt.wantTest)
+			}
+			if got := tt.product.AppTargetName(); got != tt.wantApp {
+				t.Errorf("AppTargetName = %q, want %q", got, tt.wantApp)
+			}
+			// A blank UI target must never invent a second selector.
+			selectors := tt.product.TestSelectors()
+			if tt.wantTest == "" {
+				if len(selectors) != 0 {
+					t.Errorf("blank product selectors = %q, want none", selectors)
+				}
+			} else if len(selectors) != 1 || selectors[0] != tt.wantTest {
+				t.Errorf("TestSelectors = %q, want only %q", selectors, tt.wantTest)
+			}
+		})
 	}
 }
 
