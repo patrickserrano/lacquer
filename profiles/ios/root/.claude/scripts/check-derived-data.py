@@ -54,7 +54,64 @@ def missing_path(words):
     return True
 
 
+def without_heredoc_bodies(command):
+    """Keep command lines, skipping queued heredocs in shell redirection order."""
+    delimiter_word = re.compile(r"(?:'[^']*'|\"(?:\\.|[^\"\\])*\"|\\[^\n]|[^\s;&|()<>'\"\\])+")
+    lines = iter(command.splitlines(keepends=True))
+    kept = []
+    quote = None
+    for line in lines:
+        kept.append(line)
+        pending = []
+        i = 0
+        while i < len(line):
+            char = line[i]
+            if char == "\\" and quote != "'":
+                i += 2
+                continue
+            if quote:
+                if char == quote:
+                    quote = None
+                i += 1
+                continue
+            if char in "'\"":
+                quote = char
+            elif char == "#" and (i == 0 or line[i - 1] in " \t;&|()<>"):
+                break
+            elif line.startswith("<<", i):
+                # A here-string (<<<) has no body to skip.
+                if line.startswith("<<<", i):
+                    i += 3
+                    continue
+                i += 2
+                strip_tabs = line[i:i + 1] == "-"
+                if strip_tabs:
+                    i += 1
+                while line[i:i + 1] in (" ", "\t"):
+                    i += 1
+                match = delimiter_word.match(line, i)
+                if match:
+                    delimiter = shlex.split(match.group(), comments=False)[0]
+                    pending.append((delimiter, strip_tabs))
+                    i = match.end()
+                continue
+            i += 1
+        for delimiter, strip_tabs in pending:
+            for body_line in lines:
+                candidate = body_line.rstrip("\n")
+                if strip_tabs:
+                    candidate = candidate.lstrip("\t")
+                if candidate == delimiter:
+                    break
+    return "".join(kept)
+
+
 def denied(command):
+    if not re.search(r"\b(?:flowdeck|xcodebuild)\b", command):
+        return False
+    command = without_heredoc_bodies(command)
+    if not re.search(r"\b(?:flowdeck|xcodebuild)\b", command):
+        return False
     lexer = shlex.shlex(command.replace("\\\n", ""), posix=True, punctuation_chars=";&|()<>\n")
     lexer.whitespace = " \t\r"
     words = []

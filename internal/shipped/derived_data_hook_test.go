@@ -52,6 +52,24 @@ func TestDerivedDataHook(t *testing.T) {
 				{`echo "flowdeck build"`, false}, {`flowdeck config get --json`, false}, {`git status`, false},
 				{`flowdeck project schemes -s build`, false},
 				{`if flowdeck build; then echo done; fi`, true},
+				{"cat > notes.md <<'EOF'\nIt doesn't matter\nEOF\n", false},
+				{"cat > notes.md <<'EOF'\nflowdeck build\nEOF\n", false},
+				{`echo "it's"'`, false},
+				{"flowdeck build <<'EOF'\ndon't\nEOF", true},
+				{`xcodebuild -list '`, true},
+				{"cat <<EOF\nflowdeck build\nEOF\n", false},
+				{"cat <<\"EOF\"\nflowdeck build\nEOF\n", false},
+				{"cat <<-EOF\n\tflowdeck build\n\tEOF\n", false},
+				{"cat <<-'EOF'\n\tdon't run flowdeck build\n\tEOF\n", false},
+				{"cat <<EOF\nEOF suffix\nflowdeck build\nEOF\n", false},
+				{"cat <<EOF\n EOF\nflowdeck build\nEOF\n", false},
+				{"cat <<A <<'B'\nflowdeck build\nA\ndon't run xcodebuild\nB\n", false},
+				{"cat <<'EOF'\nflowdeck build\nEOF\nxcodebuild -list", true},
+				{"cat <<-EOF\n\tflowdeck build\n\tEOF\nxcodebuild -list", true},
+				{"flowdeck build -d DerivedData <<'EOF'\ndon't\nEOF", false},
+				{"echo '<<EOF'\nxcodebuild -list", true},
+				{"echo ok; # <<EOF\nxcodebuild -list", true},
+				{"cat <<< 'example'\nxcodebuild -list", true},
 			} {
 				t.Run(tc.command, func(t *testing.T) {
 					payload, _ := json.Marshal(map[string]any{"tool_input": map[string]string{"command": tc.command}})
@@ -72,7 +90,11 @@ func TestDerivedDataHook(t *testing.T) {
 						if code != 2 {
 							t.Fatalf("exit %d, want denial (2): %s", code, out)
 						}
-						if !strings.Contains(string(out), `$(git rev-parse --show-toplevel)/DerivedData`) {
+						wantMessage := `$(git rev-parse --show-toplevel)/DerivedData`
+						if tc.command == `xcodebuild -list '` {
+							wantMessage = "BLOCKED: cannot inspect Bash command for an explicit DerivedData path."
+						}
+						if !strings.Contains(string(out), wantMessage) {
 							t.Fatalf("missing fix: %s", out)
 						}
 					} else if code != 0 {
