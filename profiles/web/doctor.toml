@@ -265,3 +265,9 @@ expect = "pass"
 # from the file set — which is precisely how this check first appeared to pass
 # against a config that WAS deprecated.
 expect_output = '(?s)Checked 1 file.*doctor: biome read the shipped biome\.json and reported no deprecation'
+
+[[probe]]
+name = "manifest-declared Biome ignores reach the synced config"
+why = "An ignored generated file must stay ignored without forking the shared biome.json; missing declared ignores fail this check."
+check = "biome-ignores"
+expect = "pass"

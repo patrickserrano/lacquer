@@ -43,7 +43,9 @@ import (
 // Probe is one self-test: a fixture, a command, and the outcome that proves the
 // check is wired up.
 type Probe struct {
-	Name string `toml:"name"`
+	// Check selects a built-in configuration probe; mutually exclusive with argv.
+	Check string `toml:"check"`
+	Name  string `toml:"name"`
 	// Why this probe exists — printed on failure, so the person reading the
 	// output learns what broke rather than just which assertion tripped.
 	Why string `toml:"why"`
@@ -144,7 +146,16 @@ func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	for i, p := range f.Probe {
-		if p.Name == "" || len(p.Argv) == 0 {
+		if p.Check != "" && p.Check != "actionlint-labels" && p.Check != "biome-ignores" {
+			return nil, fmt.Errorf("%s: unknown built-in check %q", path, p.Check)
+		}
+		if p.Check != "" && (p.Expect != "pass" || p.ExpectOutput != "" || p.File != "" || len(p.Requires) > 0) {
+			return nil, fmt.Errorf("%s: built-in checks require expect=pass and no command/fixture options", path)
+		}
+		if p.Check != "" && len(p.Argv) > 0 {
+			return nil, fmt.Errorf("%s: check and argv are mutually exclusive", path)
+		}
+		if p.Name == "" || (len(p.Argv) == 0 && p.Check == "") {
 			return nil, fmt.Errorf("%s: probe %d needs a name and argv", path, i)
 		}
 		switch p.Expect {
@@ -261,6 +272,14 @@ func report(out io.Writer, p Probe, r Result) {
 
 func runProbe(p Probe, compPath, profile, compDir, projectRoot string) Result {
 	r := Result{Component: compPath, Profile: profile, Name: p.Name}
+	if p.Check != "" {
+		err := checkConfig(p.Check, projectRoot, compDir)
+		r.OK = err == nil
+		if err != nil {
+			r.Detail = err.Error()
+		}
+		return r
+	}
 
 	dir, err := os.MkdirTemp("", "lacquer-doctor-")
 	if err != nil {

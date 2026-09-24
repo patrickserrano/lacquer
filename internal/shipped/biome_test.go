@@ -204,3 +204,49 @@ func TestBiomeStartsInASyncedComponent(t *testing.T) {
 		})
 	}
 }
+
+// A generated source file with a real lint violation is skipped only after the
+// manifest opt-in is rendered. The control runs the same file without the opt-in.
+func TestBiomeDeclaredIgnoreSkipsGeneratedSource(t *testing.T) {
+	bin, err := exec.LookPath("biome")
+	if err != nil {
+		t.Skip("biome not installed")
+	}
+	for _, component := range []string{".", "apps/admin"} {
+		t.Run(component, func(t *testing.T) {
+			project := biomeProject(t, component)
+			git(t, project, "add", ".")
+			git(t, project, "commit", "-qm", "fixture")
+			dir := filepath.Join(project, component)
+			if err := os.WriteFile(filepath.Join(dir, "payload-types.ts"), []byte("export const generated: any = 1\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			check := func() (string, error) {
+				cmd := exec.Command(bin, "check", "--colors=off", "--no-errors-on-unmatched", "payload-types.ts")
+				cmd.Dir = dir
+				out, err := cmd.CombinedOutput()
+				return string(out), err
+			}
+			out, err := check()
+			if err == nil || !strings.Contains(out, "lint/suspicious/noExplicitAny") {
+				t.Fatalf("control did not reject generated source for noExplicitAny: %v\n%s", err, out)
+			}
+			manifest := filepath.Join(project, ".lacquer.toml")
+			data, err := os.ReadFile(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = append(data, []byte("\n[web]\nbiome_ignores = ['!**/payload-types.ts']\n")...)
+			if err := os.WriteFile(manifest, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := sync.Run(root(t), project, false); err != nil {
+				t.Fatal(err)
+			}
+			out, err = check()
+			if err != nil || !strings.Contains(out, "Checked 0 files") {
+				t.Fatalf("declared generated file was not skipped: %v\n%s", err, out)
+			}
+		})
+	}
+}
