@@ -130,40 +130,30 @@ func TestATokenRenderedCallerCountsAsACaller(t *testing.T) {
 	}
 }
 
-// The same lacquer, the same workflow source, a manifest declaring no secrets —
-// and now the token expands to nothing and the script ships inert. This is the
-// measured instance from lacquer#333: shipped, documented as running, never
-// invoked.
-func TestAScriptWhoseOnlyCallerWasNotRenderedIsReported(t *testing.T) {
+// Rendered agent instructions are an intentional entry point. Removing those
+// instructions must expose the script again, including a genuinely dead sibling.
+func TestAgentDocumentationIsRequiredForUncalledExemption(t *testing.T) {
 	files := baseScripts()
-	files["profiles/ios/CLAUDE.ios.md"] = "The release workflow then runs `scripts/write-release-config.sh`, which seeds the xcconfig.\n"
-	lacquer, project := uncalledLacquer(t, uncalledManifestNoSecrets, files)
+	files["profiles/ios/CLAUDE.ios.md"] = "Run `scripts/write-release-config.sh` before release.\n"
+	files["profiles/ios/root/scripts/dead.sh"] = "#!/bin/sh\n"
+	files["profiles/ios/root/scripts/write-release-config.sh"] = "#!/bin/sh\n./agent-helper.sh\n"
+	files["profiles/ios/root/scripts/agent-helper.sh"] = "#!/bin/sh\n"
+	files["profiles/ios/root/README.md"] = "The abandoned scripts/dead.sh used to run.\n"
 
-	found, err := audit.UncalledScripts(lacquer, project)
-	if err != nil {
-		t.Fatalf("UncalledScripts: %v", err)
+	lacquer, project := uncalledLacquer(t, uncalledManifestNoSecrets, files)
+	got := uncalledDests(t, lacquer, project)
+	if has(got, "scripts/write-release-config.sh") {
+		t.Errorf("documented agent script reported: %v", got)
 	}
-	var hit *audit.UncalledScript
-	for i := range found {
-		if found[i].Dest == "scripts/write-release-config.sh" {
-			hit = &found[i]
-		}
+	if has(got, "scripts/agent-helper.sh") {
+		t.Errorf("agent script helper reported: %v", got)
 	}
-	if hit == nil {
-		t.Fatalf("a shipped script with no rendered caller was not reported: %+v", found)
+	if !has(got, "scripts/dead.sh") {
+		t.Errorf("undocumented script hidden: %v", got)
 	}
-	if !hit.Confirmed() {
-		t.Errorf("a complete sweep was reported as unconfirmable: %q", hit.Unconfirmable)
-	}
-	if len(hit.Documented) == 0 {
-		t.Error("the lacquer's own CLAUDE.md region says this script runs and the report does not say so — " +
-			"the documentation lie is the expensive half of this finding, not a footnote")
-	}
-	out := audit.FormatUncalledScripts(found)
-	for _, want := range []string{"scripts/write-release-config.sh", "DOCUMENTED AS RUNNING", "CLAUDE.md#ios"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("report missing %q:\n%s", want, out)
-		}
+	writeFile(t, filepath.Join(lacquer, "profiles/ios/CLAUDE.ios.md"), "IOS RULES\n")
+	if got := uncalledDests(t, lacquer, project); !has(got, "scripts/write-release-config.sh") {
+		t.Errorf("removing documentation did not expose script: %v", got)
 	}
 }
 
