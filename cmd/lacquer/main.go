@@ -1224,7 +1224,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               inbox item it came from, the operator's words exactly as typed, and the")
 	fmt.Fprintln(w, "                               basis if one was given. Read-only. None recorded prints")
 	fmt.Fprintln(w, "                               `no decisions recorded for <repo>` and exits 0; a gh that could not")
-	fmt.Fprintln(w, "                               answer, or two open `decisions` issues, exits 1. Recorded from the inbox")
+	fmt.Fprintln(w, "                               answer, two open `decisions` issues, or only a closed one, exits 1. Recorded from the inbox")
 	fmt.Fprintln(w, "                               detail popup with D (see inbox watch)")
 	fmt.Fprintln(w, "  console [--roster F] [--inbox F]")
 	fmt.Fprintln(w, "                               no flags needed. One screen: the inbox's open ACTION/UNREAD entries,")

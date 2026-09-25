@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/patrickserrano/lacquer/internal/decisions"
 )
@@ -92,6 +93,9 @@ func (e Env) refLink(ref string) string {
 	return fmt.Sprintf("https://github.com/%s/%s/%d", g.Repo, kind, g.Number)
 }
 
+// maxCommentChars is GitHub's limit on a comment's length, in characters.
+const maxCommentChars = 65536
+
 // decide records c.Text as a decision in c.Repo's decisions issue, making the
 // label and the issue first if there are none. Every outcome, including every
 // failure, says what was done and what was not: a decision that is half recorded
@@ -126,6 +130,14 @@ func (e Env) decide(c Cmd) Event {
 		return fail(nil, "gh is not configured", false)
 	}
 
+	// Built, and measured, before anything is written: a first use that made the
+	// label and the issue and only then found the comment too long would leave
+	// them behind, and every retry would fail the same way.
+	body := decisions.Body(decisions.Record{Text: c.Text, Basis: c.Basis, From: e.refLink(c.Ref), At: e.now()})
+	if n := utf8.RuneCountInString(body); n > maxCommentChars {
+		return fail(nil, fmt.Sprintf("the comment is too long by %d characters (GitHub's limit is %d; it would be %d)", n-maxCommentChars, maxCommentChars, n), false)
+	}
+
 	var done []string
 	issue, found, err := decisions.FindIssue(e.Run, repo)
 	if err != nil {
@@ -156,9 +168,17 @@ func (e Env) decide(c Cmd) Event {
 		}
 		issue = decisions.Issue{Number: n, URL: url}
 		done = append(done, "created issue "+repo+"#"+strconv.Itoa(n))
+		// Two popups can race on a first use and each make one. Look again, and
+		// post to neither if there are now two.
+		if _, _, err := decisions.FindIssue(e.Run, repo); err != nil {
+			var multi *decisions.MultipleError
+			if errors.As(err, &multi) {
+				return fail(done, err.Error()+"; the decision was not posted, and retrying will refuse until one is closed", false)
+			}
+			return fail(done, "could not re-check for a second decisions issue: "+err.Error()+"; the decision was not posted", false)
+		}
 	}
 
-	body := decisions.Body(decisions.Record{Text: c.Text, Basis: c.Basis, From: e.refLink(c.Ref), At: e.now()})
 	_, out, err := e.postGated(fmt.Sprintf("https://github.com/%s/issues/%d", repo, issue.Number), body)
 	if err != nil {
 		var to *PostTimeoutError
@@ -222,9 +242,13 @@ var errTimedOut = errors.New("gh timed out")
 
 func (e Env) writeFailed(repo string, done []string, what, out string, err error) Event {
 	if errors.Is(err, errTimedOut) {
-		return DecidedEvent{Unsure: true, Note: fmt.Sprintf(
+		note := fmt.Sprintf(
 			"gh timed out after %s trying to %s in %s and was stopped; it may or may not have finished, so check the repository before retrying. The decision was NOT posted",
-			writeBackTimeout, what, clean(repo))}
+			writeBackTimeout, what, clean(repo))
+		if len(done) > 0 {
+			note += ". Already done: " + strings.Join(done, "; ") + "."
+		}
+		return DecidedEvent{Unsure: true, Note: note}
 	}
 	note := "NOT recorded in " + clean(repo) + ": could not " + what + ": " + clean(err.Error())
 	if len(done) > 0 {

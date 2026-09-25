@@ -40,6 +40,10 @@ func listFor(repo string) string {
 	return "issue list -R " + repo + " --label decisions --state open --json number,title,url --limit 100"
 }
 
+func closedFor(repo string) string {
+	return "issue list -R " + repo + " --label decisions --state closed --json number,title,url --limit 100"
+}
+
 func viewFor(repo string, n int) string {
 	return fmt.Sprintf("issue view %d -R %s --json comments", n, repo)
 }
@@ -82,7 +86,7 @@ func TestDecisionsPrintsARepositorysDecisionsOldestFirst(t *testing.T) {
 
 // "Nothing recorded" is an answer; "could not ask" is a failure. They must not look alike.
 func TestDecisionsSeparatesNoneRecordedFromAFailure(t *testing.T) {
-	ghScript(t, map[string]string{listFor("o/r"): `[]`}, nil)
+	ghScript(t, map[string]string{listFor("o/r"): `[]`, closedFor("o/r"): `[]`}, nil)
 	code, stdout, stderr := runDecisions(t, nil, "o/r")
 	if code != 0 || stdout != "no decisions recorded for o/r\n" || stderr != "" {
 		t.Errorf("none: code %d stdout %q stderr %q", code, stdout, stderr)
@@ -113,9 +117,10 @@ func TestDecisionsFleetReadsTheConfiguredFleetRepository(t *testing.T) {
 		"the flag":    {map[string]string{"LACQUER_FLEET_REPO": "acme/ops"}, []string{"--fleet", "--fleet-repo", "acme/other"}, "acme/other"},
 		"flag first":  {nil, []string{"--fleet-repo=acme/x", "--fleet"}, "acme/x"},
 	} {
-		calls := ghScript(t, map[string]string{listFor(tc.repo): `[]`}, nil)
+		calls := ghScript(t, map[string]string{listFor(tc.repo): `[]`, closedFor(tc.repo): `[]`}, nil)
+		want := 2
 		code, stdout, _ := runDecisions(t, tc.env, tc.args...)
-		if code != 0 || stdout != "no decisions recorded for "+tc.repo+"\n" || len(*calls) != 1 {
+		if code != 0 || stdout != "no decisions recorded for "+tc.repo+"\n" || len(*calls) != want {
 			t.Errorf("%s: code %d stdout %q calls %v", name, code, stdout, *calls)
 		}
 	}
@@ -131,14 +136,14 @@ func TestDecisionsWithNoArgumentUsesTheCheckoutsOrigin(t *testing.T) {
 	defer func() { originSlug = old }()
 	var asked string
 	originSlug = func(dir string) (string, error) { asked = dir; return "acme/here", nil }
-	ghScript(t, map[string]string{listFor("acme/here"): `[]`}, nil)
+	ghScript(t, map[string]string{listFor("acme/here"): `[]`, closedFor("acme/here"): `[]`}, nil)
 	if code, stdout, _ := runDecisions(t, nil); code != 0 || stdout != "no decisions recorded for acme/here\n" || asked == "" {
 		t.Errorf("code %d stdout %q asked %q", code, stdout, asked)
 	}
 	// A checkout with no origin says so and points at the alternatives.
 	originSlug = func(string) (string, error) { return "", errors.New("no origin remote") }
 	calls := ghScript(t, nil, nil)
-	if code, _, stderr := runDecisions(t, nil); code == 0 || !strings.Contains(stderr, "no origin remote") || !strings.Contains(stderr, "--fleet") || len(*calls) != 0 {
+	if code, _, stderr := runDecisions(t, nil); code == 0 || !strings.Contains(stderr, "no GitHub origin remote") || !strings.Contains(stderr, "lacquer decisions owner/name") || !strings.Contains(stderr, "--fleet") || strings.Contains(stderr, "--repo") || len(*calls) != 0 {
 		t.Errorf("code %d stderr %q calls %v", code, stderr, *calls)
 	}
 }
@@ -194,5 +199,24 @@ func TestPopupCommandCarriesWhatARecordedDecisionNeeds(t *testing.T) {
 	stderr.Reset()
 	if code := popupMain([]string{"--project-repo=zz=acme/x", "--id-hex=6131"}, envMap(nil), &stderr); code == 0 || strings.Contains(stderr.String(), "needs a terminal") {
 		t.Errorf("a bad --project-repo: code %d: %s", code, stderr.String())
+	}
+}
+
+// --fleet-repo names where --fleet reads; alone it would be silently ignored.
+func TestDecisionsRefusesAFleetRepoWithoutFleet(t *testing.T) {
+	calls := ghScript(t, nil, nil)
+	for _, args := range [][]string{{"--fleet-repo", "acme/ops"}, {"o/r", "--fleet-repo=acme/ops"}} {
+		if code, _, stderr := runDecisions(t, nil, args...); code != 2 || !strings.Contains(stderr, "usage") || len(*calls) != 0 {
+			t.Errorf("%v: code %d stderr %q calls %v", args, code, stderr, *calls)
+		}
+	}
+}
+
+// A closed decisions issue is not "none recorded".
+func TestDecisionsSaysAClosedIssueIsClosed(t *testing.T) {
+	ghScript(t, map[string]string{listFor("o/r"): `[]`, closedFor("o/r"): `[{"number":4,"title":"Decisions","url":"u"}]`}, nil)
+	code, stdout, stderr := runDecisions(t, nil, "o/r")
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "#4 is closed") || !strings.Contains(stderr, "reopen it") || strings.Contains(stdout+stderr, "no decisions recorded") {
+		t.Errorf("code %d stdout %q stderr %q", code, stdout, stderr)
 	}
 }

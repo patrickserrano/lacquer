@@ -127,6 +127,8 @@ const (
 	noComments = `{"comments":[]}`
 )
 
+const closedKey = "issue list -R o/r --label decisions --state closed --json number,title,url --limit 100"
+
 func TestFindIssue(t *testing.T) {
 	run, calls := fakeGH(t, map[string]string{listKey: oneIssue}, nil)
 	issue, found, err := FindIssue(run, "o/r")
@@ -221,7 +223,7 @@ func TestPrintSeparatesNoneRecordedFromAGhFailure(t *testing.T) {
 	for name, tc := range map[string]struct {
 		replies map[string]string
 	}{
-		"no issue":       {map[string]string{listKey: `[]`}},
+		"no issue":       {map[string]string{listKey: `[]`, closedKey: `[]`}},
 		"an empty issue": {map[string]string{listKey: oneIssue, viewKey: noComments}},
 	} {
 		run, _ := fakeGH(t, tc.replies, nil)
@@ -254,5 +256,35 @@ func TestClean(t *testing.T) {
 	}
 	if got := Clean("plain é 日本"); got != "plain é 日本" {
 		t.Errorf("Clean changed printable text: %q", got)
+	}
+}
+
+// An issue that exists but is closed is not "nothing recorded": the decisions are
+// there, and the reader is told to reopen it.
+func TestPrintSaysAClosedDecisionsIssueIsNotNoneRecorded(t *testing.T) {
+	run, _ := fakeGH(t, map[string]string{listKey: `[]`, closedKey: `[{"number":4,"title":"Decisions","url":"u"}]`}, nil)
+	var out bytes.Buffer
+	err := Print(&out, run, "o/r")
+	var closed *ClosedError
+	if !errors.As(err, &closed) || errors.Is(err, ErrNone) || out.Len() != 0 || !strings.Contains(err.Error(), "#4 is closed") || !strings.Contains(err.Error(), "reopen it") {
+		t.Errorf("err %v, wrote %q", err, out.String())
+	}
+	// Failing to ask about closed ones is a failure too, never "none".
+	run, _ = fakeGH(t, map[string]string{listKey: `[]`}, map[string]error{closedKey: errors.New("HTTP 502")})
+	if err := Print(&bytes.Buffer{}, run, "o/r"); err == nil || errors.Is(err, ErrNone) {
+		t.Errorf("closed lookup failure: %v", err)
+	}
+}
+
+// Bidi overrides reorder the text around them, so a comment can read as something
+// it is not; they are shown, not obeyed.
+func TestCleanNeutralisesBidiOverrides(t *testing.T) {
+	for _, r := range []rune{0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069} {
+		if got := Clean("a" + string(r) + "b"); got != "a?b" {
+			t.Errorf("U+%04X: %q", r, got)
+		}
+	}
+	if got := Clean("مرحبا שלום"); got != "مرحبا שלום" {
+		t.Errorf("Clean changed ordinary right-to-left text: %q", got)
 	}
 }

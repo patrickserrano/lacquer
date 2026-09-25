@@ -64,7 +64,9 @@ func decisionsCmd(args []string, getenv func(string) string, projectRoot string,
 		pos = append(pos, fs.Arg(0))
 		rest = fs.Args()[1:]
 	}
-	if len(pos) > 1 || (*fleetWide && len(pos) > 0) {
+	fleetRepoSet := false
+	fs.Visit(func(f *flag.Flag) { fleetRepoSet = fleetRepoSet || f.Name == "fleet-repo" })
+	if len(pos) > 1 || (*fleetWide && len(pos) > 0) || (fleetRepoSet && !*fleetWide) {
 		fmt.Fprintln(stderr, decisionsUsage)
 		return 2
 	}
@@ -75,10 +77,11 @@ func decisionsCmd(args []string, getenv func(string) string, projectRoot string,
 	case len(pos) == 1:
 		repo = pos[0]
 	default:
-		var err error
-		if repo, err = originSlug(projectRoot); err != nil {
-			return fail(stderr, fmt.Errorf("decisions: %w; name the repository or pass --fleet", err))
+		slug, err := originSlug(projectRoot)
+		if err != nil { // its own hint names a flag this command does not have
+			return fail(stderr, errors.New("decisions: cannot tell which repository this is (no GitHub origin remote here); name it, `lacquer decisions owner/name`, or read the fleet's with `lacquer decisions --fleet`"))
 		}
+		repo = slug
 	}
 	if o, n, ok := strings.Cut(repo, "/"); !ok || o == "" || n == "" || strings.ContainsAny(repo, " \t\r\n") || strings.HasPrefix(repo, "-") || strings.Contains(n, "/") {
 		return fail(stderr, fmt.Errorf("decisions: %q is not owner/name", repo))

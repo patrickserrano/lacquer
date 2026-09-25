@@ -119,7 +119,7 @@ func TestRenderedRegionsTellAgentsToReadTheDecisionsLog(t *testing.T) {
 				body := strings.Join(strings.Fields(p.read(file)), " ")
 				for _, want := range []string{
 					"Before briefing or starting work, run `lacquer decisions` and `lacquer decisions --fleet`",
-					"to quote verbatim in a brief",
+					"quote the operator's words verbatim",
 				} {
 					if !strings.Contains(body, want) {
 						t.Errorf("%s does not say %q", file, want)

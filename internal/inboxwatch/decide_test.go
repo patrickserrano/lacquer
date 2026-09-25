@@ -19,10 +19,11 @@ import (
 type scriptedGH struct {
 	mu    sync.Mutex
 	log   []string
-	reads map[string]string // by "arg arg arg", the reply
-	out   map[string]string // writes: the stdout, by argv
-	errs  map[string]error  // by argv, for a read or a write
-	hang  map[string]bool   // a write that never finishes on its own
+	reads map[string]string   // by "arg arg arg", the reply
+	out   map[string]string   // writes: the stdout, by argv
+	errs  map[string]error    // by argv, for a read or a write
+	hang  map[string]bool     // a write that never finishes on its own
+	seq   map[string][]string // reads that answer differently each time, in order
 }
 
 func (g *scriptedGH) read(_ context.Context, args ...string) ([]byte, error) {
@@ -32,6 +33,10 @@ func (g *scriptedGH) read(_ context.Context, args ...string) ([]byte, error) {
 	g.log = append(g.log, "READ  gh "+key)
 	if err := g.errs[key]; err != nil {
 		return nil, err
+	}
+	if q := g.seq[key]; len(q) > 0 {
+		g.seq[key] = q[1:]
+		return []byte(q[0]), nil
 	}
 	out, ok := g.reads[key]
 	if !ok {
@@ -128,6 +133,7 @@ func TestFirstUseCreatesTheLabelThenTheIssueThenComments(t *testing.T) {
 		"READ  gh " + labelList,
 		fmt.Sprintf("WRITE gh %s  <<< %q", labelMake, ""),
 		fmt.Sprintf("WRITE gh %s  <<< %q", issueMake, decisions.IssueBody),
+		"READ  gh " + repoList, // looked at again: two popups can race on a first use
 		fmt.Sprintf("WRITE gh %s  <<< %q", commentOn9, wantBody("keep iOS 26 as the minimum", "", "https://github.com/o/r/issues/5")),
 	}
 	if got := g.lines(); strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -685,5 +691,74 @@ func TestEveryGitHubWriteAsksTheGateItself(t *testing.T) {
 	// And one inside it goes through.
 	if _, err := env.write("o/r", "", "label", "create", "decisions", "-R", "o/r"); err != nil || len(g.writes()) != 1 {
 		t.Errorf("err %v writes %v", err, g.writes())
+	}
+}
+
+// GitHub refuses a comment over 65536 characters. That is known before anything
+// is written, so a first use must not create the label and the issue and only then
+// fail, leaving them behind and failing every retry the same way.
+func TestAnOverLengthDecisionIsRefusedBeforeAnyWrite(t *testing.T) {
+	g := &scriptedGH{reads: map[string]string{repoList: `[]`, labelList: `[]`}}
+	ev := decEnv(g).Exec(decideCmd(strings.Repeat("x", 70000))).(DecidedEvent)
+	if ev.OK || !strings.Contains(ev.Note, "too long by") || !strings.Contains(ev.Note, "Nothing was posted") {
+		t.Errorf("ev = %+v", ev)
+	}
+	if l := g.lines(); len(l) != 0 {
+		t.Errorf("gh was called for a comment that cannot be posted: %v", l)
+	}
+	// The limit is on the whole comment, header and fences included, in characters
+	// (not bytes): text just under it goes through, and 3-byte characters count once.
+	fits := strings.Repeat("é", 65000)
+	g = &scriptedGH{reads: map[string]string{repoList: oneOpen}, out: map[string]string{commentOn7: "u\n"}}
+	if ev := decEnv(g).Exec(decideCmd(fits)).(DecidedEvent); !ev.OK {
+		t.Errorf("65000 characters refused: %+v", ev)
+	}
+	over := maxCommentChars - len([]rune(wantBody("", "", "https://github.com/o/r/issues/5"))) + 1
+	g = &scriptedGH{reads: map[string]string{repoList: oneOpen}}
+	if ev := decEnv(g).Exec(decideCmd(strings.Repeat("y", over))).(DecidedEvent); ev.OK || !strings.Contains(ev.Note, "too long by 1 characters") {
+		t.Errorf("one over the limit: %+v", ev)
+	}
+}
+
+// A write that times out after an earlier one finished still says the earlier
+// one did.
+func TestATimeoutStillNamesWhatWasAlreadyDone(t *testing.T) {
+	old := writeBackTimeout
+	writeBackTimeout = 20 * time.Millisecond
+	defer func() { writeBackTimeout = old }()
+	g := &scriptedGH{reads: map[string]string{repoList: `[]`, labelList: `[]`}, hang: map[string]bool{issueMake: true}, out: map[string]string{}}
+	ev := decEnv(g).Exec(decideCmd("x")).(DecidedEvent)
+	if !ev.Unsure || !strings.Contains(ev.Note, "Already done: created the decisions label") {
+		t.Errorf("issue timeout: %+v", ev)
+	}
+	g = &scriptedGH{reads: map[string]string{repoList: `[]`, labelList: `[]`}, hang: map[string]bool{commentOn9: true},
+		out: map[string]string{issueMake: "https://github.com/o/r/issues/9\n"}}
+	ev = decEnv(g).Exec(decideCmd("x")).(DecidedEvent)
+	if !ev.Unsure || !strings.Contains(ev.Note, "created the decisions label; created issue o/r#9") {
+		t.Errorf("comment timeout: %+v", ev)
+	}
+}
+
+// Two popups racing on a first use each make an issue. After creating one, look
+// again, and post to neither if there are two.
+func TestAFirstUseRacingAnotherPopupPostsToNeither(t *testing.T) {
+	g := &scriptedGH{
+		reads: map[string]string{labelList: `[]`},
+		seq:   map[string][]string{repoList: {`[]`, `[{"number":8,"title":"Decisions","url":"u"},{"number":9,"title":"Decisions","url":"u"}]`}},
+		out:   map[string]string{issueMake: "https://github.com/o/r/issues/9\n"},
+	}
+	ev := decEnv(g).Exec(decideCmd("x")).(DecidedEvent)
+	if ev.OK || !strings.Contains(ev.Note, "o/r#8, o/r#9") || !strings.Contains(ev.Note, "created issue o/r#9") || !strings.Contains(ev.Note, "not posted") {
+		t.Errorf("ev = %+v", ev)
+	}
+	for _, w := range g.writes() {
+		if strings.Contains(w, "issue comment") {
+			t.Errorf("posted despite two issues: %s", w)
+		}
+	}
+	// And a re-check that cannot be made does not post either.
+	g = &scriptedGH{reads: map[string]string{labelList: `[]`}, seq: map[string][]string{repoList: {`[]`}}, out: map[string]string{issueMake: "https://github.com/o/r/issues/9\n"}}
+	if ev := decEnv(g).Exec(decideCmd("x")).(DecidedEvent); ev.OK || !strings.Contains(ev.Note, "could not re-check") || len(g.writes()) != 2 {
+		t.Errorf("ev = %+v writes %v", ev, g.writes())
 	}
 }

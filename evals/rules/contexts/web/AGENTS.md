@@ -33,8 +33,7 @@
   and next action across compaction. Resume from that state.
 - In Codex, read `.codex/README.md` for guard activation and coverage limits.
   These rules still apply when runtime guards are inactive or cannot inspect a tool.
-- Before briefing or starting work, run `lacquer decisions` and
-  `lacquer decisions --fleet`: the operator's words, to quote verbatim in a brief.
+- Before briefing or starting work, run `lacquer decisions` and `lacquer decisions --fleet`; quote the operator's words verbatim.
 
 # Web / TypeScript
 

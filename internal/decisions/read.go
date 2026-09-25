@@ -41,31 +41,19 @@ func (e *MultipleError) Error() string {
 }
 
 // ListArgs is the read-only gh call that finds a repository's decisions issues.
-func ListArgs(repo string) []string {
-	return []string{"issue", "list", "-R", repo, "--label", Label, "--state", "open", "--json", "number,title,url", "--limit", "100"}
+func ListArgs(repo string) []string { return listArgs(repo, "open") }
+
+func listArgs(repo, state string) []string {
+	return []string{"issue", "list", "-R", repo, "--label", Label, "--state", state, "--json", "number,title,url", "--limit", "100"}
 }
 
 // FindIssue returns the repository's one open decisions issue. found is false,
 // with no error, when it has none: the log has not been started, which is not a
 // failure. Two or more is a *MultipleError.
 func FindIssue(run ciwait.Runner, repo string) (issue Issue, found bool, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
-	defer cancel()
-	out, err := run(ctx, ListArgs(repo)...)
+	issues, err := listIssues(run, repo, "open")
 	if err != nil {
 		return Issue{}, false, err
-	}
-	var rows []struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-		URL    string `json:"url"`
-	}
-	if err := json.Unmarshal(out, &rows); err != nil {
-		return Issue{}, false, fmt.Errorf("bad JSON from gh: %w", err)
-	}
-	var issues []Issue
-	for _, r := range rows {
-		issues = append(issues, Issue{Number: r.Number, Title: r.Title, URL: r.URL})
 	}
 	switch len(issues) {
 	case 0:
@@ -73,8 +61,46 @@ func FindIssue(run ciwait.Runner, repo string) (issue Issue, found bool, err err
 	case 1:
 		return issues[0], true, nil
 	}
-	sort.Slice(issues, func(a, b int) bool { return issues[a].Number < issues[b].Number })
 	return Issue{}, false, &MultipleError{Repo: repo, Issues: issues}
+}
+
+// ClosedError is a repository whose decisions issue exists but is closed, and
+// which has no open one. It is not "nothing recorded": the decisions are there.
+type ClosedError struct {
+	Repo   string
+	Issues []Issue
+}
+
+func (e *ClosedError) Error() string {
+	var refs []string
+	for _, i := range e.Issues {
+		refs = append(refs, fmt.Sprintf("#%d", i.Number))
+	}
+	return fmt.Sprintf("%s has no open %q issue, but %s %s closed: reopen it to read or add decisions (it is not that none were recorded)", e.Repo, Label, strings.Join(refs, ", "), map[bool]string{true: "is", false: "are"}[len(refs) == 1])
+}
+
+// listIssues lists the repository's decisions issues in a state, by number.
+func listIssues(run ciwait.Runner, repo, state string) ([]Issue, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
+	defer cancel()
+	out, err := run(ctx, listArgs(repo, state)...)
+	if err != nil {
+		return nil, err
+	}
+	var rows []struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		URL    string `json:"url"`
+	}
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return nil, fmt.Errorf("bad JSON from gh: %w", err)
+	}
+	var issues []Issue
+	for _, r := range rows {
+		issues = append(issues, Issue{Number: r.Number, Title: r.Title, URL: r.URL})
+	}
+	sort.Slice(issues, func(a, b int) bool { return issues[a].Number < issues[b].Number })
+	return issues, nil
 }
 
 // Comment is one comment on the decisions issue, as gh reports it.
@@ -133,6 +159,13 @@ func Print(w io.Writer, run ciwait.Runner, repo string) error {
 		return err
 	}
 	if !found {
+		closed, err := listIssues(run, repo, "closed")
+		if err != nil {
+			return err
+		}
+		if len(closed) > 0 {
+			return &ClosedError{Repo: repo, Issues: closed}
+		}
 		return ErrNone
 	}
 	cs, err := Comments(run, repo, issue)
@@ -184,7 +217,7 @@ func Clean(s string) string {
 			b.WriteString("^" + string(r+0x40))
 		case r == 0x7f:
 			b.WriteString("^?")
-		case r >= 0x80 && r <= 0x9f:
+		case r >= 0x80 && r <= 0x9f, r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
 			b.WriteByte('?')
 		default:
 			b.WriteRune(r)
@@ -193,4 +226,9 @@ func Clean(s string) string {
 	return b.String()
 }
 
-func isControl(r rune) bool { return (r < 0x20 && r != '\t') || (r >= 0x7f && r <= 0x9f) }
+// isControl is what is not shown as written: control characters, and the bidi
+// overrides and isolates (U+202A-202E, U+2066-2069), which reorder the text
+// around them and so can make a line read as something it is not.
+func isControl(r rune) bool {
+	return (r < 0x20 && r != '\t') || (r >= 0x7f && r <= 0x9f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069)
+}

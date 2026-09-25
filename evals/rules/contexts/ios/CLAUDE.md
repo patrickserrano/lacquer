@@ -3,6 +3,7 @@
 ## Git and workspace safety
 
 - Work in a git worktree under `.worktrees/`; keep build output in that worktree.
+- Before briefing or starting work, run `lacquer decisions` and `lacquer decisions --fleet`; quote the operator's words verbatim.
 - Never push directly to main. Use atomic commits and a pull request.
 - Never force-push or rebase a pushed branch. Do not bypass hooks, CI or branch
   protection (`--force`, `--force-with-lease`, `--no-verify`, `--admin`).
@@ -37,11 +38,6 @@
 - Across auto-compaction preserve the PR number, branch, worktree path, CI-round
   state (spent/remaining and latest result), verification evidence and next action.
   Resume from that state; do not reset the budget or switch worktrees.
-
-## Recorded decisions
-
-- Before briefing or starting work, run `lacquer decisions` and
-  `lacquer decisions --fleet`: the operator's words, to quote verbatim in a brief.
 
 ## On-demand procedures
 
