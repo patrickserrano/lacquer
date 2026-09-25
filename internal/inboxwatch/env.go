@@ -205,6 +205,7 @@ type (
 	PRsEvent struct {
 		PRs    []PR
 		Errors []PRError
+		Full   []string // repositories that returned prLimit PRs, so may have more
 		Err    string
 		At     time.Time
 	}

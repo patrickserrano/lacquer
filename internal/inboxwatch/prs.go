@@ -3,8 +3,11 @@ package inboxwatch
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/patrickserrano/lacquer/internal/ciwait"
 )
 
 // PR is one open pull request, as foxy-prs reports it.
@@ -31,10 +34,14 @@ type PRError struct {
 	Repo, Err string
 }
 
-// prArgs lists one repository's open PRs. The limit is above gh's default of
-// 30, which would cut a busy repository short without saying so.
+// prLimit is how many PRs one repository is asked for. It is above gh's default
+// of 30, which would cut a busy repository short without saying so; a repository
+// that returns exactly this many may still be cut short, and the tab says so.
+const prLimit = 100
+
+// prArgs lists one repository's open PRs.
 func prArgs(repo string) []string {
-	return []string{"pr", "list", "-R", repo, "--state", "open", "--limit", "100", "--json",
+	return []string{"pr", "list", "-R", repo, "--state", "open", "--limit", strconv.Itoa(prLimit), "--json",
 		"number,title,author,isDraft,createdAt,url,mergeStateStatus,statusCheckRollup"}
 }
 
@@ -51,10 +58,7 @@ func parsePRs(repo string, out []byte) ([]PR, error) {
 		Author           *struct {
 			Login string `json:"login"`
 		} `json:"author"`
-		Rollup []struct {
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
-		} `json:"statusCheckRollup"`
+		Rollup json.RawMessage `json:"statusCheckRollup"`
 	}
 	if err := json.Unmarshal(out, &data); err != nil {
 		return nil, fmt.Errorf("bad JSON from gh: %w", err)
@@ -72,16 +76,11 @@ func parsePRs(repo string, out []byte) ([]PR, error) {
 		}
 		p := PR{Repo: repo, Number: d.Number, Title: d.Title, Author: login, Draft: d.IsDraft,
 			CreatedAt: created, URL: d.URL, Merge: merge}
-		for _, c := range d.Rollup {
-			switch {
-			case c.Status != "COMPLETED", c.Conclusion == "":
-				p.Pending++ // still running, or done with no conclusion: never counted as passing
-			case c.Conclusion == "SUCCESS", c.Conclusion == "NEUTRAL", c.Conclusion == "SKIPPED":
-				p.Passing++
-			default:
-				p.Failing++
-			}
+		counts, err := ciwait.Tally(d.Rollup)
+		if err != nil {
+			return nil, fmt.Errorf("PR #%d: %w", d.Number, err)
 		}
+		p.Passing, p.Failing, p.Pending = counts.Passing, counts.Failing, counts.Pending
 		prs = append(prs, p)
 	}
 	return prs, nil
@@ -157,6 +156,9 @@ func (m Model) prsStatus() seg {
 	errs := ""
 	if len(s.Errors) > 0 {
 		errs = fmt.Sprintf(" · %d repos errored", len(s.Errors))
+	}
+	if len(s.Full) > 0 {
+		errs += fmt.Sprintf(" · %d repos at the %d-PR limit (may be cut)", len(s.Full), prLimit)
 	}
 	return seg{fmt.Sprintf(" %d open · %d over 24h%s", len(s.PRs), stale, errs), fgBold(magenta)}
 }

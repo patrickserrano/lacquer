@@ -219,7 +219,7 @@ func (m *Model) laterLoaded(ev LaterEvent) []Cmd {
 func (m *Model) prsLoaded(ev PRsEvent) []Cmd {
 	again := m.PRs.answered(ev.At, ev.Err)
 	if ev.Err == "" {
-		m.PRs.PRs, m.PRs.Errors = ev.PRs, ev.Errors
+		m.PRs.PRs, m.PRs.Errors, m.PRs.Full = ev.PRs, ev.Errors, ev.Full
 		m.PRs.keep(m.prRows(), m.viewH(), 1)
 	}
 	if again {

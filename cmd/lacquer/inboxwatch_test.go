@@ -323,11 +323,11 @@ func TestWatchCyclesThroughAllFourTabs(t *testing.T) {
 		mu.Unlock()
 		switch {
 		case args[0] == "search":
-			return []byte(`[{"repository":{"nameWithOwner":"PixelFoxStudio/Skein"},"number":12,"title":"parked idea about widgets","createdAt":"` + now.Add(-50*time.Hour).Format(time.RFC3339) + `","url":"https://github.com/PixelFoxStudio/Skein/issues/12"}]`), nil
-		case args[0] == "pr" && args[3] != "PixelFoxStudio/Skein":
+			return []byte(`[{"repository":{"nameWithOwner":"Acme/Widgets"},"number":12,"title":"parked idea about widgets","createdAt":"` + now.Add(-50*time.Hour).Format(time.RFC3339) + `","url":"https://github.com/Acme/Widgets/issues/12"}]`), nil
+		case args[0] == "pr" && args[3] != "Acme/Widgets":
 			return []byte("[]"), nil
 		case args[0] == "pr":
-			return []byte(`[{"number":41,"title":"open pull request title","author":{"login":"app/dependabot"},"isDraft":false,"createdAt":"` + now.Add(-30*time.Hour).Format(time.RFC3339) + `","url":"https://github.com/PixelFoxStudio/Skein/pull/41","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}]`), nil
+			return []byte(`[{"number":41,"title":"open pull request title","author":{"login":"app/dependabot"},"isDraft":false,"createdAt":"` + now.Add(-30*time.Hour).Format(time.RFC3339) + `","url":"https://github.com/Acme/Widgets/pull/41","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}]`), nil
 		}
 		return nil, errors.New("unexpected gh call " + strings.Join(args, " "))
 	}
@@ -344,7 +344,7 @@ func TestWatchCyclesThroughAllFourTabs(t *testing.T) {
 		Size:      func() (int, int, error) { return 110, 12, nil },
 		TickEvery: 10 * time.Millisecond, EscWait: 10 * time.Millisecond, Now: time.Now,
 	}
-	env := newWatchEnv(path, false, overseerFlags{}, fleet.Roster{Project: []fleet.Entry{{Name: "skein", Repo: "PixelFoxStudio/Skein"}}}, envMap(nil))
+	env := newWatchEnv(path, false, overseerFlags{}, fleet.Roster{Project: []fleet.Entry{{Name: "widgets", Repo: "Acme/Widgets"}}}, envMap(nil))
 	env.Run = fakeGH
 	env.ExtraRepos = []string{"patrickserrano/lacquer"}
 	var stderr bytes.Buffer
@@ -354,7 +354,7 @@ func TestWatchCyclesThroughAllFourTabs(t *testing.T) {
 	screen := plainOut(out.String())
 	for _, want := range []string{
 		"1 Inbox", "2 Later", "3 Done", "4 PRs",
-		"Skein  (1)", "#12", "parked idea about widgets", "1 parked · 1 projects",
+		"Widgets  (1)", "#12", "parked idea about widgets", "1 parked · 1 projects",
 		"an entry already closed", "1 closed",
 		"#41", "dependabot", "BLOCKED", "open pull request title", "1 open · 1 over 24h",
 		"⏎ issue", "⏎/o open on GitHub", // the whole hint rows are checked in the model tests
@@ -370,7 +370,7 @@ func TestWatchCyclesThroughAllFourTabs(t *testing.T) {
 		switch {
 		case strings.HasPrefix(c, "search issues --label later"):
 			search++
-			if !strings.HasSuffix(c, "--owner PixelFoxStudio --owner patrickserrano") {
+			if !strings.HasSuffix(c, "--owner Acme --owner patrickserrano") {
 				t.Errorf("owners: %s", c)
 			}
 		case strings.HasPrefix(c, "pr list -R"):
@@ -388,8 +388,8 @@ func TestIssuePopupCommandCarriesTheRefHexEncoded(t *testing.T) {
 	defer func() { executablePath = old }()
 	executablePath = func() (string, error) { return "/opt/bin/lacquer", nil }
 	env := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{pane: "%3"}, fleetRoster(), envMap(nil))
-	got := strings.Join(env.IssueArgv("PixelFoxStudio/Skein#12"), " ")
-	want := "/opt/bin/lacquer console inbox popup --inbox /state/inbox.jsonl --overseer-pane=%3 --overseer-title= --overseer-session= --issue-hex=" + hex.EncodeToString([]byte("PixelFoxStudio/Skein#12"))
+	got := strings.Join(env.IssueArgv("Acme/Widgets#12"), " ")
+	want := "/opt/bin/lacquer console inbox popup --inbox /state/inbox.jsonl --overseer-pane=%3 --overseer-title= --overseer-session= --issue-hex=" + hex.EncodeToString([]byte("Acme/Widgets#12"))
 	if got != want {
 		t.Errorf("issue argv\n%s\nwant\n%s", got, want)
 	}

@@ -68,9 +68,9 @@ func send(t *testing.T, p Program, evs ...Event) (Program, []Cmd) {
 func tickAt(d time.Duration) TickEvent { return TickEvent{Now: t0.Add(d)} }
 
 const laterFixture = `[
- {"repository":{"nameWithOwner":"PixelFoxStudio/Skein"},"number":12,"title":"second in Skein","createdAt":"%s","url":"https://github.com/PixelFoxStudio/Skein/issues/12"},
+ {"repository":{"nameWithOwner":"Acme/Widgets"},"number":12,"title":"second in Widgets","createdAt":"%s","url":"https://github.com/Acme/Widgets/issues/12"},
  {"repository":{"nameWithOwner":"patrickserrano/lacquer"},"number":7,"title":"park the harvest","createdAt":"%s","url":"https://github.com/patrickserrano/lacquer/issues/7"},
- {"repository":{"nameWithOwner":"PixelFoxStudio/Skein"},"number":3,"title":"first in Skein","createdAt":"%s","url":"https://github.com/PixelFoxStudio/Skein/issues/3"}
+ {"repository":{"nameWithOwner":"Acme/Widgets"},"number":3,"title":"first in Widgets","createdAt":"%s","url":"https://github.com/Acme/Widgets/issues/3"}
 ]`
 
 func laterIssues(t *testing.T) []LaterIssue {
@@ -98,7 +98,7 @@ func TestLaterGroupsByProjectSortedByShortNameThenNumber(t *testing.T) {
 	p, _ = send(t, p, LaterEvent{Issues: laterIssues(t), At: t0})
 	f := p.View()
 	rows := strings.Split(plainAll(f), "\n")
-	want := []string{"lacquer  (1)", "  #7      1h  park the harvest", "Skein  (2)", "  #3      3h  first in Skein", "  #12     2d  second in Skein"}
+	want := []string{"lacquer  (1)", "  #7      1h  park the harvest", "Widgets  (2)", "  #3      3h  first in Widgets", "  #12     2d  second in Widgets"}
 	for i, w := range want {
 		if got := strings.TrimRight(rows[2+i], " "); !strings.HasSuffix(got, w) && got != w {
 			t.Errorf("row %d = %q, want %q", i, got, w)
@@ -119,12 +119,12 @@ func TestLaterGroupsByProjectSortedByShortNameThenNumber(t *testing.T) {
 func TestLaterSearchesEveryRosterOwnerAndNeverAllOfGitHub(t *testing.T) {
 	gh := &fakeGH{reply: func([]string) ([]byte, error) { return []byte("[]"), nil }}
 	env := Env{Run: gh.run, Now: func() time.Time { return t0 },
-		Roster:     fleet.Roster{Project: []fleet.Entry{{Name: "a", Repo: "PixelFoxStudio/steps"}, {Name: "b", Repo: "PixelFoxStudio/kit"}, {Name: "local"}}},
-		ExtraRepos: []string{"patrickserrano/lacquer", "PixelFoxStudio/rail-web"}}
+		Roster:     fleet.Roster{Project: []fleet.Entry{{Name: "a", Repo: "Acme/steps"}, {Name: "b", Repo: "Acme/kit"}, {Name: "local"}}},
+		ExtraRepos: []string{"patrickserrano/lacquer", "Acme/rail-web"}}
 	if ev := env.Exec(Cmd{Kind: CmdLater}).(LaterEvent); ev.Err != "" {
 		t.Fatalf("Err = %q", ev.Err)
 	}
-	want := "search issues --label later --state open --limit 300 --json repository,number,title,createdAt,url --owner PixelFoxStudio --owner patrickserrano"
+	want := "search issues --label later --state open --limit 300 --json repository,number,title,createdAt,url --owner Acme --owner patrickserrano"
 	if got := gh.called(); len(got) != 1 || got[0] != want {
 		t.Errorf("gh ran %q\nwant %q", got, want)
 	}
@@ -253,12 +253,12 @@ func TestLaterKeys(t *testing.T) {
 	}
 	// j moves to the next issue, skipping the project header between them.
 	q, _ := feed(t, p, "j")
-	if _, cmds := feed(t, q, "\r"); cmds[0].ID != "PixelFoxStudio/Skein#3" {
+	if _, cmds := feed(t, q, "\r"); cmds[0].ID != "Acme/Widgets#3" {
 		t.Errorf("after j, Enter opened %q", cmds[0].ID)
 	}
 	// A click on an issue row is Enter on it; on a header, nothing.
-	if _, cmds := feed(t, p, "\x1b[<0;10;6M"); len(cmds) != 1 || cmds[0].ID != "PixelFoxStudio/Skein#3" {
-		t.Errorf("click on the row of Skein#3 = %+v", cmds)
+	if _, cmds := feed(t, p, "\x1b[<0;10;6M"); len(cmds) != 1 || cmds[0].ID != "Acme/Widgets#3" {
+		t.Errorf("click on the row of Widgets#3 = %+v", cmds)
 	}
 	if _, cmds := feed(t, p, "\x1b[<0;10;5M"); len(cmds) != 0 {
 		t.Errorf("click on a project header did %+v", cmds)
@@ -301,11 +301,11 @@ func TestLaterDNeedsTwoPressesAndAnyOtherKeyCancels(t *testing.T) {
 func TestUnparkRemovesOnlyTheLaterLabel(t *testing.T) {
 	gh := &fakeGH{}
 	env := Env{Run: gh.run}
-	ev := env.Exec(Cmd{Kind: CmdUnpark, ID: "PixelFoxStudio/Skein#12"}).(DoneEvent)
-	if !ev.OK || ev.Note != "un-parked PixelFoxStudio/Skein#12" {
+	ev := env.Exec(Cmd{Kind: CmdUnpark, ID: "Acme/Widgets#12"}).(DoneEvent)
+	if !ev.OK || ev.Note != "un-parked Acme/Widgets#12" {
 		t.Errorf("event = %+v", ev)
 	}
-	if got := gh.called(); len(got) != 1 || got[0] != "issue edit -R PixelFoxStudio/Skein 12 --remove-label later" {
+	if got := gh.called(); len(got) != 1 || got[0] != "issue edit -R Acme/Widgets 12 --remove-label later" {
 		t.Errorf("gh ran %q", got)
 	}
 	fail := &fakeGH{reply: func([]string) ([]byte, error) { return nil, errors.New("HTTP 403") }}
@@ -325,7 +325,8 @@ func TestUnparkRemovesOnlyTheLaterLabel(t *testing.T) {
 
 const prsFixture = `[
  {"number":41,"title":"old one","author":{"login":"app/dependabot"},"isDraft":false,"createdAt":"%s","url":"https://github.com/o/r/pull/41","mergeStateStatus":"BLOCKED",
-  "statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"},{"status":"COMPLETED","conclusion":"SKIPPED"},{"status":"COMPLETED","conclusion":"NEUTRAL"},{"status":"COMPLETED","conclusion":"FAILURE"},{"status":"IN_PROGRESS","conclusion":""},{"status":"COMPLETED","conclusion":""}]},
+  "statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"},{"status":"COMPLETED","conclusion":"SKIPPED"},{"status":"COMPLETED","conclusion":"NEUTRAL"},{"status":"COMPLETED","conclusion":"FAILURE"},{"status":"IN_PROGRESS","conclusion":""},{"status":"COMPLETED","conclusion":""},
+   {"__typename":"StatusContext","context":"Vercel","state":"SUCCESS","targetUrl":"https://vercel.com/x"},{"__typename":"StatusContext","context":"Other","state":"PENDING"}]},
  {"number":40,"title":"fresh draft","author":{"login":"patrick"},"isDraft":true,"createdAt":"%s","url":"https://github.com/o/r/pull/40","mergeStateStatus":"","statusCheckRollup":null}
 ]`
 
@@ -340,14 +341,14 @@ func prsFor(t *testing.T, repo string, age1, age2 time.Duration) []PR {
 
 func TestPRRowsShowAgeAuthorMergeStateChecksAndDraft(t *testing.T) {
 	p := onTab(t, tabModel(t, 110, 12), "4")
-	prs := prsFor(t, "PixelFoxStudio/steps", 30*time.Hour, 2*time.Hour)
+	prs := prsFor(t, "Acme/steps", 30*time.Hour, 2*time.Hour)
 	p, _ = send(t, p, PRsEvent{PRs: prs, At: t0})
 	f := p.View()
 	rows := strings.Split(plainAll(f), "\n")
 	if rows[2] != "steps  (2)" && !strings.HasPrefix(rows[2], "steps  (2)") {
 		t.Errorf("header row = %q", rows[2])
 	}
-	if got := strings.TrimRight(rows[3], " "); got != "  #41    30h  dependabot     BLOCKED   ✓3 ✗1 …2      old one" {
+	if got := strings.TrimRight(rows[3], " "); got != "  #41    30h  dependabot     BLOCKED   ✓4 ✗2 …2      old one" {
 		t.Errorf("PR row 1 = %q", got)
 	}
 	if got := strings.TrimRight(rows[4], " "); got != "  #40     2h  patrick        UNKNOWN   ✓0 ✗0 …0      fresh draft [draft]" {
@@ -387,36 +388,46 @@ func TestPRAgeTurnsMagentaFromTwentyFourHours(t *testing.T) {
 	}
 }
 
-// A check is passing only when it is COMPLETED with a passing conclusion; one
-// still running, or done with no conclusion, is pending.
-func TestPRChecksSummary(t *testing.T) {
+// Checks are counted with the classifier `lacquer wait pr` uses. A legacy commit
+// status (Vercel's, say) carries `state` and no `status`: read as a check run it
+// is "not completed", so a SUCCESS one sat pending for ever in foxy-prs. Also
+// unlike foxy-prs, a check that is COMPLETED with no conclusion fails closed, as
+// it does in `wait pr`, instead of counting as pending.
+func TestPRChecksSummaryClassifiesStatusContextsByState(t *testing.T) {
 	pr := prsFor(t, "o/r", time.Hour, time.Hour)[0]
-	if pr.Passing != 3 || pr.Failing != 1 || pr.Pending != 2 {
-		t.Errorf("passing/failing/pending = %d/%d/%d, want 3/1/2", pr.Passing, pr.Failing, pr.Pending)
+	// Passing: SUCCESS, SKIPPED, NEUTRAL, and Vercel's SUCCESS. Failing: FAILURE and the
+	// COMPLETED-without-conclusion. Pending: the one in progress and the PENDING status.
+	if pr.Passing != 4 || pr.Failing != 2 || pr.Pending != 2 {
+		t.Errorf("passing/failing/pending = %d/%d/%d, want 4/2/2", pr.Passing, pr.Failing, pr.Pending)
 	}
 	if pr.Author != "dependabot" {
 		t.Errorf("author = %q, want the app/ prefix stripped", pr.Author)
+	}
+	only, err := parsePRs("o/r", []byte(`[{"number":1,"title":"t","createdAt":"2026-09-24T12:00:00Z","statusCheckRollup":[
+		{"__typename":"StatusContext","context":"Vercel","state":"SUCCESS"}]}]`))
+	if err != nil || only[0].Passing != 1 || only[0].Pending != 0 || only[0].Failing != 0 {
+		t.Errorf("a SUCCESS legacy status alone = %+v, %v", only, err)
 	}
 }
 
 func TestPRsKeepGhOrderAndRosterRepoOrder(t *testing.T) {
 	gh := &fakeGH{reply: func(args []string) ([]byte, error) {
 		switch args[3] {
-		case "PixelFoxStudio/zeta":
+		case "Acme/zeta":
 			return []byte(fmt.Sprintf(prsFixture, ago(5*time.Hour), ago(9*time.Hour))), nil // gh's order: 41 then 40
-		case "PixelFoxStudio/alpha":
+		case "Acme/alpha":
 			return []byte(fmt.Sprintf(prsFixture, ago(1*time.Hour), ago(2*time.Hour))), nil
 		}
 		return []byte("[]"), nil
 	}}
 	env := Env{Run: gh.run, Now: func() time.Time { return t0 },
-		Roster: fleet.Roster{Project: []fleet.Entry{{Repo: "PixelFoxStudio/zeta"}, {Repo: "PixelFoxStudio/alpha"}}}, ExtraRepos: []string{"o/extra"}}
+		Roster: fleet.Roster{Project: []fleet.Entry{{Repo: "Acme/zeta"}, {Repo: "Acme/alpha"}}}, ExtraRepos: []string{"o/extra"}}
 	ev := env.Exec(Cmd{Kind: CmdPRs}).(PRsEvent)
 	var got []string
 	for _, p := range ev.PRs {
 		got = append(got, p.Key())
 	}
-	want := "PixelFoxStudio/zeta#41 PixelFoxStudio/zeta#40 PixelFoxStudio/alpha#41 PixelFoxStudio/alpha#40"
+	want := "Acme/zeta#41 Acme/zeta#40 Acme/alpha#41 Acme/alpha#40"
 	if strings.Join(got, " ") != want {
 		t.Errorf("PRs = %v\nwant %s", got, want)
 	}
@@ -750,5 +761,39 @@ func TestGroupedListScrollsWithItsHeaderAndKeepsTheCursorOnARefresh(t *testing.T
 	q, _ := feed(t, p, "\x1b[<65;5;5M")
 	if _, cmds := feed(t, q, "\r"); cmds[0].ID == "" {
 		t.Error("no selection after the wheel")
+	}
+}
+
+// gh returns at most prLimit PRs and does not say when it stopped there, so a
+// repository that returns exactly that many is shown as possibly cut short.
+func TestPRsSaysWhenARepositoryReturnedAFullPage(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("[")
+	for i := 1; i <= prLimit; i++ {
+		if i > 1 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"number":%d,"title":"t%d","createdAt":%q,"url":"https://x/%d","statusCheckRollup":[]}`, i, i, ago(time.Hour), i)
+	}
+	b.WriteString("]")
+	full := b.String()
+	gh := &fakeGH{reply: func(args []string) ([]byte, error) {
+		if args[3] == "o/busy" {
+			return []byte(full), nil
+		}
+		return []byte(fmt.Sprintf(prsFixture, ago(time.Hour), ago(time.Hour))), nil // two PRs
+	}}
+	ev := Env{Run: gh.run, Roster: fleet.Roster{Project: []fleet.Entry{{Repo: "o/busy"}, {Repo: "o/quiet"}}}, Now: func() time.Time { return t0 }}.Exec(Cmd{Kind: CmdPRs}).(PRsEvent)
+	if len(ev.Full) != 1 || ev.Full[0] != "o/busy" {
+		t.Fatalf("Full = %v, want only o/busy", ev.Full)
+	}
+	p := onTab(t, tabModel(t, 140, 10), "4")
+	p, _ = send(t, p, ev)
+	if head := plain(p.View().Lines[0]); !strings.Contains(head, "1 repos at the 100-PR limit (may be cut)") {
+		t.Errorf("header = %q", head)
+	}
+	quiet, _ := send(t, onTab(t, tabModel(t, 140, 10), "4"), PRsEvent{PRs: prsFor(t, "o/quiet", time.Hour, time.Hour), At: t0})
+	if head := plain(quiet.View().Lines[0]); strings.Contains(head, "limit") {
+		t.Errorf("a short page was flagged: %q", head)
 	}
 }

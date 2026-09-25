@@ -133,10 +133,11 @@ func (c *cursor) wheel(rows []row, step, vh, context int) {
 	}
 }
 
-// clickRow is the selectable index of the row drawn at screen row y, if any.
+// clickRow is the selectable index of the row drawn at screen row y; a project
+// header is not selectable, so a click on one is none.
 func (c cursor) clickRow(rows []row, y, vh int) (int, bool) {
 	k := y - tabRows
-	if k < 0 || k >= vh || c.Top+k >= len(rows) || rows[c.Top+k].header {
+	if k < 0 || k >= vh || c.Top+k >= len(rows) {
 		return 0, false
 	}
 	for i, r := range selectable(rows) {
@@ -194,6 +195,7 @@ type (
 		cursor
 		PRs    []PR
 		Errors []PRError
+		Full   []string // repositories that returned a full page of PRs
 	}
 	// DoneState is the Done tab: resolved entries, read from the inbox file with
 	// everything else, so it has no fetch of its own.

@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-const issueRef = "PixelFoxStudio/Skein#12"
+const issueRef = "Acme/Widgets#12"
 
 func issueData() IssueData {
 	return IssueData{
 		Title: "Park the harvest", Body: "## Why\r\nThe **harvest** costs calls.\r\n- [ ] measure\r\n- [x] file it\r\nDecide: throttle or drop\r\nplain text",
-		URL: "https://github.com/PixelFoxStudio/Skein/issues/12", State: "OPEN", CreatedAt: t0.Add(-50 * time.Hour),
+		URL: "https://github.com/Acme/Widgets/issues/12", State: "OPEN", CreatedAt: t0.Add(-50 * time.Hour),
 		Labels: []string{"later", "infra"}, Assignees: []string{"patrick"}, Comments: 3,
 	}
 }
@@ -36,11 +36,11 @@ func TestIssuePopupShowsTheIssue(t *testing.T) {
 	f := loadedIssue(t, issueData(), true).View()
 	rows := strings.Split(plainAll(f), "\n")
 	want := []string{
-		"LATER  PixelFoxStudio/Skein#12   2d old   OPEN",
+		"LATER  Acme/Widgets#12   2d old   OPEN",
 		"Park the harvest",
 		"   labels: later, infra",
 		" assigned: patrick",
-		"      url: https://github.com/PixelFoxStudio/Skein/issues/12",
+		"      url: https://github.com/Acme/Widgets/issues/12",
 		" comments: 3 (o to read them on GitHub)",
 		"",
 		"## Why",

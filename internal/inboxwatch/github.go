@@ -125,6 +125,9 @@ func (e Env) prs() Event {
 			continue
 		}
 		ev.PRs = append(ev.PRs, r.prs...)
+		if len(r.prs) >= prLimit {
+			ev.Full = append(ev.Full, repos[i])
+		}
 	}
 	if len(ev.Errors) == len(repos) {
 		ev.Err = fmt.Sprintf("all %d repositories failed (first: %s: %s)", len(repos), ev.Errors[0].Repo, ev.Errors[0].Err)
