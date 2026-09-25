@@ -296,3 +296,31 @@ func rewrite(path string, entries []Entry) error {
 	}
 	return os.Rename(tmp, path)
 }
+
+// Path resolves the inbox file: an explicit --inbox wins, then $LACQUER_INBOX,
+// then $XDG_STATE_HOME/lacquer/inbox.jsonl, then ~/.local/state/lacquer/inbox.jsonl.
+//
+// The last two are the path the phone mirror and the inbox UI already fall back
+// to, so a default here changes nothing downstream. isDefault reports that
+// neither the flag nor the environment named a file, which matters to readers:
+// a default path that does not exist yet means nothing has written to it, while
+// an explicit one that does not exist is a misconfiguration.
+func Path(flagValue string, getenv func(string) string) (path string, isDefault bool, err error) {
+	if flagValue != "" {
+		return flagValue, false, nil
+	}
+	if v := getenv("LACQUER_INBOX"); v != "" {
+		return v, false, nil
+	}
+	// XDG says a relative $XDG_STATE_HOME must be ignored.
+	if x := getenv("XDG_STATE_HOME"); filepath.IsAbs(x) {
+		return filepath.Join(x, "lacquer", "inbox.jsonl"), true, nil
+	}
+	home := getenv("HOME")
+	if home == "" {
+		if home, err = os.UserHomeDir(); err != nil {
+			return "", false, fmt.Errorf("no inbox path: pass --inbox, set LACQUER_INBOX, or set HOME (%w)", err)
+		}
+	}
+	return filepath.Join(home, ".local", "state", "lacquer", "inbox.jsonl"), true, nil
+}

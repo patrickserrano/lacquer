@@ -256,3 +256,50 @@ func TestBlankLinesAreNotCountedMalformed(t *testing.T) {
 		t.Errorf("got entries=%d malformed=%d, want 0 and 0", len(entries), malformed)
 	}
 }
+
+func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+
+// MUTATION: swap the order of the flag and env checks, or drop the env check,
+// and a named case below fails.
+func TestPathPrecedenceFlagThenEnvThenDefault(t *testing.T) {
+	cases := []struct {
+		name      string
+		flag      string
+		env       map[string]string
+		want      string
+		isDefault bool
+	}{
+		{"flag beats env", "/f/inbox.jsonl", map[string]string{"LACQUER_INBOX": "/e/inbox.jsonl", "XDG_STATE_HOME": "/x", "HOME": "/h"}, "/f/inbox.jsonl", false},
+		{"env beats default", "", map[string]string{"LACQUER_INBOX": "/e/inbox.jsonl", "XDG_STATE_HOME": "/x", "HOME": "/h"}, "/e/inbox.jsonl", false},
+		{"xdg default", "", map[string]string{"XDG_STATE_HOME": "/x", "HOME": "/h"}, "/x/lacquer/inbox.jsonl", true},
+		{"home default", "", map[string]string{"HOME": "/h"}, "/h/.local/state/lacquer/inbox.jsonl", true},
+		{"relative xdg is ignored", "", map[string]string{"XDG_STATE_HOME": "rel", "HOME": "/h"}, "/h/.local/state/lacquer/inbox.jsonl", true},
+	}
+	for _, c := range cases {
+		got, isDef, err := Path(c.flag, env(c.env))
+		if err != nil || got != c.want || isDef != c.isDefault {
+			t.Errorf("%s: Path = %q, %v, %v; want %q, %v", c.name, got, isDef, err, c.want, c.isDefault)
+		}
+	}
+}
+
+// The default path's directory and file do not exist on a fresh machine: the
+// first Add must create both.
+func TestAddCreatesTheDefaultPathOnFirstWrite(t *testing.T) {
+	root := t.TempDir()
+	path, _, err := Path("", env(map[string]string{"XDG_STATE_HOME": root}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "lacquer")); statErr == nil {
+		t.Fatal("precondition: state dir should not exist yet")
+	}
+	e, err := Add(path, Entry{Type: Action, Title: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	open, _, err := ListOpen(filepath.Join(root, "lacquer", "inbox.jsonl"))
+	if err != nil || len(open) != 1 || open[0].ID != e.ID {
+		t.Fatalf("entry not readable at the default path: %v %v", open, err)
+	}
+}

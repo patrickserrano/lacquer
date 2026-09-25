@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -788,8 +789,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fs.SetOutput(stderr)
 		rosterPath := fs.String("roster", getenv("LACQUER_ROSTER"), "path to the roster file (or $LACQUER_ROSTER)")
 		rolesPath := fs.String("roles", getenv("LACQUER_ROLES"), "path to the roles file (or $LACQUER_ROLES) — dispatch-role/watch only")
-		sessionsPath := fs.String("sessions", getenv("LACQUER_SESSIONS"), "path to the sessions file (or $LACQUER_SESSIONS) — enables tracking for `watch`")
-		inboxPath := fs.String("inbox", getenv("LACQUER_INBOX"), "path to the inbox file (or $LACQUER_INBOX) — decisions awaiting the operator and finished work, shown as ACTION/UNREAD and required by `inbox add`/`resolve`/`list`")
+		sessionsPath := fs.String("sessions", getenv("LACQUER_SESSIONS"), "optional path to the dispatch-record file (or $LACQUER_SESSIONS) — records launches so `watch --relaunch` and `kill` can act on them; live sessions come from `claude agents --json` and need no file")
+		inboxFlag := fs.String("inbox", "", "path to the inbox file — decisions awaiting the operator and finished work, shown as ACTION/UNREAD (default: $LACQUER_INBOX, else $XDG_STATE_HOME/lacquer/inbox.jsonl, else ~/.local/state/lacquer/inbox.jsonl)")
 		mode := fs.String("mode", "", "dispatch target: bg (background agent in a new git worktree and branch under <repo>/.claude/worktrees/) or tmux (detached tmux session in the checkout itself, edits it)")
 		model := fs.String("model", "", "with dispatch/dispatch-role: Claude model (IC default: roster ic_model or sonnet; role default: role model or inherited)")
 		effort := fs.String("effort", "", "with dispatch/dispatch-role: Claude effort (default: roster ic_effort or role effort, otherwise inherited)")
@@ -829,6 +830,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			fmt.Fprintln(stderr, "error:", err)
 			return 2
 		}
+		inboxPath, inboxIsDefault, err := inbox.Path(*inboxFlag, getenv)
+		if err != nil {
+			return fail(stderr, err)
+		}
 		place := console.Placement{Worktree: *worktree, Branch: *branch}
 		// watch and dispatch-role both need neither --mode nor a project
 		// roster's own gate below, so both are checked first: a watch-only or
@@ -836,7 +841,18 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// will not use.
 		if len(rest) > 0 && rest[0] == "watch" {
 			if *sessionsPath == "" {
-				return fail(stderr, fmt.Errorf("watch needs a sessions file: pass --sessions <path> or set LACQUER_SESSIONS"))
+				// Without dispatch records there is nothing to check for
+				// liveness or relaunch, but the live sessions still answer
+				// "what is running", so show them.
+				if *relaunch || *live {
+					return fail(stderr, fmt.Errorf("watch --relaunch and --live work from dispatch records (the tmux pane or daemon id, the task and the worktree a relaunch needs), which `claude agents --json` does not report: pass --sessions <path> or set LACQUER_SESSIONS. Plain `watch` lists live sessions without it"))
+				}
+				res := console.Gather(console.Options{Now: time.Now()})
+				console.SessionsText(stdout, res)
+				if res.SessionsErr != "" {
+					return 1
+				}
+				return 0
 			}
 			var roster fleet.Roster
 			if *rosterPath != "" {
@@ -878,7 +894,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, fmt.Errorf("usage: lacquer console --sessions S kill <name-or-daemon-id> [--force]"))
 			}
 			if *sessionsPath == "" {
-				return fail(stderr, fmt.Errorf("kill needs a sessions file: pass --sessions <path> or set LACQUER_SESSIONS"))
+				return fail(stderr, fmt.Errorf("kill needs the dispatch record (the daemon id or tmux session it stops), which `claude agents --json` does not report: pass --sessions <path> or set LACQUER_SESSIONS"))
 			}
 			records, err := console.ReadRecords(*sessionsPath)
 			if err != nil {
@@ -932,29 +948,29 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// inbox needs neither --mode nor a project roster, same reasoning as
 		// watch/dispatch-role above: it operates entirely on the inbox file.
 		if len(rest) > 0 && rest[0] == "inbox" {
-			if *inboxPath == "" {
-				return fail(stderr, fmt.Errorf("inbox needs a path: pass --inbox <path> or set LACQUER_INBOX"))
-			}
 			if len(rest) < 2 {
 				return fail(stderr, fmt.Errorf("usage: lacquer console --inbox F inbox <add|resolve|list> ..."))
 			}
 			switch rest[1] {
 			case "add":
-				return runInboxAdd(*inboxPath, *entryType, inbox.Entry{Title: *entryTitle, Body: *entryBody, Ref: *entryRef, Project: *entryProject}, stdout, stderr)
+				return runInboxAdd(inboxPath, *entryType, inbox.Entry{Title: *entryTitle, Body: *entryBody, Ref: *entryRef, Project: *entryProject}, stdout, stderr)
 			case "resolve":
-				return runInboxResolve(*inboxPath, rest[2:], stdout, stderr)
+				return runInboxResolve(inboxPath, rest[2:], stdout, stderr)
 			default: // list; consoleSubcommand refused anything else
-				return runInboxList(*inboxPath, *all, stdout, stderr)
+				return runInboxList(inboxPath, inboxIsDefault, *all, stdout, stderr)
 			}
 		}
-		if *rosterPath == "" {
-			return fail(stderr, fmt.Errorf("console needs a roster: pass --roster <path> or set LACQUER_ROSTER"))
-		}
-		roster, err := fleet.LoadRoster(*rosterPath)
-		if err != nil {
-			return fail(stderr, err)
+		var roster fleet.Roster
+		if *rosterPath != "" {
+			roster, err = fleet.LoadRoster(*rosterPath)
+			if err != nil {
+				return fail(stderr, err)
+			}
 		}
 		if len(rest) > 0 && rest[0] == "dispatch" {
+			if *rosterPath == "" {
+				return fail(stderr, fmt.Errorf("dispatch needs a roster to find the project: pass --roster <path> or set LACQUER_ROSTER"))
+			}
 			if len(rest) < 3 {
 				return fail(stderr, fmt.Errorf("usage: lacquer console [--roster F] --mode bg|tmux dispatch <project> \"<task>\""))
 			}
@@ -968,7 +984,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			launch, err := console.DispatchConfigured(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun, place, console.ModelOptions{Model: *model, Effort: *effort})
 			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
-		console.Text(stdout, console.Gather(lacquerRoot, roster, time.Now(), *inboxPath))
+		console.Text(stdout, console.Gather(console.Options{LacquerRoot: lacquerRoot, Roster: roster, Now: time.Now(), InboxPath: inboxPath, InboxDefault: inboxIsDefault}))
 		if *sessionsPath != "" {
 			results, err := console.Watch(*sessionsPath, roster, console.RoleRoster{}, nil, false, false)
 			if err != nil {
@@ -1165,10 +1181,15 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               checked — which is never reported as a pass)")
 	usageWait(w)
 	usageCIRound(w)
-	fmt.Fprintln(w, "  console --roster F [--inbox F]")
-	fmt.Fprintln(w, "                               one screen: fleet truth + live sessions + open PRs + inbox")
-	fmt.Fprintln(w, "                               (decisions awaiting the operator, finished work awaiting")
-	fmt.Fprintln(w, "                               acknowledgement) shown first, as ACTION/UNREAD, when --inbox is set.")
+	fmt.Fprintln(w, "  console [--roster F] [--inbox F]")
+	fmt.Fprintln(w, "                               no flags needed. One screen: the inbox's open ACTION/UNREAD entries,")
+	fmt.Fprintln(w, "                               then every live session on this machine (name, kind, status, project,")
+	fmt.Fprintln(w, "                               cwd, age) from `claude agents --json`; with --roster/$LACQUER_ROSTER")
+	fmt.Fprintln(w, "                               also fleet truth, open PRs, and the project each session belongs to.")
+	fmt.Fprintln(w, "                               If claude cannot be read it prints `sessions: unavailable — <why>`,")
+	fmt.Fprintln(w, "                               never an empty list. The inbox is --inbox, else $LACQUER_INBOX, else")
+	fmt.Fprintln(w, "                               $XDG_STATE_HOME/lacquer/inbox.jsonl (~/.local/state/lacquer/inbox.jsonl),")
+	fmt.Fprintln(w, "                               created on the first write; ci-round uses the same file.")
 	fmt.Fprintln(w, "                               Every console flag works on either side of the subcommand, with the")
 	fmt.Fprintln(w, "                               same meaning: `watch --relaunch` == `--relaunch watch`. An unknown")
 	fmt.Fprintln(w, "                               flag, or one the subcommand has no use for, is an error. --roster,")
@@ -1546,8 +1567,12 @@ func runInboxResolve(path string, args []string, stdout, stderr io.Writer) int {
 // open entries only, matching what the console dashboard itself shows;
 // --all also lists resolved ones, for an operator auditing what has already
 // been handled.
-func runInboxList(path string, all bool, stdout, stderr io.Writer) int {
+func runInboxList(path string, isDefault, all bool, stdout, stderr io.Writer) int {
 	entries, malformed, err := inbox.ReadAll(path)
+	if err != nil && isDefault && errors.Is(err, iofs.ErrNotExist) {
+		fmt.Fprintf(stdout, "no inbox entries (%s does not exist yet)\n", path)
+		return 0
+	}
 	if err != nil {
 		return fail(stderr, err)
 	}

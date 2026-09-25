@@ -111,7 +111,18 @@ func commit(t *testing.T, msg string) string {
 func ciRound(t *testing.T, env map[string]string, args ...string) (code int, out, errs string) {
 	t.Helper()
 	var o, e bytes.Buffer
-	code = run(append([]string{"ci-round"}, args...), func(k string) string { return env[k] }, &o, &e)
+	// An exhausted budget writes to the default inbox when nothing names one, so
+	// a test that names none must not reach the real ~/.local/state.
+	state := t.TempDir()
+	code = run(append([]string{"ci-round"}, args...), func(k string) string {
+		if v, ok := env[k]; ok {
+			return v
+		}
+		if k == "XDG_STATE_HOME" {
+			return state
+		}
+		return ""
+	}, &o, &e)
 	return code, o.String(), e.String()
 }
 
@@ -245,6 +256,29 @@ func TestCIRoundCommandRaisesAnInboxActionOnExhaustion(t *testing.T) {
 	es, _, err := inbox.ListOpen(path)
 	if err != nil || len(es) != 1 || es[0].Type != inbox.Action {
 		t.Fatalf("inbox = %v, %v", es, err)
+	}
+}
+
+// With no --inbox and no $LACQUER_INBOX, exhaustion still raises its ACTION, in
+// the default inbox.
+func TestCIRoundExhaustionRaisesItsActionInTheDefaultInbox(t *testing.T) {
+	a := project(t, "[project]\nname=\"x\"\nci_round_cap = 1\n")
+	state := statefulGH(t, a)
+	xdg := t.TempDir()
+	env := map[string]string{"XDG_STATE_HOME": xdg}
+	if code, out, _ := ciRound(t, env, "begin", "7"); code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if err := fakegh.SetRollup(state, "OPEN", a, fakegh.Failed("lint")); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, "second")
+	if code, out, _ := ciRound(t, env, "begin", "7", "--reason", goodReason); code != 10 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	es, _, err := inbox.ListOpen(filepath.Join(xdg, "lacquer", "inbox.jsonl"))
+	if err != nil || len(es) != 1 || es[0].Type != inbox.Action {
+		t.Fatalf("default inbox = %v, %v", es, err)
 	}
 }
 

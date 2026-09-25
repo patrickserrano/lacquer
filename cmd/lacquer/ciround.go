@@ -15,6 +15,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/cirounds"
 	"github.com/patrickserrano/lacquer/internal/ciwait"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/inbox"
 )
 
 const ciRoundUsage = "usage: lacquer ci-round <begin|status|reset> <N> [--repo O/N] [--reason TEXT | --review TEXT] [--sha SHA] [--inbox F] [--manifest-ref REF]"
@@ -33,7 +34,7 @@ func ciRoundCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 	reason := fs.String("reason", "", "begin: change naming a failing check; reset: why a fresh budget is authorized")
 	review := fs.String("review", "", "begin: requested change and reviewer; replaces --reason")
 	sha := fs.String("sha", "", "begin: the commit you are about to push (default: git rev-parse HEAD)")
-	inboxPath := fs.String("inbox", getenv("LACQUER_INBOX"), "inbox file to raise an ACTION in when the budget is exhausted (or $LACQUER_INBOX)")
+	inboxFlag := fs.String("inbox", "", "inbox file to raise an ACTION in when the budget is exhausted (default: $LACQUER_INBOX, else $XDG_STATE_HOME/lacquer/inbox.jsonl, else ~/.local/state/lacquer/inbox.jsonl)")
 	manifestRef := fs.String("manifest-ref", "origin/main", "git ref whose .lacquer.toml sets the cap. Not the working tree: a branch must not be able to raise its own cap")
 
 	// Flags may sit on either side of the PR number, as in `wait pr`.
@@ -75,7 +76,12 @@ func ciRoundCmd(args []string, getenv func(string) string, stdout, stderr io.Wri
 		fmt.Fprintf(stderr, "lacquer ci-round: %v\nThe tool did NOT record a round and cannot say one is allowed. Do not push; escalate.\n", err)
 		return cirounds.CodeUnavailable
 	}
-	o := cirounds.Options{PR: n, Repo: *repo, Cap: limit, Reason: *reason, Review: *review, Inbox: *inboxPath, Run: ciwait.GH}
+	inboxPath, _, err := inbox.Path(*inboxFlag, getenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "lacquer ci-round: %v\nThe tool did NOT record a round. Do not push; escalate.\n", err)
+		return cirounds.CodeUnavailable
+	}
+	o := cirounds.Options{PR: n, Repo: *repo, Cap: limit, Reason: *reason, Review: *review, Inbox: inboxPath, Run: ciwait.GH}
 
 	var res cirounds.Result
 	ctx := context.Background()

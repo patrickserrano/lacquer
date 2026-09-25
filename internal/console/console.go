@@ -38,8 +38,11 @@
 package console
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os/exec"
 	"sort"
 	"strings"
@@ -57,6 +60,11 @@ type Session struct {
 	CWD       string `json:"cwd"`
 	SessionID string `json:"sessionId"`
 	Kind      string `json:"kind"`
+	// Project is the roster entry the session's cwd falls under; "" when none.
+	Project string `json:"-"`
+	PID     int    `json:"pid"`
+	// StartedAt is epoch milliseconds, as claude reports it.
+	StartedAt int64 `json:"startedAt"`
 }
 
 // PR is one open pull request.
@@ -93,29 +101,53 @@ type Result struct {
 	// Unread are open inbox.Unread entries -- finished work nobody has
 	// acknowledged yet. Same ordering as Actions.
 	Unread []inbox.Entry
+	// Sessions is every live session, mapped to a project or not.
+	Sessions []Session
+	// SessionsErr is why the live session list could not be read; "" means it
+	// was read. Kept apart from Sessions so that a broken source can never
+	// render like zero sessions.
+	SessionsErr string
+	// Now is the instant ages are measured from.
+	Now time.Time
+	// InboxNote says why the inbox is empty when that is because the default
+	// file was never created, so it never reads as a checked, empty queue.
+	InboxNote string
 	// Unavailable names each source that could not be reached, so a thin report
 	// is never mistaken for a healthy fleet.
 	Unavailable []string
 }
 
+// Options is everything Gather needs.
+type Options struct {
+	LacquerRoot string
+	// Roster is optional: without one the console lists live sessions and the
+	// inbox and maps nothing to a project.
+	Roster fleet.Roster
+	Now    time.Time
+	// InboxPath is "" only when the inbox is switched off.
+	InboxPath string
+	// InboxDefault marks InboxPath as the built-in default rather than one the
+	// operator named. A default file that does not exist yet is an empty inbox,
+	// not a misconfigured one.
+	InboxDefault bool
+	// Sessions is where live sessions come from; nil means `claude agents --json`.
+	Sessions SessionSource
+}
+
 // Gather builds the view. It never returns an error: an unreachable source is
-// reported in Unavailable rather than failing the whole console.
-//
-// inboxPath is optional, like sessionsPath/rolesPath are for other console
-// subcommands: "" means the operator has not wired up --inbox/$LACQUER_INBOX
-// at all, and the inbox section is simply absent, the same as a `console`
-// invocation with no --sessions never mentioning sessions tracking. Once a
-// path IS given, though, a file that cannot be read is a real Unavailable —
-// see internal/inbox's ReadAll doc comment for why a missing file is treated
-// as a failure here rather than as "nothing waiting yet".
-func Gather(lacquerRoot string, roster fleet.Roster, now time.Time, inboxPath string) Result {
-	var res Result
+// reported in Unavailable (or SessionsErr) rather than failing the console.
+func Gather(o Options) Result {
+	res := Result{Now: o.Now}
+	roster, lacquerRoot, now, inboxPath := o.Roster, o.LacquerRoot, o.Now, o.InboxPath
 
 	if inboxPath != "" {
 		entries, malformed, err := inbox.ListOpen(inboxPath)
-		if err != nil {
+		switch {
+		case err != nil && o.InboxDefault && errors.Is(err, fs.ErrNotExist):
+			res.InboxNote = fmt.Sprintf("inbox: %s does not exist yet — nothing has ever been added", inboxPath)
+		case err != nil:
 			res.Unavailable = append(res.Unavailable, fmt.Sprintf("inbox (%v)", err))
-		} else {
+		default:
 			if malformed > 0 {
 				res.Unavailable = append(res.Unavailable, fmt.Sprintf("inbox (%d line(s) could not be parsed and were skipped)", malformed))
 			}
@@ -133,10 +165,16 @@ func Gather(lacquerRoot string, roster fleet.Roster, now time.Time, inboxPath st
 
 	reports := fleet.Run(lacquerRoot, roster, now)
 
-	sessions, err := listSessions()
-	if err != nil {
-		res.Unavailable = append(res.Unavailable, fmt.Sprintf("claude agents (%v)", err))
+	src := o.Sessions
+	if src == nil {
+		src = ClaudeAgents{}
 	}
+	sessions, err := src.List(context.Background())
+	if err != nil {
+		res.SessionsErr = err.Error()
+	}
+	res.Sessions = sessions
+	assignProjects(res.Sessions, roster)
 
 	prs, prErr := listPRs(roster)
 	if prErr != nil {
@@ -182,15 +220,7 @@ func under(cwd, root string) bool {
 
 // listSessions reads `claude agents --json`.
 func listSessions() ([]Session, error) {
-	out, err := exec.Command("claude", "agents", "--json").Output()
-	if err != nil {
-		return nil, err
-	}
-	var s []Session
-	if err := json.Unmarshal(out, &s); err != nil {
-		return nil, fmt.Errorf("unreadable output: %w", err)
-	}
-	return normalize(s), nil
+	return ClaudeAgents{}.List(context.Background())
 }
 
 // normalize deduplicates by session id and fills in a missing status.
@@ -343,4 +373,23 @@ func rollup(checks []struct {
 		return "pending"
 	}
 	return "pass"
+}
+
+// assignProjects names, for each session, the roster project its cwd falls
+// under. It reads the roster itself, not the fleet reports, so a project whose
+// audit produced no report still names its sessions. When projects nest, the
+// deepest path wins.
+func assignProjects(sessions []Session, roster fleet.Roster) {
+	for i := range sessions {
+		best, bestLen := "", -1
+		for _, e := range roster.Project {
+			if e.Path == "" || !under(sessions[i].CWD, e.Path) {
+				continue
+			}
+			if n := len(absPath(e.Path)); n > bestLen {
+				best, bestLen = e.Name, n
+			}
+		}
+		sessions[i].Project = best
+	}
 }
