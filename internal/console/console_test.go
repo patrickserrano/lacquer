@@ -2,6 +2,9 @@ package console
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +12,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/fleet"
 	"github.com/patrickserrano/lacquer/internal/inbox"
+	"github.com/patrickserrano/lacquer/internal/producers"
 )
 
 // A background session runs in a git worktree BENEATH the project, so equality
@@ -364,5 +368,70 @@ func TestSummaryLineCountsActionsAndUnread(t *testing.T) {
 	}
 	if !strings.Contains(s, "2 unread") {
 		t.Errorf("summary line is missing the unread count:\n%s", s)
+	}
+}
+
+// The harvest runs inside Gather, before the inbox is read, so a merge shows on
+// the same screen that found it; and each of its failure shapes is reported
+// rather than reading as a quiet fleet.
+func TestGatherHarvestsMergesIntoTheInbox(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // no gh: the other sources degrade, none reaches the network
+	inboxPath := filepath.Join(t.TempDir(), "inbox.jsonl")
+	r := fleet.Roster{Project: []fleet.Entry{{Name: "widgets", Path: t.TempDir(), Repo: "acme/widgets"}}}
+	reply := "[]"
+	var runErr error
+	run := func(_ context.Context, _ ...string) ([]byte, error) { return []byte(reply), runErr }
+	gather := func(now time.Time) Result {
+		return Gather(Options{Now: now, Roster: r, InboxPath: inboxPath, Sessions: fakeSessions{}, MergeRun: run})
+	}
+
+	t0 := time.Now().UTC()
+	first := gather(t0)
+	if len(first.Unread) != 0 || len(first.HarvestNotes) != 1 {
+		t.Fatalf("first look: unread %v notes %v", first.Unread, first.HarvestNotes)
+	}
+
+	reply = `[{"number":5,"title":"ship it","url":"https://github.com/acme/widgets/pull/5","mergedAt":"` + t0.Add(time.Minute).Format(time.RFC3339) + `"}]`
+	res := gather(t0.Add(time.Hour))
+	if len(res.Unread) != 1 || res.Unread[0].Title != "acme/widgets#5 merged: ship it" || res.Unread[0].Project != "widgets" {
+		t.Fatalf("the merge must be in this Gather's own Unread, got %+v", res.Unread)
+	}
+
+	runErr = errors.New("HTTP 502")
+	res = gather(t0.Add(2 * time.Hour))
+	found := false
+	for _, u := range res.Unavailable {
+		found = found || (strings.Contains(u, "merge harvest") && strings.Contains(u, "HTTP 502"))
+	}
+	if !found {
+		t.Errorf("a failed harvest must be in Unavailable: %v", res.Unavailable)
+	}
+	var buf bytes.Buffer
+	Text(&buf, gather(t0.Add(2*time.Hour)))
+	if !strings.Contains(buf.String(), "HTTP 502") {
+		t.Errorf("the failure must reach the printed screen:\n%s", buf.String())
+	}
+}
+
+func TestGatherSaysWhenThereIsNoRosterToHarvest(t *testing.T) {
+	run := func(context.Context, ...string) ([]byte, error) { t.Fatal("gh called with no roster"); return nil, nil }
+	res := Gather(Options{Now: time.Now(), InboxPath: filepath.Join(t.TempDir(), "i.jsonl"), Sessions: fakeSessions{}, MergeRun: run})
+	if len(res.HarvestNotes) != 1 || !strings.Contains(res.HarvestNotes[0], "no roster") {
+		t.Fatalf("notes %v", res.HarvestNotes)
+	}
+	var buf bytes.Buffer
+	Text(&buf, res)
+	if !strings.Contains(buf.String(), "PR merges are not being recorded") {
+		t.Errorf("the printed console must say so:\n%s", buf.String())
+	}
+}
+
+// Without a runner the harvest is off and touches nothing: this is what keeps
+// every other Gather test off the network and off the disk.
+func TestGatherWithoutAMergeRunnerHarvestsNothing(t *testing.T) {
+	dir := t.TempDir()
+	Gather(Options{Now: time.Now(), InboxPath: filepath.Join(dir, "i.jsonl"), Sessions: fakeSessions{}})
+	if _, err := os.Stat(filepath.Join(dir, producers.CursorFile)); err == nil {
+		t.Fatal("a cursor was written with the harvest off")
 	}
 }

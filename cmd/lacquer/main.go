@@ -20,6 +20,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/baseline"
+	"github.com/patrickserrano/lacquer/internal/ciwait"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/console"
 	"github.com/patrickserrano/lacquer/internal/depignore"
@@ -773,7 +774,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	case "wait":
 		// Reaches the GitHub API through gh and reads nothing from a lacquer
 		// checkout, so — like protection — no requireLacquerRoot.
-		return waitCmd(args[1:], stdout, stderr)
+		return waitCmd(args[1:], getenv, stdout, stderr)
 	case "ci-round":
 		// Reaches the GitHub API through gh and reads only the project's own
 		// manifest (from a git ref), so — like wait — no requireLacquerRoot.
@@ -984,7 +985,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			launch, err := console.DispatchConfigured(roster, console.Sessions(), rest[1], task, console.Mode(*mode), *dryRun, place, console.ModelOptions{Model: *model, Effort: *effort})
 			return finishDispatch(stdout, stderr, *sessionsPath, launch, err)
 		}
-		console.Text(stdout, console.Gather(console.Options{LacquerRoot: lacquerRoot, Roster: roster, Now: time.Now(), InboxPath: inboxPath, InboxDefault: inboxIsDefault}))
+		console.Text(stdout, console.Gather(console.Options{LacquerRoot: lacquerRoot, Roster: roster, Now: time.Now(), InboxPath: inboxPath, InboxDefault: inboxIsDefault, MergeRun: ciwait.GH}))
 		if *sessionsPath != "" {
 			results, err := console.Watch(*sessionsPath, roster, console.RoleRoster{}, nil, false, false)
 			if err != nil {
@@ -1189,7 +1190,11 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               If claude cannot be read it prints `sessions: unavailable — <why>`,")
 	fmt.Fprintln(w, "                               never an empty list. The inbox is --inbox, else $LACQUER_INBOX, else")
 	fmt.Fprintln(w, "                               $XDG_STATE_HOME/lacquer/inbox.jsonl (~/.local/state/lacquer/inbox.jsonl),")
-	fmt.Fprintln(w, "                               created on the first write; ci-round uses the same file.")
+	fmt.Fprintln(w, "                               created on the first write; ci-round and wait pr use the same file.")
+	fmt.Fprintln(w, "                               With a roster it also records PR merges: one UNREAD per merge since a")
+	fmt.Fprintln(w, "                               per-repo cursor (merge-cursor.json beside the inbox). A repo's first look")
+	fmt.Fprintln(w, "                               only sets the cursor, nothing is backfilled; a gh failure is listed as")
+	fmt.Fprintln(w, "                               unavailable; with no roster it says merges are not being recorded.")
 	fmt.Fprintln(w, "                               Every console flag works on either side of the subcommand, with the")
 	fmt.Fprintln(w, "                               same meaning: `watch --relaunch` == `--relaunch watch`. An unknown")
 	fmt.Fprintln(w, "                               flag, or one the subcommand has no use for, is an error. --roster,")

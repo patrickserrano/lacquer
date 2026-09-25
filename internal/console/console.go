@@ -49,8 +49,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/patrickserrano/lacquer/internal/ciwait"
 	"github.com/patrickserrano/lacquer/internal/fleet"
 	"github.com/patrickserrano/lacquer/internal/inbox"
+	"github.com/patrickserrano/lacquer/internal/producers"
 )
 
 // Session is one Claude Code session, as `claude agents --json` reports it.
@@ -112,6 +114,10 @@ type Result struct {
 	// InboxNote says why the inbox is empty when that is because the default
 	// file was never created, so it never reads as a checked, empty queue.
 	InboxNote string
+	// HarvestNotes are facts about the PR-merge harvest that are not failures
+	// (a repository's first look, or that there was no roster to harvest), so
+	// a quiet harvest never reads as a checked one.
+	HarvestNotes []string
 	// Unavailable names each source that could not be reached, so a thin report
 	// is never mistaken for a healthy fleet.
 	Unavailable []string
@@ -132,6 +138,10 @@ type Options struct {
 	InboxDefault bool
 	// Sessions is where live sessions come from; nil means `claude agents --json`.
 	Sessions SessionSource
+	// MergeRun is the gh runner the PR-merge harvest uses. Nil switches the
+	// harvest off (the command passes ciwait.GH; a test that leaves it nil can
+	// never reach the real gh). The harvest also needs InboxPath.
+	MergeRun ciwait.Runner
 }
 
 // Gather builds the view. It never returns an error: an unreachable source is
@@ -139,6 +149,13 @@ type Options struct {
 func Gather(o Options) Result {
 	res := Result{Now: o.Now}
 	roster, lacquerRoot, now, inboxPath := o.Roster, o.LacquerRoot, o.Now, o.InboxPath
+
+	if inboxPath != "" && o.MergeRun != nil {
+		// Before the inbox is read, so a merge shows on the screen that found it.
+		h := producers.HarvestMerges(producers.HarvestOptions{InboxPath: inboxPath, Roster: roster, Now: now, Run: o.MergeRun})
+		res.HarvestNotes = h.Notes
+		res.Unavailable = append(res.Unavailable, h.Unavailable...)
+	}
 
 	if inboxPath != "" {
 		entries, malformed, err := inbox.ListOpen(inboxPath)
