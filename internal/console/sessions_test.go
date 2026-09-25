@@ -171,3 +171,48 @@ func TestDefaultInboxThatDoesNotExistYetIsEmptyNotUnavailable(t *testing.T) {
 		t.Error("reading must not create the inbox file")
 	}
 }
+
+// The project column must come from the roster match, not from anything else on
+// the line: the cwds here deliberately do not contain the project names.
+func TestSessionsTableNamesTheProjectAndShowsTheShortID(t *testing.T) {
+	roster := fleet.Roster{Project: []fleet.Entry{
+		{Name: "alpha", Path: "/w/a"},
+		{Name: "alpha-nested", Path: "/w/a/sub"},
+		{Name: "beta", Path: "/w/b"},
+	}}
+	sessions := []Session{
+		{Name: "in-beta", Kind: "interactive", Status: "busy", CWD: "/w/b/.claude/worktrees/x", SessionID: "bbbbbbbb-1111"},
+		{Name: "in-nested", Kind: "interactive", Status: "idle", CWD: "/w/a/sub/pkg", SessionID: "cccccccc-2222"},
+		{Name: "elsewhere", Kind: "background", Status: "busy", CWD: "/other/place", SessionID: "dddddddd-3333"},
+	}
+	res := Gather(Options{Roster: roster, Now: time.Now(), Sessions: fakeSessions{sessions: sessions}})
+	var buf bytes.Buffer
+	Text(&buf, res)
+
+	row := func(name string) []string {
+		for _, l := range strings.Split(buf.String(), "\n") {
+			if f := strings.Fields(l); len(f) > 0 && f[0] == name {
+				return f
+			}
+		}
+		t.Fatalf("no row for %s in:\n%s", name, buf.String())
+		return nil
+	}
+	has := func(f []string, want string) bool {
+		for _, x := range f {
+			if x == want {
+				return true
+			}
+		}
+		return false
+	}
+	if f := row("in-beta"); !has(f, "beta") || !has(f, "bbbbbbbb") {
+		t.Errorf("in-beta: %v", f)
+	}
+	if f := row("in-nested"); !has(f, "alpha-nested") || has(f, "alpha") || !has(f, "cccccccc") {
+		t.Errorf("in-nested must take the longest matching path: %v", f)
+	}
+	if f := row("elsewhere"); !has(f, "-") || has(f, "alpha") || has(f, "beta") || !has(f, "dddddddd") {
+		t.Errorf("elsewhere: %v", f)
+	}
+}

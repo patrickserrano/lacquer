@@ -174,6 +174,7 @@ func Gather(o Options) Result {
 		res.SessionsErr = err.Error()
 	}
 	res.Sessions = sessions
+	assignProjects(res.Sessions, roster)
 
 	prs, prErr := listPRs(roster)
 	if prErr != nil {
@@ -372,4 +373,23 @@ func rollup(checks []struct {
 		return "pending"
 	}
 	return "pass"
+}
+
+// assignProjects names, for each session, the roster project its cwd falls
+// under. It reads the roster itself, not the fleet reports, so a project whose
+// audit produced no report still names its sessions. When projects nest, the
+// deepest path wins.
+func assignProjects(sessions []Session, roster fleet.Roster) {
+	for i := range sessions {
+		best, bestLen := "", -1
+		for _, e := range roster.Project {
+			if e.Path == "" || !under(sessions[i].CWD, e.Path) {
+				continue
+			}
+			if n := len(absPath(e.Path)); n > bestLen {
+				best, bestLen = e.Name, n
+			}
+		}
+		sessions[i].Project = best
+	}
 }

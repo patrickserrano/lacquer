@@ -128,8 +128,8 @@ func SessionsText(w io.Writer, res Result) {
 		projW = max(projW, len(projectOf(s)))
 	}
 	for _, s := range res.Sessions {
-		fmt.Fprintf(w, "   %-*s  %-11s %-8s %-*s  %6s  %s\n",
-			nameW, s.Name, s.Kind, s.Status, projW, projectOf(s), formatAge(s.Age(res.Now)), s.CWD)
+		fmt.Fprintf(w, "   %-*s  %-11s %-8s %-*s  %-8s  %6s  %s\n",
+			nameW, s.Name, s.Kind, s.Status, projW, projectOf(s), short(s.SessionID), formatAge(s.Age(res.Now)), s.CWD)
 	}
 	fmt.Fprintln(w)
 }
