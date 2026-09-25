@@ -17,13 +17,20 @@ type Counts struct{ Passing, Failing, Pending int }
 // run of a workflow counts. Neutral and skipped checks pass. An absent or null
 // rollup is a PR with no checks.
 func Tally(rollup json.RawMessage) (Counts, error) {
+	c, _, err := TallyFailures(rollup)
+	return c, err
+}
+
+// TallyFailures is Tally, and also the checks that count as failing, so a caller
+// can say which failed and, from CompletedAt, since when.
+func TallyFailures(rollup json.RawMessage) (Counts, []Check, error) {
 	var c Counts
 	if len(bytes.TrimSpace(rollup)) == 0 || bytes.Equal(bytes.TrimSpace(rollup), []byte("null")) {
-		return c, nil
+		return c, nil, nil
 	}
 	var nodes []node
 	if err := json.Unmarshal(rollup, &nodes); err != nil {
-		return c, fmt.Errorf("unreadable statusCheckRollup: %w", err)
+		return c, nil, fmt.Errorf("unreadable statusCheckRollup: %w", err)
 	}
 	now := time.Now()
 	all := make([]Check, 0, len(nodes))
@@ -31,15 +38,17 @@ func Tally(rollup json.RawMessage) (Counts, error) {
 		all = append(all, classify(n, now))
 	}
 	kept, _ := dropSuperseded(all)
+	var failed []Check
 	for _, ch := range kept {
 		switch ch.v {
 		case vPass, vNeutral, vSkipped:
 			c.Passing++
 		case vFail:
 			c.Failing++
+			failed = append(failed, ch)
 		default:
 			c.Pending++
 		}
 	}
-	return c, nil
+	return c, failed, nil
 }

@@ -63,7 +63,7 @@ func fakeTerminal(t *testing.T, wantOnScreen, keys string) *lockedBuf {
 		return inboxwatch.Term{
 			In: &untilReader{out: out, want: wantOnScreen, keys: keys}, Out: out,
 			MakeRaw:   func() (func() error, error) { return func() error { return nil }, nil },
-			Size:      func() (int, int, error) { return 100, 12, nil },
+			Size:      func() (int, int, error) { return 120, 12, nil },
 			TickEvery: 10 * time.Millisecond, EscWait: 10 * time.Millisecond, Now: time.Now,
 		}
 	}

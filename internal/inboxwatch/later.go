@@ -18,6 +18,7 @@ type LaterIssue struct {
 	Number    int
 	Title     string
 	CreatedAt time.Time
+	UpdatedAt time.Time // the last activity on the issue: what "no activity" is measured from
 	URL       string
 }
 
@@ -33,7 +34,7 @@ const laterLimit = 300
 // one owner: with none, `gh search issues` would search all of GitHub.
 func laterArgs(owners []string) []string {
 	args := []string{"search", "issues", "--label", LaterLabel, "--state", "open",
-		"--limit", strconv.Itoa(laterLimit), "--json", "repository,number,title,createdAt,url"}
+		"--limit", strconv.Itoa(laterLimit), "--json", "repository,number,title,createdAt,updatedAt,url"}
 	for _, o := range owners {
 		args = append(args, "--owner", o)
 	}
@@ -50,6 +51,7 @@ func parseLater(out []byte) ([]LaterIssue, error) {
 		Number    int    `json:"number"`
 		Title     string `json:"title"`
 		CreatedAt string `json:"createdAt"`
+		UpdatedAt string `json:"updatedAt"`
 		URL       string `json:"url"`
 	}
 	if err := json.Unmarshal(out, &data); err != nil {
@@ -58,7 +60,8 @@ func parseLater(out []byte) ([]LaterIssue, error) {
 	issues := make([]LaterIssue, 0, len(data))
 	for _, d := range data {
 		created, _ := time.Parse(time.RFC3339, d.CreatedAt)
-		issues = append(issues, LaterIssue{Repo: d.Repository.NameWithOwner, Number: d.Number, Title: d.Title, CreatedAt: created, URL: d.URL})
+		updated, _ := time.Parse(time.RFC3339, d.UpdatedAt)
+		issues = append(issues, LaterIssue{Repo: d.Repository.NameWithOwner, Number: d.Number, Title: d.Title, CreatedAt: created, UpdatedAt: updated, URL: d.URL})
 	}
 	sort.SliceStable(issues, func(a, b int) bool {
 		sa, sb := strings.ToLower(shortName(issues[a].Repo)), strings.ToLower(shortName(issues[b].Repo))

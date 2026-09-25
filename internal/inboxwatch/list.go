@@ -92,6 +92,7 @@ type Model struct {
 	Later  LaterState
 	Closed DoneState
 	PRs    PRsState
+	Stuck  StuckState
 }
 
 // NewModel is an empty list of a given size.
@@ -147,6 +148,9 @@ func (m *Model) update(ev Event) []Cmd {
 		m.Later.keep(m.laterRows(), vh, 1)
 		m.Closed.keep(m.doneRows(), vh, 0)
 		m.PRs.keep(m.prRows(), vh, 1)
+		m.Stuck.keep(m.stuckRows(), vh, 1)
+	case StuckDismissedEvent:
+		m.stuckDismissed(ev)
 	case LaterEvent:
 		return m.laterLoaded(ev)
 	case PRsEvent:
@@ -169,6 +173,11 @@ func (m *Model) update(ev Event) []Cmd {
 
 func (m *Model) tick(now time.Time) []Cmd {
 	m.Now = now
+	if m.kind() == KindStuck {
+		// A row appears when its threshold passes and a dismissal ends, with no
+		// event to say so: keep the cursor on its row as they do.
+		m.Stuck.keep(m.stuckRows(), m.viewH(), 1)
+	}
 	var cmds []Cmd
 	if m.LoadReqAt.IsZero() || now.Sub(m.LoadReqAt) >= RefreshEvery {
 		m.LoadReqAt = now
@@ -196,6 +205,20 @@ func (m *Model) fetches(now time.Time) []Cmd {
 			m.PRs.start(now)
 			return []Cmd{{Kind: CmdPRs}}
 		}
+	case KindStuck:
+		// The Stuck tab has no fetch of its own: it asks for the PRs and Later data
+		// it reads, each under the same throttle as on its own tab, so looking at
+		// it costs no gh call the other two would not have made.
+		var cmds []Cmd
+		if m.PRs.due(now, PRsEvery) {
+			m.PRs.start(now)
+			cmds = append(cmds, Cmd{Kind: CmdPRs})
+		}
+		if m.Later.due(now, LaterEvery) {
+			m.Later.start(now)
+			cmds = append(cmds, Cmd{Kind: CmdLater})
+		}
+		return cmds
 	}
 	return nil
 }
@@ -205,6 +228,7 @@ func (m *Model) laterLoaded(ev LaterEvent) []Cmd {
 	if ev.Err == "" { // on a failure the last good rows stay
 		m.Later.Issues = ev.Issues
 		m.Later.keep(m.laterRows(), m.viewH(), 1)
+		m.Stuck.keep(m.stuckRows(), m.viewH(), 1)
 		if m.Arm != "" && m.ArmKind == KindLater && !m.hasLater(m.Arm) {
 			m.Arm = ""
 		}
@@ -221,6 +245,7 @@ func (m *Model) prsLoaded(ev PRsEvent) []Cmd {
 	if ev.Err == "" {
 		m.PRs.PRs, m.PRs.Errors, m.PRs.Full = ev.PRs, ev.Errors, ev.Full
 		m.PRs.keep(m.prRows(), m.viewH(), 1)
+		m.Stuck.keep(m.stuckRows(), m.viewH(), 1)
 	}
 	if again {
 		m.PRs.start(m.Now)
@@ -250,6 +275,11 @@ func (m *Model) loaded(ev LoadedEvent) {
 	m.Items, m.Malformed = ev.Data.Items, ev.Data.Malformed
 	m.Closed.Items = ev.Data.Done
 	m.Closed.keep(m.doneRows(), m.viewH(), 0)
+	// A read that started before this process last wrote a dismissal predates it,
+	// and would bring the row back until the next read.
+	if !ev.At.Before(m.Stuck.dismissedAt) {
+		m.Stuck.Dismissed, m.Stuck.DismissErr = ev.Data.Dismissed, ev.Data.DismissedErr
+	}
 	idx := m.Sel
 	for i, it := range m.Items {
 		if it.ID == m.SelID {
@@ -315,6 +345,9 @@ func (m *Model) harvested(ev HarvestedEvent) []Cmd {
 }
 
 func (m *Model) key(k KeyEvent) []Cmd {
+	if m.Stuck.Prompt.Active {
+		return m.promptKey(k)
+	}
 	arm := m.Arm
 	m.Note = ""
 	if !(k.Key == KeyRune && k.Rune == 'd') {
@@ -365,6 +398,8 @@ func (m *Model) enter() []Cmd {
 		}
 	case KindPRs:
 		return m.openPR()
+	case KindStuck:
+		return m.openStuck()
 	default:
 		if it, ok := m.selected(); ok {
 			return []Cmd{{Kind: CmdPopup, ID: it.ID}}
@@ -396,6 +431,13 @@ func (m *Model) open(url, label, none string) []Cmd {
 	return []Cmd{{Kind: CmdOpen, Text: url, Label: label}}
 }
 
+func (m *Model) openStuck() []Cmd {
+	if it, ok := m.selectedStuck(); ok {
+		return m.open(it.URL, it.Ref(), "no link on this row")
+	}
+	return nil
+}
+
 func (m *Model) openPR() []Cmd {
 	if p, ok := m.selectedPR(); ok {
 		return m.open(p.URL, p.Key(), "no link on this pull request")
@@ -419,6 +461,8 @@ func (m *Model) rune(r rune, arm string) []Cmd {
 		return m.openSelected()
 	case 'd':
 		return m.armKey(arm)
+	case 'x':
+		m.startDismiss()
 	default:
 		for i, t := range m.Cfg.Tabs {
 			if r == t.Key {
@@ -444,6 +488,10 @@ func (m *Model) copy() []Cmd {
 		if p, ok := m.selectedPR(); ok {
 			return []Cmd{{Kind: CmdCopy, ID: p.Key(), Text: p.URL}}
 		}
+	case KindStuck:
+		if it, ok := m.selectedStuck(); ok {
+			return []Cmd{{Kind: CmdCopy, ID: it.Ref(), Text: it.URL}}
+		}
 	default:
 		if it, ok := m.selected(); ok {
 			return []Cmd{{Kind: CmdCopy, ID: it.ID, Text: it.ID}}
@@ -464,6 +512,8 @@ func (m *Model) openSelected() []Cmd {
 		}
 	case KindPRs:
 		return m.openPR()
+	case KindStuck:
+		return m.openStuck()
 	default:
 		if it, ok := m.selected(); ok {
 			return m.open(it.Ref, "", "no link on this item")
@@ -511,6 +561,10 @@ func (m *Model) refresh() []Cmd {
 		return m.forced(&m.Later.fetchState, CmdLater)
 	case KindPRs:
 		return m.forced(&m.PRs.fetchState, CmdPRs)
+	case KindStuck:
+		// Both sources, each as `r` on its own tab.
+		cmds := m.forced(&m.PRs.fetchState, CmdPRs)
+		return append(cmds, m.forced(&m.Later.fetchState, CmdLater)...)
 	}
 	m.LoadReqAt = m.Now
 	cmds := []Cmd{{Kind: CmdLoad}}
@@ -547,6 +601,9 @@ func isLink(ref string) bool {
 }
 
 func (m *Model) mouse(e MouseEvent) []Cmd {
+	if m.Stuck.Prompt.Active {
+		return nil // a click must not move the row a period is being typed for
+	}
 	m.Note, m.Arm = "", ""
 	switch e.Button {
 	case ButtonWheelUp, ButtonWheelDown:
@@ -670,7 +727,16 @@ func (m Model) View() Frame {
 		m.viewInbox(set, vh)
 	}
 
+	f := Frame{Lines: lines}
 	switch {
+	case m.Stuck.Prompt.Active:
+		p := m.Stuck.Prompt
+		text := "dismiss " + p.Label + " for (12h, 1d, 3d, 7d… ⏎ dismisses, Esc cancels): " + p.Buf
+		if p.Err != "" {
+			text = clean(p.Err) + " · " + text
+		}
+		set(h-1, line{{text, style{fg: def, bg: def, reverse: true}}}, false)
+		f.ShowCursor, f.CursorY, f.CursorX = true, h-1, min(cells(text), max(w-2, 0))
 	case m.Note != "" || m.Arm != "":
 		st := fg(dim)
 		if m.Arm != "" {
@@ -680,7 +746,7 @@ func (m Model) View() Frame {
 	default:
 		set(h-1, hint(m.hintFor()), false)
 	}
-	return Frame{Lines: lines}
+	return f
 }
 
 // viewList draws Later, Done or PRs: their rows, or, with none, why not.
@@ -704,6 +770,8 @@ func (m Model) emptyMessage() string {
 		return m.laterEmpty()
 	case KindPRs:
 		return m.prsEmpty()
+	case KindStuck:
+		return m.stuckEmpty()
 	case KindDone:
 		switch {
 		case m.LoadErr != "":
@@ -782,6 +850,21 @@ func (m Model) tabRow(w int) line {
 	case KindPRs:
 		st := m.prsStatus()
 		l = l.add(st.text, st.st).add(timeMark(m.PRs.At, "15:04"), fg(dim))
+		return l
+	case KindStuck:
+		st := m.stuckStatus()
+		reports := m.stuckReports()
+		var at time.Time
+		for _, r := range reports {
+			if !r.Answered {
+				at = time.Time{}
+				break
+			}
+			if r.At.After(at) {
+				at = r.At
+			}
+		}
+		l = l.add(st.text, st.st).add(timeMark(at, "15:04"), fg(dim))
 		return l
 	case KindDone:
 		replied := 0

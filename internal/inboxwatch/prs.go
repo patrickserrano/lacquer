@@ -23,6 +23,14 @@ type PR struct {
 	Passing   int
 	Failing   int
 	Pending   int
+	// FailedChecks are the names of the checks that count as failing, and
+	// FailingSince is the earliest of their completion times: when the PR went
+	// red, which is not when it was opened. A failing check that carried no time
+	// sets Untimed instead of being guessed at: the PR is then no older than
+	// FailingSince says, and the Stuck tab reports it when that is not enough.
+	FailedChecks []string
+	FailingSince time.Time
+	Untimed      bool
 }
 
 // Key identifies the PR across refreshes.
@@ -76,11 +84,20 @@ func parsePRs(repo string, out []byte) ([]PR, error) {
 		}
 		p := PR{Repo: repo, Number: d.Number, Title: d.Title, Author: login, Draft: d.IsDraft,
 			CreatedAt: created, URL: d.URL, Merge: merge}
-		counts, err := ciwait.Tally(d.Rollup)
+		counts, failed, err := ciwait.TallyFailures(d.Rollup)
 		if err != nil {
 			return nil, fmt.Errorf("PR #%d: %w", d.Number, err)
 		}
 		p.Passing, p.Failing, p.Pending = counts.Passing, counts.Failing, counts.Pending
+		for _, f := range failed {
+			p.FailedChecks = append(p.FailedChecks, f.Name)
+			switch {
+			case f.CompletedAt.IsZero():
+				p.Untimed = true
+			case p.FailingSince.IsZero() || f.CompletedAt.Before(p.FailingSince):
+				p.FailingSince = f.CompletedAt
+			}
+		}
 		prs = append(prs, p)
 	}
 	return prs, nil

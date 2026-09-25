@@ -71,6 +71,12 @@ func (d *Detail) update(ev Event) []Cmd {
 		}
 	case RepliedEvent:
 		d.Sending = false
+		if ev.OK && ev.CommentErr != "" {
+			// The overseer has it, so nothing is retried and the box is cleared; but
+			// the popup stays open so this is read, not lost with the window.
+			d.Buf, d.Note = "", "reply sent; comment NOT posted: "+ev.CommentErr
+			return []Cmd{{Kind: CmdEntry, ID: d.ID}}
+		}
 		if ev.OK {
 			d.quit = true
 			return nil
@@ -158,7 +164,11 @@ func (d *Detail) replyKey(k KeyEvent) []Cmd {
 	text, act := d.replyBox.key(k)
 	switch act {
 	case boxSend:
-		return []Cmd{{Kind: CmdReply, ID: d.ID, Text: text}}
+		ref := ""
+		if d.Found {
+			ref = d.Entry.Ref
+		}
+		return []Cmd{{Kind: CmdReply, ID: d.ID, Text: text, Ref: ref}}
 	case boxCancel:
 		d.Note = "reply cancelled"
 	}
