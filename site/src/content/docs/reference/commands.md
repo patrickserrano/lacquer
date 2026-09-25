@@ -24,10 +24,74 @@ description: Every lacquer CLI subcommand.
 | `lacquer ci-round status <N>` | Record unknown heads as unrecorded pushes or neutral GitHub updates; show rounds by kind and rounds left on PR `N`. Exit `10` if exhausted, else `0`. |
 | `lacquer console [--roster F] [--inbox F]` | One screen, with no flags or config: the inbox's open ACTION/UNREAD entries, then every live session on the machine (name, kind, status, project, cwd, age) read from `claude agents --json` (10 s limit). If `claude` is missing or fails it prints `sessions: unavailable — <reason>`, never an empty list; a healthy zero prints `sessions: none running`. `--roster`/`$LACQUER_ROSTER` adds fleet truth and open PRs and maps each session to its project by cwd. The inbox is `--inbox`, else `$LACQUER_INBOX`, else `$XDG_STATE_HOME/lacquer/inbox.jsonl` (`~/.local/state/lacquer/inbox.jsonl`), created with its directory on the first write; a default file that does not exist yet reads as empty, an explicit one that does not exist is reported unavailable. `ci-round` raises its exhaustion ACTION in the same file, and so does `wait pr` (exits 2, 3, 4). With a roster, every run also **harvests PR merges**: one `gh pr list --state merged` per roster repo (20 s limit), one UNREAD `<owner/repo>#<N> merged: <title>` per merge since the repo's cursor in `merge-cursor.json` beside the inbox, deduped by PR URL, and one harvest runs at a time (a lock beside the cursor; a second one is skipped with a note), so two consoles add each merge once. A repo's first look sets its cursor to now and backfills nothing; a `gh` failure is listed under unavailable, never read as no merges; without a roster it says merges are not being recorded. A **background agent going idle** is recorded by a Claude Code Stop hook, `lacquer console inbox hook stop`, that the iOS profile ships in `.claude/settings.json` (timeout 10 s; web, supabase and marketing ship no Claude settings, so their projects do not get it): it reads the hook JSON on stdin and, only when `$CLAUDE_JOB_DIR` is set (a `claude --bg` session; interactive sessions never write), adds one UNREAD `<session name> is idle in <project>: <first line of the last message>` with ref `session:<id>` and the full message (capped at 2 KB) plus the cwd as body. The name comes from `claude agents --json` (else the short id), the project from the roster (else the cwd's base name). At most one open entry per session: while it is open a further idle adds nothing, and once resolved the next one adds a new entry. It skips when `stop_hook_active` is true or there is no last message, always exits 0 (problems are warnings on stderr), and gives up after 5 s. `--sessions` is optional: it names the dispatch records `watch --relaunch`, `watch --live` and `kill` need (they hold the tmux pane, daemon id and worktree that `claude agents` does not report), and plain `watch` without it lists the live sessions. |
 | `lacquer console … dispatch` / `dispatch-role` / `watch` / `kill` | Start, check, relaunch, or stop work on a project or a named role. `--mode bg` runs `claude --bg` in a new git worktree and branch under `<repo>/.claude/worktrees/`, and launches nothing if one cannot be made. `--mode tmux` starts a detached tmux session in the checkout itself, which it edits directly; attach with `tmux attach -t <name>`, and a session already running under that name is left alone. `--worktree <path>` runs the session, in either mode, in an existing worktree instead: for the worktree a PM created and named in an IC's brief. It must be a registered worktree of the project's repository (and, for bg, not the checkout itself), or nothing launches; lacquer never creates or removes it, adds `.metadata_never_index` before launch (ignored through global excludes), and records it like one it made, so a relaunch resumes in it and `kill` keeps it. `--branch <name>` (bg only) names the branch of the worktree bg creates, under `.claude/worktrees/` with `/` flattened to `-`, instead of `dispatch/<id>`: for a branch a PM chose. It is refused if the branch or directory already exists (pass `--worktree` for that), and together with `--worktree`. Every console flag works on either side of the subcommand, with the same meaning (`watch --relaunch` is `--relaunch watch`), and among a dispatch task's words, so a trailing `--dry-run` is a dry run; a task word that starts with `-` goes after `--`, which ends the flags (`dispatch <project> -- <task>`). An unknown flag, or one the subcommand has no use for (`--dry-run` with `kill`), is an error; `--roster`, `--roles`, `--sessions` and `--inbox` are accepted by every subcommand. Both modes pass `--dangerously-skip-permissions` with the sandbox off, and neither needs a terminal, so an agent can dispatch. With `--sessions`, every launch attempt is recorded, a failed one included, and `watch` reports a failed launch as failed. `watch --relaunch` puts the relaunched session's record in place of the dead one (a bg session resumes in its recorded worktree), and stops retrying a record after 3 failed launches in a row, leaving it for you. See `lacquer help` for the flag combinations each takes. |
+| `lacquer decisions [<owner/name> \| --fleet] [--fleet-repo O/N]` | Print the operator's recorded decisions, oldest first: each comment on the repository's one open `decisions`-labelled issue, with its date, the link to the inbox item it came from, the operator's words **exactly as typed**, and the basis (the measurement it was decided against) when one was given. With no argument the repository is the current checkout's `origin`; `--fleet` reads the fleet repository (`--fleet-repo`, else `$LACQUER_FLEET_REPO`, else `patrickserrano/fleet-ops`). Read-only (`gh issue list`, `gh issue view`). **No decisions recorded** prints `no decisions recorded for <repo>` and exits 0; **`gh` could not answer** (or two open `decisions` issues exist) prints the reason on stderr and exits 1, so the two never look alike; a repository whose only `decisions` issue is **closed** says so (reopen it) and exits 1 rather than reading as none recorded. `--fleet-repo` without `--fleet` is refused. Control characters in a comment are shown as `^X`, not sent to the terminal. Managed `CLAUDE.md`/`AGENTS.md` tell agents to run it before briefing or starting work. See [Recorded decisions](#recorded-decisions-lacquer-decisions). |
 | `lacquer version` | Print labeled content and build versions, plus the resolved content root path. |
 
 `lacquer help` (or `--help`/`-h`) prints usage, including the full `console`
 flag surface this table abbreviates.
+
+## Recorded decisions: `lacquer decisions`
+
+Decisions were lost when they were paraphrased on the way into a brief, and the
+operator's answers lived in one file on one machine where nobody could grep them.
+The decisions log keeps them in GitHub, in their own words, next to the work they
+govern. There is nothing to commit and no rendered file to go stale.
+
+**Recording.** In the inbox detail popup (`lacquer console inbox watch`, Enter on
+an item), `D` opens three prompts. Esc at any of them abandons the decision and
+posts nothing.
+
+1. **The words**, typed and kept exactly as typed: not trimmed, reflowed or
+   summarised. (`r` reply is unchanged: it goes to the overseer, and is never
+   recorded.)
+2. **A basis**, optional (Enter skips it): the measurement or reason the decision
+   was made against, and when. Decisions expire into facts; a decision made against
+   "79% of devices are on iOS 26, June 2026" should say so, so a later reader can
+   tell whether the basis still holds.
+3. **A scope**, with the target of each shown before anything is posted: `r` this
+   repo, `f` fleet-wide. *This repo* is the repository the item's ref names, when
+   that is an issue or PR in the roster or `--extra-repo`s, else the item's
+   `project` mapped through the roster; if neither resolves it says why and still
+   offers fleet. *Fleet-wide* is the fleet repository (`$LACQUER_FLEET_REPO`,
+   default `patrickserrano/fleet-ops`), so a decision that spans repositories lives
+   in one place instead of a copy in each project's.
+
+The decision is one comment on the repository's one open issue labelled
+`decisions`. **First use** creates what is missing: the `decisions` label, then an
+issue titled `Decisions` with a short fixed body saying what it is, then the
+comment. **Two or more** open `decisions` issues are refused, and named, never
+guessed between. Every write, the label and the issue included, goes through the
+same gate as a reply's comment: a repository outside the roster and the extra
+repositories is refused, the fleet repository too, and each write happens only on
+your keypress. Nothing is sent to the overseer; the popup confirms with the
+comment's URL, and on a failure says what was done and what was not.
+
+The comment is fixed in form, and holds nothing agent-written (no title, no body
+from the entry):
+
+````markdown
+**Decision** — 2026-09-25T04:10:00Z · from https://github.com/o/r/issues/5
+
+```text
+<your words, exactly as typed>
+```
+
+Basis:
+
+```text
+<the basis, if one was given>
+```
+````
+
+The words are in a code fence, not a quote, because a fence is the one markdown
+form that shows a string as written: in a quote `#123` writes a cross-reference into
+another issue and `@name` notifies someone. The fence is longer than any run of
+backticks in the words, so nothing can close it early.
+
+**Reading.** `lacquer decisions` (this repo, from `origin`),
+`lacquer decisions <owner/name>`, or `lacquer decisions --fleet`. Agents are told,
+in the managed `CLAUDE.md`/`AGENTS.md` region, to run the first and the last before
+briefing or starting work.
 
 ## Waiting for CI: `lacquer wait pr`
 

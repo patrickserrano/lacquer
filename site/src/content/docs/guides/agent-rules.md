@@ -8,6 +8,7 @@ description: The engineering rules synced into every lacquered project's CLAUDE.
 ## Git and workspace safety
 
 - Work in a git worktree under `.worktrees/`; keep build output in that worktree.
+- Before briefing or starting work, run `lacquer decisions` and `lacquer decisions --fleet`; quote the operator's words verbatim.
 - Never push directly to main. Use atomic commits and a pull request.
 - Never force-push or rebase a pushed branch. Do not bypass hooks, CI or branch
   protection (`--force`, `--force-with-lease`, `--no-verify`, `--admin`).

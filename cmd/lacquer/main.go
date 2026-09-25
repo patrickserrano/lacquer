@@ -775,6 +775,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// Reaches the GitHub API through gh and reads nothing from a lacquer
 		// checkout, so — like protection — no requireLacquerRoot.
 		return waitCmd(args[1:], getenv, stdout, stderr)
+	case "decisions":
+		// Reads GitHub through gh and the checkout's origin; needs nothing from a
+		// lacquer checkout, so — like wait — no requireLacquerRoot.
+		return decisionsCmd(args[1:], getenv, projectRoot, stdout, stderr)
 	case "ci-round":
 		// Reaches the GitHub API through gh and reads only the project's own
 		// manifest (from a git ref), so — like wait — no requireLacquerRoot.
@@ -1212,6 +1216,16 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               checked — which is never reported as a pass)")
 	usageWait(w)
 	usageCIRound(w)
+	fmt.Fprintln(w, "  decisions [<owner/name> | --fleet] [--fleet-repo O/N]")
+	fmt.Fprintln(w, "                               print the operator's recorded decisions, oldest first: the comments on")
+	fmt.Fprintln(w, "                               the repository's one open `decisions` issue (the current checkout's")
+	fmt.Fprintln(w, "                               origin by default; --fleet reads the fleet repository, --fleet-repo or")
+	fmt.Fprintln(w, "                               $LACQUER_FLEET_REPO, default "+defaultFleetRepo+"). Each shows its date, the")
+	fmt.Fprintln(w, "                               inbox item it came from, the operator's words exactly as typed, and the")
+	fmt.Fprintln(w, "                               basis if one was given. Read-only. None recorded prints")
+	fmt.Fprintln(w, "                               `no decisions recorded for <repo>` and exits 0; a gh that could not")
+	fmt.Fprintln(w, "                               answer, two open `decisions` issues, or only a closed one, exits 1. Recorded from the inbox")
+	fmt.Fprintln(w, "                               detail popup with D (see inbox watch)")
 	fmt.Fprintln(w, "  console [--roster F] [--inbox F]")
 	fmt.Fprintln(w, "                               no flags needed. One screen: the inbox's open ACTION/UNREAD entries,")
 	fmt.Fprintln(w, "                               then every live session on this machine (name, kind, status, project,")
@@ -1291,6 +1305,11 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               wheel move; Enter (or a click) opens the detail in a tmux popup, where r")
 	fmt.Fprintln(w, "                               types a reply into the overseer pane and records it in inbox-replies.jsonl;")
 	fmt.Fprintln(w, "                               d twice resolves, o opens the link, c copies the id, r refreshes, q quits.")
+	fmt.Fprintln(w, "                               D in the popup records the operator's words as a decision: the words, an")
+	fmt.Fprintln(w, "                               optional basis, then r (this repo) or f (fleet-wide, $LACQUER_FLEET_REPO),")
+	fmt.Fprintln(w, "                               Esc at any step posting nothing. It comments on the target's one open")
+	fmt.Fprintln(w, "                               `decisions` issue, making the label and the issue first if there are none,")
+	fmt.Fprintln(w, "                               only in a roster or --extra-repo repository; read with `lacquer decisions`.")
 	fmt.Fprintln(w, "                               With no overseer pane (--overseer-pane or $LACQUER_OVERSEER_PANE, or a pane")
 	fmt.Fprintln(w, "                               title via --overseer-title/$LACQUER_OVERSEER_TITLE) reply is off, never guessed.")
 	fmt.Fprintln(w, "                               With a roster it also records PR merges, at most once every 5 minutes")

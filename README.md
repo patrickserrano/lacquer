@@ -87,6 +87,63 @@ at most one open entry per session. It always exits 0; problems go to stderr.
 Only the iOS profile ships a Claude settings file, so web, supabase and marketing
 projects do not get the hook.
 
+## Recorded decisions
+
+Decisions were lost when they were paraphrased on the way into a brief, and the
+operator's answers lived in one file on one machine. `lacquer decisions` reads
+the alternative: the operator's words, verbatim, in GitHub next to the work they
+govern. The log is issue-backed. Nothing is committed and there is no rendered
+file to go stale.
+
+In the inbox detail popup, `D` records a decision: the operator's words, kept
+exactly as typed (never trimmed, reflowed or summarised), an optional **basis**
+(the measurement it was decided against, because decisions expire into facts),
+then `r` for this repo or `f` for fleet-wide, with the target of each shown before
+anything is posted. Esc at any prompt posts nothing. An ordinary `r` reply stays a
+reply: it goes to the overseer and is never recorded, and a decision goes to
+GitHub only.
+
+A decision is one comment on a repository's one open issue labelled `decisions`.
+This repo means the repository the item's ref names, else its `project` mapped
+through the roster. Fleet-wide means the fleet repository (`$LACQUER_FLEET_REPO`,
+default `patrickserrano/fleet-ops`), so a decision that spans repositories lives in
+one issue and not in a copy per project. The first decision in a repository
+creates the `decisions` label and an issue titled `Decisions`; two open
+`decisions` issues are refused by name. Every write goes through the same gate as
+a reply's comment, so a repository outside the roster and `$LACQUER_EXTRA_REPOS`
+is refused, the fleet repository included, and each write happens only on the
+operator's keypress. The comment holds nothing an agent wrote:
+
+````markdown
+**Decision** — 2026-09-25T04:10:00Z · from https://github.com/o/r/issues/5
+
+```text
+<the operator's words, exactly as typed>
+```
+
+Basis:
+
+```text
+<the basis, if one was given>
+```
+````
+
+The words sit in a code fence rather than a quote, because a fence is the one form
+that shows a string as written: in a quote `#123` writes a cross-reference into
+another issue and `@name` notifies someone.
+
+```sh
+lacquer decisions                 # this checkout's repository, from origin
+lacquer decisions owner/name
+lacquer decisions --fleet         # the fleet repository
+```
+
+It prints them oldest first and only reads. None recorded prints
+`no decisions recorded for <repo>` and exits 0; a `gh` that could not answer, or two
+open `decisions` issues, exits 1, so empty and broken never look alike. The managed
+`CLAUDE.md`/`AGENTS.md` region tells agents to run the first and the last before
+briefing or starting work.
+
 ## Dispatch model and effort
 
 `console dispatch` starts ICs on **sonnet** by default. Set top-level

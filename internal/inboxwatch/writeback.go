@@ -88,6 +88,14 @@ func WriteBack(c Commander, ref, text string, at time.Time) (GitHubRef, error) {
 	if !ok {
 		return GitHubRef{}, ErrNotGitHubRef
 	}
+	_, err := postBody(c, g, CommentBody(text, at))
+	return g, err
+}
+
+// postBody comments body on g and returns what gh printed, which is the
+// comment's URL. It is the one place that runs `gh ... comment`, so a reply and a
+// decision cannot differ in how the text travels or in what a timeout is called.
+func postBody(c Commander, g GitHubRef, body string) (string, error) {
 	sub := "issue"
 	if g.PR {
 		sub = "pr"
@@ -95,12 +103,12 @@ func WriteBack(c Commander, ref, text string, at time.Time) (GitHubRef, error) {
 	argv := []string{sub, "comment", strconv.Itoa(g.Number), "-R", g.Repo, "--body-file", "-"}
 	ctx, cancel := context.WithTimeout(context.Background(), writeBackTimeout)
 	defer cancel()
-	_, err := c.RunContext(ctx, CommentBody(text, at), "gh", argv...)
+	out, err := c.RunContext(ctx, body, "gh", argv...)
 	if ctx.Err() == context.DeadlineExceeded {
 		// gh was killed at the deadline, but it may have posted before that.
-		return g, &PostTimeoutError{Ref: g, After: writeBackTimeout}
+		return out, &PostTimeoutError{Ref: g, After: writeBackTimeout}
 	}
-	return g, err
+	return out, err
 }
 
 // PostTimeoutError is a comment that did not finish in time. It says nothing

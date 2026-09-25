@@ -22,8 +22,11 @@ type Detail struct {
 	// Repos are the repositories a reply may also be commented on (the watcher's
 	// roster and extras). With none, no reply is commented, and the box says so.
 	Repos []string
-	W, H  int
-	Now   time.Time
+	// Targets says where a decision from an entry may be recorded (#427). With
+	// none, the D key says decisions are not configured.
+	Targets func(ref, project string) DecisionTargets
+	W, H    int
+	Now     time.Time
 
 	Requested bool
 	Loaded    bool
@@ -39,6 +42,7 @@ type Detail struct {
 	quit bool
 
 	replyBox
+	dec decision
 }
 
 // NewDetail is a detail view of the entry id.
@@ -72,6 +76,8 @@ func (d *Detail) update(ev Event) []Cmd {
 		} else {
 			d.Note = ev.Note
 		}
+	case DecidedEvent:
+		return d.decided(ev)
 	case RepliedEvent:
 		d.Sending = false
 		if ev.OK && ev.CommentErr != "" {
@@ -107,16 +113,20 @@ func (d *Detail) update(ev Event) []Cmd {
 
 func (d Detail) box() []string { return d.replyBox.box(d.W, d.H) }
 
-func (d Detail) bodyH() int { return max(d.H-len(d.box())-1, 1) }
+func (d Detail) bodyH() int { return max(d.H-len(d.footer())-1, 1) }
 
 func (d *Detail) clampTop() {
 	d.Top = max(0, min(d.Top, max(len(d.lines())-d.bodyH(), 0)))
 }
 
 func (d *Detail) key(k KeyEvent) []Cmd {
-	if d.Sending {
+	if d.Sending || d.dec.step == decSending {
 		return nil
 	}
+	if d.dec.step != decOff {
+		return d.decKey(k)
+	}
+	d.dec.result = nil
 	if d.Replying {
 		return d.replyKey(k)
 	}
@@ -141,6 +151,9 @@ func (d *Detail) key(k KeyEvent) []Cmd {
 				return nil
 			}
 			d.Replying = true
+			d.clampTop()
+		case 'D':
+			d.startDecision()
 			d.clampTop()
 		case 'c':
 			return []Cmd{{Kind: CmdCopy, ID: d.ID, Text: d.ID}}
@@ -268,30 +281,32 @@ func (d Detail) commentNote() string {
 
 func (d Detail) hint() string {
 	switch {
+	case d.dec.step != decOff:
+		return d.dec.hint()
 	case d.Replying:
 		if n := d.commentNote(); n != "" {
 			return "⏎ send, " + clean(n) + " · Esc cancel · ctrl-u clear"
 		}
 		return "⏎ send · Esc cancel · ctrl-u clear"
 	case !d.CanReply:
-		return "r reply (off: no overseer pane) · d resolve · o open link · c copy id · j/k scroll · q close"
+		return "r reply (off: no overseer pane) · D record decision · d resolve · o open link · c copy id · j/k scroll · q close"
 	}
-	return "r reply · d resolve · o open link · c copy id · j/k scroll · q close"
+	return "r reply · D record decision · d resolve · o open link · c copy id · j/k scroll · q close"
 }
 
 func (d Detail) View() Frame {
 	w, h := d.W, d.H
 	cw := max(w-1, 0)
 	lines := make([]string, h)
-	box := d.box()
+	foot := d.footer()
 	bodyH := d.bodyH()
 	body := d.lines()
 	for row := 0; row < bodyH && d.Top+row < len(body); row++ {
 		lines[row] = body[d.Top+row].render(cw, false)
 	}
-	for i, t := range box {
+	for i, r := range foot {
 		if y := bodyH + i; y < h {
-			lines[y] = line{{t, fgBold(yellow)}}.render(cw, false)
+			lines[y] = line{{r.text, r.st}}.render(cw, false)
 		}
 	}
 	if h > 0 {
@@ -307,10 +322,34 @@ func (d Detail) View() Frame {
 		}
 	}
 	f := Frame{Lines: lines}
-	if d.Replying && len(box) > 0 {
+	if d.typing() && len(foot) > 0 {
 		f.ShowCursor = true
-		f.CursorY = bodyH + len(box) - 1
-		f.CursorX = min(len([]rune(box[len(box)-1])), max(w-2, 0))
+		f.CursorY = bodyH + len(foot) - 1
+		f.CursorX = min(len([]rune(foot[len(foot)-1].text)), max(w-2, 0))
 	}
 	return f
+}
+
+// typing is whether a box is open for text.
+func (d Detail) typing() bool {
+	return d.Replying || d.dec.step == decWords || d.dec.step == decBasis
+}
+
+// frow is one row under the body, in its own style.
+type frow struct {
+	text string
+	st   style
+}
+
+// footer is the rows between the body and the last row: the reply box, or the
+// decision's prompt and box, and above either the result of the last decision.
+func (d Detail) footer() []frow {
+	if d.dec.step != decOff || len(d.dec.result) > 0 {
+		return d.dec.rows(d.W, d.H)
+	}
+	var out []frow
+	for _, t := range d.box() {
+		out = append(out, frow{t, fgBold(yellow)})
+	}
+	return out
 }

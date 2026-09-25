@@ -10,11 +10,14 @@ import (
 
 // Lower these ceilings in the same PR whenever managed text shrinks (including #453).
 // Each ceiling includes marker lines and counts each rendered CLAUDE.md destination once.
+//
+// #427 raised every ceiling by 1: the one bullet that tells an agent to read the
+// decisions log renders as one line in the core region, once per destination.
 const (
-	rootappManagedLines    = 105
-	multistackManagedLines = 137
-	duoappManagedLines     = 105
-	spmpackageManagedLines = 53
+	rootappManagedLines    = 106
+	multistackManagedLines = 138
+	duoappManagedLines     = 106
+	spmpackageManagedLines = 54
 )
 
 func TestManagedClaudeLineCeilings(t *testing.T) {

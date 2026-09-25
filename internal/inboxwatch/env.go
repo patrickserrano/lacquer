@@ -158,6 +158,11 @@ type Cmd struct {
 	Ref string
 	// Until is when a Stuck dismissal ends.
 	Until time.Time
+	// Basis and Repo go with CmdDecide: Text is the operator's words, Basis the
+	// measurement they were decided against (optional), and Repo where to record
+	// them. Ref is the entry's ref, as for a reply.
+	Basis string
+	Repo  string
 }
 
 type CmdKind int
@@ -177,6 +182,7 @@ const (
 	CmdUnpark                      // remove the later label from issue ID
 	CmdPopupIssue                  // show issue ID in a tmux popup
 	CmdStuckDismiss                // hide the Stuck condition ID until Until
+	CmdDecide                      // record Text as a decision in Repo's decisions issue
 )
 
 // Answers to Cmds.
@@ -217,6 +223,17 @@ type (
 		// CommentUnsure is set when the post timed out: gh was killed, but it may
 		// already have posted, so the operator is told to look, not to retry.
 		CommentUnsure bool
+	}
+	// DecidedEvent answers CmdDecide. Note says what was and was not done, in
+	// words, whether or not it worked.
+	DecidedEvent struct {
+		OK   bool
+		Note string
+		// URL is the comment that was posted, when one was.
+		URL string
+		// Unsure is set when a write timed out: gh was killed, but it may have
+		// finished, so the operator is told to look, not to retry.
+		Unsure bool
 	}
 	// StuckDismissedEvent answers CmdStuckDismiss.
 	StuckDismissedEvent struct {
@@ -282,6 +299,10 @@ type Env struct {
 	ExtraRepos []string
 	// InTmux says whether a popup can be shown.
 	InTmux bool
+	// FleetRepo is the repository that holds the decisions that span repositories
+	// (#427). It is only ever written to if it is also in the roster or the
+	// extras: naming it here does not exempt it from the gate.
+	FleetRepo string
 }
 
 // HasRepos reports whether the roster names any repository to harvest.
@@ -342,6 +363,8 @@ func (e Env) Exec(c Cmd) Event {
 		return e.popupIssue(c.ID)
 	case CmdStuckDismiss:
 		return e.dismissStuck(c)
+	case CmdDecide:
+		return e.decide(c)
 	}
 	return DoneEvent{Note: fmt.Sprintf("unknown command %d", c.Kind)}
 }
@@ -464,16 +487,34 @@ func (e Env) knownRepo(repo string) bool {
 // WriteBack posts text to the issue or PR ref names, if ref is one and its
 // repository is one this watcher covers. The ref is written by an agent, so it
 // does not get to choose where the operator's words are posted: an unknown
-// repository is refused. This is the function a decisions log (#427) calls.
+// repository is refused. Recording a decision (#427) posts through the same gate.
 func (e Env) WriteBack(ref, text string) (GitHubRef, error) {
+	g, _, err := e.postGated(ref, CommentBody(text, e.now()))
+	return g, err
+}
+
+// gate is the one check that stands between the operator's words and a
+// repository: it must be in the roster or the extras. Every GitHub write this
+// package makes, a comment, an issue, a label, asks it first.
+func (e Env) gate(repo string) error {
+	if !e.knownRepo(repo) {
+		return fmt.Errorf("%s is not in the roster", repo)
+	}
+	return nil
+}
+
+// postGated comments body on the issue or PR ref names, after the gate, and
+// returns gh's output, the comment's URL.
+func (e Env) postGated(ref, body string) (GitHubRef, string, error) {
 	g, ok := ParseGitHubRef(ref)
 	if !ok {
-		return GitHubRef{}, ErrNotGitHubRef
+		return GitHubRef{}, "", ErrNotGitHubRef
 	}
-	if !e.knownRepo(g.Repo) {
-		return g, fmt.Errorf("%s is not in the roster", g.Repo)
+	if err := e.gate(g.Repo); err != nil {
+		return g, "", err
 	}
-	return WriteBack(e.Cmd, ref, text, e.now())
+	out, err := postBody(e.Cmd, g, body)
+	return g, out, err
 }
 
 // dismissStuck records a Stuck dismissal.
