@@ -172,7 +172,7 @@ func TestDetailReplyFlow(t *testing.T) {
 		t.Fatal("typing a q quit the popup")
 	}
 	p, cmds = feed(t, p, "\r")
-	if len(cmds) != 1 || cmds[0].Kind != CmdReply || cmds[0].Text != "ok go" || cmds[0].ID != "a1" || cmds[0].Note != "ship it?" {
+	if len(cmds) != 1 || cmds[0].Kind != CmdReply || cmds[0].Text != "ok go" || cmds[0].ID != "a1" {
 		t.Fatalf("Enter = %v, want the trimmed text", cmds)
 	}
 	// The overseer did not get it: the reply box comes back with the text.

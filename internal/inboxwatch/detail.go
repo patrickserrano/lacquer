@@ -181,7 +181,7 @@ func (d *Detail) replyKey(k KeyEvent) []Cmd {
 			return nil
 		}
 		d.Replying, d.Sending = false, true
-		return []Cmd{{Kind: CmdReply, ID: d.ID, Note: d.Entry.Title, Text: text}}
+		return []Cmd{{Kind: CmdReply, ID: d.ID, Text: text}}
 	case KeyEsc, KeyCtrlC:
 		d.Replying, d.Buf, d.Note = false, "", "reply cancelled"
 	case KeyBackspace:
@@ -203,13 +203,13 @@ func (d *Detail) replyKey(k KeyEvent) []Cmd {
 func (d Detail) lines() []line {
 	w := max(d.W-2, 20)
 	if !d.Loaded {
-		return []line{{{"loading " + d.ID, fg(dim)}}}
+		return []line{{{"loading " + clean(d.ID), fg(dim)}}}
 	}
 	if d.LoadErr != "" && !d.Found {
 		return []line{{{"could not read the inbox: " + d.LoadErr, fg(red)}}}
 	}
 	if !d.Found {
-		return []line{{{"no inbox entry " + d.ID, fg(def)}}}
+		return []line{{{"no inbox entry " + clean(d.ID), fg(def)}}}
 	}
 	e := d.Entry
 	kind := strings.ToUpper(string(e.Type))
@@ -218,27 +218,27 @@ func (d Detail) lines() []line {
 		badge = fgBold(red)
 	}
 	var out []line
-	out = append(out, line{{fmt.Sprintf("%s  %s   %s old", kind, e.ID, Age(e.CreatedAt, d.Now)), badge}})
-	for _, t := range wrap(e.Title, w) {
+	out = append(out, line{{fmt.Sprintf("%s  %s   %s old", clean(kind), clean(e.ID), Age(e.CreatedAt, d.Now)), badge}})
+	for _, t := range wrap(clean(e.Title), w) {
 		out = append(out, line{{t, fgBold(def)}})
 	}
 	switch {
 	case e.ResolvedAt != nil:
 		out = append(out, line{{"✓ resolved " + e.ResolvedAt.UTC().Format("2006-01-02 15:04"), fgBold(green)}})
 	case d.HasReply:
-		at := d.Reply.At
+		at := clean(d.Reply.At)
 		if len(at) >= 16 {
 			at = at[11:16]
 		}
 		out = append(out, line{{"↩ you replied " + at + ", waiting on the overseer:", fgBold(yellow)}})
-		for _, t := range wrap(d.Reply.Text, w-2) {
+		for _, t := range wrap(clean(d.Reply.Text), w-2) {
 			out = append(out, line{{"  " + t, fg(yellow)}})
 		}
 	case e.Type == inbox.Action:
 		out = append(out, line{{"● waiting on you", fg(red)}})
 	}
 	out = append(out, nil)
-	for _, f := range []struct{ key, val string }{{"project", e.Project}, {"createdAt", e.CreatedAt.Format(time.RFC3339Nano)}, {"ref", e.Ref}} {
+	for _, f := range []struct{ key, val string }{{"project", clean(e.Project)}, {"createdAt", e.CreatedAt.Format(time.RFC3339Nano)}, {"ref", clean(e.Ref)}} {
 		if f.val == "" {
 			continue
 		}
@@ -250,6 +250,7 @@ func (d Detail) lines() []line {
 	}
 	out = append(out, nil)
 	for _, para := range strings.Split(e.Body, "\n") {
+		para = clean(para)
 		st := fg(def)
 		if highlight.MatchString(para) {
 			st = fgBold(yellow)

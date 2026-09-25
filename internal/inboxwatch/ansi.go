@@ -108,6 +108,35 @@ func (l line) width() int {
 	return n
 }
 
+// clean makes text from an entry safe to draw. Entry titles and bodies are
+// written by agents, and a terminal treats an ESC in them as a command: a title
+// holding "\x1b[?1049l" would leave the alternate screen, "\x1b[?1000l" would turn
+// the mouse off and an OSC 52 would write the clipboard, on every redraw. So C0
+// controls (tab and newline included, which would also break the layout) become
+// ^X, DEL becomes ^?, and the C1 range, which some terminals act on, becomes ?.
+// It is what curses did for foxy-inbox, which shows an ESC as "^[".
+func clean(s string) string {
+	if !strings.ContainsFunc(s, isControl) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r < 0x20:
+			b.WriteString("^" + string(r+0x40))
+		case r == 0x7f:
+			b.WriteString("^?")
+		case r >= 0x80 && r <= 0x9f:
+			b.WriteByte('?')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func isControl(r rune) bool { return r < 0x20 || (r >= 0x7f && r <= 0x9f) }
+
 // render cuts the row to w cells. selected paints every cell's background with
 // the selection colour, foregrounds intact, and fills the tail: the terminal
 // counterpart of foxy-inbox's mirrored colour pairs (reverse video inverted each
@@ -119,7 +148,7 @@ func (l line) render(w int, selected bool) string {
 		if used >= w {
 			break
 		}
-		t := truncate(s.text, w-used)
+		t := truncate(clean(s.text), w-used)
 		if t == "" {
 			continue
 		}

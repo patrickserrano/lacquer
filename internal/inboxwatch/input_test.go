@@ -2,6 +2,7 @@ package inboxwatch
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -57,8 +58,19 @@ func TestParseInputKeepsAPartialSequenceForTheNextRead(t *testing.T) {
 	if evs, rest = ParseInput([]byte("\x1b["), false); len(evs) != 0 || string(rest) != "\x1b[" {
 		t.Errorf("ESC [ must wait: %v %q", evs, rest)
 	}
-	if evs, _ = ParseInput([]byte("\x1b["), true); !reflect.DeepEqual(evs, []Event{KeyEvent{Key: KeyEsc}}) {
-		t.Errorf("flushed, ESC [ is an Esc: %v", evs)
+	// Flushing turns only a LONE ESC into Esc. An unfinished ESC [ stays put for
+	// its tail, or a report split across two reads would quit the view.
+	if evs, rest = ParseInput([]byte("\x1b["), true); len(evs) != 0 || string(rest) != "\x1b[" {
+		t.Errorf("flushed, ESC [ must wait for its tail: %v %q", evs, rest)
+	}
+	if evs, rest = ParseInput([]byte("\x1bO"), true); len(evs) != 0 || string(rest) != "\x1bO" {
+		t.Errorf("flushed, ESC O must wait for its tail: %v %q", evs, rest)
+	}
+	if evs, _ = ParseInput([]byte("\x1b"), true); !reflect.DeepEqual(evs, []Event{KeyEvent{Key: KeyEsc}}) {
+		t.Errorf("flushed, a lone ESC is Esc: %v", evs)
+	}
+	if _, rest = ParseInput([]byte("\x1b["+strings.Repeat("1;", 40)), true); len(rest) != 0 {
+		t.Errorf("a runaway sequence must be dropped, not held forever: %q", rest)
 	}
 	// Half a UTF-8 character waits for its other half.
 	evs, rest = ParseInput([]byte("\xc3"), false)
@@ -67,5 +79,29 @@ func TestParseInputKeepsAPartialSequenceForTheNextRead(t *testing.T) {
 	}
 	if evs, _ = ParseInput(append(rest, 0xa9), false); !reflect.DeepEqual(evs, []Event{rk('é')}) {
 		t.Errorf("got %v", evs)
+	}
+}
+
+// A mouse report that arrives in two reads with the flush timer firing between
+// them (ssh, a loaded machine) is one wheel notch: no Esc, and no digits read
+// as keys.
+func TestSplitSGRReportAcrossFlushYieldsNoEscAndNoStrayRunes(t *testing.T) {
+	for cut := 1; cut < len("\x1b[<64;10;5M"); cut++ {
+		full := "\x1b[<64;10;5M"
+		evs, rest := ParseInput([]byte(full[:cut]), true) // the timer fired mid-report
+		if cut == 1 {
+			// A lone ESC is indistinguishable from Esc until more arrives.
+			if !reflect.DeepEqual(evs, []Event{KeyEvent{Key: KeyEsc}}) {
+				t.Fatalf("cut %d: %v", cut, evs)
+			}
+			continue
+		}
+		if len(evs) != 0 {
+			t.Errorf("cut at %d: the head produced %v", cut, evs)
+		}
+		evs, rest = ParseInput(append(rest, full[cut:]...), true)
+		if !reflect.DeepEqual(evs, []Event{MouseEvent{ButtonWheelUp, 9, 4}}) || len(rest) != 0 {
+			t.Errorf("cut at %d: got %v rest %q", cut, evs, rest)
+		}
 	}
 }

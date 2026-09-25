@@ -219,8 +219,8 @@ func TestNoRawModeMeansNoOutput(t *testing.T) {
 	}
 }
 
-// End to end through the loop: the list draws from a real inbox file, the SGR
-// wheel bytes scroll it with no tmux binding anywhere, and a lone ESC still quits.
+// End to end through the loop: the list draws from a real inbox file, and the SGR
+// wheel bytes scroll it with no tmux binding anywhere.
 func TestLoopDrawsScrollsAndReadsSGRWheelBytes(t *testing.T) {
 	var entries []inbox.Entry
 	for i := 0; i < 30; i++ {
@@ -236,7 +236,7 @@ func TestLoopDrawsScrollsAndReadsSGRWheelBytes(t *testing.T) {
 	waitFor(t, "back at the top", func() bool {
 		return strings.LastIndex(f.out.String(), " 1–6 of 30 ") > strings.LastIndex(f.out.String(), " 4–9 of 30 ")
 	})
-	f.in.Write([]byte("\x1b")) // a lone ESC, no more bytes
+	f.in.Write([]byte("q"))
 	if v := finish(t, done); v != nil {
 		t.Fatalf("Run returned %v", v)
 	}
@@ -250,6 +250,38 @@ func TestResizeRedrawsAtTheNewSize(t *testing.T) {
 	f.h.Store(20)
 	f.winch <- os.Interrupt
 	waitFor(t, "a 20-row frame", func() bool { return strings.Contains(f.out.String(), "\x1b[20;1H") })
+	f.in.Write([]byte("q"))
+	finish(t, done)
+	assertRestored(t, f)
+}
+
+// The flush timer fires between the two halves of a mouse report, and Esc does
+// not quit the list anyway: the watcher survives and the report still scrolls.
+func TestLoopSurvivesAMouseReportSplitAcrossTheEscTimer(t *testing.T) {
+	var entries []inbox.Entry
+	for i := 0; i < 30; i++ {
+		entries = append(entries, inbox.Entry{Type: inbox.Unread, Title: "entry " + string(rune('A'+i%26)) + string(rune('a'+i/26)), CreatedAt: t0.Add(-time.Hour)})
+	}
+	f := newFakeTerm()
+	f.h.Store(9)
+	done := f.run(NewModel(cfgReply, 0, 0), Env{InboxPath: writeInbox(t, entries...)})
+	waitFor(t, "the first page", func() bool { return strings.Contains(f.out.String(), " 1–6 of 30 ") })
+	f.in.Write([]byte("\x1b[<65;1"))
+	time.Sleep(150 * time.Millisecond) // several EscWaits (20ms)
+	select {
+	case v := <-done:
+		t.Fatalf("the watcher quit on half a mouse report: %v", v)
+	default:
+	}
+	f.in.Write([]byte("0;5M"))
+	waitFor(t, "the notch to scroll", func() bool { return strings.Contains(f.out.String(), " 4–9 of 30 ") })
+	f.in.Write([]byte("\x1b")) // a real Esc is delivered, and is ignored by the list
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case v := <-done:
+		t.Fatalf("Esc quit the list: %v", v)
+	default:
+	}
 	f.in.Write([]byte("q"))
 	finish(t, done)
 	assertRestored(t, f)

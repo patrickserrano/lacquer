@@ -51,8 +51,9 @@ func (r *untilReader) Read(p []byte) (int, error) {
 func fakeTerminal(t *testing.T, wantOnScreen, keys string) *lockedBuf {
 	t.Helper()
 	out := &lockedBuf{}
-	oldTerm, oldTTY := systemTerm, stdinIsTerminal
-	t.Cleanup(func() { systemTerm, stdinIsTerminal = oldTerm, oldTTY })
+	oldTerm, oldTTY, oldWait := systemTerm, stdinIsTerminal, waitForKey
+	t.Cleanup(func() { systemTerm, stdinIsTerminal, waitForKey = oldTerm, oldTTY, oldWait })
+	waitForKey = func() {}
 	stdinIsTerminal = func() bool { return true }
 	systemTerm = func() inboxwatch.Term {
 		return inboxwatch.Term{
@@ -206,12 +207,64 @@ func TestPopupCommandCarriesTheConfiguration(t *testing.T) {
 	executablePath = func() (string, error) { return "/opt/bin/lacquer", nil }
 	env := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{pane: "%3", session: "=ops"}, fleetRoster(), envMap(nil))
 	got := strings.Join(env.PopupArgv("a1b2"), " ")
-	want := "/opt/bin/lacquer console inbox popup --inbox /state/inbox.jsonl --overseer-pane %3 --overseer-session =ops a1b2"
+	want := "/opt/bin/lacquer console inbox popup --inbox /state/inbox.jsonl --overseer-pane=%3 --overseer-title= --overseer-session==ops --id-hex=61316232"
 	if got != want {
 		t.Errorf("popup argv\n%s\nwant\n%s", got, want)
 	}
 	if env.Resolve == nil || env.InTmux {
 		t.Errorf("env = %+v", env)
+	}
+	// With reply off in the list, the popup is told so explicitly: it would
+	// otherwise read $LACQUER_OVERSEER_* from the tmux server's environment.
+	// An id written by an agent reaches tmux hex-encoded: nothing in it can be a tmux format.
+	hostile := strings.Join(env.PopupArgv("x#(touch pwned)#{pane_id}\x1b[2J'; rm -rf ~; '"), " ")
+	if strings.Contains(hostile, "#") || strings.Contains(hostile, "pwned") || strings.Contains(hostile, "'") {
+		t.Errorf("agent text reached the popup command: %s", hostile)
+	}
+	off := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{}, fleetRoster(), envMap(nil))
+	if got := strings.Join(off.PopupArgv("a1b2"), " "); got != "/opt/bin/lacquer console inbox popup --inbox /state/inbox.jsonl --overseer-pane= --overseer-title= --overseer-session= --id-hex=61316232" {
+		t.Errorf("popup argv with no overseer:\n%s", got)
+	}
+}
+
+// End to end: the tmux server's environment names a pane, the list has reply
+// off, and the popup it opens must not pick the environment up.
+func TestPopupDoesNotTurnReplyOnFromTheEnvironment(t *testing.T) {
+	path := writeFixtureInbox(t)
+	old := executablePath
+	defer func() { executablePath = old }()
+	executablePath = func() (string, error) { return "lacquer", nil }
+	argv := newWatchEnv(path, false, overseerFlags{}, fleetRoster(), envMap(nil)).PopupArgv("fx01") // id passed hex-encoded
+
+	out := fakeTerminal(t, "fixture decision needed", "q")
+	var stdout, stderr bytes.Buffer
+	env := rawEnv(map[string]string{"XDG_STATE_HOME": t.TempDir(), "LACQUER_OVERSEER_PANE": "%9"})
+	if code := run(append([]string{"console"}, argv[2:]...), env, &stdout, &stderr); code != 0 {
+		t.Fatalf("code %d: %s", code, stderr.String())
+	}
+	if got := plainOut(out.String()); !strings.Contains(got, "r reply (off: no overseer pane)") {
+		t.Errorf("the popup turned reply on from $LACQUER_OVERSEER_PANE:\n%s", got)
+	}
+}
+
+// tmux closes a popup the moment its command exits, so an error must wait for a
+// key or it is never seen.
+func TestPopupErrorWaitsForAKeyOnATerminal(t *testing.T) {
+	waits := 0
+	old, oldTTY := waitForKey, stdinIsTerminal
+	defer func() { waitForKey, stdinIsTerminal = old, oldTTY }()
+	waitForKey = func() { waits++ }
+	var stdout, stderr bytes.Buffer
+	env := rawEnv(map[string]string{"XDG_STATE_HOME": t.TempDir()})
+
+	stdinIsTerminal = func() bool { return true }
+	if code := run([]string{"console", "inbox", "popup"}, env, &stdout, &stderr); code == 0 || waits != 1 || !strings.Contains(stderr.String(), "usage") || !strings.Contains(stderr.String(), "press any key") {
+		t.Errorf("no id on a terminal: code %d waits %d stderr %q", code, waits, stderr.String())
+	}
+	stdinIsTerminal = func() bool { return false }
+	waits = 0
+	if code := run([]string{"console", "inbox", "popup"}, env, &stdout, &stderr); code == 0 || waits != 0 {
+		t.Errorf("off a terminal there is no one to wait for: code %d waits %d", code, waits)
 	}
 }
 

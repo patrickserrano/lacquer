@@ -169,6 +169,9 @@ func (m *Model) tick(now time.Time) []Cmd {
 }
 
 func (m *Model) loaded(ev LoadedEvent) {
+	if ev.At.Before(m.LoadedAt) {
+		return // a slow read that started before the last one applied: it would bring back what that one dropped
+	}
 	m.LoadedAt = ev.At
 	m.LoadErr, m.Warn = ev.Err, ev.Warn
 	if ev.Err != "" {
@@ -247,7 +250,7 @@ func (m *Model) key(k KeyEvent) []Cmd {
 			step = -1
 		}
 		m.Active = (m.Active + step + len(m.Cfg.Tabs)) % len(m.Cfg.Tabs)
-	case KeyEsc, KeyCtrlC:
+	case KeyCtrlC: // not Esc: foxy-inbox's inbox tab ignores it, and a stray one must not close the view
 		m.quit = true
 	case KeyRune:
 		return m.rune(k.Rune, arm)
@@ -285,6 +288,7 @@ func (m *Model) rune(r rune, arm string) []Cmd {
 			return nil
 		}
 		if arm == it.ID {
+			m.Arm = "" // a failed resolve must not leave the next d resolving at once
 			return []Cmd{{Kind: CmdResolve, ID: it.ID}}
 		}
 		m.Arm = it.ID
@@ -436,8 +440,8 @@ func (m Model) View() Frame {
 		set(tabRows+k, line{
 			{" " + mark + " ", ms},
 			{fmt.Sprintf("%4s ", a), as},
-			{it.ID + "  ", fg(dim)},
-			{it.Title, ts},
+			{clean(it.ID) + "  ", fg(dim)},
+			{clean(it.Title), ts},
 		}, i == m.Sel)
 	}
 	if len(m.Items) == 0 {

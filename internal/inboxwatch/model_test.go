@@ -2,6 +2,7 @@ package inboxwatch
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -221,6 +222,11 @@ func TestDTwiceResolvesAndDOnceDoesNot(t *testing.T) {
 	if len(cmds) != 1 || cmds[0].ID != "bbb" {
 		t.Errorf("the second entry's own d d = %v", cmds)
 	}
+	// After a resolve the next d arms again: it must not resolve at once.
+	q, _ := feed(t, model(t, cfgReply, 80, 10, item("aaa", inbox.Action, time.Hour, "first")), "dd")
+	if _, cmds = feed(t, q, "d"); count(cmds, CmdResolve) != 0 {
+		t.Errorf("d d d resolved twice: %v", cmds)
+	}
 	// A key that moves nothing disarms too: d, c, d on the same row is not a resolve.
 	p, _ = feed(t, p, "d")
 	p, _ = feed(t, p, "c")
@@ -273,10 +279,14 @@ func TestCopyEnterAndQuit(t *testing.T) {
 	if len(cmds) != 1 || cmds[0].Kind != CmdPopup || cmds[0].ID != "aaa" {
 		t.Errorf("Enter = %v, want the detail popup", cmds)
 	}
-	for _, q := range []string{"q", "\x03", "\x1b"} {
+	for _, q := range []string{"q", "\x03"} {
 		if p2, _ := feed(t, p, q); !p2.Done() {
 			t.Errorf("%q did not quit", q)
 		}
+	}
+	// foxy-inbox's inbox tab ignores Esc, and a stray one must not close the view.
+	if p2, _ := feed(t, p, "\x1b"); p2.Done() {
+		t.Error("Esc quit the list")
 	}
 	if p2, _ := feed(t, p, "j"); p2.Done() {
 		t.Error("j quit")
@@ -525,4 +535,54 @@ func TestSelectedRowIsPaintedAcrossTheWidth(t *testing.T) {
 	if styleOf(t, sel, "first") != "\x1b[0;1;31;48;5;236m" {
 		t.Errorf("the selected ACTION keeps its red on the selection background: %q", styleOf(t, sel, "first"))
 	}
+}
+
+// A load that started before the last one applied is dropped, so a slow tick
+// read cannot bring back an entry that was just resolved.
+func TestStaleLoadIsDropped(t *testing.T) {
+	m := model(t, cfgReply, 80, 10, item("aaa", inbox.Action, time.Hour, "first"), item("bbb", inbox.Action, time.Hour, "second"))
+	p, _ := m.Update(LoadedEvent{Data: Data{Items: []Item{item("bbb", inbox.Action, time.Hour, "second")}}, At: t0.Add(2 * time.Second)})
+	p, _ = p.Update(LoadedEvent{Data: Data{Items: []Item{item("aaa", inbox.Action, time.Hour, "first"), item("bbb", inbox.Action, time.Hour, "second")}}, At: t0.Add(time.Second)})
+	if got := p.(Model).Items; len(got) != 1 || got[0].ID != "bbb" {
+		t.Errorf("the older read was applied: %+v", got)
+	}
+	p, _ = p.Update(LoadedEvent{Data: Data{Items: []Item{item("ccc", inbox.Action, time.Hour, "third")}}, At: t0.Add(2 * time.Second)})
+	if got := p.(Model).Items; len(got) != 1 || got[0].ID != "ccc" {
+		t.Errorf("a read at the same instant must still apply: %+v", got)
+	}
+}
+
+// Entry text is written by agents. Nothing in it may reach the terminal as a
+// control: not a mode switch, not an OSC 52 clipboard write, not a tab or a
+// newline that breaks the layout. The list and the popup both draw it.
+func TestControlCharactersInEntryTextNeverReachTheTerminal(t *testing.T) {
+	evil := "a\x1b[?1049lb\x1b[?1000lc\x1b]52;c;QUJD\x07d\te\nf\x7fg\u009bh\u009d"
+	own := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	check := func(what string, f Frame) {
+		t.Helper()
+		all := own.ReplaceAllString(strings.Join(f.Lines, "\n"), "") // our own colour codes are the only ESCs allowed
+		for _, bad := range []string{"\x1b", "\x07", "\t", "\u009b", "\u009d", "\x7f"} {
+			if strings.Contains(all, bad) {
+				t.Errorf("%s: %q reached the terminal:\n%q", what, bad, all)
+			}
+		}
+	}
+	it := item("id\x1b[2J", inbox.Action, time.Hour, evil)
+	it.Ref = evil
+	m := model(t, cfgReply, 120, 10, it)
+	check("list", m.View())
+	if got := plainAll(m.View()); !strings.Contains(got, "a^[[?1049lb") {
+		t.Errorf("the ESC should show as ^[ :\n%s", got)
+	}
+	// A note with the id in it (the arm bar) too.
+	p, _ := feed(t, m, "d")
+	check("list bar", p.View())
+
+	d := loadedDetail(t, true, inbox.Entry{ID: "id\x1b[2J", Type: inbox.Action, Title: evil, Body: evil + "\n" + evil, Project: evil, Ref: evil})
+	check("popup", d.View())
+	var q Program = d
+	q, _ = q.Update(EntryEvent{Entry: inbox.Entry{ID: "x", Type: inbox.Action, Title: "t"}, Found: true, Reply: Reply{At: evil, Text: evil}, HasReply: true})
+	check("popup reply", q.View())
+	q, _ = feed(t, q, "r")
+	check("popup reply box", q.View())
 }

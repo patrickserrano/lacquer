@@ -58,6 +58,10 @@ type ResizeEvent struct{ W, H int }
 // TickEvent is the clock; models decide from it when to refresh.
 type TickEvent struct{ Now time.Time }
 
+// maxPartial is how long an unfinished escape sequence may grow before it is
+// taken for garbage and dropped.
+const maxPartial = 64
+
 func rk(r rune) KeyEvent { return KeyEvent{Key: KeyRune, Rune: r} }
 
 // ParseInput decodes terminal input: keys, and xterm SGR mouse reports
@@ -67,6 +71,7 @@ func rk(r rune) KeyEvent { return KeyEvent{Key: KeyRune, Rune: r} }
 // A sequence cut off at the end of b is returned in rest for the caller to
 // prepend to the next read. A lone ESC is such a sequence until flush says no
 // more bytes are coming, which is how Esc is told from the start of an arrow.
+// flush turns nothing else into a key: an unfinished ESC [ stays put.
 func ParseInput(b []byte, flush bool) (evs []Event, rest []byte) {
 	for i := 0; i < len(b); {
 		c := b[i]
@@ -83,8 +88,11 @@ func ParseInput(b []byte, flush bool) (evs []Event, rest []byte) {
 			case '[':
 				ev, n, ok := parseCSI(b[i+2:])
 				if !ok {
-					if flush {
-						return append(evs, KeyEvent{Key: KeyEsc}), nil
+					// Kept even on flush: a report can arrive in two reads (ssh, a
+					// loaded machine), and dropping its head would leave its tail to
+					// be read as keys. Only a runaway sequence is given up on.
+					if len(b)-i > maxPartial {
+						return evs, nil
 					}
 					return evs, b[i:]
 				}
@@ -94,9 +102,6 @@ func ParseInput(b []byte, flush bool) (evs []Event, rest []byte) {
 				i += 2 + n
 			case 'O': // SS3: application-mode arrows
 				if i+2 >= len(b) {
-					if flush {
-						return append(evs, KeyEvent{Key: KeyEsc}), nil
-					}
 					return evs, b[i:]
 				}
 				if k, ok := csiKey(b[i+2], ""); ok {

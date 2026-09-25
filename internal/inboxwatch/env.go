@@ -134,7 +134,6 @@ type Cmd struct {
 	Kind CmdKind
 	ID   string
 	Text string // a URL to open, text to copy, or a reply
-	Note string // the entry's title, for a reply's tag
 }
 
 type CmdKind int
@@ -306,8 +305,11 @@ func (e Env) entry(id string) EntryEvent {
 	return ev
 }
 
-// reply types "[inbox <id>: <title>] <text>" into the overseer pane, exactly as
-// if the operator had typed it there, then records it. The record is written
+// reply types "[inbox <id>] <text>" into the overseer pane, exactly as if the
+// operator had typed it there, then records it. The entry's title is left out on
+// purpose: it is agent-written text, and typed here it would arrive in the
+// overseer's input looking like the operator's own words. The overseer looks the
+// title up by id. (foxy-inbox made the same change, 4a8d084.) The record is written
 // only after both keystrokes went in: a reply the overseer never got must not
 // read as answered.
 func (e Env) reply(c Cmd) Event {
@@ -318,7 +320,7 @@ func (e Env) reply(c Cmd) Event {
 	if err != nil {
 		return RepliedEvent{Note: err.Error()}
 	}
-	msg := fmt.Sprintf("[inbox %s: %s] %s", c.ID, c.Note, c.Text)
+	msg := fmt.Sprintf("[inbox %s] %s", clean(c.ID), c.Text)
 	if _, err := e.Cmd.Run("", "tmux", "send-keys", "-t", pane, "-l", msg); err != nil {
 		return RepliedEvent{Note: "tmux send-keys: " + err.Error()}
 	}
@@ -335,9 +337,18 @@ func (e Env) popup(id string) Event {
 	if !e.InTmux {
 		return DoneEvent{Kind: CmdPopup, Note: "the detail view is a tmux popup, and this is not tmux"}
 	}
+	cmd := shellJoin(e.PopupArgv(id))
+	if strings.Contains(cmd, "#") {
+		// tmux expands formats in the command on some versions and not on others
+		// (3.7c passes it through untouched, so doubling every # would corrupt it
+		// there), which leaves no escaping that is right on both. The command
+		// carries no agent-written text (the id goes hex-encoded), so a # here is
+		// in a path or setting the operator chose, and is refused rather than guessed.
+		return DoneEvent{Kind: CmdPopup, ID: id, Note: "cannot open the popup: a # in the inbox path or overseer setting cannot be passed to tmux safely"}
+	}
 	args := []string{"display-popup", "-w", "80%", "-h", "70%",
-		"-T", fmt.Sprintf(" inbox %s  (r reply · d resolve · o link · c copy · q close) ", id),
-		"-E", shellJoin(e.PopupArgv(id))}
+		"-T", formatQuote(fmt.Sprintf(" inbox %s  (r reply · d resolve · o link · c copy · q close) ", clean(id))),
+		"-E", cmd}
 	if _, err := e.Cmd.Run("", "tmux", args...); err != nil {
 		return DoneEvent{Kind: CmdPopup, ID: id, Note: "tmux display-popup: " + err.Error()}
 	}
@@ -349,6 +360,12 @@ func (e Env) harvest() Event {
 	res := producers.HarvestMerges(producers.HarvestOptions{InboxPath: e.InboxPath, Roster: e.Roster, Now: at, Run: e.Run})
 	return HarvestedEvent{Added: len(res.Added), Unavailable: res.Unavailable, At: at}
 }
+
+// formatQuote escapes what tmux would expand in a format string. -T is one on
+// every version, so an id holding "#(cmd)" would run cmd when the popup opened
+// (verified on tmux 3.7c), and the id comes from a file any agent can write.
+// (foxy-inbox's tmux_literal.) The -E command is handled differently, see popup.
+func formatQuote(s string) string { return strings.ReplaceAll(s, "#", "##") }
 
 // shellJoin quotes argv for the shell tmux runs a popup command with.
 func shellJoin(argv []string) string {

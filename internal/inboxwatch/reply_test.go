@@ -87,12 +87,12 @@ func envFor(t *testing.T, o Overseer, c Commander) (Env, string) {
 func TestReplyTypesTheTaggedLineIntoTheOverseerPaneAndRecordsIt(t *testing.T) {
 	fc := &fakeCmd{}
 	env, path := envFor(t, Overseer{Pane: "%7"}, fc)
-	ev := env.Exec(Cmd{Kind: CmdReply, ID: "a1b2c3d4e5", Note: "ship the widget?", Text: "yes, ship it"}).(RepliedEvent)
+	ev := env.Exec(Cmd{Kind: CmdReply, ID: "a1b2c3d4e5", Text: "yes, ship it"}).(RepliedEvent)
 	if !ev.OK {
 		t.Fatalf("reply failed: %s", ev.Note)
 	}
 	want := []string{
-		"tmux send-keys -t %7 -l [inbox a1b2c3d4e5: ship the widget?] yes, ship it",
+		"tmux send-keys -t %7 -l [inbox a1b2c3d4e5] yes, ship it",
 		"tmux send-keys -t %7 Enter",
 	}
 	if strings.Join(fc.calls, "\n") != strings.Join(want, "\n") {
@@ -109,7 +109,7 @@ func TestFailedSendIsNotRecorded(t *testing.T) {
 	for _, failing := range []string{"tmux send-keys"} {
 		fc := &fakeCmd{fail: map[string]error{failing: errors.New("can't find pane: %7")}}
 		env, path := envFor(t, Overseer{Pane: "%7"}, fc)
-		ev := env.Exec(Cmd{Kind: CmdReply, ID: "a", Note: "t", Text: "x"}).(RepliedEvent)
+		ev := env.Exec(Cmd{Kind: CmdReply, ID: "a", Text: "x"}).(RepliedEvent)
 		if ev.OK || !strings.Contains(ev.Note, "can't find pane") {
 			t.Errorf("ev = %+v", ev)
 		}
@@ -125,7 +125,7 @@ func TestFailedSendIsNotRecorded(t *testing.T) {
 func TestUnconfiguredOverseerDisablesReply(t *testing.T) {
 	fc := &fakeCmd{}
 	env, path := envFor(t, Overseer{}, fc)
-	ev := env.Exec(Cmd{Kind: CmdReply, ID: "a", Note: "t", Text: "x"}).(RepliedEvent)
+	ev := env.Exec(Cmd{Kind: CmdReply, ID: "a", Text: "x"}).(RepliedEvent)
 	if ev.OK || !strings.HasPrefix(ev.Note, "reply disabled: no overseer pane configured") {
 		t.Errorf("ev = %+v", ev)
 	}
@@ -188,7 +188,7 @@ func TestOverseerFoundByTitleNeverGuessed(t *testing.T) {
 	// A reply through a title that is ambiguous types nothing.
 	fc = &fakeCmd{out: map[string]string{list: "%4\tlead\n%5\tlead\n"}}
 	env, _ := envFor(t, Overseer{Title: "lead"}, fc)
-	if ev := env.Exec(Cmd{Kind: CmdReply, ID: "a", Note: "t", Text: "x"}).(RepliedEvent); ev.OK || len(fc.calls) != 1 {
+	if ev := env.Exec(Cmd{Kind: CmdReply, ID: "a", Text: "x"}).(RepliedEvent); ev.OK || len(fc.calls) != 1 {
 		t.Errorf("ev %+v calls %v", ev, fc.calls)
 	}
 }
@@ -351,5 +351,46 @@ func TestHarvestRecordsMergesThroughProducersAndReportsFailure(t *testing.T) {
 	ev = env.Exec(Cmd{Kind: CmdHarvest}).(HarvestedEvent)
 	if len(ev.Unavailable) != 1 || !strings.Contains(ev.Unavailable[0], "HTTP 502") {
 		t.Errorf("a failed harvest: %+v", ev)
+	}
+}
+
+// -T is a tmux format on every version: an id from the inbox file holding
+// #(cmd) would run cmd when the popup opened. (On tmux 3.7c a raw #(touch f) in
+// -T created f; the doubled form did not.) The -E command is not escaped, because
+// tmux versions disagree on whether they expand it, so nothing agent-written may
+// be in it, and a # in what is left is refused.
+func TestPopupTitleEscapesTmuxFormatsAndCommandCarriesNoHash(t *testing.T) {
+	fc := &fakeCmd{}
+	env := Env{Cmd: fc, InTmux: true, PopupArgv: func(id string) []string { return []string{"lacquer", "popup", "--id-hex=" + "78232874"} }}
+	env.Exec(Cmd{Kind: CmdPopup, ID: "x#(touch pwned)#{pane_id}#[fg=red]\x1b[2J"})
+	call := fc.calls[0]
+	i := strings.Index(call, " -E ")
+	title, cmd := call[:i], call[i:]
+	if !strings.Contains(title, " inbox x##(touch pwned)##{pane_id}##[fg=red]^[[2J  (r reply") {
+		t.Errorf("title not escaped: %q", title)
+	}
+	if left := strings.ReplaceAll(title, "##", ""); strings.Contains(left, "#") {
+		t.Errorf("title has an unescaped #: %q", title)
+	}
+	if strings.Contains(cmd, "#") {
+		t.Errorf("the command holds a #: %q", cmd)
+	}
+
+	// A # the operator put in a path is refused, with a note, and tmux is not run.
+	fc = &fakeCmd{}
+	env = Env{Cmd: fc, InTmux: true, PopupArgv: func(id string) []string { return []string{"lacquer", "--inbox", "/tmp/a#b"} }}
+	ev := env.Exec(Cmd{Kind: CmdPopup, ID: "x"}).(DoneEvent)
+	if ev.OK || !strings.Contains(ev.Note, "cannot open the popup") || len(fc.calls) != 0 {
+		t.Errorf("ev %+v calls %v", ev, fc.calls)
+	}
+}
+
+// The title is agent-written; the reply tag carries the id only.
+func TestReplyTagCarriesTheIDNotTheTitle(t *testing.T) {
+	fc := &fakeCmd{}
+	env, _ := envFor(t, Overseer{Pane: "%7"}, fc)
+	env.Exec(Cmd{Kind: CmdReply, ID: "a1\x1b[2J", Text: "yes"})
+	if got, want := fc.calls[0], "tmux send-keys -t %7 -l [inbox a1^[[2J] yes"; got != want {
+		t.Errorf("typed %q, want %q", got, want)
 	}
 }

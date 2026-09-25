@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -31,14 +32,11 @@ func (o overseerFlags) overseer() inboxwatch.Overseer {
 
 // argv is the flags that carry this configuration to a process tmux starts,
 // which does not inherit them: a popup is run by the tmux server, not by us.
+// All three are passed even when empty. The popup's flags default to
+// $LACQUER_OVERSEER_*, read from the tmux server's environment, so leaving one
+// off could switch reply on in the popup when the list has it off.
 func (o overseerFlags) argv() []string {
-	var a []string
-	for _, f := range [][2]string{{"--overseer-pane", o.pane}, {"--overseer-title", o.title}, {"--overseer-session", o.session}} {
-		if f[1] != "" {
-			a = append(a, f[0], f[1])
-		}
-	}
-	return a
+	return []string{"--overseer-pane=" + o.pane, "--overseer-title=" + o.title, "--overseer-session=" + o.session}
 }
 
 func addOverseerFlags(fs *flag.FlagSet, getenv func(string) string) *overseerFlags {
@@ -65,8 +63,10 @@ func newWatchEnv(inboxPath string, isDefault bool, o overseerFlags, roster fleet
 		Resolve: inbox.Resolve,
 		InTmux:  getenv("TMUX") != "",
 		PopupArgv: func(id string) []string {
+			// The id is agent-written and goes to tmux as part of a command tmux may
+			// expand as a format, so it travels hex-encoded: no # can be in it.
 			argv := []string{exe, "console", "inbox", "popup", "--inbox", inboxPath}
-			return append(append(argv, o.argv()...), id)
+			return append(append(argv, o.argv()...), "--id-hex="+hex.EncodeToString([]byte(id)))
 		},
 	}
 }
@@ -93,16 +93,36 @@ func isInboxPopup(args []string) bool {
 }
 
 // runInboxPopup is the hidden `lacquer console inbox popup [flags] <id>`, the
-// detail view that tmux display-popup runs.
+// detail view that tmux display-popup runs. A popup is closed by tmux the moment
+// its command exits, so an error printed and then exited on is never seen: on a
+// terminal it waits for a key first.
 func runInboxPopup(args []string, getenv func(string) string, stderr io.Writer) int {
+	code := popupMain(args, getenv, stderr)
+	if code != 0 && stdinIsTerminal() {
+		fmt.Fprint(stderr, "\n(press any key to close)")
+		waitForKey()
+	}
+	return code
+}
+
+func popupMain(args []string, getenv func(string) string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("inbox popup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	inboxFlag := fs.String("inbox", "", "")
+	idHex := fs.String("id-hex", "", "the entry id, hex-encoded (what the list passes)")
 	o := addOverseerFlags(fs, getenv)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() != 1 {
+	id := fs.Arg(0)
+	switch {
+	case *idHex != "":
+		raw, err := hex.DecodeString(*idHex)
+		if err != nil || fs.NArg() != 0 {
+			return fail(stderr, fmt.Errorf("inbox popup: --id-hex is not hex, or an id was also given"))
+		}
+		id = string(raw)
+	case fs.NArg() != 1:
 		return fail(stderr, fmt.Errorf("usage: lacquer console inbox popup [--inbox F] <id>"))
 	}
 	inboxPath, isDefault, err := inbox.Path(*inboxFlag, getenv)
@@ -113,9 +133,18 @@ func runInboxPopup(args []string, getenv func(string) string, stderr io.Writer) 
 		return fail(stderr, fmt.Errorf("inbox popup needs a terminal; it is what a tmux popup runs"))
 	}
 	env := newWatchEnv(inboxPath, isDefault, *o, fleet.Roster{}, getenv)
-	d := inboxwatch.NewDetail(fs.Arg(0), env.Overseer.Configured(), 0, 0)
+	d := inboxwatch.NewDetail(id, env.Overseer.Configured(), 0, 0)
 	if err := inboxwatch.Run(systemTerm(), d, env); err != nil {
 		return fail(stderr, err)
 	}
 	return 0
+}
+
+// waitForKey blocks for one key press on the terminal.
+var waitForKey = func() {
+	fd := int(os.Stdin.Fd())
+	if old, err := term.MakeRaw(fd); err == nil {
+		defer term.Restore(fd, old)
+	}
+	os.Stdin.Read(make([]byte, 1))
 }
