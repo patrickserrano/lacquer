@@ -110,10 +110,12 @@ on a refresh:
   It is not a review thread. The comment and the overseer send are independent, and
   the result says which happened.
 - **A `file:` ref** (`file:/abs/path` or `file:~/path`): the file as the agent will
-  act on it. Only a regular file that resolves under `$HOME`, with no dot-directory
-  or dot-file on the way (`~/.ssh`, `~/.config/op`, `~/.netrc`) and not `~/Library`,
-  except `.worktrees` and `.claude/plans|worktrees`, where briefs live. At most 1 MB
-  is shown, with a marker when it is longer.
+  act on it. Only a regular file under `~/Developer` or `~/.claude/plans` (compared by
+  directory identity, so case and Unicode spelling do not matter, and a symlink out is
+  refused as its target is); everything else says "outside the plan roots". Under a
+  root, a dot-directory or dot-file (`.ssh`, `.env`, `.git`) is refused, except
+  `.worktrees` and `.claude/worktrees`, where briefs live. At most 1 MB is shown, with
+  a marker when it is longer.
 
 Each diff fetched is also written for the phone mirror to
 `<inbox dir>/diffs/<owner>_<repo>_<n>_<headsha>.diff`: the sanitised diff and nothing

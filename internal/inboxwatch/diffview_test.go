@@ -692,83 +692,136 @@ func write(t *testing.T, path, content string) {
 func TestPlanRefusals(t *testing.T) {
 	e, home := planEnv(t)
 	outside := t.TempDir()
+	dev := filepath.Join(home, "Developer")
 	write(t, filepath.Join(outside, "secret.txt"), "TOP-SECRET")
 	write(t, filepath.Join(home, ".ssh", "id_rsa"), "TOP-SECRET")
 	write(t, filepath.Join(home, ".config", "op", "x"), "TOP-SECRET")
 	write(t, filepath.Join(home, ".netrc"), "TOP-SECRET")
 	write(t, filepath.Join(home, ".claude", ".credentials.json"), "TOP-SECRET")
+	write(t, filepath.Join(home, ".claude", "settings.json"), "TOP-SECRET")
 	write(t, filepath.Join(home, "Library", "Keychains", "k"), "TOP-SECRET")
-	write(t, filepath.Join(home, "ok", "plan.md"), "fine")
+	write(t, filepath.Join(home, "Documents", "taxes.md"), "TOP-SECRET")
+	write(t, filepath.Join(home, "Developer-evil", "x.md"), "TOP-SECRET") // looks like a root, is not one
+	write(t, filepath.Join(dev, "x", ".ssh", "id"), "TOP-SECRET")
+	write(t, filepath.Join(dev, "x", ".env"), "TOP-SECRET")
+	write(t, filepath.Join(dev, "x", ".git", "config"), "TOP-SECRET")
+	write(t, filepath.Join(dev, "ok", "plan.md"), "fine")
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	must(os.Symlink(outside, filepath.Join(home, "escape")))                                  // a link out of $HOME
-	must(os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(home, "ok", "leaf"))) // a leaf link out
-	must(os.Symlink(filepath.Join(home, ".ssh"), filepath.Join(home, "notes")))               // a link into a dot-dir
-	must(os.Mkdir(filepath.Join(home, "adir"), 0o755))
-	must(syscall.Mkfifo(filepath.Join(home, "fifo"), 0o644))
+	must(os.Symlink(outside, filepath.Join(dev, "escape")))                                  // a link out of the roots
+	must(os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(dev, "ok", "leaf"))) // a leaf link out
+	must(os.Symlink(filepath.Join(home, "Documents"), filepath.Join(dev, "docs")))           // a link to $HOME outside the roots
+	must(os.Symlink(filepath.Join(home, ".ssh"), filepath.Join(dev, "notes")))               // a link into a dot-dir
+	// APFS is case-insensitive: this reaches ~/Library under another spelling.
+	must(os.Symlink(filepath.Join(home, "library", "Keychains"), filepath.Join(dev, "lnk")))
+	must(os.Mkdir(filepath.Join(dev, "adir"), 0o755))
+	must(syscall.Mkfifo(filepath.Join(dev, "fifo"), 0o644))
 
 	for name, ref := range map[string]string{
-		"outside $HOME":         "file:" + filepath.Join(outside, "secret.txt"),
-		"dotdot out of $HOME":   "file:" + home + "/ok/../../" + filepath.Base(outside) + "/secret.txt",
-		"symlink dir escaping":  "file:" + filepath.Join(home, "escape", "secret.txt"),
-		"symlink leaf escaping": "file:" + filepath.Join(home, "ok", "leaf"),
-		"symlink into dot-dir":  "file:" + filepath.Join(home, "notes", "id_rsa"),
-		"dot-dir .ssh":          "file:~/.ssh/id_rsa",
-		"dot-dir .config/op":    "file:~/.config/op/x",
-		"dot-file leaf":         "file:~/.netrc",
-		".claude credentials":   "file:~/.claude/.credentials.json",
-		"~/Library":             "file:~/Library/Keychains/k",
-		"a directory":           "file:~/adir",
-		"a fifo":                "file:~/fifo",
-		"home itself":           "file:~",
-		"a relative path":       "file:ok/plan.md",
-		"empty":                 "file:",
-		"missing":               "file:~/nope.md",
+		"outside $HOME":          "file:" + filepath.Join(outside, "secret.txt"),
+		"dotdot out of the root": "file:" + dev + "/ok/../../Documents/taxes.md",
+		"symlink dir escaping":   "file:" + filepath.Join(dev, "escape", "secret.txt"),
+		"symlink leaf escaping":  "file:" + filepath.Join(dev, "ok", "leaf"),
+		"symlink to Documents":   "file:" + filepath.Join(dev, "docs", "taxes.md"),
+		"symlink into dot-dir":   "file:" + filepath.Join(dev, "notes", "id_rsa"),
+		"symlink to lowercase":   "file:~/Developer/lnk/k",
+		"dot-dir .ssh":           "file:~/.ssh/id_rsa",
+		"dot-dir .config/op":     "file:~/.config/op/x",
+		"dot-file leaf":          "file:~/.netrc",
+		".claude credentials":    "file:~/.claude/.credentials.json",
+		".claude settings":       "file:~/.claude/settings.json",
+		"~/Library":              "file:~/Library/Keychains/k",
+		"~/library":              "file:~/library/Keychains/k",
+		"~/LIBRARY":              "file:~/LIBRARY/Keychains/k",
+		"~/Documents":            "file:~/Documents/taxes.md",
+		"a lookalike root":       "file:~/Developer-evil/x.md",
+		"dot-dir under a root":   "file:~/Developer/x/.ssh/id",
+		"dot-file under a root":  "file:~/Developer/x/.env",
+		".git under a root":      "file:~/Developer/x/.git/config",
+		"a directory":            "file:~/Developer/adir",
+		"a fifo":                 "file:~/Developer/fifo",
+		"a root itself":          "file:~/Developer",
+		"home itself":            "file:~",
+		"a relative path":        "file:Developer/ok/plan.md",
+		"empty":                  "file:",
+		"missing":                "file:~/Developer/nope.md",
 	} {
 		ev := e.Exec(Cmd{Kind: CmdPlan, Ref: ref}).(PlanEvent)
 		if ev.Err == "" || ev.Text != "" || strings.Contains(ev.Err+ev.Text, "TOP-SECRET") {
 			t.Errorf("%s: %q was not refused: %+v", name, ref, ev)
 		}
 	}
-	if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/ok/plan.md"}).(PlanEvent); ev.Err != "" || ev.Text != "fine" {
+	if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/Documents/taxes.md"}).(PlanEvent); !strings.Contains(ev.Err, "outside the plan roots") {
+		t.Errorf("the refusal says why: %q", ev.Err)
+	}
+	if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/Developer/ok/plan.md"}).(PlanEvent); ev.Err != "" || ev.Text != "fine" {
 		t.Errorf("the control case is readable: %+v", ev)
 	}
 }
 
-func TestPlanAllowsTheFleetsOwnDotDirectories(t *testing.T) {
+func TestPlanAllowsOnlyThePlanRootsAndTheFleetsOwnDotDirectories(t *testing.T) {
 	e, home := planEnv(t)
-	write(t, filepath.Join(home, "Developer", "harness", ".worktrees", "u.brief.md"), "brief")
+	write(t, filepath.Join(home, "Developer", "fleet-ops", "briefs", "b.md"), "brief")
+	write(t, filepath.Join(home, "Developer", "harness", ".worktrees", "u.brief.md"), "wt brief")
+	write(t, filepath.Join(home, "Developer", "r", ".claude", "worktrees", "w", "plan.md"), "wt plan")
 	write(t, filepath.Join(home, ".claude", "plans", "p.md"), "plan")
-	write(t, filepath.Join(home, ".claude", "settings.json"), "secret")
+	write(t, filepath.Join(home, "Developer", "r", ".claude", "settings.local.json"), "no")
 	for ref, want := range map[string]string{
-		"file:~/Developer/harness/.worktrees/u.brief.md": "brief",
-		"file:~/.claude/plans/p.md":                      "plan",
+		"file:~/Developer/fleet-ops/briefs/b.md":            "brief",
+		"file:" + home + "/Developer/fleet-ops/briefs/b.md": "brief",
+		"file:~/Developer/harness/.worktrees/u.brief.md":    "wt brief",
+		"file:~/Developer/r/.claude/worktrees/w/plan.md":    "wt plan",
+		"file:~/.claude/plans/p.md":                         "plan",
+		"file:~/Developer/fleet-ops/briefs/../briefs/b.md":  "brief",
 	} {
 		if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: ref}).(PlanEvent); ev.Err != "" || ev.Text != want {
 			t.Errorf("%s: %+v", ref, ev)
 		}
 	}
-	if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/.claude/settings.json"}).(PlanEvent); ev.Err == "" {
-		t.Error("the rest of ~/.claude is not allowed")
+	if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/Developer/r/.claude/settings.local.json"}).(PlanEvent); ev.Err == "" {
+		t.Error("the rest of a project's .claude is not allowed")
+	}
+	// A symlink under a root to a file in another root is fine: it is the same file.
+	if err := os.Symlink(filepath.Join(home, ".claude", "plans", "p.md"), filepath.Join(home, "Developer", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/Developer/link.md"}).(PlanEvent); ev.Err != "" || ev.Text != "plan" {
+		t.Errorf("link between roots: %+v", ev)
+	}
+}
+
+// The check is by inode, so a spelling of a root that differs in case (APFS folds
+// it) is the same directory and is allowed. Where the file system is case
+// sensitive there is no such spelling to test.
+func TestPlanRootsAreMatchedByIdentityNotSpelling(t *testing.T) {
+	e, home := planEnv(t)
+	write(t, filepath.Join(home, "Developer", "fleet-ops", "briefs", "b.md"), "brief")
+	if _, err := os.Stat(filepath.Join(home, "developer", "fleet-ops")); err != nil {
+		t.Skip("this file system is case sensitive")
+	}
+	for _, ref := range []string{"file:~/developer/fleet-ops/briefs/b.md", "file:~/DEVELOPER/fleet-ops/briefs/b.md"} {
+		if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: ref}).(PlanEvent); ev.Err != "" || ev.Text != "brief" {
+			t.Errorf("%s: %+v", ref, ev)
+		}
 	}
 }
 
 func TestPlanViewIsReadOnlyScrollableAndSanitised(t *testing.T) {
 	e, home := planEnv(t)
 	body := "# Plan\n\tstep one\x1b[2J\n" + strings.Repeat("line\n", 60) + "END " + strings.Repeat("w", 200) + "\n"
-	write(t, filepath.Join(home, "p.md"), body)
-	d := loadedDetail(t, true, inbox.Entry{ID: "a1", Type: inbox.Action, Title: "t", Ref: "file:~/p.md"})
+	write(t, filepath.Join(home, "Developer", "p.md"), body)
+	d := loadedDetail(t, true, inbox.Entry{ID: "a1", Type: inbox.Action, Title: "t", Ref: "file:~/Developer/p.md"})
 	p, cmds := feed(t, d, "v")
 	if len(cmds) != 1 || cmds[0].Kind != CmdPlan {
 		t.Fatal(cmds)
 	}
 	p, _ = p.Update(e.Exec(cmds[0]))
 	got := plainAll(p.View())
-	if !strings.Contains(got, "PLAN  ~/p.md  (read-only)") || !strings.Contains(got, "    step one^[[2J") {
+	if !strings.Contains(got, "PLAN  ~/Developer/p.md  (read-only)") || !strings.Contains(got, "    step one^[[2J") {
 		t.Errorf("plan:\n%s", got)
 	}
 	for _, l := range p.View().Lines {
@@ -796,8 +849,8 @@ func TestPlanViewIsReadOnlyScrollableAndSanitised(t *testing.T) {
 
 func TestPlanTruncationIsSaid(t *testing.T) {
 	e, home := planEnv(t)
-	write(t, filepath.Join(home, "big.md"), strings.Repeat("0123456789abcdef\n", 100000)) // 1.7 MB
-	ev := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/big.md"}).(PlanEvent)
+	write(t, filepath.Join(home, "Developer", "big.md"), strings.Repeat("0123456789abcdef\n", 100000)) // 1.7 MB
+	ev := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/Developer/big.md"}).(PlanEvent)
 	if !ev.Cut || len(ev.Text) > maxPlanShown || !strings.HasSuffix(ev.Text, "\n") {
 		t.Fatalf("cut=%v len=%d", ev.Cut, len(ev.Text))
 	}
@@ -807,9 +860,129 @@ func TestPlanTruncationIsSaid(t *testing.T) {
 	if got := plainAll(v.view(80, 20)); !strings.Contains(got, PlanTruncated) {
 		t.Errorf("the view ends with the marker:\n%s", got)
 	}
-	write(t, filepath.Join(home, "small.md"), "x\n")
-	small := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/small.md"}).(PlanEvent)
+	write(t, filepath.Join(home, "Developer", "small.md"), "x\n")
+	small := e.Exec(Cmd{Kind: CmdPlan, Ref: "file:~/Developer/small.md"}).(PlanEvent)
 	if small.Cut {
 		t.Error("a small file is not marked cut")
+	}
+}
+
+// --- review round: the pieces #497's review found -------------------------
+
+func TestCacheNeverExceedsItsCapEvenForOneHugeLine(t *testing.T) {
+	e := diffEnv(t, newGH(sha1, strings.Repeat("y", 300000)), &fakeCmd{})
+	e.Exec(Cmd{Kind: CmdDiff, Ref: "o/r#12"})
+	b, err := os.ReadFile(filepath.Join(e.diffDir(), DiffCacheName(GitHubRef{Repo: "o/r", Number: 12}, sha1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) > 256*1024 || !strings.HasSuffix(string(b), "\n"+DiffCacheMarker+"\n") {
+		t.Errorf("len = %d (cap %d), tail %q", len(b), 256*1024, b[max(len(b)-60, 0):])
+	}
+}
+
+const renameDiff = `diff --git a/x b/y.go b/z name.go
+similarity index 90%
+rename from x b/y.go
+rename to z name.go
+index 111..222 100644
+--- a/x b/y.go
++++ b/z name.go
+@@ -1,2 +1,2 @@
+ keep
+-gone
++here
+diff --git "a/q\303\251.txt" "b/q\303\251.txt"
+--- "a/q\303\251.txt"
++++ "b/q\303\251.txt"
+@@ -1 +1 @@
+-was
++is
+`
+
+func TestARemovedLineInARenamedFileKeepsTheOldPath(t *testing.T) {
+	pd := parseDiff(renameDiff)
+	get := func(text string) diffLine {
+		for _, l := range pd.Lines {
+			if l.Text == text {
+				return l
+			}
+		}
+		t.Fatalf("no line %q", text)
+		return diffLine{}
+	}
+	if l := get("-gone"); l.Path != "z name.go" || l.OldPath != "x b/y.go" {
+		t.Errorf("removed line: %+v", l)
+	}
+	if l := get("+here"); l.Path != "z name.go" {
+		t.Errorf("added line: %+v", l)
+	}
+	if p, n, side := get("-gone").target(); p != "x b/y.go" || n != 2 || side != "old" {
+		t.Errorf("target of the removed line = %q %d %s", p, n, side)
+	}
+	if p, n, side := get("+here").target(); p != "z name.go" || n != 2 || side != "new" {
+		t.Errorf("target of the added line = %q %d %s", p, n, side)
+	}
+	// git's quoting is undone, for both names.
+	if l := get("-was"); l.OldPath != "q\u00e9.txt" || l.Path != "q\u00e9.txt" {
+		t.Errorf("quoted names: %+v", l)
+	}
+	// And it reaches the command the operator's keypress sends.
+	p, _ := openDiff(t, diffEnv(t, newGH(sha1, renameDiff), &fakeCmd{}), "o/r#12")
+	p = moveTo(t, p, "-gone")
+	p, _ = feed(t, p, "r")
+	_, cmds := feed(t, p, "why\r")
+	if len(cmds) != 1 || cmds[0].Path != "x b/y.go" || cmds[0].Side != "old" || cmds[0].Line != 2 {
+		t.Errorf("cmds = %+v", cmds)
+	}
+}
+
+func TestOnlyARemovedLineIsMarkedOldForTheOverseer(t *testing.T) {
+	for _, tc := range []struct{ side, want string }{
+		{"old", "[inbox a1] src/a.go:7 (old) why"},
+		{"new", "[inbox a1] src/a.go:7 why"},
+	} {
+		c := &fakeCmd{}
+		cmd := lineCmd()
+		cmd.Side, cmd.Line, cmd.Text = tc.side, 7, "why"
+		diffEnv(t, newGH(sha1, ""), c).Exec(cmd)
+		if got := c.calls[indexOf(c.calls, "tmux send-keys -t %1 -l")]; got != "tmux send-keys -t %1 -l "+tc.want {
+			t.Errorf("%s: overseer got %q, want %q", tc.side, got, tc.want)
+		}
+	}
+}
+
+func TestStaleTempFilesAreSweptAndNothingElse(t *testing.T) {
+	e := diffEnv(t, newGH(sha1, sampleDiff), &fakeCmd{})
+	dir := e.diffDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	age := func(name string, by time.Duration) {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-by)
+		if err := os.Chtimes(p, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	age(".write-123456.tmp", time.Hour)  // stale: swept
+	age(".write-777.tmp", time.Minute)   // in use, maybe: kept
+	age(".write-abc.tmp", time.Hour)     // not the pattern CreateTemp makes: kept
+	age("notes.tmp", time.Hour)          // not ours: kept
+	age(".write-123456.diff", time.Hour) // not ours: kept
+	e.Exec(Cmd{Kind: CmdDiff, Ref: "o/r#12"})
+	got := strings.Join(cacheFiles(t, e), " ")
+	for _, gone := range []string{".write-123456.tmp"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("%s survived: %s", gone, got)
+		}
+	}
+	for _, kept := range []string{".write-777.tmp", ".write-abc.tmp", "notes.tmp", ".write-123456.diff", "o_r_12_" + sha1 + ".diff"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("%s was removed: %s", kept, got)
+		}
 	}
 }

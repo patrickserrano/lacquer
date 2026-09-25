@@ -17,11 +17,17 @@
 // or context line is "not this line": see line.go.
 //
 // A `file:` ref is `file:/abs/path` or `file:~/path`. It must be a regular file
-// that resolves, symlinks followed, to somewhere under $HOME, and no path
-// component may be a dot-directory or dot-file (~/.ssh, ~/.config/op, ~/.netrc)
-// or ~/Library. The exceptions are the fleet's own: any `.worktrees` directory and
-// `.claude/worktrees` and `.claude/plans`, where briefs and plans live. At most
-// 1 MB is shown, with a visible marker when the file is longer.
+// whose resolved path (symlinks followed) lies under one of two plan roots,
+// ~/Developer and ~/.claude/plans (planRoots: a constant, never set by an entry, a
+// flag or the environment). Anything else is refused as "outside the plan roots".
+// The test is by inode, os.SameFile against each ancestor directory, so a
+// differently cased or normalised spelling of a root is still that root and a
+// lookalike (~/Developer-evil) is not. Under a root, no path component may start
+// with a dot (.ssh, .env, .git), except a `.worktrees` directory and
+// `.claude/worktrees`, where the fleet's briefs live. At most 1 MB is shown, with
+// a visible marker when the file is longer. Accepted limits: the check and the
+// open are two steps, and a hard link placed under a root passes; each takes an
+// agent that can already write under $HOME.
 //
 // # The diff cache, for the phone mirror
 //
@@ -47,7 +53,8 @@
 //
 // (DiffCacheMarker), so a file that does not end with that line is the whole diff.
 // Only the newest head of a PR is kept: writing a new one removes that PR's files
-// for other heads. A file is written to a temporary name (".write-*.tmp") and
+// for other heads, and any ".write-<digits>.tmp" left by a write that never
+// finished, once it is ten minutes old. A file is written to a temporary name (".write-*.tmp") and
 // renamed, so a reader never sees half of one; ignore names that do not end in
 // ".diff". The directory is 0700 and the files 0600.
 package inboxwatch

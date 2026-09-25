@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -184,7 +185,7 @@ func (e Env) writeDiffCache(g GitHubRef, head, text string) error {
 	}
 	body := text
 	if len(body) > maxDiffCache {
-		room := maxDiffCache - len(DiffCacheMarker) - 1
+		room := maxDiffCache - len(DiffCacheMarker) - 2 // the newline before the marker and the one after it
 		body, _ = capLines(body, room)
 		if body != "" && !strings.HasSuffix(body, "\n") {
 			body += "\n"
@@ -195,6 +196,7 @@ func (e Env) writeDiffCache(g GitHubRef, head, text string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	sweepStaleTemps(dir)
 	tmp, err := os.CreateTemp(dir, ".write-*.tmp")
 	if err != nil {
 		return err
@@ -226,4 +228,29 @@ func (e Env) writeDiffCache(g GitHubRef, head, text string) error {
 		}
 	}
 	return nil
+}
+
+// staleTemp is a temp file this package's writer leaves behind (".write-<digits>.tmp",
+// which is what os.CreateTemp makes of ".write-*.tmp"), and nothing else.
+var staleTemp = regexp.MustCompile(`^\.write-[0-9]+\.tmp$`)
+
+// staleTempAge is how long a temp file may sit before it is taken to be from a
+// write that never finished.
+const staleTempAge = 10 * time.Minute
+
+// sweepStaleTemps removes the writer's own temp files older than staleTempAge. It
+// is best effort: a file it cannot remove is left for the next write.
+func sweepStaleTemps(dir string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, en := range ents {
+		if !staleTemp.MatchString(en.Name()) {
+			continue
+		}
+		if fi, err := en.Info(); err == nil && fi.Mode().IsRegular() && time.Since(fi.ModTime()) > staleTempAge {
+			os.Remove(filepath.Join(dir, en.Name()))
+		}
+	}
 }

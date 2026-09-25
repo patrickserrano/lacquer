@@ -66,6 +66,10 @@ func LineCommentBody(path string, line int, side, head, text string, at time.Tim
 // is quick; a failure of either never skips the other.
 func (e Env) line(c Cmd) Event {
 	pl := fmt.Sprintf("%s:%d", clean(c.Path), c.Line)
+	if c.Side == "old" {
+		// The number is the old file's; only a removed line has one, so only it is marked.
+		pl += " (old)"
+	}
 	var ev LineSentEvent
 
 	// The same function a reply uses, so the pane, the keystrokes and the record

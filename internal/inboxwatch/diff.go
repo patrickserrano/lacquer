@@ -107,10 +107,12 @@ const (
 // diffLine is one line of a unified diff. Old and New are the line's number in
 // the old and the new file; 0 means it has none there.
 type diffLine struct {
-	Kind     diffKind
-	Text     string
-	Path     string
-	Old, New int
+	Kind diffKind
+	Text string
+	// Path is the file's name in the new tree and OldPath its name in the old one:
+	// they differ for a rename, and a removed line's number is counted in OldPath.
+	Path, OldPath string
+	Old, New      int
 }
 
 // respondable reports whether "not this line" can point at it.
@@ -118,13 +120,55 @@ func (l diffLine) respondable() bool {
 	return l.Path != "" && (l.Kind == dkAdd || l.Kind == dkDel || l.Kind == dkCtx)
 }
 
-// target is the number "not this line" names for l, and which file's it is: a
-// removed line has only an old-file number, every other line has a new-file one.
-func (l diffLine) target() (n int, side string) {
+// target is what "not this line" names for l: the file and the number in it. A
+// removed line has only an old-file number, so it goes with the old path; every
+// other line has a new-file one.
+func (l diffLine) target() (path string, n int, side string) {
 	if l.Kind == dkDel {
-		return l.Old, "old"
+		return l.OldPath, l.Old, "old"
 	}
-	return l.New, "new"
+	return l.Path, l.New, "new"
+}
+
+// gitPath is a path as git prints it in a header: possibly C-quoted, and with the
+// a/ or b/ prefix that marks which tree it is in.
+func gitPath(tok, prefix string) string {
+	if strings.HasPrefix(tok, `"`) {
+		if u, err := strconv.Unquote(tok); err == nil {
+			tok = u
+		}
+	}
+	return cleanText(strings.TrimPrefix(tok, prefix))
+}
+
+// splitGitHeader reads the two names off "diff --git a/X b/Y". They are only a
+// fallback: the ---/+++ and rename lines that follow are read as the truth, since
+// a name may itself hold " b/".
+func splitGitHeader(rest string) (oldp, newp string) {
+	if strings.HasPrefix(rest, `"`) {
+		if q, err := strconv.QuotedPrefix(rest); err == nil {
+			return gitPath(q, "a/"), gitPath(strings.TrimSpace(rest[len(q):]), "b/")
+		}
+	}
+	if mid := (len(rest) - 1) / 2; len(rest)%2 == 1 && rest[mid] == ' ' && strings.HasPrefix(rest, "a/") && rest[mid+1:mid+3] == "b/" && rest[2:mid] == rest[mid+3:] {
+		return gitPath(rest[:mid], "a/"), gitPath(rest[mid+1:], "b/") // the same name on both sides
+	}
+	if i := strings.LastIndex(rest, " b/"); i >= 0 {
+		return gitPath(rest[:i], "a/"), gitPath(rest[i+1:], "b/")
+	}
+	return gitPath(rest, ""), gitPath(rest, "")
+}
+
+// headerName is the name on a "--- " or "+++ " line, without the tab git may add.
+func headerName(l, prefix, tree string) (string, bool) {
+	p := strings.TrimPrefix(l, prefix)
+	if i := strings.IndexByte(p, '\t'); i >= 0 && !strings.HasPrefix(p, `"`) {
+		p = p[:i]
+	}
+	if p == "/dev/null" {
+		return "", false
+	}
+	return gitPath(p, tree), true
 }
 
 type parsedDiff struct {
@@ -142,11 +186,11 @@ func parseDiff(text string) parsedDiff {
 	if text == "" {
 		return pd
 	}
-	var path string
+	var path, oldPath string
 	var oldRem, newRem, oldN, newN int
 	for _, l := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
 		if (oldRem > 0 || newRem > 0) && !strings.HasPrefix(l, `\`) {
-			d := diffLine{Text: l, Path: path}
+			d := diffLine{Text: l, Path: path, OldPath: oldPath}
 			switch {
 			case strings.HasPrefix(l, "+"):
 				d.Kind, d.New = dkAdd, newN
@@ -166,19 +210,26 @@ func parseDiff(text string) parsedDiff {
 			pd.Lines = append(pd.Lines, d)
 			continue
 		}
-		d := diffLine{Kind: dkMeta, Text: l, Path: path}
+		d := diffLine{Kind: dkMeta, Text: l, Path: path, OldPath: oldPath}
 		switch {
 		case strings.HasPrefix(l, "diff --git "):
-			rest := strings.TrimPrefix(l, "diff --git ")
-			path = rest
-			if i := strings.LastIndex(rest, " b/"); i >= 0 {
-				path = rest[i+3:]
-			}
-			d.Kind, d.Path = dkFile, path
+			oldPath, path = splitGitHeader(strings.TrimPrefix(l, "diff --git "))
+			d.Kind, d.Path, d.OldPath = dkFile, path, oldPath
 			pd.Files = append(pd.Files, len(pd.Lines))
+		case strings.HasPrefix(l, "rename from "):
+			oldPath = gitPath(strings.TrimPrefix(l, "rename from "), "")
+			d.OldPath = oldPath
+		case strings.HasPrefix(l, "rename to "):
+			path = gitPath(strings.TrimPrefix(l, "rename to "), "")
+			d.Path = path
+		case strings.HasPrefix(l, "--- "):
+			if p, ok := headerName(l, "--- ", "a/"); ok {
+				oldPath = p
+			}
+			d.OldPath = oldPath
 		case strings.HasPrefix(l, "+++ "):
-			if p := strings.TrimPrefix(l, "+++ "); p != "/dev/null" {
-				path = strings.TrimPrefix(p, "b/")
+			if p, ok := headerName(l, "+++ ", "b/"); ok {
+				path = p
 			}
 			d.Path = path
 		case strings.HasPrefix(l, "@@"):

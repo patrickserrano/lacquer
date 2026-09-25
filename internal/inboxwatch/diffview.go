@@ -302,8 +302,7 @@ func (v *diffView) key(k KeyEvent, w, h int) ([]Cmd, bool) {
 				v.note = "move to a +, - or context line first: those are the lines that can be answered"
 				return nil, false
 			}
-			v.tPath = l.Path
-			v.tLine, v.tSide = l.target()
+			v.tPath, v.tLine, v.tSide = l.target()
 			v.Replying = true
 			v.show(w, h)
 		}
