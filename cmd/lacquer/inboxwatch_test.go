@@ -63,7 +63,7 @@ func fakeTerminal(t *testing.T, wantOnScreen, keys string) *lockedBuf {
 		return inboxwatch.Term{
 			In: &untilReader{out: out, want: wantOnScreen, keys: keys}, Out: out,
 			MakeRaw:   func() (func() error, error) { return func() error { return nil }, nil },
-			Size:      func() (int, int, error) { return 120, 12, nil },
+			Size:      func() (int, int, error) { return 100, 12, nil },
 			TickEvery: 10 * time.Millisecond, EscWait: 10 * time.Millisecond, Now: time.Now,
 		}
 	}
@@ -469,5 +469,30 @@ func TestExtraRepoFlagAndEnvironment(t *testing.T) {
 	}
 	if bad := addExtraRepoFlag(flag.NewFlagSet("y", flag.ContinueOnError), envMap(map[string]string{"LACQUER_EXTRA_REPOS": "oops"})); bad.envErr == nil {
 		t.Error("a malformed $LACQUER_EXTRA_REPOS was ignored")
+	}
+}
+
+// The popup is a separate process, started by the tmux server: the repositories a
+// reply may also be commented on (the roster's and --extra-repo's) travel on its
+// command line, or it would refuse every comment as "not in the roster".
+func TestPopupCommandCarriesTheRepositoriesARepliesMayCommentOn(t *testing.T) {
+	old := executablePath
+	defer func() { executablePath = old }()
+	executablePath = func() (string, error) { return "lacquer", nil }
+	roster := fleet.Roster{Project: []fleet.Entry{{Name: "w", Repo: "Acme/Widgets"}, {Name: "local"}}}
+	env := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{}, roster, envMap(nil), "patrickserrano/lacquer", "Acme/Widgets")
+	for name, argv := range map[string][]string{"entry": env.PopupArgv("a1"), "issue": env.IssueArgv("o/r#1")} {
+		got := strings.Join(argv, " ")
+		if !strings.Contains(got, "--repo=Acme/Widgets --repo=patrickserrano/lacquer ") || strings.Count(got, "--repo=") != 2 {
+			t.Errorf("%s popup argv: %s", name, got)
+		}
+		if strings.Contains(got, "#") {
+			t.Errorf("a # reached the popup command: %s", got)
+		}
+	}
+	// The popup accepts the flag: with no terminal it gets as far as saying so.
+	var stderr bytes.Buffer
+	if code := popupMain([]string{"--inbox", "/x/inbox.jsonl", "--repo=o/r", "--repo=a/b", "--id-hex=6131"}, envMap(nil), &stderr); code == 0 || !strings.Contains(stderr.String(), "needs a terminal") {
+		t.Errorf("code %d: %s", code, stderr.String())
 	}
 }

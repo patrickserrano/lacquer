@@ -1,11 +1,13 @@
 package inboxwatch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -657,7 +659,7 @@ func TestAnUnreadableDismissalsFileIsLoudAndHidesNothing(t *testing.T) {
 func TestASlowerReadDoesNotUndoADismissalJustMade(t *testing.T) {
 	m := stuckModel(t, 0, []PR{prAt(t, "o/r", 5, 9*time.Hour, 5*time.Hour)}, nil)
 	until := t0.Add(time.Hour)
-	p, _ := send(t, m, tickAt(10*time.Second), StuckDismissedEvent{Key: "pr-failing:o/r#5", Until: until, Dismissed: map[string]time.Time{"pr-failing:o/r#5": until}})
+	p, _ := send(t, m, tickAt(10*time.Second), StuckDismissedEvent{Key: "pr-failing:o/r#5", Until: until, Dismissed: map[string]time.Time{"pr-failing:o/r#5": until}, At: t0.Add(10 * time.Second)})
 	p, _ = send(t, p, LoadedEvent{Data: Data{Dismissed: map[string]time.Time{}}, At: t0.Add(5 * time.Second)}) // started before the write
 	if strings.Contains(screen(p.(Model)), "o/r#5") {
 		t.Error("a read that began before the dismissal brought the row back")
@@ -684,7 +686,17 @@ func replyEnv(t *testing.T, fc *fakeCmd) (Env, string) {
 	t.Helper()
 	env, path := envFor(t, Overseer{Pane: "%7"}, fc)
 	env.Now = func() time.Time { return time.Date(2026, 9, 25, 14, 2, 11, 0, time.UTC) }
+	// The repositories the tests write back to are ones the watcher covers.
+	env.ExtraRepos = []string{"o/r", "patrickserrano/lacquer"}
+	env.Roster = fleet.Roster{Project: []fleet.Entry{{Name: "w", Repo: "acme/widgets"}}}
 	return env, path
+}
+
+func knownDetail(t *testing.T, e inbox.Entry) Detail {
+	t.Helper()
+	d := loadedDetail(t, true, e)
+	d.Repos = []string{"o/r", "acme/widgets"}
+	return d
 }
 
 func TestWriteBackPostsForEveryShapeOfGitHubRef(t *testing.T) {
@@ -913,26 +925,325 @@ func TestWriteBackDoesNotChangeTheRepliesLine(t *testing.T) {
 	}
 }
 
-func TestWriteBackTimesOutInsteadOfHangingThePopup(t *testing.T) {
-	if testing.Short() {
-		t.Skip()
-	}
+// ctxCmd is a commander whose gh never finishes on its own. It records whether
+// it was told to stop, which is what a killed process is.
+type ctxCmd struct{ stopped chan struct{} }
+
+func (c ctxCmd) Run(stdin, name string, args ...string) (string, error) {
+	return c.RunContext(context.Background(), stdin, name, args...)
+}
+
+func (c ctxCmd) RunContext(ctx context.Context, _, _ string, _ ...string) (string, error) {
+	<-ctx.Done()
+	close(c.stopped)
+	return "", ctx.Err()
+}
+
+// A comment that runs past the deadline is stopped, so it cannot post after the
+// operator was told it had not; and what the operator is told is that it may
+// have posted.
+func TestATimedOutCommentIsKilledAndSaysItMayHavePosted(t *testing.T) {
 	old := writeBackTimeout
 	writeBackTimeout = 50 * time.Millisecond
 	defer func() { writeBackTimeout = old }()
-	block := make(chan struct{})
-	defer close(block)
-	_, err := WriteBack(blockingCmd{block}, "o/r#1", "x", t0)
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Errorf("err = %v", err)
+	cc := ctxCmd{stopped: make(chan struct{})}
+	_, err := WriteBack(cc, "https://github.com/o/r/pull/9", "x", t0)
+	var to *PostTimeoutError
+	if !errors.As(err, &to) {
+		t.Fatalf("err = %v, want a *PostTimeoutError", err)
+	}
+	select {
+	case <-cc.stopped:
+	default:
+		t.Error("gh was not told to stop at the deadline")
+	}
+	for _, want := range []string{"may or may not have posted", "https://github.com/o/r/pull/9", "stopped"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%q lacks %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "NOT posted") {
+		t.Errorf("a timeout claims the comment was not posted: %q", err)
 	}
 }
 
-type blockingCmd struct{ block chan struct{} }
+// Through the popup: the operator is told to look, not that it failed.
+func TestATimedOutCommentIsShownAsUnsureNotAsNotPosted(t *testing.T) {
+	old := writeBackTimeout
+	writeBackTimeout = 30 * time.Millisecond
+	defer func() { writeBackTimeout = old }()
+	fc := &fakeCmd{}
+	env, _ := replyEnv(t, fc)
+	env.Cmd = timeoutOnGH{fc, ctxCmd{stopped: make(chan struct{})}}
+	d := knownDetail(t, inbox.Entry{ID: "e1", Type: inbox.Action, Title: entryTitle, Ref: "https://github.com/o/r/issues/12"})
+	d.Replying, d.Buf = true, "yes"
+	p, cmds := feed(t, d, "\r")
+	ev := env.Exec(cmds[0]).(RepliedEvent)
+	if !ev.OK || !ev.CommentUnsure {
+		t.Fatalf("ev = %+v", ev)
+	}
+	p, _ = p.Update(ev)
+	dd := p.(Detail)
+	last := plain(dd.View().Lines[dd.H-1])
+	if dd.Done() || !strings.Contains(last, "reply sent; comment may or may not have posted") || strings.Contains(last, "NOT posted") {
+		t.Errorf("done=%v status row = %q", dd.Done(), last)
+	}
+}
 
-func (b blockingCmd) Run(string, string, ...string) (string, error) {
-	<-b.block
-	return "", nil
+// timeoutOnGH sends tmux to one commander and gh to another.
+type timeoutOnGH struct {
+	tmux Commander
+	gh   Commander
+}
+
+func (t timeoutOnGH) Run(stdin, name string, args ...string) (string, error) {
+	return t.RunContext(context.Background(), stdin, name, args...)
+}
+
+func (t timeoutOnGH) RunContext(ctx context.Context, stdin, name string, args ...string) (string, error) {
+	if name == "gh" {
+		return t.gh.RunContext(ctx, stdin, name, args...)
+	}
+	return t.tmux.RunContext(ctx, stdin, name, args...)
+}
+
+// The real commander really does kill the process.
+func TestOSCommanderKillsTheProgramAtTheDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := OSCommander{}.RunContext(ctx, "", "sleep", "30")
+	if err == nil || time.Since(start) > 10*time.Second {
+		t.Errorf("err = %v after %s: the process was not killed at the deadline", err, time.Since(start))
+	}
+}
+
+// ---- the agent's ref does not choose where the operator's words go ----
+
+func ghCalls(fc *fakeCmd) []string {
+	var out []string
+	for _, c := range fc.calls {
+		if strings.HasPrefix(c, "gh ") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func TestNoCommentOnARepositoryTheWatcherDoesNotCover(t *testing.T) {
+	for _, ref := range []string{
+		"https://github.com/someone-else/public-repo/issues/1",
+		"https://github.com/someone-else/public-repo/pull/1",
+		"someone-else/public-repo#1",
+		"acme/widgets-evil#1", // a prefix of a known name is not that name
+		"o/r2#1",
+	} {
+		fc := &fakeCmd{}
+		env, path := replyEnv(t, fc)
+		ev := env.Exec(Cmd{Kind: CmdReply, ID: "e1", Text: "yes, rotated the key on prod", Ref: ref}).(RepliedEvent)
+		if !ev.OK || ev.Note != "sent" {
+			t.Errorf("%s: the reply itself was affected: %+v", ref, ev)
+		}
+		if g := ghCalls(fc); len(g) != 0 {
+			t.Errorf("%s: gh ran %q", ref, g)
+		}
+		if !strings.Contains(ev.CommentErr, "is not in the roster") || ev.CommentUnsure {
+			t.Errorf("%s: CommentErr = %q", ref, ev.CommentErr)
+		}
+		if b, _ := os.ReadFile(RepliesPath(path)); !strings.Contains(string(b), `"id": "e1"`) {
+			t.Errorf("%s: the reply was not recorded", ref)
+		}
+	}
+	// And the popup says so and stays open.
+	fc := &fakeCmd{}
+	env, _ := replyEnv(t, fc)
+	d := knownDetail(t, inbox.Entry{ID: "e1", Type: inbox.Action, Title: entryTitle, Ref: "https://github.com/someone-else/public-repo/issues/1"})
+	d.Replying, d.Buf = true, "yes"
+	p, cmds := feed(t, d, "\r")
+	p, _ = p.Update(env.Exec(cmds[0]))
+	dd := p.(Detail)
+	if last := plain(dd.View().Lines[dd.H-1]); dd.Done() || !strings.Contains(last, "comment NOT posted: someone-else/public-repo is not in the roster") {
+		t.Errorf("done=%v status row = %q", dd.Done(), last)
+	}
+}
+
+func TestACommentIsPostedToAKnownRepositoryInAnyCase(t *testing.T) {
+	for _, tc := range []struct{ ref, want string }{
+		{"https://github.com/ACME/Widgets/issues/3", "gh issue comment 3 -R ACME/Widgets --body-file -"}, // the roster's acme/widgets
+		{"O/R#4", "gh issue comment 4 -R O/R --body-file -"},                                             // --extra-repo o/r
+		{"https://github.com/Patrickserrano/LACQUER/pull/5", "gh pr comment 5 -R Patrickserrano/LACQUER --body-file -"},
+	} {
+		fc := &fakeCmd{}
+		env, _ := replyEnv(t, fc)
+		ev := env.Exec(Cmd{Kind: CmdReply, ID: "e1", Text: "yes", Ref: tc.ref}).(RepliedEvent)
+		if g := ghCalls(fc); ev.CommentErr != "" || len(g) != 1 || g[0] != tc.want {
+			t.Errorf("%s: gh %q, err %q; want %q", tc.ref, g, ev.CommentErr, tc.want)
+		}
+	}
+}
+
+// Before Enter, the box says what Enter will also do.
+func TestTheReplyBoxSaysWhereItWillCommentBeforeItIsSent(t *testing.T) {
+	hint := func(ref string) string {
+		d := knownDetail(t, inbox.Entry{ID: "e1", Type: inbox.Action, Title: entryTitle, Ref: ref})
+		d.W, d.H = 120, 20
+		d.Replying = true
+		return plain(d.View().Lines[19])
+	}
+	if h := hint("https://github.com/o/r/issues/12"); !strings.Contains(h, "⏎ send, and comments on o/r#12") {
+		t.Errorf("known repo: %q", h)
+	}
+	if h := hint("ACME/widgets#7"); !strings.Contains(h, "and comments on ACME/widgets#7") {
+		t.Errorf("mixed case: %q", h)
+	}
+	if h := hint("https://github.com/evil/repo/pull/3"); !strings.Contains(h, "no comment: evil/repo is not in the roster") || strings.Contains(h, "and comments on") {
+		t.Errorf("unknown repo: %q", h)
+	}
+	for _, ref := range []string{"session:abc", "#12", "", "https://example.com/x"} {
+		if h := strings.Join(strings.Fields(hint(ref)), " "); strings.Contains(h, "comment") || !strings.Contains(h, "⏎ send · Esc cancel") {
+			t.Errorf("ref %q: %q", ref, h)
+		}
+	}
+}
+
+// ---- the "need you" pill survives a narrow terminal ----
+
+func narrowModel(t *testing.T, w int, warn bool) Model {
+	t.Helper()
+	cfg := Config{Tabs: AllTabs, CanReply: true, HasRepos: false}
+	m := model(t, cfg, w, 8,
+		item("a1", inbox.Action, time.Hour, "needs you"),
+		Item{ID: "a2", Type: inbox.Action, CreatedAt: t0, Title: "answered", Replied: true},
+		item("f1", inbox.Unread, time.Hour, "fyi"))
+	if warn {
+		p, _ := m.Update(LoadedEvent{Data: Data{Items: m.Items}, Warn: "replies unreadable: permission denied", At: t0.Add(time.Second)})
+		m = p.(Model)
+	}
+	return m
+}
+
+func TestNeedYouSurvivesNarrowTerminalsWithTheNoRosterWarning(t *testing.T) {
+	for _, w := range []int{120, 100, 90, 80, 70, 60} {
+		for _, warn := range []bool{false, true} {
+			m := narrowModel(t, w, warn)
+			head := plain(m.View().Lines[0])
+			if !strings.Contains(head, "1 need you") {
+				t.Errorf("width %d warn=%v: \"1 need you\" is gone: %q", w, warn, head)
+			}
+			if cells(head) > w {
+				t.Errorf("width %d warn=%v: the row is %d cells wide", w, warn, cells(head))
+			}
+		}
+	}
+	// Room to spare: nothing is dropped.
+	full := plain(narrowModel(t, 200, true).View().Lines[0])
+	for _, want := range []string{"2 Later", "no roster", "1 need you", "1 replied", "1 fyi"} {
+		if !strings.Contains(full, want) {
+			t.Errorf("at 200 columns %q was dropped: %q", want, full)
+		}
+	}
+}
+
+// What is given up goes in order: the fyi pill, then replied, then the status
+// wording, then the tab names.
+func TestNarrowRowGivesUpTheLeastImportantFirst(t *testing.T) {
+	seen := map[string]int{} // what is the widest terminal each thing disappears at
+	for w := 200; w >= 40; w-- {
+		head := plain(narrowModel(t, w, false).View().Lines[0])
+		for _, k := range []string{"1 fyi", "1 replied", "merges not recorded: no roster", "2 Later"} {
+			if _, gone := seen[k]; !gone && !strings.Contains(head, k) {
+				seen[k] = w
+			}
+		}
+	}
+	order := []string{"1 fyi", "1 replied", "merges not recorded: no roster", "2 Later"}
+	for i := 1; i < len(order); i++ {
+		a, b := order[i-1], order[i]
+		if seen[a] == 0 || seen[b] == 0 || seen[a] < seen[b] {
+			t.Errorf("%q went at %d columns and %q at %d: not in order", a, seen[a], b, seen[b])
+		}
+	}
+}
+
+// Clicking a tab still lands on it when the names have been shortened.
+func TestTabClicksStillHitWhenTheNamesAreShortened(t *testing.T) {
+	m := narrowModel(t, 50, true)
+	if lay := m.layout(50); !lay.compactTabs {
+		t.Fatalf("layout = %+v, want compact tabs at 50 columns", lay)
+	}
+	hits := m.tabHits()
+	head := plain(m.View().Lines[0])
+	for _, h := range hits {
+		seg := string([]rune(head)[h.x0:h.x1])
+		if !strings.Contains(seg, string(m.Cfg.Tabs[h.tab].Key)) || strings.ContainsAny(seg, "2345") && h.tab == 0 {
+			t.Errorf("tab %d hit columns %d-%d cover %q in %q", h.tab, h.x0, h.x1, seg, head)
+		}
+	}
+}
+
+// ---- the nits ----
+
+func TestDismissedEventCarriesTheWriteTimeAndAnOlderReadCannotUndoIt(t *testing.T) {
+	m := stuckModel(t, 0, []PR{prAt(t, "o/r", 5, 9*time.Hour, 5*time.Hour)}, nil)
+	until := t0.Add(time.Hour)
+	// The model's clock says t0+1s; the file was written at t0+9s. A read that
+	// started at t0+5s began before that write, and must not bring the row back.
+	p, _ := send(t, m, tickAt(time.Second),
+		StuckDismissedEvent{Key: "pr-failing:o/r#5", Until: until, Dismissed: map[string]time.Time{"pr-failing:o/r#5": until}, At: t0.Add(9 * time.Second)})
+	p, _ = send(t, p, LoadedEvent{Data: Data{Dismissed: map[string]time.Time{}}, At: t0.Add(5 * time.Second)})
+	if strings.Contains(screen(p.(Model)), "o/r#5") {
+		t.Error("a read that began before the write brought the row back")
+	}
+	// The env stamps it from its own clock.
+	env := Env{InboxPath: filepath.Join(t.TempDir(), "inbox.jsonl"), Now: func() time.Time { return t0.Add(9 * time.Second) }}
+	ev := env.Exec(Cmd{Kind: CmdStuckDismiss, ID: "k", Until: t0.Add(time.Hour)}).(StuckDismissedEvent)
+	if !ev.At.Equal(t0.Add(9 * time.Second)) {
+		t.Errorf("At = %v", ev.At)
+	}
+}
+
+func TestConcurrentDismissalsAreNotLost(t *testing.T) {
+	path := filepath.Join(t.TempDir(), StuckDismissedFile)
+	var wg sync.WaitGroup
+	const n = 40
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := Dismiss(path, fmt.Sprintf("pr-failing:o/r#%d", i), t0.Add(time.Hour), t0); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	got, err := ReadDismissed(path)
+	if err != nil || len(got) != n {
+		t.Errorf("kept %d of %d dismissals (err %v)", len(got), n, err)
+	}
+}
+
+func TestStuckHeaderShowsTheOldestSourceTime(t *testing.T) {
+	m := stuckModel(t, 0, nil, nil)
+	p, _ := send(t, m, tickAt(10*time.Minute), PRsEvent{At: t0.Add(10 * time.Minute)}) // PRs re-read; Later still from t0
+	head := plain(p.(Model).View().Lines[0])
+	if want := t0.Local().Format("15:04"); !strings.HasSuffix(strings.TrimSpace(head), want) {
+		t.Errorf("header = %q, want it to end with the older time %s", head, want)
+	}
+}
+
+func TestStuckHeaderIsNotGoodNewsWhileASourceIsStillChecking(t *testing.T) {
+	waiting := onTab(t, tabModel(t, 140, 10), "5").(Model)
+	answered := stuckModel(t, 0, nil, nil)
+	w, a := waiting.View().Lines[0], answered.View().Lines[0]
+	if !strings.Contains(plain(w), "0 stuck") || !strings.Contains(plain(w), "still checking") {
+		t.Fatalf("header = %q", plain(w))
+	}
+	if sw, sa := styleOf(t, w, "0 stuck"), styleOf(t, a, "0 stuck"); sw == sa {
+		t.Errorf("0 stuck reads the same (%q) whether or not a source has answered", sw)
+	}
+	if got := styleOf(t, a, "0 stuck"); !strings.Contains(got, "32") {
+		t.Errorf("an all-clear should stay green: %q", got)
+	}
 }
 
 // A red check with a time and one without: the known time is a floor, so a PR
@@ -970,23 +1281,25 @@ func TestDismissNeverExposesAHalfWrittenFile(t *testing.T) {
 	}
 	stop := make(chan struct{})
 	bad := make(chan error, 1)
-	go func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			if _, err := ReadDismissed(path); err != nil {
+	for r := 0; r < 4; r++ {
+		go func() {
+			for {
 				select {
-				case bad <- err:
+				case <-stop:
+					return
 				default:
 				}
-				return
+				if _, err := ReadDismissed(path); err != nil {
+					select {
+					case bad <- err:
+					default:
+					}
+					return
+				}
 			}
-		}
-	}()
-	for i := 0; i < 300; i++ {
+		}()
+	}
+	for i := 0; i < 250; i++ {
 		if _, err := Dismiss(path, fmt.Sprintf("pr-failing:o/r#%d", i), t0.Add(time.Hour), t0); err != nil {
 			t.Fatal(err)
 		}

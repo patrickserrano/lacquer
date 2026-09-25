@@ -1,6 +1,7 @@
 package inboxwatch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -92,19 +93,27 @@ func WriteBack(c Commander, ref, text string, at time.Time) (GitHubRef, error) {
 		sub = "pr"
 	}
 	argv := []string{sub, "comment", strconv.Itoa(g.Number), "-R", g.Repo, "--body-file", "-"}
-	type result struct{ err error }
-	done := make(chan result, 1)
-	go func() {
-		_, err := c.Run(CommentBody(text, at), "gh", argv...)
-		done <- result{err}
-	}()
-	select {
-	case r := <-done:
-		if r.err != nil {
-			return g, r.err
-		}
-	case <-time.After(writeBackTimeout):
-		return g, fmt.Errorf("gh timed out after %s", writeBackTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), writeBackTimeout)
+	defer cancel()
+	_, err := c.RunContext(ctx, CommentBody(text, at), "gh", argv...)
+	if ctx.Err() == context.DeadlineExceeded {
+		// gh was killed at the deadline, but it may have posted before that.
+		return g, &PostTimeoutError{Ref: g, After: writeBackTimeout}
 	}
-	return g, nil
+	return g, err
+}
+
+// PostTimeoutError is a comment that did not finish in time. It says nothing
+// about whether it posted.
+type PostTimeoutError struct {
+	Ref   GitHubRef
+	After time.Duration
+}
+
+func (e *PostTimeoutError) Error() string {
+	kind := "issues"
+	if e.Ref.PR {
+		kind = "pull"
+	}
+	return fmt.Sprintf("gh timed out after %s and was stopped; the comment may or may not have posted, check https://github.com/%s/%s/%d", e.After, e.Ref.Repo, kind, e.Ref.Number)
 }

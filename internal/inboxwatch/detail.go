@@ -19,8 +19,11 @@ var highlight = regexp.MustCompile(`(?i)^\s*(Decide|Decided|Reply|To do|Options?
 type Detail struct {
 	ID       string
 	CanReply bool
-	W, H     int
-	Now      time.Time
+	// Repos are the repositories a reply may also be commented on (the watcher's
+	// roster and extras). With none, no reply is commented, and the box says so.
+	Repos []string
+	W, H  int
+	Now   time.Time
 
 	Requested bool
 	Loaded    bool
@@ -74,7 +77,12 @@ func (d *Detail) update(ev Event) []Cmd {
 		if ev.OK && ev.CommentErr != "" {
 			// The overseer has it, so nothing is retried and the box is cleared; but
 			// the popup stays open so this is read, not lost with the window.
-			d.Buf, d.Note = "", "reply sent; comment NOT posted: "+ev.CommentErr
+			d.Buf = ""
+			if ev.CommentUnsure {
+				d.Note = "reply sent; comment may or may not have posted: " + ev.CommentErr
+			} else {
+				d.Note = "reply sent; comment NOT posted: " + ev.CommentErr
+			}
 			return []Cmd{{Kind: CmdEntry, ID: d.ID}}
 		}
 		if ev.OK {
@@ -239,9 +247,31 @@ func (d Detail) lines() []line {
 	return out
 }
 
+// commentNote says, while a reply is typed, what Enter will do besides typing
+// it to the overseer, so a comment on GitHub is never a surprise. It is "" when
+// the entry's ref is not an issue or PR, which gets no comment.
+func (d Detail) commentNote() string {
+	if !d.Found {
+		return ""
+	}
+	g, ok := ParseGitHubRef(d.Entry.Ref)
+	if !ok {
+		return ""
+	}
+	for _, r := range d.Repos {
+		if strings.EqualFold(r, g.Repo) {
+			return "and comments on " + g.String()
+		}
+	}
+	return "no comment: " + g.Repo + " is not in the roster"
+}
+
 func (d Detail) hint() string {
 	switch {
 	case d.Replying:
+		if n := d.commentNote(); n != "" {
+			return "⏎ send, " + clean(n) + " · Esc cancel · ctrl-u clear"
+		}
 		return "⏎ send · Esc cancel · ctrl-u clear"
 	case !d.CanReply:
 		return "r reply (off: no overseer pane) · d resolve · o open link · c copy id · j/k scroll · q close"

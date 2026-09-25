@@ -48,12 +48,13 @@ func addOverseerFlags(fs *flag.FlagSet, getenv func(string) string) *overseerFla
 	return o
 }
 
-func newWatchEnv(inboxPath string, isDefault bool, o overseerFlags, roster fleet.Roster, getenv func(string) string) inboxwatch.Env {
+func newWatchEnv(inboxPath string, isDefault bool, o overseerFlags, roster fleet.Roster, getenv func(string) string, extra ...string) inboxwatch.Env {
 	exe, err := executablePath()
 	if err != nil {
 		exe = "lacquer"
 	}
-	return inboxwatch.Env{
+	env := inboxwatch.Env{
+		ExtraRepos:   extra,
 		InboxPath:    inboxPath,
 		InboxDefault: isDefault,
 		Overseer:     o.overseer(),
@@ -66,14 +67,21 @@ func newWatchEnv(inboxPath string, isDefault bool, o overseerFlags, roster fleet
 		// An id or an issue ref is agent-written and goes to tmux as part of a
 		// command tmux may expand as a format, so it travels hex-encoded: no # can
 		// be in it.
-		PopupArgv: func(id string) []string { return popupArgv(exe, inboxPath, o, "--id-hex=", id) },
-		IssueArgv: func(ref string) []string { return popupArgv(exe, inboxPath, o, "--issue-hex=", ref) },
 	}
+	// The popup is a separate process that knows only what its command line says,
+	// so the repositories a reply may be commented on travel with it.
+	repos := env.KnownRepos()
+	env.PopupArgv = func(id string) []string { return popupArgv(exe, inboxPath, o, repos, "--id-hex=", id) }
+	env.IssueArgv = func(ref string) []string { return popupArgv(exe, inboxPath, o, repos, "--issue-hex=", ref) }
+	return env
 }
 
-func popupArgv(exe, inboxPath string, o overseerFlags, flag, text string) []string {
-	argv := []string{exe, "console", "inbox", "popup", "--inbox", inboxPath}
-	return append(append(argv, o.argv()...), flag+hex.EncodeToString([]byte(text)))
+func popupArgv(exe, inboxPath string, o overseerFlags, repos []string, flag, text string) []string {
+	argv := append([]string{exe, "console", "inbox", "popup", "--inbox", inboxPath}, o.argv()...)
+	for _, r := range repos {
+		argv = append(argv, "--repo="+r)
+	}
+	return append(argv, flag+hex.EncodeToString([]byte(text)))
 }
 
 // extraRepoFlags is the repositories the Later and PRs tabs cover besides the
@@ -161,6 +169,8 @@ func popupMain(args []string, getenv func(string) string, stderr io.Writer) int 
 	idHex := fs.String("id-hex", "", "the entry id, hex-encoded (what the list passes)")
 	issueHex := fs.String("issue-hex", "", "show a GitHub issue instead: its owner/name#number, hex-encoded (what a Later row passes)")
 	o := addOverseerFlags(fs, getenv)
+	repos := &extraRepoFlags{}
+	fs.Var(repos, "repo", "a repository a reply may also be commented on (repeatable; what the list passes)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -188,8 +198,10 @@ func popupMain(args []string, getenv func(string) string, stderr io.Writer) int 
 	if !stdinIsTerminal() {
 		return fail(stderr, fmt.Errorf("inbox popup needs a terminal; it is what a tmux popup runs"))
 	}
-	env := newWatchEnv(inboxPath, isDefault, *o, fleet.Roster{}, getenv)
-	var p inboxwatch.Program = inboxwatch.NewDetail(id, env.Overseer.Configured(), 0, 0)
+	env := newWatchEnv(inboxPath, isDefault, *o, fleet.Roster{}, getenv, repos.list...)
+	detail := inboxwatch.NewDetail(id, env.Overseer.Configured(), 0, 0)
+	detail.Repos = env.KnownRepos()
+	var p inboxwatch.Program = detail
 	if *issueHex != "" {
 		p = inboxwatch.NewIssuePopup(id, env.Overseer.Configured(), 0, 0)
 	}

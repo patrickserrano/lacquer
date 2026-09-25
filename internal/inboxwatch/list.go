@@ -658,8 +658,9 @@ type hit struct{ x0, x1, tab int }
 func (m Model) tabHits() []hit {
 	x := 1
 	var hits []hit
+	lay := m.layout(m.W)
 	for i, t := range m.Cfg.Tabs {
-		w := cells(tabLabel(t)) + 2
+		w := cells(lay.label(t, i == m.Active)) + 2
 		hits = append(hits, hit{x, x + w, i})
 		x += w + 1
 	}
@@ -831,6 +832,56 @@ func (m Model) hint() string {
 // tabRow is the strip on row 0: the active tab a peach pill, the rest dim text,
 // then the status, then the counts as pills against the right edge.
 func (m Model) tabRow(w int) line {
+	l, _ := m.tabRowWith(w, m.layout(w))
+	return l
+}
+
+// tabLayout is how much of the Inbox row is given up to make it fit. What the
+// operator has to see first is the "need you" pill: the rest goes before it, in
+// this order: the fyi and replied pills, the wording of the status segments,
+// and the names of the inactive tabs.
+type tabLayout struct {
+	dropFyi, dropReplied, compactStatus, compactTabs bool
+	// dropStatus keeps only the red status segments (something is broken), and
+	// dropTime the time of the last read: the last things to go.
+	dropStatus, dropTime bool
+}
+
+var tabLayouts = []tabLayout{
+	{},
+	{dropFyi: true},
+	{dropFyi: true, dropReplied: true},
+	{dropFyi: true, dropReplied: true, compactStatus: true},
+	{dropFyi: true, dropReplied: true, compactStatus: true, compactTabs: true},
+	{dropFyi: true, dropReplied: true, compactStatus: true, compactTabs: true, dropStatus: true},
+	{dropFyi: true, dropReplied: true, compactStatus: true, compactTabs: true, dropStatus: true, dropTime: true},
+}
+
+// label is a tab's text in the strip: its name, or with compactTabs and not
+// active, its key alone.
+func (lay tabLayout) label(t Tab, active bool) string {
+	if lay.compactTabs && !active {
+		return string(t.Key)
+	}
+	return tabLabel(t)
+}
+
+// layout is the first arrangement that fits w columns. On a tab other than the
+// Inbox nothing is dropped: those rows have no pills to protect.
+func (m Model) layout(w int) tabLayout {
+	if m.kind() != KindInbox {
+		return tabLayout{}
+	}
+	for _, lay := range tabLayouts {
+		if _, over := m.tabRowWith(w, lay); !over {
+			return lay
+		}
+	}
+	return tabLayouts[len(tabLayouts)-1]
+}
+
+// tabRowWith draws the row in a layout and says whether it overflowed w.
+func (m Model) tabRowWith(w int, lay tabLayout) (line, bool) {
 	l := line{{" ", fg(def)}}
 	for i, t := range m.Cfg.Tabs {
 		if i > 0 {
@@ -839,33 +890,34 @@ func (m Model) tabRow(w int) line {
 		if i == m.Active {
 			l = append(l, pill(tabLabel(t), peach, "")...)
 		} else {
-			l = l.add(" "+tabLabel(t)+" ", fg(dim))
+			l = l.add(" "+lay.label(t, false)+" ", fg(dim))
 		}
 	}
 	switch m.kind() {
 	case KindLater:
 		st := m.laterStatus()
 		l = l.add(st.text, st.st).add(timeMark(m.Later.At, "15:04"), fg(dim))
-		return l
+		return l, false
 	case KindPRs:
 		st := m.prsStatus()
 		l = l.add(st.text, st.st).add(timeMark(m.PRs.At, "15:04"), fg(dim))
-		return l
+		return l, false
 	case KindStuck:
 		st := m.stuckStatus()
 		reports := m.stuckReports()
+		// The oldest of the sources' times: the row is only as fresh as its stalest input.
 		var at time.Time
 		for _, r := range reports {
 			if !r.Answered {
 				at = time.Time{}
 				break
 			}
-			if r.At.After(at) {
+			if at.IsZero() || r.At.Before(at) {
 				at = r.At
 			}
 		}
 		l = l.add(st.text, st.st).add(timeMark(at, "15:04"), fg(dim))
-		return l
+		return l, false
 	case KindDone:
 		replied := 0
 		for _, it := range m.Closed.Items {
@@ -879,10 +931,15 @@ func (m Model) tabRow(w int) line {
 		if m.LoadErr != "" {
 			l = l.add(" inbox unavailable", fgBold(red))
 		}
-		return l
+		return l, false
 	}
-	l = l.add(timeMark(m.LoadedAt, "15:04"), fg(dim))
-	for _, s := range m.status() {
+	if !lay.dropTime {
+		l = l.add(timeMark(m.LoadedAt, "15:04"), fg(dim))
+	}
+	for _, s := range m.status(lay.compactStatus) {
+		if lay.dropStatus && s.st != fgBold(red) {
+			continue
+		}
 		l = append(l, s)
 	}
 
@@ -905,46 +962,72 @@ func (m Model) tabRow(w int) line {
 	} else {
 		counts = append(counts, count{"inbox clear", iconClear, green})
 	}
-	if answered > 0 {
+	if answered > 0 && !lay.dropReplied {
 		counts = append(counts, count{fmt.Sprintf("%d replied", answered), iconReplied, yellow})
 	}
-	if fyi > 0 {
+	if fyi > 0 && !lay.dropFyi {
 		counts = append(counts, count{fmt.Sprintf("%d fyi", fyi), iconInfo, blue})
 	}
 	total := 0
 	for _, c := range counts {
 		total += pillWidth(c.label, c.icon) + 1
 	}
+	over := l.width()+2+total > w-1
 	px := max(l.width()+2, w-1-total)
 	l = l.add(strings.Repeat(" ", px-l.width()), fg(def))
 	for _, c := range counts {
 		l = append(l, pill(c.label, c.accent, c.icon)...)
 		l = l.add(" ", fg(def))
 	}
-	return l
+	return l, over
 }
 
 // status is what the header says about the inbox and the harvest. None of it is
 // silent: a read that failed, a harvest that could not run and a roster that
 // gives the harvest nothing to watch each show.
-func (m Model) status() []seg {
+func (m Model) status(compact bool) []seg {
 	var out []seg
 	if m.LoadErr != "" {
 		out = append(out, seg{" inbox unavailable", fgBold(red)})
 	}
 	if m.Warn != "" {
-		out = append(out, seg{" " + m.Warn, fg(yellow)})
+		w := m.Warn
+		if compact {
+			w = ellipsis(w, 14)
+		}
+		out = append(out, seg{" " + w, fg(yellow)})
 	}
 	switch {
 	case !m.Cfg.HasRepos:
-		out = append(out, seg{" merges not recorded: no roster", fg(yellow)})
+		t := " merges not recorded: no roster"
+		if compact {
+			t = " no roster"
+		}
+		out = append(out, seg{t, fg(yellow)})
 	case m.HarvestErr != "":
-		out = append(out, seg{" merge harvest unavailable", fgBold(red)})
+		t := " merge harvest unavailable"
+		if compact {
+			t = " harvest ✗"
+		}
+		out = append(out, seg{t, fgBold(red)})
 	}
 	if m.Malformed > 0 {
-		out = append(out, seg{fmt.Sprintf(" %d malformed line(s) skipped", m.Malformed), fg(dim)})
+		t := fmt.Sprintf(" %d malformed line(s) skipped", m.Malformed)
+		if compact {
+			t = fmt.Sprintf(" %d malformed", m.Malformed)
+		}
+		out = append(out, seg{t, fg(dim)})
 	}
 	return out
+}
+
+// ellipsis cuts s to n cells with a … when it is longer.
+func ellipsis(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // ruleRow is the rule under the tabs, with "4–9 of 14" at its right end when the

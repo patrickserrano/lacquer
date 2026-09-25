@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,10 @@ const MaxDismissal = 90 * 24 * time.Hour
 func StuckDismissedPath(inboxPath string) string {
 	return filepath.Join(filepath.Dir(inboxPath), StuckDismissedFile)
 }
+
+// dismissMu makes the read-modify-write one step within this process, so two
+// quick dismissals cannot lose one.
+var dismissMu sync.Mutex
 
 type dismissal struct {
 	Until string `json:"until"`
@@ -68,6 +73,8 @@ func ReadDismissed(path string) (map[string]time.Time, error) {
 // sees half of one; a file that cannot be read is refused rather than written
 // over.
 func Dismiss(path, key string, until, now time.Time) (map[string]time.Time, error) {
+	dismissMu.Lock()
+	defer dismissMu.Unlock()
 	if key == "" {
 		return nil, errors.New("no condition to dismiss")
 	}

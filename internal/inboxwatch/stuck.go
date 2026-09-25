@@ -357,6 +357,9 @@ func (m Model) stuckStatus() seg {
 	st := fgBold(magenta)
 	if n == 0 {
 		st = fgBold(green)
+		if waiting > 0 {
+			st = fg(dim) // "0 stuck" is not yet good news while a source has not answered
+		}
 	}
 	if waiting > 0 {
 		parts = append(parts, fmt.Sprintf("%d still checking", waiting))
@@ -441,7 +444,7 @@ func (m *Model) stuckDismissed(ev StuckDismissedEvent) {
 		m.Note = "not dismissed: " + ev.Err
 		return
 	}
-	m.Stuck.Dismissed, m.Stuck.DismissErr, m.Stuck.dismissedAt = ev.Dismissed, "", m.Now
+	m.Stuck.Dismissed, m.Stuck.DismissErr, m.Stuck.dismissedAt = ev.Dismissed, "", ev.At
 	m.Stuck.keep(m.stuckRows(), m.viewH(), 1)
 	m.Note = "dismissed until " + stuckStamp(ev.Until)
 }

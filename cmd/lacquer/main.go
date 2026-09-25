@@ -985,8 +985,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				if extraRepos.envErr != nil {
 					return fail(stderr, extraRepos.envErr)
 				}
-				env := newWatchEnv(inboxPath, inboxIsDefault, *overseer, roster, getenv)
-				env.ExtraRepos = extraRepos.list
+				env := newWatchEnv(inboxPath, inboxIsDefault, *overseer, roster, getenv, extraRepos.list...)
 				return runInboxWatch(systemTerm(), env, stderr)
 			default: // list; consoleSubcommand refused anything else
 				return runInboxList(inboxPath, inboxIsDefault, *all, stdout, stderr)

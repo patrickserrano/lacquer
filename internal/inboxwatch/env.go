@@ -2,6 +2,7 @@ package inboxwatch
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -21,13 +22,20 @@ import (
 // so a test can record what would have run instead of running it.
 type Commander interface {
 	Run(stdin, name string, args ...string) (stdout string, err error)
+	// RunContext is Run, and the program is killed if ctx ends first. Anything
+	// that must not outlive its deadline (a comment on GitHub) goes through it.
+	RunContext(ctx context.Context, stdin, name string, args ...string) (stdout string, err error)
 }
 
 // OSCommander runs the real thing. On failure the error carries stderr.
 type OSCommander struct{}
 
-func (OSCommander) Run(stdin, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...) // #nosec G204 -- fixed program names; arguments are ids, urls and tmux targets
+func (c OSCommander) Run(stdin, name string, args ...string) (string, error) {
+	return c.RunContext(context.Background(), stdin, name, args...)
+}
+
+func (OSCommander) RunContext(ctx context.Context, stdin, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- fixed program names; arguments are ids, urls and tmux targets
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if stdin != "" {
@@ -206,13 +214,19 @@ type (
 		// posted to its issue or PR. Empty when it was, or when there was nothing
 		// to post it to.
 		CommentErr string
+		// CommentUnsure is set when the post timed out: gh was killed, but it may
+		// already have posted, so the operator is told to look, not to retry.
+		CommentUnsure bool
 	}
 	// StuckDismissedEvent answers CmdStuckDismiss.
 	StuckDismissedEvent struct {
 		Key       string
 		Until     time.Time
 		Dismissed map[string]time.Time
-		Err       string
+		// At is when the file was written. A read of it that started earlier is
+		// older than this answer, whatever the model's clock last said.
+		At  time.Time
+		Err string
 	}
 	// LaterEvent answers CmdLater. Err is why the parked issues could not be
 	// listed; Issues is then empty and means nothing.
@@ -424,11 +438,42 @@ func (e Env) reply(c Cmd) Event {
 	// a failure here is reported and undoes nothing. Only a ref that parses as a
 	// GitHub issue or PR gets a comment; a `session:` ref, or none, does not.
 	if c.Ref != "" && tag == "inbox" {
-		if _, err := WriteBack(e.Cmd, c.Ref, c.Text, e.now()); err != nil && !errors.Is(err, ErrNotGitHubRef) {
+		if _, err := e.WriteBack(c.Ref, c.Text); err != nil && !errors.Is(err, ErrNotGitHubRef) {
 			ev.CommentErr = clean(err.Error())
+			var to *PostTimeoutError
+			ev.CommentUnsure = errors.As(err, &to)
 		}
 	}
 	return ev
+}
+
+// KnownRepos are the repositories this watcher already covers: the roster's and
+// the extra ones. They are the only places a reply may be commented on.
+func (e Env) KnownRepos() []string { return e.repos() }
+
+// knownRepo is whether repo is one of them, ignoring case as GitHub does.
+func (e Env) knownRepo(repo string) bool {
+	for _, r := range e.repos() {
+		if strings.EqualFold(r, repo) {
+			return true
+		}
+	}
+	return false
+}
+
+// WriteBack posts text to the issue or PR ref names, if ref is one and its
+// repository is one this watcher covers. The ref is written by an agent, so it
+// does not get to choose where the operator's words are posted: an unknown
+// repository is refused. This is the function a decisions log (#427) calls.
+func (e Env) WriteBack(ref, text string) (GitHubRef, error) {
+	g, ok := ParseGitHubRef(ref)
+	if !ok {
+		return GitHubRef{}, ErrNotGitHubRef
+	}
+	if !e.knownRepo(g.Repo) {
+		return g, fmt.Errorf("%s is not in the roster", g.Repo)
+	}
+	return WriteBack(e.Cmd, ref, text, e.now())
 }
 
 // dismissStuck records a Stuck dismissal.
@@ -437,7 +482,7 @@ func (e Env) dismissStuck(c Cmd) Event {
 	if err != nil {
 		return StuckDismissedEvent{Key: c.ID, Err: err.Error()}
 	}
-	return StuckDismissedEvent{Key: c.ID, Until: c.Until, Dismissed: got}
+	return StuckDismissedEvent{Key: c.ID, Until: c.Until, Dismissed: got, At: e.now()}
 }
 
 func (e Env) popup(id string) Event {
