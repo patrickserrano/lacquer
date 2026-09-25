@@ -109,3 +109,23 @@ func TestStopHookRunsLacquerWithStdinAndIsSilentWithout(t *testing.T) {
 		t.Fatalf("without lacquer the hook must be silent and exit 0, got err=%v out=%q", err, out)
 	}
 }
+
+// A lacquer that predates the subcommand (or fails for any reason) must not
+// surface as a hook error in the session: on an old install every Stop would
+// otherwise print lacquer's version banner and "unknown inbox subcommand".
+func TestStopHookSwallowsALacquerThatFails(t *testing.T) {
+	p := fromFixture(t, "rootapp")
+	p.sync()
+	cmd := stopHooks(t, p.read(".claude/settings.json"))[0].Command
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho 'error: unknown inbox subcommand \"hook\"' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "lacquer"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c := exec.Command("bash", "-c", cmd)
+	c.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+	c.Stdin = strings.NewReader(`{}`)
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("a failing lacquer must not fail the hook, got %v\n%s", err, out)
+	}
+}
