@@ -1240,7 +1240,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               only sets the cursor, nothing is backfilled; a gh failure is listed as")
 	fmt.Fprintln(w, "                               unavailable; with no roster it says merges are not being recorded.")
 	fmt.Fprintln(w, "                               A background agent going idle is recorded too, by the Stop hook the")
-	fmt.Fprintln(w, "                               iOS profile ships: `console inbox hook stop` reads the hook JSON on")
+	fmt.Fprintln(w, "                               iOS, web and supabase profiles ship: `console inbox hook stop` reads the hook JSON on")
 	fmt.Fprintln(w, "                               stdin and, only when $CLAUDE_JOB_DIR is set (a `claude --bg` session),")
 	fmt.Fprintln(w, "                               adds one UNREAD `<session> is idle in <project>: <last message>`, ref")
 	fmt.Fprintln(w, "                               session:<id>, at most one open per session. It always exits 0, warns")
