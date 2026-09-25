@@ -410,3 +410,11 @@ func assignProjects(sessions []Session, roster fleet.Roster) {
 		sessions[i].Project = best
 	}
 }
+
+// ProjectFor is the roster project a working directory falls under, or "" when
+// none does. It is assignProjects for one path, for callers with no Session.
+func ProjectFor(cwd string, roster fleet.Roster) string {
+	s := []Session{{CWD: cwd}}
+	assignProjects(s, roster)
+	return s[0].Project
+}

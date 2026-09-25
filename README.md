@@ -79,6 +79,14 @@ created on first write; `--inbox` and `$LACQUER_INBOX` override it. Add
 session belongs to. `--sessions` is only for dispatch records, which
 `watch --relaunch` and `kill` need.
 
+A background agent that goes idle writes itself into the inbox: the iOS profile
+ships a Claude Code Stop hook (`lacquer console inbox hook stop`) that adds one
+UNREAD, `<session> is idle in <project>: <first line of its last message>`, ref
+`session:<id>`, only when `$CLAUDE_JOB_DIR` is set (a `claude --bg` session), and
+at most one open entry per session. It always exits 0; problems go to stderr.
+Only the iOS profile ships a Claude settings file, so web, supabase and marketing
+projects do not get the hook.
+
 ## Dispatch model and effort
 
 `console dispatch` starts ICs on **sonnet** by default. Set top-level

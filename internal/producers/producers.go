@@ -3,7 +3,7 @@
 // (and ci-round's exhausted budget) ever appended to it, and a queue that
 // depends on someone remembering to write to it rots (see inbox's own history).
 //
-// Two producers live here, each in the process that can see the event:
+// Three producers live here, each in the process that can see the event:
 //
 //   - GateRejection: `lacquer wait pr` ends, and says so, when a PR was never
 //     tested, timed out, or could not be checked. It runs locally as the
@@ -12,8 +12,12 @@
 //   - HarvestMerges: a PR merge happens through `gh pr merge`, typed by a PM,
 //     and lacquer never sees it. So the console asks GitHub, on read, what
 //     merged since it last looked.
+//   - AgentIdle: a background agent going idle is a Claude Code Stop hook firing
+//     in that session, so `lacquer console inbox hook stop` (shipped in the iOS
+//     profile's .claude/settings.json) writes it, keyed on $CLAUDE_JOB_DIR so
+//     that only background sessions ever do. See agent_idle.go.
 //
-// Both use only the two existing entry types and the existing fields. The phone
+// All use only the two existing entry types and the existing fields. The phone
 // mirror reads this file; a new type or field would break it silently.
 package producers
 
