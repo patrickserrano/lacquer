@@ -70,6 +70,7 @@ func (d *IssuePopup) update(ev Event) []Cmd {
 		}
 		d.Replying, d.Note = true, ev.Note // the overseer did not get it: keep what was typed
 	case MouseEvent:
+		d.Arm = false // any other input disarms a first d
 		switch ev.Button {
 		case ButtonWheelUp:
 			d.Top -= wheelStep
@@ -149,6 +150,10 @@ func (d *IssuePopup) key(k KeyEvent) []Cmd {
 			}
 			return []Cmd{{Kind: CmdOpen, Text: d.Data.URL, Label: "on GitHub"}}
 		case 'd':
+			if !d.OK { // never un-park what the view cannot show
+				d.Note = "no issue loaded"
+				return nil
+			}
 			if arm {
 				return []Cmd{{Kind: CmdUnpark, ID: d.Ref}}
 			}

@@ -367,3 +367,24 @@ func TestEnterOnALaterRowOpensTheIssuePopupAndComingBackRefetches(t *testing.T) 
 		t.Errorf("after the popup closed: %v", kinds(cmds))
 	}
 }
+
+// An issue that never loaded cannot be un-parked: the operator would be acting
+// on something the view does not show.
+func TestIssuePopupRefusesDWhenTheIssueDidNotLoad(t *testing.T) {
+	var p Program = NewIssuePopup(issueRef, true, 100, 10)
+	p, _ = send(t, p, TickEvent{Now: t0}, IssueEvent{Err: "HTTP 404"})
+	p, cmds := feed(t, p, "d")
+	q, cmds2 := feed(t, p, "d")
+	if len(cmds)+len(cmds2) != 0 || q.(IssuePopup).Arm || !strings.Contains(plain(q.View().Lines[9]), "no issue loaded") {
+		t.Errorf("d on an unloaded issue: %+v %+v, armed %v", cmds, cmds2, q.(IssuePopup).Arm)
+	}
+}
+
+func TestIssuePopupScrollDisarmsAFirstD(t *testing.T) {
+	p := loadedIssue(t, issueData(), true)
+	p, _ = feed(t, p, "d")
+	p, _ = feed(t, p, "\x1b[<65;5;5M")
+	if _, cmds := feed(t, p, "d"); len(cmds) != 0 {
+		t.Errorf("d, scroll, d un-parked: %+v", cmds)
+	}
+}

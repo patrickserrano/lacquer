@@ -41,7 +41,8 @@ func Show(path, id string) (string, error) {
 		}
 	}
 	lines = append(lines, "")
-	for _, para := range strings.Split(e.Body, "\n") {
+	body := strings.ReplaceAll(strings.ReplaceAll(e.Body, "\r\n", "\n"), "\r", "\n") // CRLF bodies would show ^M
+	for _, para := range strings.Split(body, "\n") {
 		lines = append(lines, wrap(clean(para), showWidth)...)
 	}
 	return strings.Join(lines, "\n") + "\n", nil

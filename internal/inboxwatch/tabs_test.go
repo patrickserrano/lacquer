@@ -806,3 +806,22 @@ func TestInboxEmptyMessageNamesTheDoneTabOnlyWhenThereIsOne(t *testing.T) {
 		t.Errorf("one tab:\n%s", s)
 	}
 }
+
+// gh search returns at most laterLimit issues without saying it stopped there.
+func TestLaterSaysWhenTheSearchReturnedItsLimit(t *testing.T) {
+	mk := func(n int) []LaterIssue {
+		var out []LaterIssue
+		for i := 1; i <= n; i++ {
+			out = append(out, LaterIssue{Repo: "o/r", Number: i, Title: "t", CreatedAt: t0})
+		}
+		return out
+	}
+	full, _ := send(t, onTab(t, tabModel(t, 140, 8), "2"), LaterEvent{Issues: mk(laterLimit), At: t0})
+	if head := plain(full.View().Lines[0]); !strings.Contains(head, "at the 300-issue limit (may be cut)") {
+		t.Errorf("header = %q", head)
+	}
+	short, _ := send(t, onTab(t, tabModel(t, 140, 8), "2"), LaterEvent{Issues: mk(laterLimit - 1), At: t0})
+	if head := plain(short.View().Lines[0]); strings.Contains(head, "limit") {
+		t.Errorf("a short list was flagged: %q", head)
+	}
+}

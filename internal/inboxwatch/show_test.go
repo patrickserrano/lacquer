@@ -106,3 +106,11 @@ func TestShowSanitizesControlCharacters(t *testing.T) {
 		t.Errorf("the error carries the raw id: %v", err)
 	}
 }
+
+func TestShowHandlesCRLFBodies(t *testing.T) {
+	path := showFixture(t, inbox.Entry{ID: "fx01", Type: inbox.Action, Title: "t", Body: "line one\r\nline two\rline three"})
+	got, err := Show(path, "fx01")
+	if err != nil || strings.Contains(got, "^M") || !strings.Contains(got, "\nline one\nline two\nline three\n") {
+		t.Errorf("Show = %q, %v", got, err)
+	}
+}

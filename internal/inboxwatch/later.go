@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,12 +24,16 @@ type LaterIssue struct {
 // Ref is "owner/name#number", what identifies the issue everywhere.
 func (i LaterIssue) Ref() string { return fmt.Sprintf("%s#%d", i.Repo, i.Number) }
 
+// laterLimit is how many issues one search asks for. A search that returns
+// exactly this many may have been cut, and the tab says so.
+const laterLimit = 300
+
 // laterArgs is the gh search that lists the parked issues: every open issue
 // labelled `later` in the given owners' repositories. There is always at least
 // one owner: with none, `gh search issues` would search all of GitHub.
 func laterArgs(owners []string) []string {
 	args := []string{"search", "issues", "--label", LaterLabel, "--state", "open",
-		"--limit", "300", "--json", "repository,number,title,createdAt,url"}
+		"--limit", strconv.Itoa(laterLimit), "--json", "repository,number,title,createdAt,url"}
 	for _, o := range owners {
 		args = append(args, "--owner", o)
 	}
@@ -125,7 +130,11 @@ func (m Model) laterStatus() seg {
 	for _, i := range s.Issues {
 		repos[i.Repo] = true
 	}
-	return seg{fmt.Sprintf(" %d parked · %d projects", len(s.Issues), len(repos)), fgBold(magenta)}
+	cut := ""
+	if len(s.Issues) >= laterLimit {
+		cut = fmt.Sprintf(" · at the %d-issue limit (may be cut)", laterLimit)
+	}
+	return seg{fmt.Sprintf(" %d parked · %d projects%s", len(s.Issues), len(repos), cut), fgBold(magenta)}
 }
 
 func (m Model) laterEmpty() string {
