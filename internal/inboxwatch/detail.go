@@ -30,13 +30,12 @@ type Detail struct {
 	HasReply  bool
 	LoadErr   string
 
-	Top      int
-	Note     string
-	Arm      bool
-	Replying bool
-	Sending  bool
-	Buf      string
-	quit     bool
+	Top  int
+	Note string
+	Arm  bool
+	quit bool
+
+	replyBox
 }
 
 // NewDetail is a detail view of the entry id.
@@ -92,24 +91,7 @@ func (d *Detail) update(ev Event) []Cmd {
 	return nil
 }
 
-func (d Detail) box() []string {
-	if !d.Replying {
-		return nil
-	}
-	t := []rune("> " + d.Buf)
-	width := max(d.W-1, 10)
-	var box []string
-	for i := 0; i < len(t); i += width {
-		box = append(box, string(t[i:min(i+width, len(t))]))
-	}
-	if len(t)%width == 0 {
-		box = append(box, "") // room for the cursor after a full line
-	}
-	if n := max(d.H/3, 1); len(box) > n {
-		box = box[len(box)-n:] // a long reply scrolls within the box
-	}
-	return box
-}
+func (d Detail) box() []string { return d.replyBox.box(d.W, d.H) }
 
 func (d Detail) bodyH() int { return max(d.H-len(d.box())-1, 1) }
 
@@ -173,27 +155,12 @@ func (d *Detail) key(k KeyEvent) []Cmd {
 
 func (d *Detail) replyKey(k KeyEvent) []Cmd {
 	d.Note = ""
-	switch k.Key {
-	case KeyEnter:
-		text := strings.TrimSpace(d.Buf)
-		if text == "" {
-			d.Replying, d.Buf, d.Note = false, "", "reply cancelled"
-			return nil
-		}
-		d.Replying, d.Sending = false, true
+	text, act := d.replyBox.key(k)
+	switch act {
+	case boxSend:
 		return []Cmd{{Kind: CmdReply, ID: d.ID, Text: text}}
-	case KeyEsc, KeyCtrlC:
-		d.Replying, d.Buf, d.Note = false, "", "reply cancelled"
-	case KeyBackspace:
-		if r := []rune(d.Buf); len(r) > 0 {
-			d.Buf = string(r[:len(r)-1])
-		}
-	case KeyCtrlU:
-		d.Buf = ""
-	case KeyRune:
-		if k.Rune >= ' ' && k.Rune != 0x7f {
-			d.Buf += string(k.Rune)
-		}
+	case boxCancel:
+		d.Note = "reply cancelled"
 	}
 	d.clampTop()
 	return nil

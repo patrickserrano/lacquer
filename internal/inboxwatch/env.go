@@ -108,6 +108,7 @@ type Item struct {
 // Data is one read of the inbox.
 type Data struct {
 	Items     []Item
+	Done      []DoneItem
 	Malformed int
 }
 
@@ -134,19 +135,30 @@ type Cmd struct {
 	Kind CmdKind
 	ID   string
 	Text string // a URL to open, text to copy, or a reply
+	// Tag is what a reply is tagged with: "inbox" (the default) or "later".
+	// Code chooses it, never the entry.
+	Tag string
+	// Label names what an open or a copy was of, for the status bar: "link"
+	// opened by default, the text itself copied.
+	Label string
 }
 
 type CmdKind int
 
 const (
-	CmdLoad    CmdKind = iota // read the inbox
-	CmdEntry                  // read one entry for the detail view
-	CmdResolve                // resolve ID
-	CmdReply                  // type Text into the overseer pane for ID
-	CmdOpen                   // open the URL in Text
-	CmdCopy                   // copy Text
-	CmdPopup                  // show ID's detail in a tmux popup
-	CmdHarvest                // record PR merges
+	CmdLoad       CmdKind = iota // read the inbox
+	CmdEntry                     // read one entry for the detail view
+	CmdResolve                   // resolve ID
+	CmdReply                     // type Text into the overseer pane for ID
+	CmdOpen                      // open the URL in Text
+	CmdCopy                      // copy Text
+	CmdPopup                     // show ID's detail in a tmux popup
+	CmdHarvest                   // record PR merges
+	CmdLater                     // list the parked issues
+	CmdPRs                       // list the open PRs
+	CmdIssue                     // read the issue ID for the issue popup
+	CmdUnpark                    // remove the later label from issue ID
+	CmdPopupIssue                // show issue ID in a tmux popup
 )
 
 // Answers to Cmds.
@@ -181,6 +193,28 @@ type (
 		OK   bool
 		Note string
 	}
+	// LaterEvent answers CmdLater. Err is why the parked issues could not be
+	// listed; Issues is then empty and means nothing.
+	LaterEvent struct {
+		Issues []LaterIssue
+		Err    string
+		At     time.Time
+	}
+	// PRsEvent answers CmdPRs. Errors are the repositories that failed while
+	// the rest answered; Err is set when none could be listed at all.
+	PRsEvent struct {
+		PRs    []PR
+		Errors []PRError
+		Full   []string // repositories that returned prLimit PRs, so may have more
+		Err    string
+		At     time.Time
+	}
+	// IssueEvent answers CmdIssue.
+	IssueEvent struct {
+		Data IssueData
+		OK   bool
+		Err  string
+	}
 	// HarvestedEvent answers CmdHarvest.
 	HarvestedEvent struct {
 		Added       int
@@ -204,8 +238,13 @@ type Env struct {
 	// Resolve is the same function `lacquer console inbox resolve` calls.
 	Resolve func(path, id string) (inbox.Entry, error)
 	Now     func() time.Time
-	// PopupArgv is the command tmux runs to show one entry's detail.
+	// PopupArgv is the command tmux runs to show one entry's detail, and
+	// IssueArgv the one that shows an issue.
 	PopupArgv func(id string) []string
+	IssueArgv func(ref string) []string
+	// ExtraRepos are repositories the roster does not list that the Later and
+	// PRs tabs should still cover (foxy-prs's extras).
+	ExtraRepos []string
 	// InTmux says whether a popup can be shown.
 	InTmux bool
 }
@@ -238,16 +277,34 @@ func (e Env) Exec(c Cmd) Event {
 		if _, err := e.Cmd.Run("", openProgram(), c.Text); err != nil {
 			return DoneEvent{Kind: c.Kind, Note: "open failed: " + err.Error()}
 		}
-		return DoneEvent{Kind: c.Kind, OK: true, Note: "opened link"}
+		label := c.Label
+		if label == "" {
+			label = "link"
+		}
+		return DoneEvent{Kind: c.Kind, OK: true, Note: "opened " + label}
 	case CmdCopy:
 		if _, err := e.Cmd.Run(c.Text, "pbcopy"); err != nil {
 			return DoneEvent{Kind: c.Kind, Note: "copy failed: " + err.Error()}
 		}
-		return DoneEvent{Kind: c.Kind, ID: c.ID, OK: true, Note: "copied " + c.Text}
+		what := c.Text
+		if c.Label != "" {
+			what = c.Label
+		}
+		return DoneEvent{Kind: c.Kind, ID: c.ID, OK: true, Note: "copied " + what}
 	case CmdPopup:
 		return e.popup(c.ID)
 	case CmdHarvest:
 		return e.harvest()
+	case CmdLater:
+		return e.later()
+	case CmdPRs:
+		return e.prs()
+	case CmdIssue:
+		return e.issue(c.ID)
+	case CmdUnpark:
+		return e.unpark(c.ID)
+	case CmdPopupIssue:
+		return e.popupIssue(c.ID)
 	}
 	return DoneEvent{Note: fmt.Sprintf("unknown command %d", c.Kind)}
 }
@@ -279,7 +336,7 @@ func (e Env) load() LoadedEvent {
 		items = append(items, Item{ID: en.ID, Type: en.Type, CreatedAt: en.CreatedAt, Title: en.Title, Ref: en.Ref, Replied: replied})
 	}
 	sortItems(items)
-	ev := LoadedEvent{Data: Data{Items: items, Malformed: malformed}, At: at}
+	ev := LoadedEvent{Data: Data{Items: items, Done: e.done(replies), Malformed: malformed}, At: at}
 	if rerr != nil {
 		ev.Warn = "replies unreadable: " + rerr.Error()
 	}
@@ -320,7 +377,11 @@ func (e Env) reply(c Cmd) Event {
 	if err != nil {
 		return RepliedEvent{Note: err.Error()}
 	}
-	msg := fmt.Sprintf("[inbox %s] %s", clean(c.ID), c.Text)
+	tag := c.Tag
+	if tag == "" {
+		tag = "inbox"
+	}
+	msg := fmt.Sprintf("[%s %s] %s", tag, clean(c.ID), c.Text)
 	if _, err := e.Cmd.Run("", "tmux", "send-keys", "-t", pane, "-l", msg); err != nil {
 		return RepliedEvent{Note: "tmux send-keys: " + err.Error()}
 	}
@@ -334,25 +395,30 @@ func (e Env) reply(c Cmd) Event {
 }
 
 func (e Env) popup(id string) Event {
+	return e.showPopup(CmdPopup, id, e.PopupArgv,
+		fmt.Sprintf(" inbox %s  (r reply · d resolve · o link · c copy · q close) ", clean(id)))
+}
+
+// showPopup runs argv in a tmux popup titled title. Neither id nor argv may
+// carry agent text unencoded: see the # rules below.
+func (e Env) showPopup(kind CmdKind, id string, argv func(string) []string, title string) Event {
 	if !e.InTmux {
-		return DoneEvent{Kind: CmdPopup, Note: "the detail view is a tmux popup, and this is not tmux"}
+		return DoneEvent{Kind: kind, Note: "the detail view is a tmux popup, and this is not tmux"}
 	}
-	cmd := shellJoin(e.PopupArgv(id))
+	cmd := shellJoin(argv(id))
 	if strings.Contains(cmd, "#") {
 		// tmux expands formats in the command on some versions and not on others
 		// (3.7c passes it through untouched, so doubling every # would corrupt it
 		// there), which leaves no escaping that is right on both. The command
 		// carries no agent-written text (the id goes hex-encoded), so a # here is
 		// in a path or setting the operator chose, and is refused rather than guessed.
-		return DoneEvent{Kind: CmdPopup, ID: id, Note: "cannot open the popup: a # in the inbox path or overseer setting cannot be passed to tmux safely"}
+		return DoneEvent{Kind: kind, ID: id, Note: "cannot open the popup: a # in the inbox path or overseer setting cannot be passed to tmux safely"}
 	}
-	args := []string{"display-popup", "-w", "80%", "-h", "70%",
-		"-T", formatQuote(fmt.Sprintf(" inbox %s  (r reply · d resolve · o link · c copy · q close) ", clean(id))),
-		"-E", cmd}
+	args := []string{"display-popup", "-w", "80%", "-h", "70%", "-T", formatQuote(title), "-E", cmd}
 	if _, err := e.Cmd.Run("", "tmux", args...); err != nil {
-		return DoneEvent{Kind: CmdPopup, ID: id, Note: "tmux display-popup: " + err.Error()}
+		return DoneEvent{Kind: kind, ID: id, Note: "tmux display-popup: " + err.Error()}
 	}
-	return DoneEvent{Kind: CmdPopup, ID: id, OK: true}
+	return DoneEvent{Kind: kind, ID: id, OK: true}
 }
 
 func (e Env) harvest() Event {

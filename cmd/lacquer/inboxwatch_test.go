@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/hex"
+	"errors"
+	"flag"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -273,3 +277,197 @@ var ansiOut = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 func plainOut(s string) string { return ansiOut.ReplaceAllString(s, "") }
 
 func fleetRoster() fleet.Roster { return fleet.Roster{} }
+
+// ---- 409b: the tabs, the issue popup, --show ----
+
+// stepReader is a terminal's input that sends each step's keys once the screen
+// shows what that step waits for, so a test can move through the tabs and see
+// each one before the next key.
+type stepReader struct {
+	out   *lockedBuf
+	steps []struct{ want, keys string }
+}
+
+func (r *stepReader) Read(p []byte) (int, error) {
+	if len(r.steps) == 0 {
+		return 0, io.EOF
+	}
+	s := r.steps[0]
+	r.steps = r.steps[1:]
+	for i := 0; i < 500 && !strings.Contains(plainOut(r.out.String()), s.want); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	return copy(p, s.keys), nil
+}
+
+// End to end through the real loop and the real Env, with only gh faked: every
+// tab is reached by its key, asks GitHub once, and shows what came back.
+func TestWatchCyclesThroughAllFourTabs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "inbox.jsonl")
+	now := time.Now().UTC()
+	if _, err := inbox.Add(path, inbox.Entry{ID: "open1", Type: inbox.Action, Title: "still waiting on you"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inbox.Add(path, inbox.Entry{ID: "gone1", Type: inbox.Unread, Title: "an entry already closed", CreatedAt: now.Add(-3 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inbox.Resolve(path, "gone1"); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var ghCalls []string
+	fakeGH := func(_ context.Context, args ...string) ([]byte, error) {
+		mu.Lock()
+		ghCalls = append(ghCalls, strings.Join(args, " "))
+		mu.Unlock()
+		switch {
+		case args[0] == "search":
+			return []byte(`[{"repository":{"nameWithOwner":"Acme/Widgets"},"number":12,"title":"parked idea about widgets","createdAt":"` + now.Add(-50*time.Hour).Format(time.RFC3339) + `","url":"https://github.com/Acme/Widgets/issues/12"}]`), nil
+		case args[0] == "pr" && args[3] != "Acme/Widgets":
+			return []byte("[]"), nil
+		case args[0] == "pr":
+			return []byte(`[{"number":41,"title":"open pull request title","author":{"login":"app/dependabot"},"isDraft":false,"createdAt":"` + now.Add(-30*time.Hour).Format(time.RFC3339) + `","url":"https://github.com/Acme/Widgets/pull/41","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}]`), nil
+		}
+		return nil, errors.New("unexpected gh call " + strings.Join(args, " "))
+	}
+	out := &lockedBuf{}
+	term := inboxwatch.Term{
+		In: &stepReader{out: out, steps: []struct{ want, keys string }{
+			{"still waiting on you", "2"},
+			{"parked idea about widgets", "3"},
+			{"an entry already closed", "4"},
+			{"open pull request title", "1q"},
+		}},
+		Out:       out,
+		MakeRaw:   func() (func() error, error) { return func() error { return nil }, nil },
+		Size:      func() (int, int, error) { return 110, 12, nil },
+		TickEvery: 10 * time.Millisecond, EscWait: 10 * time.Millisecond, Now: time.Now,
+	}
+	env := newWatchEnv(path, false, overseerFlags{}, fleet.Roster{Project: []fleet.Entry{{Name: "widgets", Repo: "Acme/Widgets"}}}, envMap(nil))
+	env.Run = fakeGH
+	env.ExtraRepos = []string{"patrickserrano/lacquer"}
+	var stderr bytes.Buffer
+	if code := runInboxWatch(term, env, &stderr); code != 0 {
+		t.Fatalf("code %d: %s", code, stderr.String())
+	}
+	screen := plainOut(out.String())
+	for _, want := range []string{
+		"1 Inbox", "2 Later", "3 Done", "4 PRs",
+		"Widgets  (1)", "#12", "parked idea about widgets", "1 parked · 1 projects",
+		"an entry already closed", "1 closed",
+		"#41", "dependabot", "BLOCKED", "open pull request title", "1 open · 1 over 24h",
+		"⏎ issue", "⏎/o open on GitHub", // the whole hint rows are checked in the model tests
+	} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("no frame shows %q", want)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	var search, prs int
+	for _, c := range ghCalls {
+		switch {
+		case strings.HasPrefix(c, "search issues --label later"):
+			search++
+			if !strings.HasSuffix(c, "--owner Acme --owner patrickserrano") {
+				t.Errorf("owners: %s", c)
+			}
+		case strings.HasPrefix(c, "pr list -R"):
+			prs++
+		}
+	}
+	if search != 1 || prs != 2 {
+		t.Errorf("gh ran %d searches and %d PR lists (one per repository), want 1 and 2: %q", search, prs, ghCalls)
+	}
+}
+
+// What the list runs in a popup for a Later row carries the issue hex-encoded.
+func TestIssuePopupCommandCarriesTheRefHexEncoded(t *testing.T) {
+	old := executablePath
+	defer func() { executablePath = old }()
+	executablePath = func() (string, error) { return "/opt/bin/lacquer", nil }
+	env := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{pane: "%3"}, fleetRoster(), envMap(nil))
+	got := strings.Join(env.IssueArgv("Acme/Widgets#12"), " ")
+	want := "/opt/bin/lacquer console inbox popup --inbox /state/inbox.jsonl --overseer-pane=%3 --overseer-title= --overseer-session= --issue-hex=" + hex.EncodeToString([]byte("Acme/Widgets#12"))
+	if got != want {
+		t.Errorf("issue argv\n%s\nwant\n%s", got, want)
+	}
+	hostile := strings.Join(env.IssueArgv("o/r#(touch pwned)#{pane_id}'; rm -rf ~; '#1"), " ")
+	if strings.Contains(strings.ReplaceAll(hostile, "--overseer-pane=%3", ""), "#") || strings.Contains(hostile, "pwned") || strings.Contains(hostile, "'") {
+		t.Errorf("agent text reached the popup command: %s", hostile)
+	}
+}
+
+func TestIssuePopupRefusesBadHexAndBothIdentifiers(t *testing.T) {
+	old, oldTTY := stdinIsTerminal, waitForKey
+	defer func() { stdinIsTerminal, waitForKey = old, oldTTY }()
+	stdinIsTerminal = func() bool { return false }
+	for name, args := range map[string][]string{
+		"not hex":   {"--inbox", "/tmp/x.jsonl", "--issue-hex=zz"},
+		"both":      {"--inbox", "/tmp/x.jsonl", "--issue-hex=" + hex.EncodeToString([]byte("o/r#1")), "--id-hex=6161"},
+		"an id too": {"--inbox", "/tmp/x.jsonl", "--issue-hex=" + hex.EncodeToString([]byte("o/r#1")), "a1"},
+	} {
+		var stderr bytes.Buffer
+		if code := popupMain(args, envMap(nil), &stderr); code == 0 || !strings.Contains(stderr.String(), "--issue-hex") {
+			t.Errorf("%s: code %d, stderr %q", name, code, stderr.String())
+		}
+	}
+}
+
+func TestInboxWatchShowPrintsOneEntryWithoutATerminalOrRoster(t *testing.T) {
+	lq := realLacquer(t)
+	path := filepath.Join(t.TempDir(), "inbox.jsonl")
+	if _, err := inbox.Add(path, inbox.Entry{ID: "fx01", Type: inbox.Action, Title: "fixture decision needed", Project: "lacquer", Body: "line one\nline\x1b[2Jtwo",
+		CreatedAt: time.Date(2026, 9, 24, 12, 30, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	stdinIsTerminal = func() bool { return false }
+	env := envMap(map[string]string{"LACQUER_ROOT": lq, "XDG_STATE_HOME": t.TempDir()})
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"console", "--inbox", path, "inbox", "watch", "--show", "fx01"}, env, &stdout, &stderr); code != 0 {
+		t.Fatalf("code %d: %s", code, stderr.String())
+	}
+	want := "ACTION  fx01\nfixture decision needed\n\n  project: lacquer\ncreatedAt: 2026-09-24T12:30:00Z\n\nline one\nline^[[2Jtwo\n"
+	if stdout.String() != want {
+		t.Errorf("--show printed\n%q\nwant\n%q", stdout.String(), want)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"console", "--inbox", path, "inbox", "watch", "--show", "nope"}, env, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "no inbox entry nope") {
+		t.Errorf("a missing id: code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	// --show belongs to inbox watch and nothing else.
+	stderr.Reset()
+	if code := run([]string{"console", "--inbox", path, "--show", "fx01", "inbox", "list"}, env, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "--show applies only to inbox watch") {
+		t.Errorf("--show on inbox list: code %d, stderr %q", code, stderr.String())
+	}
+}
+
+func TestExtraRepoFlagAndEnvironment(t *testing.T) {
+	var f extraRepoFlags
+	for _, ok := range []string{"a/b", "a/b, c/d", ""} {
+		if err := f.Set(ok); err != nil {
+			t.Errorf("Set(%q) = %v", ok, err)
+		}
+	}
+	if got := f.String(); got != "a/b,a/b,c/d" {
+		t.Errorf("list = %q", got)
+	}
+	for _, bad := range []string{"nobody", "/x", "a/", "a/b/c", "--repo"} {
+		if err := (&extraRepoFlags{}).Set(bad); err == nil {
+			t.Errorf("Set(%q) accepted it", bad)
+		}
+	}
+	fs := flag.NewFlagSet("x", flag.ContinueOnError)
+	e := addExtraRepoFlag(fs, envMap(map[string]string{"LACQUER_EXTRA_REPOS": "o/one,o/two"}))
+	if err := fs.Parse([]string{"--extra-repo", "o/three"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(e.list, " ") != "o/one o/two o/three" || e.envErr != nil {
+		t.Errorf("list %v, envErr %v", e.list, e.envErr)
+	}
+	if bad := addExtraRepoFlag(flag.NewFlagSet("y", flag.ContinueOnError), envMap(map[string]string{"LACQUER_EXTRA_REPOS": "oops"})); bad.envErr == nil {
+		t.Error("a malformed $LACQUER_EXTRA_REPOS was ignored")
+	}
+}

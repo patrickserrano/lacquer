@@ -817,6 +817,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		entryProject := fs.String("project", "", "with inbox add: optional project/roster name")
 		all := fs.Bool("all", false, "with inbox list: include resolved entries")
 		overseer := addOverseerFlags(fs, getenv)
+		showID := fs.String("show", "", "with inbox watch: print the full detail of one entry by id and exit, instead of the live view")
+		extraRepos := addExtraRepoFlag(fs, getenv)
 		rest, err := parseConsoleArgs(fs, args[1:])
 		if err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -967,6 +969,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			case "resolve":
 				return runInboxResolve(inboxPath, rest[2:], stdout, stderr)
 			case "watch":
+				if *showID != "" {
+					return runInboxShow(inboxPath, *showID, stdout, stderr)
+				}
 				var roster fleet.Roster
 				if *rosterPath != "" {
 					var err error
@@ -977,7 +982,12 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				if !stdinIsTerminal() {
 					return fail(stderr, fmt.Errorf("inbox watch draws on a terminal and reads its keys; stdin and stdout must both be one (use `inbox list` in a pipe)"))
 				}
-				return runInboxWatch(systemTerm(), newWatchEnv(inboxPath, inboxIsDefault, *overseer, roster, getenv), stderr)
+				if extraRepos.envErr != nil {
+					return fail(stderr, extraRepos.envErr)
+				}
+				env := newWatchEnv(inboxPath, inboxIsDefault, *overseer, roster, getenv)
+				env.ExtraRepos = extraRepos.list
+				return runInboxWatch(systemTerm(), env, stderr)
 			default: // list; consoleSubcommand refused anything else
 				return runInboxList(inboxPath, inboxIsDefault, *all, stdout, stderr)
 			}
@@ -1276,7 +1286,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               mark one inbox entry resolved")
 	fmt.Fprintln(w, "  console --inbox F inbox list [--all]")
 	fmt.Fprintln(w, "                               list open inbox entries (--all also lists resolved ones)")
-	fmt.Fprintln(w, "  console --inbox F [--roster F] [--overseer-pane T | --overseer-title T [--overseer-session S]] inbox watch")
+	fmt.Fprintln(w, "  console --inbox F [--roster F] [--overseer-pane T | --overseer-title T [--overseer-session S]] [--extra-repo R]... inbox watch [--show ID]")
 	fmt.Fprintln(w, "                               the live inbox: open entries, ACTIONs first (red = needs you, yellow =")
 	fmt.Fprintln(w, "                               replied, blue = FYI), refreshed every few seconds. j/k or arrows or the")
 	fmt.Fprintln(w, "                               wheel move; Enter (or a click) opens the detail in a tmux popup, where r")
@@ -1526,6 +1536,8 @@ var consoleFlagScope = map[string][]string{
 	"overseer-pane":    {"inbox watch"},
 	"overseer-title":   {"inbox watch"},
 	"overseer-session": {"inbox watch"},
+	"show":             {"inbox watch"},
+	"extra-repo":       {"inbox watch"},
 }
 
 // checkConsoleFlagScope refuses the first flag set on fs that sub has no use
