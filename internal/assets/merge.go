@@ -42,7 +42,8 @@ type merger func(dest string, frags []Fragment) ([]byte, error)
 //
 // Keys are slash-separated, destination-relative paths.
 var mergers = map[string]merger{
-	"lefthook.yml": mergeLefthook,
+	"lefthook.yml":          mergeLefthook,
+	".claude/settings.json": mergeSettings,
 }
 
 // MergeableDests returns the destinations a merger is registered for. Exported

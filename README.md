@@ -79,13 +79,18 @@ created on first write; `--inbox` and `$LACQUER_INBOX` override it. Add
 session belongs to. `--sessions` is only for dispatch records, which
 `watch --relaunch` and `kill` need.
 
-A background agent that goes idle writes itself into the inbox: the iOS profile
-ships a Claude Code Stop hook (`lacquer console inbox hook stop`) that adds one
+A background agent that goes idle writes itself into the inbox: the iOS, web
+and supabase profiles ship a Claude Code Stop hook (`lacquer console inbox hook stop`) that adds one
 UNREAD, `<session> is idle in <project>: <first line of its last message>`, ref
 `session:<id>`, only when `$CLAUDE_JOB_DIR` is set (a `claude --bg` session), and
 at most one open entry per session. It always exits 0; problems go to stderr.
-Only the iOS profile ships a Claude settings file, so web, supabase and marketing
-projects do not get the hook.
+The iOS profile's `.claude/settings.json` carries the editor guards as well; web's
+and supabase's carry only this hook, and marketing ships none. A project with
+more than one of these profiles gets one file, composed by `lacquer sync`: each
+hook event's matcher groups are unioned by `matcher`, identical hook entries
+appear once (so the Stop hook fires once, not once per profile), and if two
+profiles set the same top-level key other than `hooks` to different values the
+sync fails naming both profiles and the key.
 
 ## Recorded decisions
 
@@ -213,9 +218,10 @@ actionable message before trying to read content.
 - **`core`** — universal rules/skills/commands applied to every project.
 - **`ios`** — Swift/Xcode: SwiftLint/SwiftFormat, CI, TestFlight, Skills; git
   hooks via `pre-commit`.
-- **`web`** — TypeScript + Biome + Vitest; CI + git hooks via `lefthook`.
+- **`web`** — TypeScript + Biome + Vitest; CI + git hooks via `lefthook`; Claude
+  Stop hook (`.claude/settings.json`).
 - **`supabase`** — Deno Edge Functions + Postgres/RLS; CI + git hooks via
-  `lefthook`.
+  `lefthook`; Claude Stop hook (`.claude/settings.json`).
 - **`marketing`** — no CI, no hooks, skills only: ~50 marketing/growth skills
   (ads, SEO, copywriting, funnels, lifecycle, pricing, planning). Never
   auto-detected — there is no marketing "stack" on disk to find, so add it to a
