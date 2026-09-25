@@ -89,6 +89,11 @@ type Entry struct {
 // Open reports whether e is still awaiting resolution.
 func (e Entry) Open() bool { return e.ResolvedAt == nil }
 
+// WriteGuard, when set, is asked before every write and can veto it. Only
+// internal/inbox/inboxtest sets it, to keep test binaries off the operator's
+// real inbox; nothing in a shipped binary does.
+var WriteGuard func(path string) error
+
 // Add appends a new entry, assigning it an ID (if the caller left one blank
 // -- callers should always leave it blank; the ID is derived, not invented by
 // the caller, per the brief this package was built from) and a CreatedAt (if
@@ -127,6 +132,11 @@ func Add(path string, e Entry) (Entry, error) {
 		e.CreatedAt = time.Now().UTC()
 	}
 
+	if WriteGuard != nil {
+		if err := WriteGuard(path); err != nil {
+			return Entry{}, err
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return Entry{}, fmt.Errorf("create inbox file directory: %w", err)
 	}
@@ -269,6 +279,11 @@ func Resolve(path, id string) (Entry, error) {
 // line, via a temp file + rename so a crash mid-write leaves either the old
 // file or the new one intact, never a half-written one.
 func rewrite(path string, entries []Entry) error {
+	if WriteGuard != nil {
+		if err := WriteGuard(path); err != nil {
+			return err
+		}
+	}
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {

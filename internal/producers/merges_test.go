@@ -232,3 +232,58 @@ func TestANewRepoIsPrimedWithoutBackfill(t *testing.T) {
 		t.Error("the new repo has no cursor")
 	}
 }
+
+// Two harvests at once (two consoles, or a console and `inbox watch`) both read
+// the inbox before either has appended. Without the lock each sees an empty
+// `existing`, both call gh, and the same merge lands twice. The runner holds each
+// call until the other harvest has also reached gh (or 1s passes, which is what
+// happens when the lock keeps the second one out), so the overlap is forced
+// rather than left to scheduling.
+func TestConcurrentHarvestsAddAMergeOnce(t *testing.T) {
+	path := newInbox(t)
+	r := roster("w", "acme/widgets")
+	harvest(path, r, t0, &fakeGH{}) // primes at t0
+
+	var mu sync.Mutex
+	started := 0
+	both := make(chan struct{})
+	run := func(context.Context, ...string) ([]byte, error) {
+		mu.Lock()
+		started++
+		if started == 2 {
+			close(both)
+		}
+		mu.Unlock()
+		select {
+		case <-both:
+		case <-time.After(time.Second):
+		}
+		return []byte("[" + pr(7, "fix", "2026-09-24T12:30:00Z") + "]"), nil
+	}
+
+	results := make([]HarvestResult, 2)
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = HarvestMerges(HarvestOptions{InboxPath: path, Roster: r, Now: t0.Add(time.Hour), Run: run})
+		}()
+	}
+	wg.Wait()
+
+	if n := len(entries(t, path)); n != 1 {
+		t.Fatalf("two concurrent harvests wrote %d entries for one merge, want 1", n)
+	}
+	skipped := 0
+	for _, res := range results {
+		for _, n := range res.Notes {
+			if strings.Contains(n, "another harvest is running") {
+				skipped++
+			}
+		}
+	}
+	if skipped != 1 {
+		t.Errorf("exactly one harvest must say it was skipped, %d did: %+v", skipped, results)
+	}
+}

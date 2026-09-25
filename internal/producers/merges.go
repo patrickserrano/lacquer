@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/patrickserrano/lacquer/internal/ciwait"
@@ -22,6 +23,10 @@ const (
 	// CursorFile sits next to the inbox file and remembers, per repository, how
 	// far the harvest has looked.
 	CursorFile = "merge-cursor.json"
+	// LockFile is the advisory lock a harvest holds from reading the cursor to
+	// writing it. It is never deleted: unlinking it would let a new opener lock
+	// a new inode while the old holder still runs.
+	LockFile = "merge-cursor.lock"
 	// harvestLimit caps one repository's answer. Hitting it means the cursor is
 	// far behind, and the harvest says so instead of pretending it saw it all.
 	harvestLimit = 200
@@ -90,6 +95,22 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 		res.Unavailable = append(res.Unavailable, "merge harvest (no inbox file or gh runner configured)")
 		return res
 	}
+	// One harvest at a time, from reading the cursor to writing it. Without
+	// this, two harvests (two consoles, or a console and `inbox watch`) both
+	// read an inbox without the merge, both wait on gh, and both append it.
+	// A second harvest is skipped, not queued: the holder is doing the work,
+	// and a refresh loop must not pile up behind it.
+	unlock, err := lockHarvest(filepath.Join(filepath.Dir(o.InboxPath), LockFile))
+	if errors.Is(err, errHarvestBusy) {
+		res.Notes = append(res.Notes, "merge harvest: another harvest is running, skipped")
+		return res
+	}
+	if err != nil {
+		res.Unavailable = append(res.Unavailable, fmt.Sprintf("merge harvest (%v)", err))
+		return res
+	}
+	defer unlock()
+
 	curPath := filepath.Join(filepath.Dir(o.InboxPath), CursorFile)
 	cur, err := readCursors(curPath)
 	if err != nil {
@@ -267,4 +288,32 @@ func writeCursors(path string, c cursors) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+var errHarvestBusy = errors.New("another harvest holds the lock")
+
+// lockHarvest takes the exclusive advisory lock without waiting. The OS drops
+// it when the file closes, including after a crash.
+func lockHarvest(path string) (unlock func(), err error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open harvest lock: %w", err)
+	}
+	for {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err != syscall.EINTR {
+			break
+		}
+	}
+	if err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errHarvestBusy
+		}
+		return nil, fmt.Errorf("lock harvest: %w", err)
+	}
+	return func() { f.Close() }, nil
 }
