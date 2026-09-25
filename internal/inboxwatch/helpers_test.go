@@ -1,6 +1,7 @@
 package inboxwatch
 
 import (
+	"context"
 	"os"
 	"regexp"
 	"strings"
@@ -102,6 +103,10 @@ type fakeCmd struct {
 	stdin []string
 	out   map[string]string // by first arg, for list-panes
 	fail  map[string]error  // by "name subcommand"
+}
+
+func (f *fakeCmd) RunContext(_ context.Context, stdin, name string, args ...string) (string, error) {
+	return f.Run(stdin, name, args...)
 }
 
 func (f *fakeCmd) Run(stdin, name string, args ...string) (string, error) {

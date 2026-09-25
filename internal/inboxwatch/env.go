@@ -2,6 +2,7 @@ package inboxwatch
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -21,13 +22,20 @@ import (
 // so a test can record what would have run instead of running it.
 type Commander interface {
 	Run(stdin, name string, args ...string) (stdout string, err error)
+	// RunContext is Run, and the program is killed if ctx ends first. Anything
+	// that must not outlive its deadline (a comment on GitHub) goes through it.
+	RunContext(ctx context.Context, stdin, name string, args ...string) (stdout string, err error)
 }
 
 // OSCommander runs the real thing. On failure the error carries stderr.
 type OSCommander struct{}
 
-func (OSCommander) Run(stdin, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...) // #nosec G204 -- fixed program names; arguments are ids, urls and tmux targets
+func (c OSCommander) Run(stdin, name string, args ...string) (string, error) {
+	return c.RunContext(context.Background(), stdin, name, args...)
+}
+
+func (OSCommander) RunContext(ctx context.Context, stdin, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- fixed program names; arguments are ids, urls and tmux targets
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if stdin != "" {
@@ -110,6 +118,10 @@ type Data struct {
 	Items     []Item
 	Done      []DoneItem
 	Malformed int
+	// Dismissed is the Stuck tab's dismissals in force, and DismissedErr why
+	// they could not be read (then Dismissed is empty and nothing is hidden).
+	Dismissed    map[string]time.Time
+	DismissedErr string
 }
 
 // sortItems puts what needs the operator first: ACTIONs they have not answered,
@@ -141,24 +153,30 @@ type Cmd struct {
 	// Label names what an open or a copy was of, for the status bar: "link"
 	// opened by default, the text itself copied.
 	Label string
+	// Ref is the entry's ref, sent with a reply so the answer can be written back
+	// to the issue or PR it names. It is agent-written and is parsed before use.
+	Ref string
+	// Until is when a Stuck dismissal ends.
+	Until time.Time
 }
 
 type CmdKind int
 
 const (
-	CmdLoad       CmdKind = iota // read the inbox
-	CmdEntry                     // read one entry for the detail view
-	CmdResolve                   // resolve ID
-	CmdReply                     // type Text into the overseer pane for ID
-	CmdOpen                      // open the URL in Text
-	CmdCopy                      // copy Text
-	CmdPopup                     // show ID's detail in a tmux popup
-	CmdHarvest                   // record PR merges
-	CmdLater                     // list the parked issues
-	CmdPRs                       // list the open PRs
-	CmdIssue                     // read the issue ID for the issue popup
-	CmdUnpark                    // remove the later label from issue ID
-	CmdPopupIssue                // show issue ID in a tmux popup
+	CmdLoad         CmdKind = iota // read the inbox
+	CmdEntry                       // read one entry for the detail view
+	CmdResolve                     // resolve ID
+	CmdReply                       // type Text into the overseer pane for ID
+	CmdOpen                        // open the URL in Text
+	CmdCopy                        // copy Text
+	CmdPopup                       // show ID's detail in a tmux popup
+	CmdHarvest                     // record PR merges
+	CmdLater                       // list the parked issues
+	CmdPRs                         // list the open PRs
+	CmdIssue                       // read the issue ID for the issue popup
+	CmdUnpark                      // remove the later label from issue ID
+	CmdPopupIssue                  // show issue ID in a tmux popup
+	CmdStuckDismiss                // hide the Stuck condition ID until Until
 )
 
 // Answers to Cmds.
@@ -192,6 +210,23 @@ type (
 	RepliedEvent struct {
 		OK   bool
 		Note string
+		// CommentErr is why the reply, which did go to the overseer, was not also
+		// posted to its issue or PR. Empty when it was, or when there was nothing
+		// to post it to.
+		CommentErr string
+		// CommentUnsure is set when the post timed out: gh was killed, but it may
+		// already have posted, so the operator is told to look, not to retry.
+		CommentUnsure bool
+	}
+	// StuckDismissedEvent answers CmdStuckDismiss.
+	StuckDismissedEvent struct {
+		Key       string
+		Until     time.Time
+		Dismissed map[string]time.Time
+		// At is when the file was written. A read of it that started earlier is
+		// older than this answer, whatever the model's clock last said.
+		At  time.Time
+		Err string
 	}
 	// LaterEvent answers CmdLater. Err is why the parked issues could not be
 	// listed; Issues is then empty and means nothing.
@@ -305,6 +340,8 @@ func (e Env) Exec(c Cmd) Event {
 		return e.unpark(c.ID)
 	case CmdPopupIssue:
 		return e.popupIssue(c.ID)
+	case CmdStuckDismiss:
+		return e.dismissStuck(c)
 	}
 	return DoneEvent{Note: fmt.Sprintf("unknown command %d", c.Kind)}
 }
@@ -339,6 +376,11 @@ func (e Env) load() LoadedEvent {
 	ev := LoadedEvent{Data: Data{Items: items, Done: e.done(replies), Malformed: malformed}, At: at}
 	if rerr != nil {
 		ev.Warn = "replies unreadable: " + rerr.Error()
+	}
+	dismissed, derr := ReadDismissed(StuckDismissedPath(e.InboxPath))
+	ev.Data.Dismissed = dismissed
+	if derr != nil {
+		ev.Data.DismissedErr = derr.Error()
 	}
 	return ev
 }
@@ -391,7 +433,56 @@ func (e Env) reply(c Cmd) Event {
 	if err := AppendReply(RepliesPath(e.InboxPath), c.ID, e.now(), c.Text); err != nil {
 		return RepliedEvent{Note: "sent, but the reply was not recorded: " + err.Error()}
 	}
-	return RepliedEvent{OK: true, Note: "sent"}
+	ev := RepliedEvent{OK: true, Note: "sent"}
+	// Additional to the reply, never part of it: the overseer already has it, and
+	// a failure here is reported and undoes nothing. Only a ref that parses as a
+	// GitHub issue or PR gets a comment; a `session:` ref, or none, does not.
+	if c.Ref != "" && tag == "inbox" {
+		if _, err := e.WriteBack(c.Ref, c.Text); err != nil && !errors.Is(err, ErrNotGitHubRef) {
+			ev.CommentErr = clean(err.Error())
+			var to *PostTimeoutError
+			ev.CommentUnsure = errors.As(err, &to)
+		}
+	}
+	return ev
+}
+
+// KnownRepos are the repositories this watcher already covers: the roster's and
+// the extra ones. They are the only places a reply may be commented on.
+func (e Env) KnownRepos() []string { return e.repos() }
+
+// knownRepo is whether repo is one of them, ignoring case as GitHub does.
+func (e Env) knownRepo(repo string) bool {
+	for _, r := range e.repos() {
+		if strings.EqualFold(r, repo) {
+			return true
+		}
+	}
+	return false
+}
+
+// WriteBack posts text to the issue or PR ref names, if ref is one and its
+// repository is one this watcher covers. The ref is written by an agent, so it
+// does not get to choose where the operator's words are posted: an unknown
+// repository is refused. This is the function a decisions log (#427) calls.
+func (e Env) WriteBack(ref, text string) (GitHubRef, error) {
+	g, ok := ParseGitHubRef(ref)
+	if !ok {
+		return GitHubRef{}, ErrNotGitHubRef
+	}
+	if !e.knownRepo(g.Repo) {
+		return g, fmt.Errorf("%s is not in the roster", g.Repo)
+	}
+	return WriteBack(e.Cmd, ref, text, e.now())
+}
+
+// dismissStuck records a Stuck dismissal.
+func (e Env) dismissStuck(c Cmd) Event {
+	got, err := Dismiss(StuckDismissedPath(e.InboxPath), c.ID, c.Until, e.now())
+	if err != nil {
+		return StuckDismissedEvent{Key: c.ID, Err: err.Error()}
+	}
+	return StuckDismissedEvent{Key: c.ID, Until: c.Until, Dismissed: got, At: e.now()}
 }
 
 func (e Env) popup(id string) Event {

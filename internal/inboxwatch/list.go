@@ -92,6 +92,7 @@ type Model struct {
 	Later  LaterState
 	Closed DoneState
 	PRs    PRsState
+	Stuck  StuckState
 }
 
 // NewModel is an empty list of a given size.
@@ -147,6 +148,9 @@ func (m *Model) update(ev Event) []Cmd {
 		m.Later.keep(m.laterRows(), vh, 1)
 		m.Closed.keep(m.doneRows(), vh, 0)
 		m.PRs.keep(m.prRows(), vh, 1)
+		m.Stuck.keep(m.stuckRows(), vh, 1)
+	case StuckDismissedEvent:
+		m.stuckDismissed(ev)
 	case LaterEvent:
 		return m.laterLoaded(ev)
 	case PRsEvent:
@@ -169,6 +173,11 @@ func (m *Model) update(ev Event) []Cmd {
 
 func (m *Model) tick(now time.Time) []Cmd {
 	m.Now = now
+	if m.kind() == KindStuck {
+		// A row appears when its threshold passes and a dismissal ends, with no
+		// event to say so: keep the cursor on its row as they do.
+		m.Stuck.keep(m.stuckRows(), m.viewH(), 1)
+	}
 	var cmds []Cmd
 	if m.LoadReqAt.IsZero() || now.Sub(m.LoadReqAt) >= RefreshEvery {
 		m.LoadReqAt = now
@@ -196,6 +205,20 @@ func (m *Model) fetches(now time.Time) []Cmd {
 			m.PRs.start(now)
 			return []Cmd{{Kind: CmdPRs}}
 		}
+	case KindStuck:
+		// The Stuck tab has no fetch of its own: it asks for the PRs and Later data
+		// it reads, each under the same throttle as on its own tab, so looking at
+		// it costs no gh call the other two would not have made.
+		var cmds []Cmd
+		if m.PRs.due(now, PRsEvery) {
+			m.PRs.start(now)
+			cmds = append(cmds, Cmd{Kind: CmdPRs})
+		}
+		if m.Later.due(now, LaterEvery) {
+			m.Later.start(now)
+			cmds = append(cmds, Cmd{Kind: CmdLater})
+		}
+		return cmds
 	}
 	return nil
 }
@@ -205,6 +228,7 @@ func (m *Model) laterLoaded(ev LaterEvent) []Cmd {
 	if ev.Err == "" { // on a failure the last good rows stay
 		m.Later.Issues = ev.Issues
 		m.Later.keep(m.laterRows(), m.viewH(), 1)
+		m.Stuck.keep(m.stuckRows(), m.viewH(), 1)
 		if m.Arm != "" && m.ArmKind == KindLater && !m.hasLater(m.Arm) {
 			m.Arm = ""
 		}
@@ -221,6 +245,7 @@ func (m *Model) prsLoaded(ev PRsEvent) []Cmd {
 	if ev.Err == "" {
 		m.PRs.PRs, m.PRs.Errors, m.PRs.Full = ev.PRs, ev.Errors, ev.Full
 		m.PRs.keep(m.prRows(), m.viewH(), 1)
+		m.Stuck.keep(m.stuckRows(), m.viewH(), 1)
 	}
 	if again {
 		m.PRs.start(m.Now)
@@ -250,6 +275,11 @@ func (m *Model) loaded(ev LoadedEvent) {
 	m.Items, m.Malformed = ev.Data.Items, ev.Data.Malformed
 	m.Closed.Items = ev.Data.Done
 	m.Closed.keep(m.doneRows(), m.viewH(), 0)
+	// A read that started before this process last wrote a dismissal predates it,
+	// and would bring the row back until the next read.
+	if !ev.At.Before(m.Stuck.dismissedAt) {
+		m.Stuck.Dismissed, m.Stuck.DismissErr = ev.Data.Dismissed, ev.Data.DismissedErr
+	}
 	idx := m.Sel
 	for i, it := range m.Items {
 		if it.ID == m.SelID {
@@ -315,6 +345,9 @@ func (m *Model) harvested(ev HarvestedEvent) []Cmd {
 }
 
 func (m *Model) key(k KeyEvent) []Cmd {
+	if m.Stuck.Prompt.Active {
+		return m.promptKey(k)
+	}
 	arm := m.Arm
 	m.Note = ""
 	if !(k.Key == KeyRune && k.Rune == 'd') {
@@ -365,6 +398,8 @@ func (m *Model) enter() []Cmd {
 		}
 	case KindPRs:
 		return m.openPR()
+	case KindStuck:
+		return m.openStuck()
 	default:
 		if it, ok := m.selected(); ok {
 			return []Cmd{{Kind: CmdPopup, ID: it.ID}}
@@ -396,6 +431,13 @@ func (m *Model) open(url, label, none string) []Cmd {
 	return []Cmd{{Kind: CmdOpen, Text: url, Label: label}}
 }
 
+func (m *Model) openStuck() []Cmd {
+	if it, ok := m.selectedStuck(); ok {
+		return m.open(it.URL, it.Ref(), "no link on this row")
+	}
+	return nil
+}
+
 func (m *Model) openPR() []Cmd {
 	if p, ok := m.selectedPR(); ok {
 		return m.open(p.URL, p.Key(), "no link on this pull request")
@@ -419,6 +461,8 @@ func (m *Model) rune(r rune, arm string) []Cmd {
 		return m.openSelected()
 	case 'd':
 		return m.armKey(arm)
+	case 'x':
+		m.startDismiss()
 	default:
 		for i, t := range m.Cfg.Tabs {
 			if r == t.Key {
@@ -444,6 +488,10 @@ func (m *Model) copy() []Cmd {
 		if p, ok := m.selectedPR(); ok {
 			return []Cmd{{Kind: CmdCopy, ID: p.Key(), Text: p.URL}}
 		}
+	case KindStuck:
+		if it, ok := m.selectedStuck(); ok {
+			return []Cmd{{Kind: CmdCopy, ID: it.Ref(), Text: it.URL}}
+		}
 	default:
 		if it, ok := m.selected(); ok {
 			return []Cmd{{Kind: CmdCopy, ID: it.ID, Text: it.ID}}
@@ -464,6 +512,8 @@ func (m *Model) openSelected() []Cmd {
 		}
 	case KindPRs:
 		return m.openPR()
+	case KindStuck:
+		return m.openStuck()
 	default:
 		if it, ok := m.selected(); ok {
 			return m.open(it.Ref, "", "no link on this item")
@@ -511,6 +561,10 @@ func (m *Model) refresh() []Cmd {
 		return m.forced(&m.Later.fetchState, CmdLater)
 	case KindPRs:
 		return m.forced(&m.PRs.fetchState, CmdPRs)
+	case KindStuck:
+		// Both sources, each as `r` on its own tab.
+		cmds := m.forced(&m.PRs.fetchState, CmdPRs)
+		return append(cmds, m.forced(&m.Later.fetchState, CmdLater)...)
 	}
 	m.LoadReqAt = m.Now
 	cmds := []Cmd{{Kind: CmdLoad}}
@@ -547,6 +601,9 @@ func isLink(ref string) bool {
 }
 
 func (m *Model) mouse(e MouseEvent) []Cmd {
+	if m.Stuck.Prompt.Active {
+		return nil // a click must not move the row a period is being typed for
+	}
 	m.Note, m.Arm = "", ""
 	switch e.Button {
 	case ButtonWheelUp, ButtonWheelDown:
@@ -601,8 +658,9 @@ type hit struct{ x0, x1, tab int }
 func (m Model) tabHits() []hit {
 	x := 1
 	var hits []hit
+	lay := m.layout(m.W)
 	for i, t := range m.Cfg.Tabs {
-		w := cells(tabLabel(t)) + 2
+		w := cells(lay.label(t, i == m.Active)) + 2
 		hits = append(hits, hit{x, x + w, i})
 		x += w + 1
 	}
@@ -670,7 +728,16 @@ func (m Model) View() Frame {
 		m.viewInbox(set, vh)
 	}
 
+	f := Frame{Lines: lines}
 	switch {
+	case m.Stuck.Prompt.Active:
+		p := m.Stuck.Prompt
+		text := "dismiss " + p.Label + " for (12h, 1d, 3d, 7d… ⏎ dismisses, Esc cancels): " + p.Buf
+		if p.Err != "" {
+			text = clean(p.Err) + " · " + text
+		}
+		set(h-1, line{{text, style{fg: def, bg: def, reverse: true}}}, false)
+		f.ShowCursor, f.CursorY, f.CursorX = true, h-1, min(cells(text), max(w-2, 0))
 	case m.Note != "" || m.Arm != "":
 		st := fg(dim)
 		if m.Arm != "" {
@@ -680,7 +747,7 @@ func (m Model) View() Frame {
 	default:
 		set(h-1, hint(m.hintFor()), false)
 	}
-	return Frame{Lines: lines}
+	return f
 }
 
 // viewList draws Later, Done or PRs: their rows, or, with none, why not.
@@ -704,6 +771,8 @@ func (m Model) emptyMessage() string {
 		return m.laterEmpty()
 	case KindPRs:
 		return m.prsEmpty()
+	case KindStuck:
+		return m.stuckEmpty()
 	case KindDone:
 		switch {
 		case m.LoadErr != "":
@@ -763,6 +832,56 @@ func (m Model) hint() string {
 // tabRow is the strip on row 0: the active tab a peach pill, the rest dim text,
 // then the status, then the counts as pills against the right edge.
 func (m Model) tabRow(w int) line {
+	l, _ := m.tabRowWith(w, m.layout(w))
+	return l
+}
+
+// tabLayout is how much of the Inbox row is given up to make it fit. What the
+// operator has to see first is the "need you" pill: the rest goes before it, in
+// this order: the fyi and replied pills, the wording of the status segments,
+// and the names of the inactive tabs.
+type tabLayout struct {
+	dropFyi, dropReplied, compactStatus, compactTabs bool
+	// dropStatus keeps only the red status segments (something is broken), and
+	// dropTime the time of the last read: the last things to go.
+	dropStatus, dropTime bool
+}
+
+var tabLayouts = []tabLayout{
+	{},
+	{dropFyi: true},
+	{dropFyi: true, dropReplied: true},
+	{dropFyi: true, dropReplied: true, compactStatus: true},
+	{dropFyi: true, dropReplied: true, compactStatus: true, compactTabs: true},
+	{dropFyi: true, dropReplied: true, compactStatus: true, compactTabs: true, dropStatus: true},
+	{dropFyi: true, dropReplied: true, compactStatus: true, compactTabs: true, dropStatus: true, dropTime: true},
+}
+
+// label is a tab's text in the strip: its name, or with compactTabs and not
+// active, its key alone.
+func (lay tabLayout) label(t Tab, active bool) string {
+	if lay.compactTabs && !active {
+		return string(t.Key)
+	}
+	return tabLabel(t)
+}
+
+// layout is the first arrangement that fits w columns. On a tab other than the
+// Inbox nothing is dropped: those rows have no pills to protect.
+func (m Model) layout(w int) tabLayout {
+	if m.kind() != KindInbox {
+		return tabLayout{}
+	}
+	for _, lay := range tabLayouts {
+		if _, over := m.tabRowWith(w, lay); !over {
+			return lay
+		}
+	}
+	return tabLayouts[len(tabLayouts)-1]
+}
+
+// tabRowWith draws the row in a layout and says whether it overflowed w.
+func (m Model) tabRowWith(w int, lay tabLayout) (line, bool) {
 	l := line{{" ", fg(def)}}
 	for i, t := range m.Cfg.Tabs {
 		if i > 0 {
@@ -771,18 +890,34 @@ func (m Model) tabRow(w int) line {
 		if i == m.Active {
 			l = append(l, pill(tabLabel(t), peach, "")...)
 		} else {
-			l = l.add(" "+tabLabel(t)+" ", fg(dim))
+			l = l.add(" "+lay.label(t, false)+" ", fg(dim))
 		}
 	}
 	switch m.kind() {
 	case KindLater:
 		st := m.laterStatus()
 		l = l.add(st.text, st.st).add(timeMark(m.Later.At, "15:04"), fg(dim))
-		return l
+		return l, false
 	case KindPRs:
 		st := m.prsStatus()
 		l = l.add(st.text, st.st).add(timeMark(m.PRs.At, "15:04"), fg(dim))
-		return l
+		return l, false
+	case KindStuck:
+		st := m.stuckStatus()
+		reports := m.stuckReports()
+		// The oldest of the sources' times: the row is only as fresh as its stalest input.
+		var at time.Time
+		for _, r := range reports {
+			if !r.Answered {
+				at = time.Time{}
+				break
+			}
+			if at.IsZero() || r.At.Before(at) {
+				at = r.At
+			}
+		}
+		l = l.add(st.text, st.st).add(timeMark(at, "15:04"), fg(dim))
+		return l, false
 	case KindDone:
 		replied := 0
 		for _, it := range m.Closed.Items {
@@ -796,10 +931,15 @@ func (m Model) tabRow(w int) line {
 		if m.LoadErr != "" {
 			l = l.add(" inbox unavailable", fgBold(red))
 		}
-		return l
+		return l, false
 	}
-	l = l.add(timeMark(m.LoadedAt, "15:04"), fg(dim))
-	for _, s := range m.status() {
+	if !lay.dropTime {
+		l = l.add(timeMark(m.LoadedAt, "15:04"), fg(dim))
+	}
+	for _, s := range m.status(lay.compactStatus) {
+		if lay.dropStatus && s.st != fgBold(red) {
+			continue
+		}
 		l = append(l, s)
 	}
 
@@ -822,46 +962,72 @@ func (m Model) tabRow(w int) line {
 	} else {
 		counts = append(counts, count{"inbox clear", iconClear, green})
 	}
-	if answered > 0 {
+	if answered > 0 && !lay.dropReplied {
 		counts = append(counts, count{fmt.Sprintf("%d replied", answered), iconReplied, yellow})
 	}
-	if fyi > 0 {
+	if fyi > 0 && !lay.dropFyi {
 		counts = append(counts, count{fmt.Sprintf("%d fyi", fyi), iconInfo, blue})
 	}
 	total := 0
 	for _, c := range counts {
 		total += pillWidth(c.label, c.icon) + 1
 	}
+	over := l.width()+2+total > w-1
 	px := max(l.width()+2, w-1-total)
 	l = l.add(strings.Repeat(" ", px-l.width()), fg(def))
 	for _, c := range counts {
 		l = append(l, pill(c.label, c.accent, c.icon)...)
 		l = l.add(" ", fg(def))
 	}
-	return l
+	return l, over
 }
 
 // status is what the header says about the inbox and the harvest. None of it is
 // silent: a read that failed, a harvest that could not run and a roster that
 // gives the harvest nothing to watch each show.
-func (m Model) status() []seg {
+func (m Model) status(compact bool) []seg {
 	var out []seg
 	if m.LoadErr != "" {
 		out = append(out, seg{" inbox unavailable", fgBold(red)})
 	}
 	if m.Warn != "" {
-		out = append(out, seg{" " + m.Warn, fg(yellow)})
+		w := m.Warn
+		if compact {
+			w = ellipsis(w, 14)
+		}
+		out = append(out, seg{" " + w, fg(yellow)})
 	}
 	switch {
 	case !m.Cfg.HasRepos:
-		out = append(out, seg{" merges not recorded: no roster", fg(yellow)})
+		t := " merges not recorded: no roster"
+		if compact {
+			t = " no roster"
+		}
+		out = append(out, seg{t, fg(yellow)})
 	case m.HarvestErr != "":
-		out = append(out, seg{" merge harvest unavailable", fgBold(red)})
+		t := " merge harvest unavailable"
+		if compact {
+			t = " harvest ✗"
+		}
+		out = append(out, seg{t, fgBold(red)})
 	}
 	if m.Malformed > 0 {
-		out = append(out, seg{fmt.Sprintf(" %d malformed line(s) skipped", m.Malformed), fg(dim)})
+		t := fmt.Sprintf(" %d malformed line(s) skipped", m.Malformed)
+		if compact {
+			t = fmt.Sprintf(" %d malformed", m.Malformed)
+		}
+		out = append(out, seg{t, fg(dim)})
 	}
 	return out
+}
+
+// ellipsis cuts s to n cells with a … when it is longer.
+func ellipsis(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // ruleRow is the rule under the tabs, with "4–9 of 14" at its right end when the

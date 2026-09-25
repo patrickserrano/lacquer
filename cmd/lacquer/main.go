@@ -985,8 +985,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				if extraRepos.envErr != nil {
 					return fail(stderr, extraRepos.envErr)
 				}
-				env := newWatchEnv(inboxPath, inboxIsDefault, *overseer, roster, getenv)
-				env.ExtraRepos = extraRepos.list
+				env := newWatchEnv(inboxPath, inboxIsDefault, *overseer, roster, getenv, extraRepos.list...)
 				return runInboxWatch(systemTerm(), env, stderr)
 			default: // list; consoleSubcommand refused anything else
 				return runInboxList(inboxPath, inboxIsDefault, *all, stdout, stderr)
@@ -1296,6 +1295,11 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               title via --overseer-title/$LACQUER_OVERSEER_TITLE) reply is off, never guessed.")
 	fmt.Fprintln(w, "                               With a roster it also records PR merges, at most once every 5 minutes")
 	fmt.Fprintln(w, "                               (r forces one); without one it says merges are not being recorded.")
+	fmt.Fprintln(w, "                               Tab 5 (Stuck) lists what went wrong on its own: a PR red for 3h, a `later`")
+	fmt.Fprintln(w, "                               issue idle 14d. It reads what the PRs and Later tabs fetch and asks GitHub")
+	fmt.Fprintln(w, "                               for nothing more; x hides a row for a period you type (stuck-dismissed.json).")
+	fmt.Fprintln(w, "                               A reply to an entry whose ref is a GitHub issue or PR is also posted there")
+	fmt.Fprintln(w, "                               as a comment (your text verbatim), and a failure to post is shown.")
 	fmt.Fprintln(w, "  version                      print content and build versions and the resolved root")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")

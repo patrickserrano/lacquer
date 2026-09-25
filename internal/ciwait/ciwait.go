@@ -140,6 +140,11 @@ type Check struct {
 	Duration    time.Duration
 	HasDuration bool
 	URL         string
+	// CompletedAt is when a terminal check finished: a CheckRun's completedAt,
+	// or, for a commit status (which has no completion time), when the status was
+	// set. Zero when the rollup did not say. It is what "failing since" is
+	// measured from, never the PR's creation.
+	CompletedAt time.Time
 
 	v verdict
 }
@@ -303,6 +308,7 @@ func classifyRun(n node, now time.Time) Check {
 		return c
 	}
 	c.Terminal = true
+	c.CompletedAt, _ = parseTime(n.CompletedAt)
 	c.Label = strings.ToLower(n.Conclusion)
 	switch strings.ToUpper(n.Conclusion) {
 	case "SUCCESS":
@@ -341,6 +347,8 @@ func classifyContext(n node, now time.Time) Check {
 	}
 	if !c.Terminal {
 		c.Duration, c.HasDuration = span(n.StartedAt, "", now)
+	} else {
+		c.CompletedAt, _ = parseTime(n.StartedAt)
 	}
 	return c
 }

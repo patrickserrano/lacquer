@@ -14,6 +14,7 @@ const (
 	KindLater
 	KindDone
 	KindPRs
+	KindStuck
 )
 
 // The four tabs of foxy-inbox, in its order and with its keys.
@@ -21,7 +22,9 @@ var (
 	LaterTab = Tab{Key: '2', Label: "Later", Kind: KindLater}
 	DoneTab  = Tab{Key: '3', Label: "Done", Kind: KindDone}
 	PRsTab   = Tab{Key: '4', Label: "PRs", Kind: KindPRs}
-	AllTabs  = []Tab{InboxTab, LaterTab, DoneTab, PRsTab}
+	// StuckTab is last so the other four keep the keys the operator has learned.
+	StuckTab = Tab{Key: '5', Label: "Stuck", Kind: KindStuck}
+	AllTabs  = []Tab{InboxTab, LaterTab, DoneTab, PRsTab, StuckTab}
 )
 
 // Refresh throttles for the tabs that ask GitHub. Both are foxy-inbox's: `gh`
@@ -37,7 +40,10 @@ const (
 type row struct {
 	header bool
 	key    string // what identifies a selectable row across refreshes
-	l      line
+	// extra is how many rows below this one belong to it (the Stuck tab's second
+	// line), so scrolling to it keeps them in view.
+	extra int
+	l     line
 }
 
 // cursor is which selectable row is selected and how far the list is scrolled.
@@ -99,8 +105,8 @@ func (c *cursor) selectAt(rows []row, i, vh, context int) {
 	c.Key = rows[r].key
 	if r < c.Top {
 		c.Top = max(r-context, 0)
-	} else if r >= c.Top+vh {
-		c.Top = r - vh + 1
+	} else if end := r + rows[r].extra; end >= c.Top+vh {
+		c.Top = end - vh + 1
 	}
 	c.clamp(rows, vh)
 }
@@ -235,6 +241,8 @@ func (m Model) rows() ([]row, int) {
 		return m.doneRows(), 0
 	case KindPRs:
 		return m.prRows(), 1
+	case KindStuck:
+		return m.stuckRows(), 1
 	}
 	return nil, 0
 }
@@ -247,6 +255,8 @@ func (m *Model) cur() *cursor {
 		return &m.Closed.cursor
 	case KindPRs:
 		return &m.PRs.cursor
+	case KindStuck:
+		return &m.Stuck.cursor
 	}
 	return nil
 }
@@ -287,6 +297,8 @@ func (m Model) hintFor() string {
 		h = "⏎ detail+your reply · o link · c copy id · Tab next tab · ↩ you answered"
 	case KindPRs:
 		h = "⏎/o open on GitHub · Tab next tab · r refresh"
+	case KindStuck:
+		h = "⏎/o open on GitHub · x dismiss for a period · c copy url · Tab next tab · r refresh"
 	default:
 		return m.hint()
 	}

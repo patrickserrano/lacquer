@@ -124,7 +124,7 @@ func TestLaterSearchesEveryRosterOwnerAndNeverAllOfGitHub(t *testing.T) {
 	if ev := env.Exec(Cmd{Kind: CmdLater}).(LaterEvent); ev.Err != "" {
 		t.Fatalf("Err = %q", ev.Err)
 	}
-	want := "search issues --label later --state open --limit 300 --json repository,number,title,createdAt,url --owner Acme --owner patrickserrano"
+	want := "search issues --label later --state open --limit 300 --json repository,number,title,createdAt,updatedAt,url --owner Acme --owner patrickserrano"
 	if got := gh.called(); len(got) != 1 || got[0] != want {
 		t.Errorf("gh ran %q\nwant %q", got, want)
 	}
@@ -681,26 +681,26 @@ func TestDoneKeys(t *testing.T) {
 
 // ---- the tab strip ----
 
-func TestFourTabsInFoxyInboxOrderWithItsKeys(t *testing.T) {
+func TestFiveTabsFoxyInboxsFourFirstWithTheirKeysThenStuck(t *testing.T) {
 	m := tabModel(t, 100, 10)
 	head := plain(m.View().Lines[0])
-	if !strings.Contains(head, "1 Inbox") || !strings.Contains(head, " 2 Later ") || !strings.Contains(head, " 3 Done ") || !strings.Contains(head, " 4 PRs ") {
+	if !strings.Contains(head, "1 Inbox") || !strings.Contains(head, " 2 Later ") || !strings.Contains(head, " 3 Done ") || !strings.Contains(head, " 4 PRs ") || !strings.Contains(head, " 5 Stuck ") {
 		t.Errorf("strip = %q", head)
 	}
-	for key, want := range map[string]int{"1": 0, "2": 1, "3": 2, "4": 3} {
+	for key, want := range map[string]int{"1": 0, "2": 1, "3": 2, "4": 3, "5": 4} {
 		if got := onTab(t, m, key).(Model).Active; got != want {
 			t.Errorf("key %s: active = %d, want %d", key, got, want)
 		}
 	}
 	var p Program = m
-	for i := 1; i <= 4; i++ {
+	for i := 1; i <= 5; i++ {
 		p, _ = feed(t, p, "\t")
-		if got := p.(Model).Active; got != i%4 {
+		if got := p.(Model).Active; got != i%5 {
 			t.Errorf("Tab %d: active = %d", i, got)
 		}
 	}
 	p, _ = feed(t, p, "\x1b[Z")
-	if p.(Model).Active != 3 {
+	if p.(Model).Active != 4 {
 		t.Errorf("Shift-Tab from the first tab: active = %d, want the last", p.(Model).Active)
 	}
 	// Clicking a tab name: " 1 Inbox " holds columns 1-9; the next starts at 11.
