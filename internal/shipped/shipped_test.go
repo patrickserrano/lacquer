@@ -810,7 +810,7 @@ func TestOperatorPackagesNameNoProject(t *testing.T) {
 		"needledrop", "sleevetap", "shelflife", "darndest", "mindmint",
 	}
 	var scanned int
-	for _, pkg := range []string{"fleet", "console", "inbox"} {
+	for _, pkg := range []string{"fleet", "console", "inbox", "inboxwatch"} {
 		dir := filepath.Join(r, "internal", pkg)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
