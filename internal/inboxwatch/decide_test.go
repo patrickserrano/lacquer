@@ -762,3 +762,41 @@ func TestAFirstUseRacingAnotherPopupPostsToNeither(t *testing.T) {
 		t.Errorf("ev = %+v writes %v", ev, g.writes())
 	}
 }
+
+// Real gh writes ZERO BYTES, not `[]`, for `label list --search` when nothing
+// matches (measured, `| od -c` prints nothing). The fixtures above answer `[]`,
+// a result that cannot fail; this one answers what gh does. The operator's first
+// D in a repository with no decisions label failed on it.
+func TestFirstUseWithRealGhsEmptyLabelListCreatesTheLabel(t *testing.T) {
+	g := &scriptedGH{
+		reads: map[string]string{repoList: `[]`, labelList: ""},
+		out: map[string]string{
+			issueMake:  "https://github.com/o/r/issues/9\n",
+			commentOn9: "https://github.com/o/r/issues/9#issuecomment-4242\n",
+		},
+	}
+	ev := decEnv(g).Exec(decideCmd("keep iOS 26 as the minimum")).(DecidedEvent)
+	if !ev.OK || ev.URL != "https://github.com/o/r/issues/9#issuecomment-4242" {
+		t.Fatalf("ev = %+v", ev)
+	}
+	want := []string{
+		"READ  gh " + repoList,
+		"READ  gh " + labelList,
+		fmt.Sprintf("WRITE gh %s  <<< %q", labelMake, ""),
+		fmt.Sprintf("WRITE gh %s  <<< %q", issueMake, decisions.IssueBody),
+		"READ  gh " + repoList,
+		fmt.Sprintf("WRITE gh %s  <<< %q", commentOn9, wantBody("keep iOS 26 as the minimum", "", "https://github.com/o/r/issues/5")),
+	}
+	if got := g.lines(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("gh calls:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// Malformed output is still an error, and nothing is written.
+func TestFirstUseWithGarbageLabelListWritesNothing(t *testing.T) {
+	g := &scriptedGH{reads: map[string]string{repoList: `[]`, labelList: "<html>rate limited</html>"}}
+	ev := decEnv(g).Exec(decideCmd("x")).(DecidedEvent)
+	if ev.OK || len(g.writes()) != 0 {
+		t.Errorf("ev = %+v, writes = %v", ev, g.writes())
+	}
+}

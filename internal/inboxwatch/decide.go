@@ -2,7 +2,6 @@ package inboxwatch
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -10,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/patrickserrano/lacquer/internal/decisions"
+	"github.com/patrickserrano/lacquer/internal/ghjson"
 )
 
 // Recording a decision (#427) is the operator choosing, on an inbox item, to keep
@@ -211,7 +211,7 @@ func (e Env) hasLabel(repo string) (bool, error) {
 	var rows []struct {
 		Name string `json:"name"`
 	}
-	if err := json.Unmarshal(out, &rows); err != nil {
+	if err := ghjson.UnmarshalLabelList(out, &rows); err != nil {
 		return false, fmt.Errorf("bad JSON from gh: %w", err)
 	}
 	for _, r := range rows {
