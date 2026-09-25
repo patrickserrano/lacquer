@@ -78,7 +78,15 @@ var fast = []string{"--interval", "5ms", "--timeout", "300ms", "--empty-grace", 
 func waitPR(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	var out, errb bytes.Buffer
-	code = run(append([]string{"wait", "pr"}, args...), func(string) string { return "" }, &out, &errb)
+	// Every test names its own inbox: an unset one would fall back to the
+	// operator's real ~/.local/state/lacquer/inbox.jsonl.
+	inboxFile := filepath.Join(t.TempDir(), "inbox.jsonl")
+	code = run(append([]string{"wait", "pr"}, args...), func(k string) string {
+		if k == "LACQUER_INBOX" {
+			return inboxFile
+		}
+		return ""
+	}, &out, &errb)
 	return code, out.String(), errb.String()
 }
 

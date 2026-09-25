@@ -151,6 +151,13 @@ type Result struct {
 	PR      int
 	Repo    string
 	Head    string
+	// URL is the PR's own URL as gh reported it ("" when gh gave none).
+	URL string
+	// State is the PR's state (OPEN, CLOSED, MERGED) on the last successful
+	// reading; "" when gh never answered. It exists so a caller can tell an
+	// Error caused by a PR that is no longer open from one where the state is
+	// unknown, without reading Message.
+	State   string
 	Checks  []Check
 	Elapsed time.Duration
 	// Message explains an Error (and, for NoChecks, how long it looked).
@@ -203,6 +210,7 @@ type node struct {
 type snapshot struct {
 	state      string
 	head       string
+	url        string
 	checks     []Check
 	superseded []Check
 }
@@ -211,6 +219,7 @@ func parseSnapshot(out []byte, now time.Time) (snapshot, error) {
 	var raw struct {
 		State      string  `json:"state"`
 		HeadRefOid string  `json:"headRefOid"`
+		URL        string  `json:"url"`
 		Rollup     *[]node `json:"statusCheckRollup"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
@@ -222,7 +231,7 @@ func parseSnapshot(out []byte, now time.Time) (snapshot, error) {
 	if raw.Rollup == nil {
 		return snapshot{}, errors.New("gh output has no statusCheckRollup")
 	}
-	s := snapshot{state: raw.State, head: raw.HeadRefOid}
+	s := snapshot{state: raw.State, head: raw.HeadRefOid, url: raw.URL}
 	all := make([]Check, 0, len(*raw.Rollup))
 	for _, n := range *raw.Rollup {
 		all = append(all, classify(n, now))
@@ -406,7 +415,7 @@ func Wait(ctx context.Context, o Options) Result {
 	if o.Repo != "" {
 		args = append(args, "-R", o.Repo)
 	}
-	args = append(args, fmt.Sprint(o.PR), "--json", "state,headRefOid,statusCheckRollup")
+	args = append(args, fmt.Sprint(o.PR), "--json", "state,headRefOid,statusCheckRollup,url")
 
 	var (
 		haveHead   bool
@@ -442,6 +451,10 @@ func Wait(ctx context.Context, o Options) Result {
 			}
 		} else {
 			lastOK, consecErrs = true, 0
+			res.State = snap.state
+			if snap.url != "" {
+				res.URL = snap.url
+			}
 			if snap.state != "OPEN" {
 				st := snap.state
 				if st == "" {

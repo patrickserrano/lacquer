@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/patrickserrano/lacquer/internal/ciwait"
+	"github.com/patrickserrano/lacquer/internal/inbox"
+	"github.com/patrickserrano/lacquer/internal/producers"
 )
 
 // The exit codes of `lacquer wait pr`. 0-3 are the four ways a wait can END and
@@ -23,9 +25,9 @@ const waitExitCouldNotWait = 4
 // a pull request is terminal. It costs no model tokens while it waits — the
 // process sleeps — so an agent runs it in the background and is woken once,
 // when it returns.
-func waitCmd(args []string, stdout, stderr io.Writer) int {
+func waitCmd(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	if len(args) < 1 || args[0] != "pr" {
-		fmt.Fprintln(stderr, "usage: lacquer wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json]")
+		fmt.Fprintln(stderr, "usage: lacquer wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json] [--inbox F] [--no-inbox]")
 		return waitExitCouldNotWait
 	}
 	fs := flag.NewFlagSet("wait pr", flag.ContinueOnError)
@@ -35,6 +37,8 @@ func waitCmd(args []string, stdout, stderr io.Writer) int {
 	interval := fs.Duration("interval", 15*time.Second, "time between polls")
 	grace := fs.Duration("empty-grace", 30*time.Second, "how long an empty check list is re-checked before it is reported as exit 3")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	inboxFlag := fs.String("inbox", "", "inbox file to raise an ACTION in when the wait ends timed out, untested or unable to run (default: $LACQUER_INBOX, else $XDG_STATE_HOME/lacquer/inbox.jsonl, else ~/.local/state/lacquer/inbox.jsonl)")
+	noInbox := fs.Bool("no-inbox", false, "do not write the inbox, whatever the outcome")
 
 	// Flags may sit on either side of the PR number: `wait pr 12 --json` and
 	// `wait pr --json 12` both work, where flag.Parse alone stops at the number.
@@ -51,7 +55,7 @@ func waitCmd(args []string, stdout, stderr io.Writer) int {
 		rest = fs.Args()[1:]
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: lacquer wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json]")
+		fmt.Fprintln(stderr, "usage: lacquer wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json] [--inbox F] [--no-inbox]")
 		return waitExitCouldNotWait
 	}
 	n, err := strconv.Atoi(pos[0])
@@ -76,11 +80,32 @@ func waitCmd(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprint(stdout, ciwait.Format(res))
 	}
+	if !*noInbox {
+		recordGate(*inboxFlag, getenv, res, ctx.Err() != nil, stderr)
+	}
 	return res.Outcome.ExitCode()
 }
 
+// recordGate puts the outcomes that need a human in the operator's inbox. It
+// can only ever warn: the exit code is the wait's answer, and an inbox that
+// cannot be written must not turn a 2 into a 0 or a 4, so callers keep theirs.
+func recordGate(inboxFlag string, getenv func(string) string, res ciwait.Result, interrupted bool, stderr io.Writer) {
+	path, _, err := inbox.Path(inboxFlag, getenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "lacquer wait pr: WARNING: the inbox was NOT written (%v); the exit code is unchanged\n", err)
+		return
+	}
+	e, added, err := producers.GateRejection(path, res, interrupted)
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "lacquer wait pr: WARNING: the inbox %s was NOT written (%v); this outcome needs a human and is not in their inbox; the exit code is unchanged\n", path, err)
+	case added:
+		fmt.Fprintf(stderr, "lacquer wait pr: inbox ACTION %s written to %s: %s\n", e.ID, path, e.Title)
+	}
+}
+
 func usageWait(w io.Writer) {
-	fmt.Fprintln(w, "  wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json]")
+	fmt.Fprintln(w, "  wait pr <N> [--repo O/N] [--timeout D] [--interval D] [--json] [--inbox F] [--no-inbox]")
 	fmt.Fprintln(w, "                               block, in one process, until every check on PR N is terminal, then")
 	fmt.Fprintln(w, "                               print each one's name, conclusion and duration. It sleeps between")
 	fmt.Fprintln(w, "                               polls, so waiting costs no model tokens: run it in the background")
@@ -97,6 +122,11 @@ func usageWait(w io.Writer) {
 	fmt.Fprintln(w, "                                 3  NO CHECKS found: an empty check list is never a pass")
 	fmt.Fprintln(w, "                                 4  the wait itself failed: gh missing or failing repeatedly, PR")
 	fmt.Fprintln(w, "                                    closed or merged, bad usage. The PR's state is UNKNOWN")
+	fmt.Fprintln(w, "                               Exits 2, 3 and 4 also raise an inbox ACTION (an exit 1 does not: the")
+	fmt.Fprintln(w, "                               author is already fixing it; a PR that was merged or closed, or a")
+	fmt.Fprintln(w, "                               wait you interrupted, needs none). Same PR and head commit: one entry.")
+	fmt.Fprintln(w, "                               A failed write only warns on stderr; the exit code never changes.")
+	fmt.Fprintln(w, "                               --no-inbox turns it off; --inbox F picks the file, as for console.")
 	fmt.Fprintln(w, "                               A new head commit mid-wait discards the old commit's results and")
 	fmt.Fprintln(w, "                               waits on the new one's (the timeout is not reset)")
 }

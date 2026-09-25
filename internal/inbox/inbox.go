@@ -19,27 +19,24 @@
 // doc comment), and reads must tolerate a line left corrupt by an interrupted
 // write (ReadAll skips and counts them, it does not fail the whole read).
 //
-// # Entries are written by hand, and that is a known weakness
+// # Who writes it
 //
-// This package holds no hook into agent lifecycles: nothing here observes a
-// session starting or finishing, and nothing calls Add automatically. Every
-// entry exists because a human or an agent explicitly ran `lacquer console
-// inbox add`. That is a deliberate scope cut for this change (automatic
-// capture needs its own design -- a harvester that hooks session
-// start/completion and decides what is decision-worthy, which is a much
-// bigger surface than a JSONL store), but it is also exactly the failure mode
-// this package exists to name: a store that depends on someone remembering to
-// write to it will rot.
+// A queue that depends on someone remembering to write to it rots, and the
+// first version of this package proved it: every entry existed because a human
+// or an agent ran `lacquer console inbox add`, and the evidence that this fails
+// was on the machine already (~/Developer/fleet-ops/sessions.jsonl has ten
+// entries, all from one day, with nothing since). So the writers now sit in the
+// processes that see the events (internal/producers, internal/cirounds):
 //
-// The evidence is sitting on this machine already.
-// ~/Developer/fleet-ops/sessions.jsonl records dispatch spawns -- kind, name,
-// mode, dir, task, daemonId, startedAt -- with no end state and no result,
-// and it has ten entries, every one from a single day, with nothing written
-// since even though the fleet did weeks of work after that. Nobody stopped
-// needing the record; the write path just depended on a human remembering to
-// use it, on every dispatch, forever, and that streak ended on day one. This
-// package will do the same unless automatic capture eventually lands on top
-// of it.
+//   - `lacquer wait pr` adds an ACTION when a PR's wait ends timed out,
+//     untested or unable to run.
+//   - `lacquer console` harvests PR merges on read, one UNREAD per merged PR.
+//   - `lacquer ci-round` adds an ACTION when an agent's CI budget is spent.
+//
+// `console inbox add` remains for a decision raised in conversation. Agent
+// completion is not yet a producer. Producers use only the two types and the
+// fields below, because the phone mirror reads this file, and they check for an
+// existing entry (by ref, and by the head commit in the body) before adding.
 package inbox
 
 import (

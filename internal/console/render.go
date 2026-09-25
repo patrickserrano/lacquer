@@ -29,6 +29,9 @@ func Text(w io.Writer, res Result) {
 	if res.InboxNote != "" {
 		fmt.Fprintln(w, res.InboxNote)
 	}
+	for _, n := range res.HarvestNotes {
+		fmt.Fprintln(w, n)
+	}
 
 	if len(res.Rows) == 0 {
 		fmt.Fprintln(w, "roster: none loaded — sessions are not mapped to projects (pass --roster or set LACQUER_ROSTER)")
