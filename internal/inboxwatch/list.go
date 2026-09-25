@@ -40,16 +40,16 @@ type Frame struct {
 	ShowCursor       bool
 }
 
-// Tab is one tab in the strip. 409b adds Later, PRs and Completed as more Tabs;
-// nothing else in the strip's layout, key handling or hit testing is about the
-// Inbox in particular.
+// Tab is one tab in the strip. Which of the four it is decides what it shows;
+// the strip's layout, key handling and hit testing do not care.
 type Tab struct {
 	Key   rune
 	Label string
+	Kind  TabKind
 }
 
-// InboxTab is the tab this unit ships.
-var InboxTab = Tab{Key: '1', Label: "Inbox"}
+// InboxTab is the first tab, and the only one a Config with none gets.
+var InboxTab = Tab{Key: '1', Label: "Inbox", Kind: KindInbox}
 
 // Config is what a Model is told about how it was started.
 type Config struct {
@@ -84,9 +84,14 @@ type Model struct {
 	HarvestedAt time.Time // when the last harvest was started
 	HarvestErr  string
 
-	Arm  string // the id a first d has armed
-	Note string
-	quit bool
+	Arm     string  // the id (or, on Later, the ref) a first d has armed
+	ArmKind TabKind // which tab's row it is
+	Note    string
+	quit    bool
+
+	Later  LaterState
+	Closed DoneState
+	PRs    PRsState
 }
 
 // NewModel is an empty list of a given size.
@@ -138,6 +143,14 @@ func (m *Model) update(ev Event) []Cmd {
 	case ResizeEvent:
 		m.W, m.H = ev.W, ev.H
 		m.selectAt(m.Sel)
+		vh := m.viewH()
+		m.Later.keep(m.laterRows(), vh, 1)
+		m.Closed.keep(m.doneRows(), vh, 0)
+		m.PRs.keep(m.prRows(), vh, 1)
+	case LaterEvent:
+		return m.laterLoaded(ev)
+	case PRsEvent:
+		return m.prsLoaded(ev)
 	case TickEvent:
 		return m.tick(ev.Now)
 	case LoadedEvent:
@@ -165,7 +178,64 @@ func (m *Model) tick(now time.Time) []Cmd {
 		m.Harvesting, m.HarvestedAt = true, now
 		cmds = append(cmds, Cmd{Kind: CmdHarvest})
 	}
-	return cmds
+	return append(cmds, m.fetches(now)...)
+}
+
+// fetches is the GitHub asks that are due: only for the tab being looked at,
+// and each at most once per its throttle. `r` and what the operator does are
+// forced separately.
+func (m *Model) fetches(now time.Time) []Cmd {
+	switch m.kind() {
+	case KindLater:
+		if m.Later.due(now, LaterEvery) {
+			m.Later.start(now)
+			return []Cmd{{Kind: CmdLater}}
+		}
+	case KindPRs:
+		if m.PRs.due(now, PRsEvery) {
+			m.PRs.start(now)
+			return []Cmd{{Kind: CmdPRs}}
+		}
+	}
+	return nil
+}
+
+func (m *Model) laterLoaded(ev LaterEvent) []Cmd {
+	again := m.Later.answered(ev.At, ev.Err)
+	if ev.Err == "" { // on a failure the last good rows stay
+		m.Later.Issues = ev.Issues
+		m.Later.keep(m.laterRows(), m.viewH(), 1)
+		if m.Arm != "" && m.ArmKind == KindLater && !m.hasLater(m.Arm) {
+			m.Arm = ""
+		}
+	}
+	if again {
+		m.Later.start(m.Now)
+		return []Cmd{{Kind: CmdLater}}
+	}
+	return nil
+}
+
+func (m *Model) prsLoaded(ev PRsEvent) []Cmd {
+	again := m.PRs.answered(ev.At, ev.Err)
+	if ev.Err == "" {
+		m.PRs.PRs, m.PRs.Errors = ev.PRs, ev.Errors
+		m.PRs.keep(m.prRows(), m.viewH(), 1)
+	}
+	if again {
+		m.PRs.start(m.Now)
+		return []Cmd{{Kind: CmdPRs}}
+	}
+	return nil
+}
+
+func (m Model) hasLater(ref string) bool {
+	for _, i := range m.Later.Issues {
+		if i.Ref() == ref {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) loaded(ev LoadedEvent) {
@@ -178,6 +248,8 @@ func (m *Model) loaded(ev LoadedEvent) {
 		return // keep showing the last good read
 	}
 	m.Items, m.Malformed = ev.Data.Items, ev.Data.Malformed
+	m.Closed.Items = ev.Data.Done
+	m.Closed.keep(m.doneRows(), m.viewH(), 0)
 	idx := m.Sel
 	for i, it := range m.Items {
 		if it.ID == m.SelID {
@@ -186,7 +258,7 @@ func (m *Model) loaded(ev LoadedEvent) {
 		}
 	}
 	m.selectAt(idx)
-	if m.Arm != "" && !m.has(m.Arm) {
+	if m.Arm != "" && m.ArmKind == KindInbox && !m.has(m.Arm) {
 		m.Arm = ""
 	}
 }
@@ -208,6 +280,19 @@ func (m *Model) done(ev DoneEvent) []Cmd {
 		}
 		m.LoadReqAt = m.Now
 		return []Cmd{{Kind: CmdLoad}}
+	case CmdUnpark, CmdPopupIssue:
+		if ev.Note != "" {
+			m.Note = ev.Note
+		}
+		if !ev.OK {
+			return nil
+		}
+		// The issue may have been un-parked, from here or in the popup, so the
+		// last answer is out of date whatever the throttle says.
+		if c, ok := m.Later.force(m.Now, CmdLater); ok {
+			return []Cmd{c}
+		}
+		return nil
 	}
 	m.Note = ev.Note
 	return nil
@@ -237,19 +322,18 @@ func (m *Model) key(k KeyEvent) []Cmd {
 	}
 	switch k.Key {
 	case KeyDown:
-		m.selectAt(m.Sel + 1)
+		m.move(1)
 	case KeyUp:
-		m.selectAt(m.Sel - 1)
+		m.move(-1)
 	case KeyEnter:
-		if it, ok := m.selected(); ok {
-			return []Cmd{{Kind: CmdPopup, ID: it.ID}}
-		}
+		return m.enter()
 	case KeyTab, KeyBackTab:
 		step := 1
 		if k.Key == KeyBackTab {
 			step = -1
 		}
 		m.Active = (m.Active + step + len(m.Cfg.Tabs)) % len(m.Cfg.Tabs)
+		return m.fetches(m.Now)
 	case KeyCtrlC: // not Esc: foxy-inbox's inbox tab ignores it, and a stray one must not close the view
 		m.quit = true
 	case KeyRune:
@@ -258,53 +342,176 @@ func (m *Model) key(k KeyEvent) []Cmd {
 	return nil
 }
 
+// move is j, k and the arrows: the selection on the active tab, by delta rows.
+func (m *Model) move(delta int) {
+	if c := m.cur(); c != nil {
+		rows, ctx := m.rows()
+		c.selectAt(rows, c.Sel+delta, m.viewH(), ctx)
+		return
+	}
+	m.selectAt(m.Sel + delta)
+}
+
+// enter is Enter: the detail of an entry or an issue, or the PR on GitHub.
+func (m *Model) enter() []Cmd {
+	switch m.kind() {
+	case KindLater:
+		if it, ok := m.selectedLater(); ok {
+			return []Cmd{{Kind: CmdPopupIssue, ID: it.Ref()}}
+		}
+	case KindDone:
+		if it, ok := m.selectedDone(); ok {
+			return []Cmd{{Kind: CmdPopup, ID: it.ID}}
+		}
+	case KindPRs:
+		return m.openPR()
+	default:
+		if it, ok := m.selected(); ok {
+			return []Cmd{{Kind: CmdPopup, ID: it.ID}}
+		}
+	}
+	return nil
+}
+
+func (m Model) selectedDone() (DoneItem, bool) {
+	rows := m.doneRows()
+	i, ok := m.Closed.at(rows)
+	if !ok {
+		return DoneItem{}, false
+	}
+	for _, it := range m.Closed.Items {
+		if it.ID == rows[i].key {
+			return it, true
+		}
+	}
+	return DoneItem{}, false
+}
+
+// open is a Cmd that opens url, or a note saying there is nothing to open.
+func (m *Model) open(url, label, none string) []Cmd {
+	if !isLink(url) {
+		m.Note = none
+		return nil
+	}
+	return []Cmd{{Kind: CmdOpen, Text: url, Label: label}}
+}
+
+func (m *Model) openPR() []Cmd {
+	if p, ok := m.selectedPR(); ok {
+		return m.open(p.URL, p.Key(), "no link on this pull request")
+	}
+	return nil
+}
+
 func (m *Model) rune(r rune, arm string) []Cmd {
 	switch r {
 	case 'j':
-		m.selectAt(m.Sel + 1)
+		m.move(1)
 	case 'k':
-		m.selectAt(m.Sel - 1)
+		m.move(-1)
 	case 'q':
 		m.quit = true
 	case 'r':
 		return m.refresh()
 	case 'c':
-		if it, ok := m.selected(); ok {
-			return []Cmd{{Kind: CmdCopy, ID: it.ID, Text: it.ID}}
-		}
+		return m.copy()
 	case 'o':
-		it, ok := m.selected()
-		if !ok {
-			return nil
-		}
-		if !isLink(it.Ref) {
-			m.Note = "no link on this item"
-			return nil
-		}
-		return []Cmd{{Kind: CmdOpen, Text: it.Ref}}
+		return m.openSelected()
 	case 'd':
-		it, ok := m.selected()
-		if !ok {
-			return nil
-		}
-		if arm == it.ID {
-			m.Arm = "" // a failed resolve must not leave the next d resolving at once
-			return []Cmd{{Kind: CmdResolve, ID: it.ID}}
-		}
-		m.Arm = it.ID
-		m.Note = fmt.Sprintf("press d again to resolve %s (any other key cancels)", it.ID)
+		return m.armKey(arm)
 	default:
 		for i, t := range m.Cfg.Tabs {
 			if r == t.Key {
 				m.Active = i
+				return m.fetches(m.Now)
 			}
 		}
 	}
 	return nil
 }
 
-// refresh is `r`: re-read the inbox now, and harvest now, whatever the throttle says.
+func (m *Model) copy() []Cmd {
+	switch m.kind() {
+	case KindLater:
+		if it, ok := m.selectedLater(); ok {
+			return []Cmd{{Kind: CmdCopy, ID: it.Ref(), Text: it.URL}}
+		}
+	case KindDone:
+		if it, ok := m.selectedDone(); ok {
+			return []Cmd{{Kind: CmdCopy, ID: it.ID, Text: it.ID}}
+		}
+	case KindPRs:
+		if p, ok := m.selectedPR(); ok {
+			return []Cmd{{Kind: CmdCopy, ID: p.Key(), Text: p.URL}}
+		}
+	default:
+		if it, ok := m.selected(); ok {
+			return []Cmd{{Kind: CmdCopy, ID: it.ID, Text: it.ID}}
+		}
+	}
+	return nil
+}
+
+func (m *Model) openSelected() []Cmd {
+	switch m.kind() {
+	case KindLater:
+		if it, ok := m.selectedLater(); ok {
+			return m.open(it.URL, it.Ref(), "no link on this issue")
+		}
+	case KindDone:
+		if it, ok := m.selectedDone(); ok {
+			return m.open(it.Ref, "", "no link on this item")
+		}
+	case KindPRs:
+		return m.openPR()
+	default:
+		if it, ok := m.selected(); ok {
+			return m.open(it.Ref, "", "no link on this item")
+		}
+	}
+	return nil
+}
+
+// armKey is d. On the inbox it resolves, on Later it un-parks; each needs the
+// key twice, with nothing between, and an armed d is undone by any other key.
+func (m *Model) armKey(arm string) []Cmd {
+	switch m.kind() {
+	case KindLater:
+		it, ok := m.selectedLater()
+		if !ok {
+			return nil
+		}
+		ref := it.Ref()
+		if arm == ref && m.ArmKind == KindLater {
+			m.Arm = "" // a failed un-park must not leave the next d removing the label at once
+			return []Cmd{{Kind: CmdUnpark, ID: ref}}
+		}
+		m.Arm, m.ArmKind = ref, KindLater
+		m.Note = fmt.Sprintf("press d again to take %s off Later (the issue stays open)", ref)
+	case KindInbox:
+		it, ok := m.selected()
+		if !ok {
+			return nil
+		}
+		if arm == it.ID && m.ArmKind == KindInbox {
+			m.Arm = "" // a failed resolve must not leave the next d resolving at once
+			return []Cmd{{Kind: CmdResolve, ID: it.ID}}
+		}
+		m.Arm, m.ArmKind = it.ID, KindInbox
+		m.Note = fmt.Sprintf("press d again to resolve %s (any other key cancels)", it.ID)
+	}
+	return nil
+}
+
+// refresh is `r`. On the inbox and Done it re-reads the inbox now and harvests
+// now, whatever the throttle says; on Later and PRs it asks GitHub again now.
 func (m *Model) refresh() []Cmd {
+	switch m.kind() {
+	case KindLater:
+		return m.forced(&m.Later.fetchState, CmdLater)
+	case KindPRs:
+		return m.forced(&m.PRs.fetchState, CmdPRs)
+	}
 	m.LoadReqAt = m.Now
 	cmds := []Cmd{{Kind: CmdLoad}}
 	switch {
@@ -318,6 +525,16 @@ func (m *Model) refresh() []Cmd {
 		cmds = append(cmds, Cmd{Kind: CmdHarvest})
 	}
 	return cmds
+}
+
+func (m *Model) forced(f *fetchState, kind CmdKind) []Cmd {
+	c, ok := f.force(m.Now, kind)
+	if !ok {
+		m.Note = "already asking GitHub"
+		return nil
+	}
+	m.Note = "asking GitHub"
+	return []Cmd{c}
 }
 
 // noRosterWhy is why, with no repositories to look at, merges go unrecorded.
@@ -337,6 +554,11 @@ func (m *Model) mouse(e MouseEvent) []Cmd {
 		if e.Button == ButtonWheelUp {
 			step = -wheelStep
 		}
+		if c := m.cur(); c != nil {
+			rows, ctx := m.rows()
+			c.wheel(rows, step, m.viewH(), ctx)
+			return nil
+		}
 		m.Top += step
 		m.clampTop()
 		// The cursor stays on screen, so the next j or k does not snap the view back.
@@ -352,7 +574,16 @@ func (m *Model) mouse(e MouseEvent) []Cmd {
 					m.Active = h.tab
 				}
 			}
-			return nil
+			return m.fetches(m.Now)
+		}
+		if c := m.cur(); c != nil {
+			rows, ctx := m.rows()
+			i, ok := c.clickRow(rows, e.Y, m.viewH())
+			if !ok {
+				return nil
+			}
+			c.selectAt(rows, i, m.viewH(), ctx)
+			return m.enter() // a click is Enter on that row
 		}
 		row := e.Y - tabRows
 		if row < 0 || row >= m.viewH() || m.Top+row >= len(m.Items) {
@@ -425,9 +656,67 @@ func (m Model) View() Frame {
 	}
 
 	set(0, m.tabRow(w), false)
-	set(1, m.ruleRow(cw), false)
+	total, top := len(m.Items), m.Top
+	if c := m.cur(); c != nil {
+		rows, _ := m.rows()
+		total, top = len(rows), c.Top
+	}
+	set(1, m.ruleRow(cw, total, top), false)
 
 	vh := m.viewH()
+	if c := m.cur(); c != nil {
+		m.viewList(set, *c, vh)
+	} else {
+		m.viewInbox(set, vh)
+	}
+
+	switch {
+	case m.Note != "" || m.Arm != "":
+		st := fg(dim)
+		if m.Arm != "" {
+			st = style{fg: red, bg: def, reverse: true}
+		}
+		set(h-1, line{{m.Note, st}}, false)
+	default:
+		set(h-1, hint(m.hintFor()), false)
+	}
+	return Frame{Lines: lines}
+}
+
+// viewList draws Later, Done or PRs: their rows, or, with none, why not.
+func (m Model) viewList(set func(int, line, bool), c cursor, vh int) {
+	rows, _ := m.rows()
+	cur, _ := c.at(rows)
+	for k := 0; k < vh && c.Top+k < len(rows); k++ {
+		i := c.Top + k
+		set(tabRows+k, rows[i].l, !rows[i].header && i == cur)
+	}
+	if len(rows) == 0 {
+		set(tabRows, line{{m.emptyMessage(), fg(dim)}}, false)
+	}
+}
+
+// emptyMessage is what a tab with no rows says. It is never the same words for
+// "there are none" and "could not find out": each says which.
+func (m Model) emptyMessage() string {
+	switch m.kind() {
+	case KindLater:
+		return m.laterEmpty()
+	case KindPRs:
+		return m.prsEmpty()
+	case KindDone:
+		switch {
+		case m.LoadErr != "":
+			return "the inbox could not be read: " + m.LoadErr
+		case m.LoadedAt.IsZero():
+			return "loading…"
+		}
+		return "nothing closed yet"
+	}
+	return ""
+}
+
+func (m Model) viewInbox(set func(int, line, bool), vh int) {
 	for k := 0; k < vh && m.Top+k < len(m.Items); k++ {
 		i := m.Top + k
 		it := m.Items[i]
@@ -446,23 +735,16 @@ func (m Model) View() Frame {
 	}
 	if len(m.Items) == 0 {
 		msg := "inbox clear — nothing waiting on you"
+		for _, t := range m.Cfg.Tabs {
+			if t.Kind == KindDone {
+				msg += fmt.Sprintf(" (%s for what closed)", tabLabel(t))
+			}
+		}
 		if m.LoadErr != "" {
 			msg = "the inbox could not be read: " + m.LoadErr
 		}
 		set(tabRows, line{{msg, fg(dim)}}, false)
 	}
-
-	switch {
-	case m.Note != "" || m.Arm != "":
-		st := fg(dim)
-		if m.Arm != "" {
-			st = style{fg: red, bg: def, reverse: true}
-		}
-		set(h-1, line{{m.Note, st}}, false)
-	default:
-		set(h-1, hint(m.hint()), false)
-	}
-	return Frame{Lines: lines}
 }
 
 func (m Model) hint() string {
@@ -492,9 +774,31 @@ func (m Model) tabRow(w int) line {
 			l = l.add(" "+tabLabel(t)+" ", fg(dim))
 		}
 	}
-	if !m.LoadedAt.IsZero() {
-		l = l.add("   "+m.LoadedAt.Format("15:04"), fg(dim))
+	switch m.kind() {
+	case KindLater:
+		st := m.laterStatus()
+		l = l.add(st.text, st.st).add(timeMark(m.Later.At, "15:04"), fg(dim))
+		return l
+	case KindPRs:
+		st := m.prsStatus()
+		l = l.add(st.text, st.st).add(timeMark(m.PRs.At, "15:04"), fg(dim))
+		return l
+	case KindDone:
+		replied := 0
+		for _, it := range m.Closed.Items {
+			if it.Replied {
+				replied++
+			}
+		}
+		l = l.add(fmt.Sprintf(" %d closed", len(m.Closed.Items)), fgBold(green)).add(" · ", fg(def)).
+			add(fmt.Sprintf("%d you answered", replied), fgBold(yellow))
+		l = l.add(timeMark(m.LoadedAt, "15:04:05"), fg(dim))
+		if m.LoadErr != "" {
+			l = l.add(" inbox unavailable", fgBold(red))
+		}
+		return l
 	}
+	l = l.add(timeMark(m.LoadedAt, "15:04"), fg(dim))
 	for _, s := range m.status() {
 		l = append(l, s)
 	}
@@ -562,13 +866,13 @@ func (m Model) status() []seg {
 
 // ruleRow is the rule under the tabs, with "4–9 of 14" at its right end when the
 // list is longer than the view, so a cut-off list never looks complete.
-func (m Model) ruleRow(cw int) line {
-	total, vh := len(m.Items), m.viewH()
+func (m Model) ruleRow(cw, total, top int) line {
+	vh := m.viewH()
 	r := []rune(strings.Repeat("─", cw))
 	if total <= vh {
 		return line{{string(r), fg(rule)}}
 	}
-	mark := fmt.Sprintf(" %d–%d of %d ", m.Top+1, min(m.Top+vh, total), total)
+	mark := fmt.Sprintf(" %d–%d of %d ", top+1, min(top+vh, total), total)
 	x := max(cw-1-len([]rune(mark)), 0)
 	var l line
 	l = l.add(string(r[:x]), fg(rule))
@@ -577,4 +881,12 @@ func (m Model) ruleRow(cw int) line {
 		l = l.add(string(r[end:]), fg(rule))
 	}
 	return l
+}
+
+// timeMark is "   HH:MM" for when a tab was last read, and nothing before it was.
+func timeMark(t time.Time, layout string) string {
+	if t.IsZero() {
+		return ""
+	}
+	return "   " + t.Format(layout)
 }

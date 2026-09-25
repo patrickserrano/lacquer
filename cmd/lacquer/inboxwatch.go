@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"golang.org/x/term"
 
@@ -62,19 +63,67 @@ func newWatchEnv(inboxPath string, isDefault bool, o overseerFlags, roster fleet
 		// The same function `lacquer console inbox resolve` calls.
 		Resolve: inbox.Resolve,
 		InTmux:  getenv("TMUX") != "",
-		PopupArgv: func(id string) []string {
-			// The id is agent-written and goes to tmux as part of a command tmux may
-			// expand as a format, so it travels hex-encoded: no # can be in it.
-			argv := []string{exe, "console", "inbox", "popup", "--inbox", inboxPath}
-			return append(append(argv, o.argv()...), "--id-hex="+hex.EncodeToString([]byte(id)))
-		},
+		// An id or an issue ref is agent-written and goes to tmux as part of a
+		// command tmux may expand as a format, so it travels hex-encoded: no # can
+		// be in it.
+		PopupArgv: func(id string) []string { return popupArgv(exe, inboxPath, o, "--id-hex=", id) },
+		IssueArgv: func(ref string) []string { return popupArgv(exe, inboxPath, o, "--issue-hex=", ref) },
 	}
+}
+
+func popupArgv(exe, inboxPath string, o overseerFlags, flag, text string) []string {
+	argv := []string{exe, "console", "inbox", "popup", "--inbox", inboxPath}
+	return append(append(argv, o.argv()...), flag+hex.EncodeToString([]byte(text)))
+}
+
+// extraRepoFlags is the repositories the Later and PRs tabs cover besides the
+// roster's: foxy-prs added lacquer, fleet-ops and rail-web this way, since a
+// roster sweeps projects and these are the tooling around them. Repeat the flag,
+// or comma-separate $LACQUER_EXTRA_REPOS.
+type extraRepoFlags struct {
+	list   []string
+	envErr error // a bad $LACQUER_EXTRA_REPOS, reported when the view starts
+}
+
+func (e *extraRepoFlags) String() string { return strings.Join(e.list, ",") }
+func (e *extraRepoFlags) Set(v string) error {
+	for _, r := range strings.Split(v, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			if o, n, ok := strings.Cut(r, "/"); !ok || o == "" || n == "" || strings.Contains(n, "/") {
+				return fmt.Errorf("%q is not owner/name", r)
+			}
+			e.list = append(e.list, r)
+		}
+	}
+	return nil
+}
+
+func addExtraRepoFlag(fs *flag.FlagSet, getenv func(string) string) *extraRepoFlags {
+	e := &extraRepoFlags{}
+	// The environment is the default; a flag on the command line adds to it.
+	if v := getenv("LACQUER_EXTRA_REPOS"); v != "" {
+		if err := e.Set(v); err != nil {
+			e.envErr = fmt.Errorf("$LACQUER_EXTRA_REPOS: %w", err)
+		}
+	}
+	fs.Var(e, "extra-repo", "with inbox watch: an owner/name the Later and PRs tabs cover besides the roster's (repeatable; or comma-separated $LACQUER_EXTRA_REPOS)")
+	return e
+}
+
+// runInboxShow is `inbox watch --show ID`: one entry's detail, printed.
+func runInboxShow(inboxPath, id string, stdout, stderr io.Writer) int {
+	text, err := inboxwatch.Show(inboxPath, id)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprint(stdout, text)
+	return 0
 }
 
 // runInboxWatch is `lacquer console inbox watch`: the live inbox list.
 func runInboxWatch(t inboxwatch.Term, env inboxwatch.Env, stderr io.Writer) int {
 	m := inboxwatch.NewModel(inboxwatch.Config{
-		Tabs:     []inboxwatch.Tab{inboxwatch.InboxTab},
+		Tabs:     inboxwatch.AllTabs,
 		CanReply: env.Overseer.Configured(),
 		HasRepos: env.HasRepos(),
 	}, 0, 0)
@@ -110,12 +159,19 @@ func popupMain(args []string, getenv func(string) string, stderr io.Writer) int 
 	fs.SetOutput(stderr)
 	inboxFlag := fs.String("inbox", "", "")
 	idHex := fs.String("id-hex", "", "the entry id, hex-encoded (what the list passes)")
+	issueHex := fs.String("issue-hex", "", "show a GitHub issue instead: its owner/name#number, hex-encoded (what a Later row passes)")
 	o := addOverseerFlags(fs, getenv)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	id := fs.Arg(0)
 	switch {
+	case *issueHex != "":
+		raw, err := hex.DecodeString(*issueHex)
+		if err != nil || fs.NArg() != 0 || *idHex != "" {
+			return fail(stderr, fmt.Errorf("inbox popup: --issue-hex is not hex, or an id was also given"))
+		}
+		id = string(raw)
 	case *idHex != "":
 		raw, err := hex.DecodeString(*idHex)
 		if err != nil || fs.NArg() != 0 {
@@ -133,8 +189,11 @@ func popupMain(args []string, getenv func(string) string, stderr io.Writer) int 
 		return fail(stderr, fmt.Errorf("inbox popup needs a terminal; it is what a tmux popup runs"))
 	}
 	env := newWatchEnv(inboxPath, isDefault, *o, fleet.Roster{}, getenv)
-	d := inboxwatch.NewDetail(id, env.Overseer.Configured(), 0, 0)
-	if err := inboxwatch.Run(systemTerm(), d, env); err != nil {
+	var p inboxwatch.Program = inboxwatch.NewDetail(id, env.Overseer.Configured(), 0, 0)
+	if *issueHex != "" {
+		p = inboxwatch.NewIssuePopup(id, env.Overseer.Configured(), 0, 0)
+	}
+	if err := inboxwatch.Run(systemTerm(), p, env); err != nil {
 		return fail(stderr, err)
 	}
 	return 0
