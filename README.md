@@ -66,6 +66,19 @@ winning source file. `--compare` requires `--xcode` and marks `MATCH`, `DIFF`, o
 `UNKNOWN comparison`; differences are informational, not an exit-code gate.
 `--json` retains the label and explicit `set`/`unset`/`unknown` states.
 
+## Console
+
+`lacquer console` needs no flags and no files. It prints the inbox's open
+ACTION/UNREAD entries and every live Claude Code session on the machine, read
+from `claude agents --json`. If that cannot be read it says
+`sessions: unavailable — <reason>`; an empty list is only ever printed when
+claude answered with one. The inbox defaults to
+`$XDG_STATE_HOME/lacquer/inbox.jsonl` (`~/.local/state/lacquer/inbox.jsonl`),
+created on first write; `--inbox` and `$LACQUER_INBOX` override it. Add
+`--roster` (or `$LACQUER_ROSTER`) for fleet truth, open PRs and the project each
+session belongs to. `--sessions` is only for dispatch records, which
+`watch --relaunch` and `kill` need.
+
 ## Dispatch model and effort
 
 `console dispatch` starts ICs on **sonnet** by default. Set top-level

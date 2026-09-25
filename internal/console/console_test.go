@@ -238,7 +238,7 @@ func TestLiveRowStillReadsAsClear(t *testing.T) {
 // function whose whole contract is that it never returns one.
 func TestGatherDegradesOnAnUnreadableInbox(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist.jsonl")
-	res := Gather("", fleet.Roster{}, time.Now(), missing)
+	res := Gather(Options{Now: time.Now(), InboxPath: missing, Sessions: fakeSessions{}})
 	var found bool
 	for _, u := range res.Unavailable {
 		if strings.Contains(u, "inbox") {
@@ -258,7 +258,7 @@ func TestGatherDegradesOnAnUnreadableInbox(t *testing.T) {
 // appear in Unavailable at all, matching how an unset --sessions/--roles
 // simply means that feature is off, not broken.
 func TestGatherWithNoInboxConfiguredIsSilentAboutIt(t *testing.T) {
-	res := Gather("", fleet.Roster{}, time.Now(), "")
+	res := Gather(Options{Now: time.Now(), Sessions: fakeSessions{}})
 	for _, u := range res.Unavailable {
 		if strings.Contains(u, "inbox") {
 			t.Fatalf("an unconfigured --inbox must not be reported as unavailable, got: %v", res.Unavailable)
@@ -285,7 +285,7 @@ func TestGatherPopulatesActionsAndUnreadFromTheInboxFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := Gather("", fleet.Roster{}, time.Now(), p)
+	res := Gather(Options{Now: time.Now(), InboxPath: p, Sessions: fakeSessions{}})
 	if len(res.Actions) != 1 || res.Actions[0].Title != "decide the eval gate" {
 		t.Fatalf("Actions = %+v, want exactly the one open action entry", res.Actions)
 	}

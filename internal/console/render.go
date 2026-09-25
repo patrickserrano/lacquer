@@ -25,8 +25,15 @@ func Text(w io.Writer, res Result) {
 	printInboxSection(w, "ACTION", "!!", res.Actions)
 	printInboxSection(w, "UNREAD", "  ", res.Unread)
 
+	SessionsText(w, res)
+	if res.InboxNote != "" {
+		fmt.Fprintln(w, res.InboxNote)
+	}
+
 	if len(res.Rows) == 0 {
-		fmt.Fprintln(w, "roster is empty")
+		fmt.Fprintln(w, "roster: none loaded — sessions are not mapped to projects (pass --roster or set LACQUER_ROSTER)")
+		summaryLine(w, res, 0, 0)
+		printUnavailable(w, res)
 		return
 	}
 
@@ -37,7 +44,7 @@ func Text(w io.Writer, res Result) {
 		}
 	}
 
-	var idle, working, prs int
+	var prs int
 	for _, r := range res.Rows {
 		mark := "  "
 		if r.Blocking {
@@ -47,15 +54,6 @@ func Text(w io.Writer, res Result) {
 
 		for _, n := range r.Notes {
 			fmt.Fprintf(w, "   %-*s  · %s\n", width, "", n)
-		}
-		for _, s := range r.Sessions {
-			if s.Status == "working" {
-				working++
-			} else {
-				idle++
-			}
-			fmt.Fprintf(w, "   %-*s  ▸ session %s (%s) — claude attach %s\n",
-				width, "", s.Name, s.Status, short(s.SessionID))
 		}
 		for _, p := range r.PRs {
 			prs++
@@ -71,14 +69,76 @@ func Text(w io.Writer, res Result) {
 		}
 	}
 
-	fmt.Fprintf(w, "\n%d project(s) · %d session(s) (%d working) · %d open PR(s) · %d action(s) · %d unread\n",
-		len(res.Rows), idle+working, working, prs, len(res.Actions), len(res.Unread))
+	summaryLine(w, res, len(res.Rows), prs)
+	printUnavailable(w, res)
+}
 
-	// Named loudly. A console missing a source looks exactly like a quiet
-	// fleet, and the difference matters most when something is broken.
+// printUnavailable names each source that could not be read, loudly. A console
+// missing a source looks exactly like a quiet fleet, and the difference matters
+// most when something is broken.
+func printUnavailable(w io.Writer, res Result) {
 	for _, u := range res.Unavailable {
 		fmt.Fprintf(w, "unavailable: %s — that column is blank, not empty\n", u)
 	}
+}
+
+func summaryLine(w io.Writer, res Result, projects, prs int) {
+	sessions := fmt.Sprintf("%d session(s) (%d busy)", len(res.Sessions), countBusy(res.Sessions))
+	if res.SessionsErr != "" {
+		sessions = "sessions unavailable"
+	}
+	head := ""
+	if projects > 0 {
+		head = fmt.Sprintf("%d project(s) · ", projects)
+	}
+	tail := ""
+	if projects > 0 {
+		tail = fmt.Sprintf(" · %d open PR(s)", prs)
+	}
+	fmt.Fprintf(w, "\n%s%s%s · %d action(s) · %d unread\n", head, sessions, tail, len(res.Actions), len(res.Unread))
+}
+
+func countBusy(ss []Session) int {
+	n := 0
+	for _, s := range ss {
+		if s.Busy() {
+			n++
+		}
+	}
+	return n
+}
+
+// SessionsText renders the live session list. A source that failed prints its
+// reason and never an empty list: "sessions: unavailable" and "no sessions
+// running" are different facts, and #380 exists because they looked the same.
+func SessionsText(w io.Writer, res Result) {
+	if res.SessionsErr != "" {
+		fmt.Fprintf(w, "sessions: unavailable — %s\n\n", res.SessionsErr)
+		return
+	}
+	if len(res.Sessions) == 0 {
+		fmt.Fprintln(w, "sessions: none running (claude agents --json answered with an empty list)")
+		fmt.Fprintln(w)
+		return
+	}
+	fmt.Fprintln(w, "SESSIONS")
+	nameW, projW := 0, len("project")
+	for _, s := range res.Sessions {
+		nameW = max(nameW, len(s.Name))
+		projW = max(projW, len(projectOf(s)))
+	}
+	for _, s := range res.Sessions {
+		fmt.Fprintf(w, "   %-*s  %-11s %-8s %-*s  %6s  %s\n",
+			nameW, s.Name, s.Kind, s.Status, projW, projectOf(s), formatAge(s.Age(res.Now)), s.CWD)
+	}
+	fmt.Fprintln(w)
+}
+
+func projectOf(s Session) string {
+	if s.Project == "" {
+		return "-"
+	}
+	return s.Project
 }
 
 // printInboxSection renders one inbox.Entry section (ACTION or UNREAD) if it
