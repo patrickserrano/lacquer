@@ -91,3 +91,41 @@ func TestNestedAgentsContract(t *testing.T) {
 		}
 	}
 }
+
+// The decisions log (#427) is only a mechanism if the agent that starts work is
+// told to read it, and the one place every project is told anything is the
+// managed region. So the line has to be in what is RENDERED into every
+// project's CLAUDE.md and AGENTS.md, for every profile: a core rule that fails to
+// reach a stack's output is a rule that stack never had.
+func TestRenderedRegionsTellAgentsToReadTheDecisionsLog(t *testing.T) {
+	for _, profile := range []string{"core", "ios", "web", "supabase", "marketing"} {
+		t.Run(profile, func(t *testing.T) {
+			dir := t.TempDir()
+			manifest, err := os.ReadFile(filepath.Join(root(t), "internal/shipped/testdata/projects/rootapp/.lacquer.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			content := strings.Replace(string(manifest), `profiles = ["ios"]`, `profiles = ["`+profile+`"]`, 1)
+			if profile == "core" {
+				content = strings.Replace(content, `profiles = ["core"]`, `profiles = []`, 1)
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".lacquer.toml"), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			initRepo(t, dir)
+			p := &project{root: dir, lacquerRoot: root(t), t: t}
+			p.sync()
+			for _, file := range []string{"CLAUDE.md", "AGENTS.md"} {
+				body := strings.Join(strings.Fields(p.read(file)), " ")
+				for _, want := range []string{
+					"Before briefing or starting work, run `lacquer decisions` and `lacquer decisions --fleet`",
+					"to quote verbatim in a brief",
+				} {
+					if !strings.Contains(body, want) {
+						t.Errorf("%s does not say %q", file, want)
+					}
+				}
+			}
+		})
+	}
+}

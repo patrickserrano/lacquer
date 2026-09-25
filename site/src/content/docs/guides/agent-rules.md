@@ -43,6 +43,11 @@ description: The engineering rules synced into every lacquered project's CLAUDE.
   state (spent/remaining and latest result), verification evidence and next action.
   Resume from that state; do not reset the budget or switch worktrees.
 
+## Recorded decisions
+
+- Before briefing or starting work, run `lacquer decisions` and
+  `lacquer decisions --fleet`: the operator's words, to quote verbatim in a brief.
+
 ## On-demand procedures
 
 Load the skill matching the task; its references retain the full procedures:
