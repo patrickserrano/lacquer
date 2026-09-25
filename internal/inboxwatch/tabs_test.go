@@ -797,3 +797,12 @@ func TestPRsSaysWhenARepositoryReturnedAFullPage(t *testing.T) {
 		t.Errorf("a short page was flagged: %q", head)
 	}
 }
+
+func TestInboxEmptyMessageNamesTheDoneTabOnlyWhenThereIsOne(t *testing.T) {
+	if s := plainAll(tabModel(t, 100, 8).View()); !strings.Contains(s, "inbox clear — nothing waiting on you (3 Done for what closed)") {
+		t.Errorf("four tabs:\n%s", s)
+	}
+	if s := plainAll(model(t, cfgReply, 100, 8).View()); !strings.Contains(s, "inbox clear — nothing waiting on you") || strings.Contains(s, "Done") {
+		t.Errorf("one tab:\n%s", s)
+	}
+}
