@@ -780,6 +780,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// manifest (from a git ref), so — like wait — no requireLacquerRoot.
 		return ciRoundCmd(args[1:], getenv, stdout, stderr)
 	case "console":
+		if isInboxHookStop(args[1:]) {
+			// Before the root checks below: a hook must not fail a session.
+			return runInboxHookStop(args[4:], getenv, console.ClaudeAgents{Timeout: 4 * time.Second}, stderr)
+		}
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
@@ -1195,6 +1199,12 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               per-repo cursor (merge-cursor.json beside the inbox). A repo's first look")
 	fmt.Fprintln(w, "                               only sets the cursor, nothing is backfilled; a gh failure is listed as")
 	fmt.Fprintln(w, "                               unavailable; with no roster it says merges are not being recorded.")
+	fmt.Fprintln(w, "                               A background agent going idle is recorded too, by the Stop hook the")
+	fmt.Fprintln(w, "                               iOS profile ships: `console inbox hook stop` reads the hook JSON on")
+	fmt.Fprintln(w, "                               stdin and, only when $CLAUDE_JOB_DIR is set (a `claude --bg` session),")
+	fmt.Fprintln(w, "                               adds one UNREAD `<session> is idle in <project>: <last message>`, ref")
+	fmt.Fprintln(w, "                               session:<id>, at most one open per session. It always exits 0, warns")
+	fmt.Fprintln(w, "                               on stderr, and gives up after 5s. --inbox and --roster apply.")
 	fmt.Fprintln(w, "                               Every console flag works on either side of the subcommand, with the")
 	fmt.Fprintln(w, "                               same meaning: `watch --relaunch` == `--relaunch watch`. An unknown")
 	fmt.Fprintln(w, "                               flag, or one the subcommand has no use for, is an error. --roster,")

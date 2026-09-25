@@ -30,12 +30,15 @@
 //
 //   - `lacquer wait pr` adds an ACTION when a PR's wait ends timed out,
 //     untested or unable to run.
+//
 //   - `lacquer console` harvests PR merges on read, one UNREAD per merged PR.
+//
 //   - `lacquer ci-round` adds an ACTION when an agent's CI budget is spent.
 //
-// `console inbox add` remains for a decision raised in conversation. Agent
-// completion is not yet a producer. Producers use only the two types and the
-// fields below, because the phone mirror reads this file, and they check for an
+//   - `lacquer console inbox hook stop` (a Stop hook) adds an UNREAD when a background agent idles.
+//
+// `console inbox add` remains for a decision raised in conversation. Producers
+// use only the two types and the fields below, because the phone mirror reads this file, and they check for an
 // existing entry (by ref, and by the head commit in the body) before adding.
 package inbox
 
