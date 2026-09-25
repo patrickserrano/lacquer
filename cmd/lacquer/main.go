@@ -784,6 +784,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			// Before the root checks below: a hook must not fail a session.
 			return runInboxHookStop(args[4:], getenv, console.ClaudeAgents{Timeout: 4 * time.Second}, stderr)
 		}
+		if isInboxPopup(args[1:]) {
+			// Also before them: tmux runs a popup without the shell's environment.
+			return runInboxPopup(args[3:], getenv, stderr)
+		}
 		if err := requireLacquerRoot(lacquerRoot); err != nil {
 			return fail(stderr, err)
 		}
@@ -812,6 +816,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		entryRef := fs.String("ref", "", `with inbox add: optional reference, e.g. "#374" or a URL`)
 		entryProject := fs.String("project", "", "with inbox add: optional project/roster name")
 		all := fs.Bool("all", false, "with inbox list: include resolved entries")
+		overseer := addOverseerFlags(fs, getenv)
 		rest, err := parseConsoleArgs(fs, args[1:])
 		if err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -961,6 +966,18 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return runInboxAdd(inboxPath, *entryType, inbox.Entry{Title: *entryTitle, Body: *entryBody, Ref: *entryRef, Project: *entryProject}, stdout, stderr)
 			case "resolve":
 				return runInboxResolve(inboxPath, rest[2:], stdout, stderr)
+			case "watch":
+				var roster fleet.Roster
+				if *rosterPath != "" {
+					var err error
+					if roster, err = fleet.LoadRoster(*rosterPath); err != nil {
+						return fail(stderr, err)
+					}
+				}
+				if !stdinIsTerminal() {
+					return fail(stderr, fmt.Errorf("inbox watch draws on a terminal and reads its keys; stdin and stdout must both be one (use `inbox list` in a pipe)"))
+				}
+				return runInboxWatch(systemTerm(), newWatchEnv(inboxPath, inboxIsDefault, *overseer, roster, getenv), stderr)
 			default: // list; consoleSubcommand refused anything else
 				return runInboxList(inboxPath, inboxIsDefault, *all, stdout, stderr)
 			}
@@ -1259,6 +1276,16 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               mark one inbox entry resolved")
 	fmt.Fprintln(w, "  console --inbox F inbox list [--all]")
 	fmt.Fprintln(w, "                               list open inbox entries (--all also lists resolved ones)")
+	fmt.Fprintln(w, "  console --inbox F [--roster F] [--overseer-pane T | --overseer-title T [--overseer-session S]] inbox watch")
+	fmt.Fprintln(w, "                               the live inbox: open entries, ACTIONs first (red = needs you, yellow =")
+	fmt.Fprintln(w, "                               replied, blue = FYI), refreshed every few seconds. j/k or arrows or the")
+	fmt.Fprintln(w, "                               wheel move; Enter (or a click) opens the detail in a tmux popup, where r")
+	fmt.Fprintln(w, "                               types a reply into the overseer pane and records it in inbox-replies.jsonl;")
+	fmt.Fprintln(w, "                               d twice resolves, o opens the link, c copies the id, r refreshes, q quits.")
+	fmt.Fprintln(w, "                               With no overseer pane (--overseer-pane or $LACQUER_OVERSEER_PANE, or a pane")
+	fmt.Fprintln(w, "                               title via --overseer-title/$LACQUER_OVERSEER_TITLE) reply is off, never guessed.")
+	fmt.Fprintln(w, "                               With a roster it also records PR merges, at most once every 5 minutes")
+	fmt.Fprintln(w, "                               (r forces one); without one it says merges are not being recorded.")
 	fmt.Fprintln(w, "  version                      print content and build versions and the resolved root")
 	fmt.Fprintln(w, "  help, --help, -h             show this help")
 	fmt.Fprintln(w, "env: LACQUER_ROOT (path to the lacquer checkout, default '.')")
@@ -1450,12 +1477,12 @@ func consoleSubcommand(args []string) (string, error) {
 			return sub, nil
 		}
 		switch args[1] {
-		case "add", "list":
+		case "add", "list", "watch":
 			sub, max = "inbox "+args[1], 2
 		case "resolve":
 			sub, max = "inbox resolve", 3
 		default:
-			return "", fmt.Errorf("unknown inbox subcommand %q (want add, resolve, or list)", args[1])
+			return "", fmt.Errorf("unknown inbox subcommand %q (want add, resolve, list, or watch)", args[1])
 		}
 	default:
 		return "", fmt.Errorf("unknown console subcommand %q (want watch, kill, dispatch, dispatch-role or inbox; none for the dashboard)", sub)
@@ -1495,6 +1522,10 @@ var consoleFlagScope = map[string][]string{
 	"ref":      {"inbox add"},
 	"project":  {"inbox add"},
 	"all":      {"inbox list"},
+
+	"overseer-pane":    {"inbox watch"},
+	"overseer-title":   {"inbox watch"},
+	"overseer-session": {"inbox watch"},
 }
 
 // checkConsoleFlagScope refuses the first flag set on fs that sub has no use
