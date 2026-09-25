@@ -287,3 +287,18 @@ func TestConcurrentHarvestsAddAMergeOnce(t *testing.T) {
 		t.Errorf("exactly one harvest must say it was skipped, %d did: %+v", skipped, results)
 	}
 }
+
+// Real gh prints `[]` for an empty `pr list`, so zero bytes is abnormal output
+// and must stay unavailable, never "no merges". Leniency is only where gh was
+// measured printing nothing (`label list`).
+func TestZeroBytesFromPrListIsUnavailableNotZeroMerges(t *testing.T) {
+	path := newInbox(t)
+	g := &fakeGH{reply: map[string]string{}}
+	r := roster("w", "acme/widgets")
+	harvest(path, r, t0, g)
+	g.reply["acme/widgets"] = ""
+	res := harvest(path, r, t0.Add(time.Hour), g)
+	if len(res.Unavailable) != 1 || len(res.Added) != 0 {
+		t.Fatalf("unavailable %v, added %v", res.Unavailable, res.Added)
+	}
+}
