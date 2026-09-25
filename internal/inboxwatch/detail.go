@@ -43,6 +43,8 @@ type Detail struct {
 
 	replyBox
 	dec decision
+	// ov is the diff or plan being shown in place of the entry's text.
+	ov overlay
 }
 
 // NewDetail is a detail view of the entry id.
@@ -58,6 +60,26 @@ func (d Detail) Update(ev Event) (Program, []Cmd) {
 }
 
 func (d *Detail) update(ev Event) []Cmd {
+	if d.ov != nil {
+		switch ev := ev.(type) {
+		case KeyEvent:
+			cmds, closed := d.ov.key(ev, d.W, d.H)
+			if closed {
+				d.ov = nil
+			}
+			return cmds
+		case MouseEvent:
+			switch ev.Button {
+			case ButtonWheelUp:
+				d.ov.wheel(-wheelStep, d.W, d.H)
+			case ButtonWheelDown:
+				d.ov.wheel(wheelStep, d.W, d.H)
+			}
+			return nil
+		case DiffEvent, PlanEvent, LineSentEvent:
+			return d.ov.event(ev)
+		}
+	}
 	switch ev := ev.(type) {
 	case ResizeEvent:
 		d.W, d.H = ev.W, ev.H
@@ -155,6 +177,8 @@ func (d *Detail) key(k KeyEvent) []Cmd {
 		case 'D':
 			d.startDecision()
 			d.clampTop()
+		case 'v':
+			return d.openView()
 		case 'c':
 			return []Cmd{{Kind: CmdCopy, ID: d.ID, Text: d.ID}}
 		case 'o':
@@ -279,7 +303,44 @@ func (d Detail) commentNote() string {
 	return "no comment: " + g.Repo + " is not in the roster"
 }
 
+// viewKind is what v shows for the entry's ref: "diff" for a pull request, "plan"
+// for a file: ref, and "" for anything else.
+func (d Detail) viewKind() string {
+	if !d.Found {
+		return ""
+	}
+	if _, ok := planPath(d.Entry.Ref); ok {
+		return "plan"
+	}
+	if _, ok := ParseGitHubRef(d.Entry.Ref); ok && !isIssueURL(d.Entry.Ref) {
+		return "diff"
+	}
+	return ""
+}
+
+// openView opens the diff or the plan the entry's ref names. What it shows is
+// fetched off the loop, like everything else here, so the key never waits on gh.
+func (d *Detail) openView() []Cmd {
+	switch d.viewKind() {
+	case "diff":
+		d.ov = newDiffView(d.ID, d.Entry.Ref, d.CanReply)
+		return []Cmd{{Kind: CmdDiff, ID: d.ID, Ref: d.Entry.Ref}}
+	case "plan":
+		d.ov = newPlanView()
+		return []Cmd{{Kind: CmdPlan, ID: d.ID, Ref: d.Entry.Ref}}
+	}
+	d.Note = "no diff or plan on this item: its ref is not a pull request or a file: ref"
+	return nil
+}
+
 func (d Detail) hint() string {
+	if k := d.viewKind(); k != "" && d.dec.step == decOff && !d.Replying {
+		return "v " + k + " · " + d.baseHint()
+	}
+	return d.baseHint()
+}
+
+func (d Detail) baseHint() string {
 	switch {
 	case d.dec.step != decOff:
 		return d.dec.hint()
@@ -295,6 +356,9 @@ func (d Detail) hint() string {
 }
 
 func (d Detail) View() Frame {
+	if d.ov != nil {
+		return d.ov.view(d.W, d.H)
+	}
 	w, h := d.W, d.H
 	cw := max(w-1, 0)
 	lines := make([]string, h)

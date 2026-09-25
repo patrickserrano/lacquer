@@ -61,6 +61,7 @@ func newWatchEnv(inboxPath string, isDefault bool, o overseerFlags, roster fleet
 		Roster:       roster,
 		Run:          ciwait.GH,
 		Cmd:          inboxwatch.OSCommander{},
+		Diffs:        &inboxwatch.DiffMemo{},
 		// The same function `lacquer console inbox resolve` calls.
 		Resolve: inbox.Resolve,
 		InTmux:  getenv("TMUX") != "",

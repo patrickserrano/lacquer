@@ -93,6 +93,36 @@ backticks in the words, so nothing can close it early.
 in the managed `CLAUDE.md`/`AGENTS.md` region, to run the first and the last before
 briefing or starting work.
 
+## Seeing a diff or a plan from the inbox
+
+In the inbox detail popup, `v` opens what the item's ref names, read-only and
+sanitised (control characters show as `^X`), fetched only on that keypress and never
+on a refresh:
+
+- **A pull request** (`owner/repo#n`, or a `/pull/` URL) in the roster or
+  `--extra-repo`s: the changed files and the diff, coloured, with `j`/`k` to move a
+  cursor, `n`/`p` between files. A repository outside the roster is refused before
+  `gh` runs, and a `gh` failure reads `couldn't load the diff: <reason>`, never an
+  empty diff. `r` on a `+`, `-` or context line is **not this line**: your words
+  are posted to the PR as one plain comment headed with `path:line` (the new-file
+  line, or the old-file line for a removed one, and it says which), through the same
+  gated write as a reply, and typed to the overseer as `[inbox <id>] <path:line> <text>`.
+  It is not a review thread. The comment and the overseer send are independent, and
+  the result says which happened.
+- **A `file:` ref** (`file:/abs/path` or `file:~/path`): the file as the agent will
+  act on it. Only a regular file under `~/Developer` or `~/.claude/plans` (compared by
+  directory identity, so case and Unicode spelling do not matter, and a symlink out is
+  refused as its target is); everything else says "outside the plan roots". Under a
+  root, a dot-directory or dot-file (`.ssh`, `.env`, `.git`) is refused, except
+  `.worktrees` and `.claude/worktrees`, where briefs live. At most 1 MB is shown, with
+  a marker when it is longer.
+
+Each diff fetched is also written for the phone mirror to
+`<inbox dir>/diffs/<owner>_<repo>_<n>_<headsha>.diff`: the sanitised diff and nothing
+else (no title or body), at most 256 KB, ending in `[lacquer: diff truncated at 256 KB]`
+when cut, one file per PR (the newest head). The format is documented in the
+`inboxwatch` package doc.
+
 ## Waiting for CI: `lacquer wait pr`
 
 Waiting for CI is the most common thing an agent does, and hand-rolled waiters

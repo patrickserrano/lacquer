@@ -163,6 +163,14 @@ type Cmd struct {
 	// them. Ref is the entry's ref, as for a reply.
 	Basis string
 	Repo  string
+	// Path, Line and Side go with CmdLine: which line of the diff the operator is
+	// answering, Side saying whether Line counts in the "new" or the "old" file,
+	// and Head the commit the diff was of. Text is the operator's words, and Ref
+	// the pull request.
+	Path string
+	Line int
+	Side string
+	Head string
 }
 
 type CmdKind int
@@ -183,6 +191,9 @@ const (
 	CmdPopupIssue                  // show issue ID in a tmux popup
 	CmdStuckDismiss                // hide the Stuck condition ID until Until
 	CmdDecide                      // record Text as a decision in Repo's decisions issue
+	CmdDiff                        // load the pull request Ref names, for the diff view
+	CmdPlan                        // read the file: ref in Ref, for the plan view
+	CmdLine                        // answer one line of a diff: comment on the PR and tell the overseer
 )
 
 // Answers to Cmds.
@@ -303,6 +314,10 @@ type Env struct {
 	// (#427). It is only ever written to if it is also in the roster or the
 	// extras: naming it here does not exempt it from the gate.
 	FleetRepo string
+	// Diffs holds the diffs this process has fetched (nil holds none).
+	Diffs *DiffMemo
+	// Home is the directory a file: ref must stay under; empty means the user's.
+	Home string
 }
 
 // HasRepos reports whether the roster names any repository to harvest.
@@ -365,6 +380,12 @@ func (e Env) Exec(c Cmd) Event {
 		return e.dismissStuck(c)
 	case CmdDecide:
 		return e.decide(c)
+	case CmdDiff:
+		return e.diff(c.Ref)
+	case CmdPlan:
+		return e.plan(c.Ref)
+	case CmdLine:
+		return e.line(c)
 	}
 	return DoneEvent{Note: fmt.Sprintf("unknown command %d", c.Kind)}
 }
