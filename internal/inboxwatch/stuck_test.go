@@ -45,14 +45,16 @@ func laterAt(t *testing.T, repo string, n int, idle time.Duration) LaterIssue {
 	return is[0]
 }
 
-// stuckModel is a Model on the Stuck tab with both sources answered, the clock
-// at t0 plus adv.
+// stuckModel is a Model on the Stuck tab with every source answered (the App
+// Store snapshot healthy, listing one app with nothing stuck), the clock at t0
+// plus adv.
 func stuckModel(t *testing.T, adv time.Duration, prs []PR, issues []LaterIssue) Model {
 	t.Helper()
 	p := Program(tabModel(t, 140, 24))
 	p = onTab(t, p.(Model), "5")
 	p, _ = send(t, p, tickAt(adv),
-		PRsEvent{PRs: prs, At: t0.Add(adv)}, LaterEvent{Issues: issues, At: t0.Add(adv)})
+		PRsEvent{PRs: prs, At: t0.Add(adv)}, LaterEvent{Issues: issues, At: t0.Add(adv)},
+		LoadedEvent{Data: Data{ASC: healthyASC(adv)}, At: t0.Add(adv)})
 	return p.(Model)
 }
 
@@ -228,7 +230,7 @@ func TestNothingStuckAndCouldntCheckAreDifferentScreens(t *testing.T) {
 		t.Error("two of clean, PRs broken, Later broken render the same")
 	}
 	// The header says it too, in red, and names how many sources.
-	if h := plain(brokenPRs.View().Lines[0]); !strings.Contains(h, "couldn't check 1 of 2 sources") {
+	if h := plain(brokenPRs.View().Lines[0]); !strings.Contains(h, "couldn't check 1 of 3 sources") {
 		t.Errorf("header = %q", h)
 	}
 	if h := plain(clean.View().Lines[0]); strings.Contains(h, "couldn't") || !strings.Contains(h, "0 stuck") {
@@ -240,8 +242,8 @@ func TestNothingStuckAndCouldntCheckAreDifferentScreens(t *testing.T) {
 func TestBeforeAnythingHasAnsweredItIsNeitherEmptyNorBroken(t *testing.T) {
 	p := onTab(t, tabModel(t, 140, 12), "5")
 	s := screen(p.(Model))
-	// Both sources say so, each by name: one answered source must not speak for the other.
-	if strings.Contains(s, "nothing stuck") || strings.Contains(s, "couldn't check") || strings.Count(s, "checking…") != 2 {
+	// Every source says so, each by name: one answered source must not speak for another.
+	if strings.Contains(s, "nothing stuck") || strings.Contains(s, "couldn't check") || strings.Count(s, "checking…") != 3 {
 		t.Errorf("screen:\n%s", s)
 	}
 }
