@@ -29,6 +29,26 @@
 // open are two steps, and a hard link placed under a root passes; each takes an
 // agent that can already write under $HOME.
 //
+// # App Store rows on the Stuck tab (#424b)
+//
+// The Stuck tab also lists three App Store conditions, at the operator's
+// thresholds: a version REJECTED or DEVELOPER_REJECTED for 3h, a VALID build
+// attached to no version for 3h (only the newest build of its app and platform,
+// so a superseded one never sits there), and a version WAITING_FOR_REVIEW for 24h.
+// They are computed from asc-snapshot.json, beside the inbox file (ASCSnapshotFile),
+// which fleet-ops' asc-status writes on a schedule. lacquer holds no App Store
+// Connect credentials and never calls the ASC API: reading that file, through Env
+// and on the inbox's own refresh, is the only I/O, and the model stays pure.
+//
+// A snapshot that is missing, unreadable, malformed, of another schema version,
+// over 90 minutes old (measured from its generatedAt), dated in the future, or that
+// lists no apps is shown as "couldn't check", never as nothing stuck; so is each
+// entry in its errors[], while the other apps' rows still show. A time taken from
+// the producer's own first sighting is shown as "at least". A rejected row says
+// to dismiss it until Apple responds if you have replied in Resolution Center,
+// because the API keeps saying REJECTED then; dismissal is the same x and period
+// as any row. The schema and every rule are in docs/asc-snapshot.md.
+//
 // # The diff cache, for the phone mirror
 //
 // Every time the diff view fetches a diff (and only then), Env writes the phone's
