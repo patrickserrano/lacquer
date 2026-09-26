@@ -3,6 +3,7 @@ package baseline
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -284,6 +285,92 @@ func TestRunProjectYMLRegeneratesAndChecksWhenXcodegenAvailable(t *testing.T) {
 	}
 	if v := Violations(reps[0].Findings); len(v) != 0 {
 		t.Errorf("violations = %+v, want none against the regenerated compliant project", v)
+	}
+}
+
+// writeDailyBreadShape lays out a clean checkout of a project whose XcodeGen
+// output is gitignored, in the EXACT shape of PixelFoxStudio/dailybread #554:
+// the .xcodeproj DIRECTORY exists, because it commits
+// project.xcworkspace/xcshareddata/swiftpm/Package.resolved (Dependabot needs
+// it), but project.pbxproj does not, and a sibling project.yml is the source.
+// A fixture with the directory absent would pass against code that still fails
+// on this shape: both Run's and EnforceTargets' guards stat the directory.
+func writeDailyBreadShape(t *testing.T, projectRoot string) {
+	t.Helper()
+	resolved := filepath.Join(projectRoot, "ios", "App.xcodeproj", "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved")
+	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resolved, []byte("{\"version\": 3}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "ios", "project.yml"), []byte("name: App\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSwift(t, projectRoot, filepath.Join("ios", "App", "App.swift"))
+}
+
+// The defect from dailybread #554's "No lacquer drift" job: the xcodeproj
+// directory is there, the pbxproj is not, there is no xcodegen. Run's guard
+// only looked at the directory, so this shape reached ReadXcodeproj and
+// `lacquer audit` exited 1 with "read xcodeproj: open .../project.pbxproj: no
+// such file or directory" on a project with nothing wrong. Unchecked, visibly.
+func TestRunGitignoredPbxprojInsideCommittedXcodeprojDirIsUnchecked(t *testing.T) {
+	lr, pr := projectDirs(t, "")
+	writeDailyBreadShape(t, pr)
+	t.Setenv("PATH", t.TempDir()) // no xcodegen reachable
+
+	reps, err := Run(lr, pr, iosTarget(), nil, now)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(reps) != 1 || reps[0].Unchecked == "" {
+		t.Fatalf("reports = %+v, want one Unchecked report", reps)
+	}
+	if len(reps[0].Findings) != 0 {
+		t.Error("an unchecked component must not fabricate findings")
+	}
+	if out := FormatReports(reps); !strings.Contains(out, "NOT CHECKED") {
+		t.Errorf("Unchecked must be visible in the output, got %q", out)
+	}
+}
+
+// The same shape with a fake xcodegen that writes the pbxproj INTO the existing
+// xcodeproj directory: regeneration must still be attempted, and the result
+// checked, when the directory was already there.
+func TestRunGitignoredPbxprojInsideCommittedXcodeprojDirRegenerates(t *testing.T) {
+	lr, pr := projectDirs(t, "")
+	writeDailyBreadShape(t, pr)
+	binDir := t.TempDir()
+	script := "#!/bin/sh\ncat > App.xcodeproj/project.pbxproj <<'EOF'\n" + partialPbx + "EOF\n"
+	if err := os.WriteFile(filepath.Join(binDir, "xcodegen"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	reps, err := Run(lr, pr, iosTarget(), nil, now)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(reps) != 1 || reps[0].Unchecked != "" {
+		t.Fatalf("reports = %+v, want the regenerated project checked", reps)
+	}
+	if Blocking(reps) == 0 {
+		t.Error("the regenerated project is non-compliant and must still be a violation")
+	}
+}
+
+// A mistyped path must not read as a pass: the directory exists, the pbxproj
+// does not, and there is no project.yml to say why. Still a hard error.
+func TestRunMissingPbxprojWithoutProjectYMLIsAnError(t *testing.T) {
+	lr, pr := projectDirs(t, "")
+	writeDailyBreadShape(t, pr)
+	if err := os.Remove(filepath.Join(pr, "ios", "project.yml")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if _, err := Run(lr, pr, iosTarget(), nil, now); err == nil {
+		t.Fatal("want an error for an xcodeproj directory with no pbxproj and no project.yml, got nil")
 	}
 }
 

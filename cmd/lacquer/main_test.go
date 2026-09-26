@@ -742,3 +742,39 @@ func TestAuditFleetGateParity(t *testing.T) {
 		})
 	}
 }
+
+// dailybread #554: a clean checkout of a project whose XcodeGen output is
+// gitignored has the .xcodeproj DIRECTORY (it commits Package.resolved inside
+// it) but no project.pbxproj. `lacquer audit` exited 1 with "read xcodeproj:
+// open ...: no such file or directory". It must say NOT CHECKED, not fail.
+func TestAuditGitignoredXcodegenProjectIsNotCheckedNotAnError(t *testing.T) {
+	hr, pr := auditFixture(t, pbxCompliant, "")
+	xc := filepath.Join(pr, "ios", "App.xcodeproj")
+	if err := os.Remove(filepath.Join(xc, "project.pbxproj")); err != nil {
+		t.Fatal(err)
+	}
+	resolved := filepath.Join(xc, "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved")
+	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resolved, []byte("{\"version\": 3}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pr, "ios", "project.yml"), []byte("name: App\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pr, "ios", "App.swift"), []byte("import Foundation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir()) // no xcodegen reachable
+	chdir(t, pr)
+
+	var out, errb bytes.Buffer
+	run([]string{"audit"}, envMap(map[string]string{"LACQUER_ROOT": hr}), &out, &errb)
+	if strings.Contains(errb.String(), "read xcodeproj") {
+		t.Fatalf("audit failed on a gitignored XcodeGen project:\n%s", errb.String())
+	}
+	if !strings.Contains(out.String(), "NOT CHECKED") {
+		t.Errorf("an unverified project must be visible as NOT CHECKED:\nstdout:\n%s\nstderr:\n%s", out.String(), errb.String())
+	}
+}

@@ -486,3 +486,28 @@ func TestMissingAgentsSourceFailsBeforeWriting(t *testing.T) {
 		t.Fatalf("partial write: %v", err)
 	}
 }
+
+// dailybread #554's shape: the .xcodeproj directory is committed (for its
+// Package.resolved) but the XcodeGen-generated project.pbxproj is gitignored.
+// The warnings gate cannot read it here, which is not a refusal, but the sync
+// must SAY it did not check: Result carries it for the CLI to print.
+func TestRunReportsWarningsGateUncheckedForGitignoredXcodegenProject(t *testing.T) {
+	lacquer := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(lacquer, "VERSION"), "1\n")
+	writeFile(t, filepath.Join(lacquer, "core", "CLAUDE.core.md"), "CORE")
+	writeFile(t, filepath.Join(lacquer, "profiles", "ios", "CLAUDE.ios.md"), "IOS")
+	writeFile(t, filepath.Join(project, ".lacquer.toml"),
+		"[project]\nname=\"x\"\nxcodeproj=\"ios/App.xcodeproj\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+	writeFile(t, filepath.Join(project, "ios", "App.xcodeproj", "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved"), "{}\n")
+	writeFile(t, filepath.Join(project, "ios", "project.yml"), "name: App\n")
+	t.Setenv("PATH", t.TempDir()) // no xcodegen reachable
+
+	res, err := Run(lacquer, project, false)
+	if err != nil {
+		t.Fatalf("Run refused a gitignored XcodeGen project: %v", err)
+	}
+	if len(res.WarningsUnchecked) != 1 {
+		t.Errorf("WarningsUnchecked = %q, want one entry for the unverified component", res.WarningsUnchecked)
+	}
+}
