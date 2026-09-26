@@ -34,10 +34,21 @@ type StuckItem struct {
 	// Since is when the bad state began, and Why says what it is.
 	Since time.Time
 	Why   string
+	// Display names a row that is not a GitHub issue or PR (an App Store version
+	// or build): it is then the row's ref, and Repo and Number are left empty, so
+	// nothing that reads them can take it for a GitHub ref. Note is a line under
+	// the row for what the operator can do about it.
+	Display string
+	Note    string
 }
 
-// Ref is "owner/name#number".
-func (s StuckItem) Ref() string { return fmt.Sprintf("%s#%d", s.Repo, s.Number) }
+// Ref is "owner/name#number", or Display for a row that has no GitHub ref.
+func (s StuckItem) Ref() string {
+	if s.Display != "" {
+		return s.Display
+	}
+	return fmt.Sprintf("%s#%d", s.Repo, s.Number)
+}
 
 // StuckReport is what one source found. Problems is everything the source could
 // not check, and is never left empty when it could not: an empty Items with no
@@ -52,11 +63,12 @@ type StuckReport struct {
 
 // StuckInputs is the data the sources read. It is what the PRs and Later tabs
 // already fetch, under their own throttle: computing the Stuck tab makes no gh
-// call of its own. A source for a new family of conditions (424b's App Store
-// states) adds its snapshot here.
+// call of its own. A source for a new family of conditions adds its snapshot
+// here: ASC is the App Store one, read from a file by Env (docs/asc-snapshot.md).
 type StuckInputs struct {
 	PRs   PRsState
 	Later LaterState
+	ASC   ASCState
 }
 
 // StuckSource is one family of stuck conditions. Check is pure: it reads what is
@@ -67,7 +79,7 @@ type StuckSource interface {
 }
 
 // stuckSources are the families the tab checks, in the order it shows them.
-var stuckSources = []StuckSource{prFailingSource{}, laterStaleSource{}}
+var stuckSources = []StuckSource{prFailingSource{}, laterStaleSource{}, ascSource{}}
 
 // stuckFor is how long a state has lasted, as "45m", "3h20m" or "14d3h".
 func stuckFor(d time.Duration) string {
@@ -218,7 +230,7 @@ func plural(n int, one, many string) string {
 
 // stuckReports runs every source over what the tabs have fetched.
 func (m Model) stuckReports() []StuckReport {
-	in := StuckInputs{PRs: m.PRs, Later: m.Later}
+	in := StuckInputs{PRs: m.PRs, Later: m.Later, ASC: m.Stuck.ASC}
 	out := make([]StuckReport, 0, len(stuckSources))
 	for _, s := range stuckSources {
 		r := s.Check(in, m.Now)
@@ -266,6 +278,8 @@ type StuckState struct {
 	// hides nothing and says so.
 	Dismissed  map[string]time.Time
 	DismissErr string
+	// ASC is the App Store snapshot as last read from asc-snapshot.json.
+	ASC ASCState
 	// dismissedAt is when this process last wrote a dismissal. A read of the file
 	// that started before then is older than what the model knows and is ignored.
 	dismissedAt time.Time
@@ -298,7 +312,7 @@ func (m Model) stuckRows() []row {
 		for _, it := range shown[i] {
 			age := stuckFor(m.Now.Sub(it.Since))
 			rows = append(rows,
-				row{key: it.Key, extra: 1, l: line{
+				row{key: it.Key, extra: 1 + noteRows(it), l: line{
 					{"  " + clean(it.Ref()) + "  ", fg(magenta)},
 					{clean(it.Title), fg(def)},
 				}},
@@ -308,6 +322,9 @@ func (m Model) stuckRows() []row {
 					{clean(it.Why) + "  ", fg(dim)},
 					{clean(it.URL), fg(blue)},
 				}})
+			if it.Note != "" {
+				rows = append(rows, row{header: true, l: line{{"      ↳ " + clean(it.Note), fg(yellow)}}})
+			}
 		}
 		for _, p := range r.Problems {
 			rows = append(rows, row{header: true, l: line{
@@ -317,6 +334,13 @@ func (m Model) stuckRows() []row {
 		}
 	}
 	return rows
+}
+
+func noteRows(it StuckItem) int {
+	if it.Note != "" {
+		return 1
+	}
+	return 0
 }
 
 func (m Model) selectedStuck() (StuckItem, bool) {

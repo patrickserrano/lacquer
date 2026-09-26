@@ -269,6 +269,10 @@ func (m *Model) loaded(ev LoadedEvent) {
 	}
 	m.LoadedAt = ev.At
 	m.LoadErr, m.Warn = ev.Err, ev.Warn
+	if ev.Data.ASC.Answered { // every real read answers; the snapshot is read with the inbox
+		m.Stuck.ASC = ev.Data.ASC
+		m.Stuck.keep(m.stuckRows(), m.viewH(), 1)
+	}
 	if ev.Err != "" {
 		return // keep showing the last good read
 	}

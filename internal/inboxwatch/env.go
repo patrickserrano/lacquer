@@ -122,6 +122,8 @@ type Data struct {
 	// they could not be read (then Dismissed is empty and nothing is hidden).
 	Dismissed    map[string]time.Time
 	DismissedErr string
+	// ASC is the App Store snapshot, read from asc-snapshot.json beside the inbox.
+	ASC ASCState
 }
 
 // sortItems puts what needs the operator first: ACTIONs they have not answered,
@@ -406,9 +408,11 @@ func (e Env) now() time.Time {
 
 func (e Env) load() LoadedEvent {
 	at := e.now()
+	// The snapshot is its own file, so an unreadable inbox does not stop it being read.
+	asc := e.readASC()
 	entries, malformed, err := inbox.ListOpen(e.InboxPath)
 	if err != nil && !(e.InboxDefault && errors.Is(err, fs.ErrNotExist)) {
-		return LoadedEvent{Err: err.Error(), At: at}
+		return LoadedEvent{Data: Data{ASC: asc}, Err: err.Error(), At: at}
 	}
 	replies, rerr := ReadReplies(RepliesPath(e.InboxPath))
 	var items []Item
@@ -426,6 +430,7 @@ func (e Env) load() LoadedEvent {
 	if derr != nil {
 		ev.Data.DismissedErr = derr.Error()
 	}
+	ev.Data.ASC = asc
 	return ev
 }
 
