@@ -292,7 +292,14 @@ func indexXcconfigs(componentDir string) map[string]string {
 // checkable: a component with no xcodeproj declared is skipped (a pre-code
 // component legitimately has none), while a declared xcodeproj that is missing
 // is an error rather than a silent pass.
-func EnforceTargets(projectRoot string, targets []Target) error {
+//
+// unchecked lists the components this environment could not verify because
+// their XcodeGen-generated project is gitignored and there is no xcodegen to
+// make it (see EnsureXcodeproj). They are not refused -- the project is not
+// broken, this environment cannot see it -- and they are returned, not dropped,
+// so the caller can say so: a gate that checked nothing must not read as one
+// that passed.
+func EnforceTargets(projectRoot string, targets []Target) (unchecked []string, err error) {
 	var msgs []string
 	for _, t := range targets {
 		if t.Profile != "ios" || t.Xcodeproj == "" {
@@ -309,19 +316,28 @@ func EnforceTargets(projectRoot string, targets []Target) error {
 			// projects least able to act on it.
 			continue
 		}
+		// The directory existing does not mean the pbxproj does.
+		reason, err := EnsureXcodeproj(path)
+		if err != nil {
+			return unchecked, fmt.Errorf("%s: %w", t.Component, err)
+		}
+		if reason != "" {
+			unchecked = append(unchecked, fmt.Sprintf("%s: %s", t.Component, reason))
+			continue
+		}
 		componentDir := filepath.Join(projectRoot, filepath.FromSlash(t.Component))
 		vs, err := EnforceWarningsAsErrors(path, componentDir)
 		if err != nil {
-			return fmt.Errorf("%s: %w", t.Component, err)
+			return unchecked, fmt.Errorf("%s: %w", t.Component, err)
 		}
 		for _, v := range vs {
 			msgs = append(msgs, v.String())
 		}
 	}
 	if len(msgs) == 0 {
-		return nil
+		return unchecked, nil
 	}
-	return fmt.Errorf(`refusing to sync: %s is not set for every configuration and target.
+	return unchecked, fmt.Errorf(`refusing to sync: %s is not set for every configuration and target.
 
 Treating warnings as errors is not optional in this fleet, and it is enforced
 here rather than in CI because CI cannot see a project that never runs the job —

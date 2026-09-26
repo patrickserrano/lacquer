@@ -199,6 +199,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		}
 		fmt.Fprint(stdout, ratchet.Format(res.Ratchets))
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
+		if len(res.WarningsUnchecked) > 0 {
+			fmt.Fprintf(stdout, "warnings-as-errors: NOT CHECKED — the gate could not read these projects, so it did not vouch for them:\n  %s\n", strings.Join(res.WarningsUnchecked, "\n  "))
+		}
 		if len(res.Replaced) > 0 {
 			fmt.Fprintf(stdout, "first sync replaced pre-existing content (no lock baseline):\n  %s\n", strings.Join(res.Replaced, "\n  "))
 		}

@@ -30,6 +30,10 @@ type Result struct {
 	Ratchets        []ratchet.Finding
 	// Replaced lists pre-existing units adopted on first sync (no lock baseline).
 	Replaced []string
+	// WarningsUnchecked lists components whose warnings-as-errors gate could not
+	// run because their generated Xcode project is absent and cannot be
+	// regenerated here. The sync went ahead; the gate did not vouch for them.
+	WarningsUnchecked []string
 }
 
 // region is a managed region to write: destination rel path, marker key, body,
@@ -255,7 +259,8 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 
 	// Warnings-as-errors gate. Runs with the other refusals, before anything is
 	// written, and is NOT bypassable by --force — see baseline.EnforceTargets.
-	if err := baseline.EnforceTargets(projectRoot, cfg.BaselineTargets()); err != nil {
+	unchecked, err := baseline.EnforceTargets(projectRoot, cfg.BaselineTargets())
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -307,7 +312,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Regions: len(regions), Assets: len(plan), Replaced: replaced, Ratchets: ratchets}, nil
+	return Result{Regions: len(regions), Assets: len(plan), Replaced: replaced, Ratchets: ratchets, WarningsUnchecked: unchecked}, nil
 }
 
 // mergeInto resolves rel under projectRoot (confining it within the root even

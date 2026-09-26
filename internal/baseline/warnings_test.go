@@ -308,7 +308,7 @@ func TestWorktreeXcconfigCannotShadowTheRealOne(t *testing.T) {
 // the projects least able to act on it.
 func TestDeclaredButMissingXcodeprojIsSkipped(t *testing.T) {
 	dir := t.TempDir()
-	err := baseline.EnforceTargets(dir, []baseline.Target{
+	_, err := baseline.EnforceTargets(dir, []baseline.Target{
 		{Profile: "ios", Component: ".", Xcodeproj: "Nope.xcodeproj"},
 	})
 	if err != nil {
@@ -320,10 +320,69 @@ func TestDeclaredButMissingXcodeprojIsSkipped(t *testing.T) {
 // and no Swift build settings; checking it would be a category error.
 func TestNonIOSTargetsAreIgnored(t *testing.T) {
 	dir := t.TempDir()
-	if err := baseline.EnforceTargets(dir, []baseline.Target{
+	if _, err := baseline.EnforceTargets(dir, []baseline.Target{
 		{Profile: "web", Component: "web", Xcodeproj: "Whatever.xcodeproj"},
 		{Profile: "supabase", Component: "db"},
 	}); err != nil {
 		t.Errorf("a non-iOS target was checked: %v", err)
+	}
+}
+
+// gitignoredXcodegenProject lays out dailybread #554's clean checkout: the
+// .xcodeproj DIRECTORY exists (it commits project.xcworkspace/.../
+// Package.resolved) but project.pbxproj does not, and project.yml is beside it.
+// EnforceTargets' own guard stats only the directory, so this shape passes it
+// and then fails in ReadXcodeproj; a fixture without the directory would not.
+func gitignoredXcodegenProject(t *testing.T, withProjectYML bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, dir, "App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved", "{\"version\": 3}\n")
+	if withProjectYML {
+		writeFile(t, dir, "project.yml", "name: App\n")
+	}
+	return dir
+}
+
+var appTarget = []baseline.Target{{Profile: "ios", Component: ".", Xcodeproj: "App.xcodeproj"}}
+
+// TestGitignoredXcodegenProjectDoesNotRefuseSync: no pbxproj, project.yml
+// present, no xcodegen. That is not a violation and not a broken project; it is
+// a project this environment cannot see, and the gate must say so rather than
+// refuse the sync or silently pass.
+func TestGitignoredXcodegenProjectDoesNotRefuseSync(t *testing.T) {
+	dir := gitignoredXcodegenProject(t, true)
+	t.Setenv("PATH", t.TempDir()) // no xcodegen reachable
+
+	unchecked, err := baseline.EnforceTargets(dir, appTarget)
+	if err != nil {
+		t.Fatalf("a gitignored XcodeGen project refused the sync: %v", err)
+	}
+	if len(unchecked) != 1 || !strings.Contains(unchecked[0], "no xcodegen") {
+		t.Errorf("unchecked = %q, want one entry saying no xcodegen: a gate that checked nothing must not look like a pass", unchecked)
+	}
+}
+
+// TestMissingPbxprojWithoutProjectYMLStillRefuses: the same directory with no
+// project.yml is a mistyped or broken path, which must stay a hard error.
+func TestMissingPbxprojWithoutProjectYMLStillRefuses(t *testing.T) {
+	dir := gitignoredXcodegenProject(t, false)
+	t.Setenv("PATH", t.TempDir())
+
+	if _, err := baseline.EnforceTargets(dir, appTarget); err == nil {
+		t.Fatal("an xcodeproj with no pbxproj and no project.yml passed the gate")
+	}
+}
+
+// TestPresentNonCompliantProjectStillRefuses: the guard must not weaken the
+// gate for a project that IS readable.
+func TestPresentNonCompliantProjectStillRefuses(t *testing.T) {
+	dir := pbxproj(t, []cfg{{id: "P1", name: "Debug"}, {id: "P2", name: "Release"}},
+		[]cfg{{id: "T1", name: "Debug"}, {id: "T2", name: "Release"}}, nil)
+	writeFile(t, dir, "project.yml", "name: App\n")
+	t.Setenv("PATH", t.TempDir())
+
+	_, err := baseline.EnforceTargets(dir, appTarget)
+	if err == nil || !strings.Contains(err.Error(), "refusing to sync") {
+		t.Fatalf("a readable non-compliant project must still refuse; got %v", err)
 	}
 }
