@@ -496,3 +496,23 @@ func TestPopupCommandCarriesTheRepositoriesARepliesMayCommentOn(t *testing.T) {
 		t.Errorf("code %d: %s", code, stderr.String())
 	}
 }
+
+// The popup runs with mouse reporting off, because a program that asks for it
+// makes tmux capture the mouse and a drag stops selecting text. The list keeps it.
+func TestPopupDoesNotEnableMouseReporting(t *testing.T) {
+	path := writeFixtureInbox(t)
+	out := fakeTerminal(t, "fixture decision needed", "q")
+	var stdout, stderr bytes.Buffer
+	env := rawEnv(map[string]string{"XDG_STATE_HOME": t.TempDir()})
+	if code := run([]string{"console", "inbox", "popup", "--inbox", path, "fx01"}, env, &stdout, &stderr); code != 0 {
+		t.Fatalf("code %d: %s", code, stderr.String())
+	}
+	if !strings.Contains(out.String(), "\x1b[?1049h") {
+		t.Fatalf("the popup never drew: %q", out.String())
+	}
+	for _, mode := range []string{"\x1b[?1000", "\x1b[?1002", "\x1b[?1003", "\x1b[?1006"} {
+		if strings.Contains(out.String(), mode) {
+			t.Errorf("the popup touched mouse mode %q", mode)
+		}
+	}
+}

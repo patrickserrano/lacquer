@@ -554,7 +554,7 @@ func (e Env) dismissStuck(c Cmd) Event {
 
 func (e Env) popup(id string) Event {
 	return e.showPopup(CmdPopup, id, e.PopupArgv,
-		fmt.Sprintf(" inbox %s  (r reply · d resolve · o link · c copy · q close) ", clean(id)))
+		fmt.Sprintf(" inbox %s  (r reply · d resolve · o link · c id · y all · q close) ", clean(id)))
 }
 
 // showPopup runs argv in a tmux popup titled title. Neither id nor argv may
@@ -573,10 +573,31 @@ func (e Env) showPopup(kind CmdKind, id string, argv func(string) []string, titl
 		return DoneEvent{Kind: kind, ID: id, Note: "cannot open the popup: a # in the inbox path or overseer setting cannot be passed to tmux safely"}
 	}
 	args := []string{"display-popup", "-w", "80%", "-h", "70%", "-T", formatQuote(title), "-E", cmd}
-	if _, err := e.Cmd.Run("", "tmux", args...); err != nil {
+	restore := e.nativeSelection()
+	_, err := e.Cmd.Run("", "tmux", args...)
+	restore()
+	if err != nil {
 		return DoneEvent{Kind: kind, ID: id, Note: "tmux display-popup: " + err.Error()}
 	}
 	return DoneEvent{Kind: kind, ID: id, OK: true}
+}
+
+// nativeSelection turns tmux's mouse mode off for this session, so a drag in
+// the popup selects text in the terminal instead of reaching tmux, and returns
+// what puts it back. The session's own value is restored, or unset when it had
+// none, so the global one applies again (never -g: other sessions are not ours).
+// The popup is driven by keys and needs no mouse. foxy-inbox's native_selection.
+func (e Env) nativeSelection() (restore func()) {
+	prev, _ := e.Cmd.Run("", "tmux", "show", "-qv", "mouse")
+	prev = strings.TrimSpace(prev)
+	e.Cmd.Run("", "tmux", "set", "mouse", "off")
+	return func() {
+		if prev != "" {
+			e.Cmd.Run("", "tmux", "set", "mouse", prev)
+			return
+		}
+		e.Cmd.Run("", "tmux", "set", "-u", "mouse")
+	}
 }
 
 func (e Env) harvest() Event {

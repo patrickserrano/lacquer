@@ -322,10 +322,10 @@ func TestIssuePopupRefIsEscapedInTitleAndHexInCommand(t *testing.T) {
 		return []string{"/bin/lacquer", "console", "inbox", "popup", "--issue-hex=" + hex.EncodeToString([]byte(ref))}
 	}}
 	ev := env.Exec(Cmd{Kind: CmdPopupIssue, ID: ref}).(DoneEvent)
-	if !ev.OK || len(fc.calls) != 1 {
+	if !ev.OK || len(fc.calls) != 4 { // show, set mouse off, display-popup, restore
 		t.Fatalf("event %+v, calls %q", ev, fc.calls)
 	}
-	call := fc.calls[0]
+	call := fc.calls[2]
 	i := strings.Index(call, " -E ")
 	title, cmd := call[:i], call[i:]
 	if !strings.Contains(title, " later o/r##(touch pwned)##12  (o open · r note · d un-park · c copy · q close)") {
