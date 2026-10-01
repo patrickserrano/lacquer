@@ -302,9 +302,10 @@ func TestOpenCopyAndPopupRunTheRightPrograms(t *testing.T) {
 	if fc.calls[1] != "pbcopy" || fc.stdin[1] != "a1b2" {
 		t.Errorf("copy ran %q with stdin %q", fc.calls[1], fc.stdin[1])
 	}
-	want := "tmux display-popup -w 80% -h 70% -T  inbox a1b2  (r reply · d resolve · o link · c copy · q close)  -E /bin/lacquer console inbox popup --inbox '/tmp/my inbox.jsonl' a1b2"
-	if fc.calls[2] != want {
-		t.Errorf("popup ran\n%q\nwant\n%q", fc.calls[2], want)
+	// calls[0] and [1] are open and pbcopy; the popup is calls[4], after tmux show and set mouse off.
+	want := "tmux display-popup -w 80% -h 70% -T  inbox a1b2  (r reply · d resolve · o link · c id · y all · q close)  -E /bin/lacquer console inbox popup --inbox '/tmp/my inbox.jsonl' a1b2"
+	if fc.calls[4] != want {
+		t.Errorf("popup ran\n%q\nwant\n%q", fc.calls[4], want)
 	}
 	// Outside tmux there is no popup, and it says so instead of failing quietly.
 	fc = &fakeCmd{}
@@ -363,7 +364,7 @@ func TestPopupTitleEscapesTmuxFormatsAndCommandCarriesNoHash(t *testing.T) {
 	fc := &fakeCmd{}
 	env := Env{Cmd: fc, InTmux: true, PopupArgv: func(id string) []string { return []string{"lacquer", "popup", "--id-hex=" + "78232874"} }}
 	env.Exec(Cmd{Kind: CmdPopup, ID: "x#(touch pwned)#{pane_id}#[fg=red]\x1b[2J"})
-	call := fc.calls[0]
+	call := fc.calls[2] // after tmux show and set mouse off
 	i := strings.Index(call, " -E ")
 	title, cmd := call[:i], call[i:]
 	if !strings.Contains(title, " inbox x##(touch pwned)##{pane_id}##[fg=red]^[[2J  (r reply") {

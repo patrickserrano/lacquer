@@ -225,7 +225,11 @@ func popupMain(args []string, getenv func(string) string, stderr io.Writer) int 
 	if *issueHex != "" {
 		p = inboxwatch.NewIssuePopup(id, env.Overseer.Configured(), 0, 0)
 	}
-	if err := inboxwatch.Run(systemTerm(), p, env); err != nil {
+	// Mouse reporting stays off for the popup: tmux captures the mouse for a
+	// popup whose program asks for it, and then a drag cannot select text.
+	t := systemTerm()
+	t.NoMouse = true
+	if err := inboxwatch.Run(t, p, env); err != nil {
 		return fail(stderr, err)
 	}
 	return 0
