@@ -57,14 +57,14 @@ jobs:
     # Blacksmith it billed a ONE-MINUTE MINIMUM per run (1.25 on 2vcpu-arm, 4 on
     # 4vcpu-x64) to do seconds of work; here it bills nothing.
     #
-    # pi-gate is an ARM (aarch64) role label carried by runners on two boxes, the
-    # same ones `ci-ok` already depends on, so this adds no new single point of
-    # failure beyond reaching it sooner: if pi-gate is down, the first job of the
-    # run waits instead of only the last. ARM is safe for the same reason it was
-    # on Blacksmith: the drift audit resolves its tarball by `uname -m`
-    # (aarch64|arm64 -> arm64) and lacquer publishes a linux_arm64 build. A job
-    # that downloaded an amd64-only binary must NOT run here without adding that
-    # mapping first.
+    # pi-gate is a role label carried by runners on two boxes of DIFFERENT
+    # architecture (one aarch64, one x86_64), the same ones `ci-ok` already
+    # depends on. So this adds no new single point of failure beyond reaching it
+    # sooner: if pi-gate is down, the first job of the run waits instead of only
+    # the last. Either architecture is fine here because the drift audit resolves
+    # its tarball by `uname -m` and lacquer publishes both linux builds. A job
+    # that downloads a single-architecture binary must NOT run here without that
+    # mapping.
     #
     # The label is hardcoded per job on purpose (see #339/#340, where one shared
     # templated runner value silently reverted several jobs). Pinned by
