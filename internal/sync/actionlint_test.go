@@ -38,7 +38,7 @@ func TestActionlintRegionPreservesProjectConfig(t *testing.T) {
 			if err := yaml.Unmarshal(data, &got); err != nil {
 				t.Fatal(err)
 			}
-			for _, label := range []string{"dedicated", "pi-gate", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404-arm"} {
+			for _, label := range []string{"dedicated", "pi-gate", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404-arm"} {
 				if !strings.Contains(strings.Join(got.Runner.Labels, "\n"), label) {
 					t.Errorf("missing label %s: %s", label, data)
 				}

@@ -1,11 +1,11 @@
 name: Supabase CI
 
 # Deno backend — no Apple toolchain to worry about, so the real work runs on
-# Blacksmith (`blacksmith-4vcpu-ubuntu-2404`), an ephemeral hosted Linux runner
+# Blacksmith (4vcpu for the database stack, 2vcpu for the rest), an ephemeral hosted Linux runner
 # billed outside the GitHub Actions allowance.
 #
 # This was once routed to the fleet's self-hosted Synology/Pi and moved back off
-# them: both proved too weak for this profile's workloads (see the lint-database
+# them: both proved too weak for this profile's workloads (see the `database`
 # job below). That finding still stands and is why only ONE job here is
 # self-hosted — `ci-ok`, which starts no toolchain and does nothing but read
 # `needs.*.result`. A box too weak to run Supabase is entirely strong enough to
@@ -37,8 +37,8 @@ concurrency:
   # push, every commit to main shares ONE group
   # (supabase-ci-Supabase CI-refs/heads/main), so an unconditional
   # cancel-in-progress makes merges cancel each other's verification: two
-  # pushes close together and the first has its `check`/`lint-database`/
-  # `test-database` run killed before it finishes. GitHub then reports that
+  # pushes close together and the first has its `check`/`database`
+  # run killed before it finishes. GitHub then reports that
   # run as `cancelled`, not `failure`, so no required check, branch
   # protection rule or notification treats it as a problem — the commit sits
   # on main verified by nothing, and `deploy-database` (which needs those
@@ -54,7 +54,24 @@ jobs:
     # Always runs — a diff, plus (only when the `lacquer` filter fires) the drift
     # audit folded in at the end — so CI OK still reports on docs-only PRs where
     # the heavy jobs are skipped.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # `pi-gate` (free), not Blacksmith. This job is `git diff`, `grep` and the
+    # drift audit, with no toolchain, so there is nothing to bill for. On
+    # Blacksmith it billed a ONE-MINUTE MINIMUM per run (1.25 on 2vcpu-arm, 4 on
+    # 4vcpu-x64) to do seconds of work; here it bills nothing.
+    #
+    # pi-gate is an ARM (aarch64) role label carried by runners on two boxes, the
+    # same ones `ci-ok` already depends on, so this adds no new single point of
+    # failure beyond reaching it sooner: if pi-gate is down, the first job of the
+    # run waits instead of only the last. ARM is safe for the same reason it was
+    # on Blacksmith: the drift audit resolves its tarball by `uname -m`
+    # (aarch64|arm64 -> arm64) and lacquer publishes a linux_arm64 build. A job
+    # that downloaded an amd64-only binary must NOT run here without adding that
+    # mapping first.
+    #
+    # The label is hardcoded per job on purpose (see #339/#340, where one shared
+    # templated runner value silently reverted several jobs). Pinned by
+    # internal/shipped/pi_gate_jobs_test.go.
+    runs-on: [self-hosted, Linux, pi-gate]
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
@@ -80,7 +97,7 @@ jobs:
             # (an exclusion or baseline relaxation whose expiry simply passed).
             # `db` is unconditionally true here too, and for a load-bearing
             # reason rather than symmetry: `deploy-database` needs [check,
-            # lint-database, test-database], and a skipped need skips it. A push
+            # database], and a skipped need skips it. A push
             # that gated `db` on paths could therefore skip the deploy of a
             # migration this very push added. The `push:` trigger already carries
             # a `paths:` filter on the component, so this is not the unbounded
@@ -145,7 +162,7 @@ jobs:
           #     project that keeps schema outside supabase/;
           #   * .lacquer.toml, which holds the [baseline.relax] pgtap entry that
           #     decides whether an empty suite passes or fails — removing or
-          #     expiring it flips test-database's verdict with no .sql touched;
+          #     expiring it flips the `database` job's verdict with no .sql touched;
           #   * scripts/, which is where docs-relaxation.sh (executed by the
           #     "Read the pgTAP relaxation" step) lives.
           #
@@ -442,7 +459,9 @@ jobs:
 
   check:
     name: Format · Lint · Test
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # 2vcpu-arm: Deno and the arch-aware lacquer download both ship linux-arm64
+    # builds, and nothing here drives Postgres. Bills 1.25 per minute, not 4.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
@@ -578,11 +597,22 @@ jobs:
           chmod +x "$RUNNER_TEMP/lacquer"
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile supabase
 
-  lint-database:
-    name: DB Lint (Splinter)
+  database:
+    name: DB Lint · Tests
     # CLAUDE.supabase.md calls RLS "the security boundary" — Splinter (supabase db
     # lint) is what actually enforces it in CI, catching missing-RLS and
     # security-definer issues the Edge-Function checks never see.
+    #
+    # ONE job for Splinter and pgTAP. They were two jobs, each booting the same
+    # local Supabase stack (the slow part, about a minute) on its own 4-vCPU
+    # runner: two stack boots, two one-minute-minimum bills at 4 per minute.
+    # Booting once and running both checks in sequence is one boot and one bill.
+    # The steps are independent: a Splinter failure does not skip pgTAP (see the
+    # `if:` on the steps below), so a failing PR still reports both.
+    #
+    # Stays 4vcpu-x64: the full local stack (Postgres plus ~8 services) is the
+    # one workload in this file that is not billing-dominated, and it has not
+    # been proven on a smaller runner. One boot instead of two halves its bill.
     #
     # Hosted (Blacksmith), like every job in this file except the `ci-ok` gate.
     # Called out here because this
@@ -625,64 +655,12 @@ jobs:
 
       # Boots Postgres + applies migrations; a broken migration fails here (desired).
       - name: Start local stack
+        id: stack
         run: supabase start
 
       - name: Lint database schema
+        if: steps.stack.outcome == 'success'
         run: supabase db lint --level warning
-
-      # `supabase start`'s containers are created on the RUNNER'S Docker host,
-      # not scoped to this job's own lifecycle -- on an ephemeral hosted runner
-      # (Blacksmith, as here) that host is a fresh, disposable VM, so nothing
-      # needed cleaning up. On a self-hosted runner, every job shares the SAME
-      # long-lived Docker daemon, so a stack left running collides with the
-      # next run of this same job ("container name already in use"). always()
-      # so a failed lint still tears the stack down -- otherwise the FIRST
-      # failure here permanently wedges every run after it.
-      - name: Stop local stack
-        if: always()
-        run: supabase stop --no-backup
-
-  test-database:
-    name: DB Tests (pgTAP)
-    # Hosted (Blacksmith) for the same reason as lint-database above: neither
-    # self-hosted Linux box can boot the Supabase stack.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Serialized after lint-database rather than running parallel on `changes`
-    # alone. NOTE this is now vestigial: both jobs' `supabase start` create
-    # identically-named containers (derived from the project, not randomized),
-    # which was a real collision when they shared one self-hosted Docker host
-    # ("Conflict. The container name ... is already in use", observed live) --
-    # but on an ephemeral hosted runner each job gets its own VM, so the names
-    # cannot collide. Kept for now because dropping it changes scheduling for
-    # every supabase project; it is safe to remove in its own change.
-    needs: [changes, lint-database]
-    # `!cancelled()`, not the bare code check alone: a job's custom `if:`
-    # replaces the implicit `success()` GitHub adds by default, but ONLY when
-    # the expression itself calls one of success()/failure()/cancelled()/
-    # always() -- otherwise `success()` is implicitly ANDed back in, which
-    # would skip this job whenever lint-database FAILS. That's not the
-    # relationship intended here: lint-database is a `needs` purely to
-    # SERIALIZE the two jobs' `supabase start` (see its comment above), not a
-    # real "must pass first" gate -- a lint failure should not silently skip
-    # the pgTAP suite too.
-    #
-    # Gated on `db` rather than `code` for the same reason as lint-database
-    # above: `code` is the non-docs deny-list, and this job boots a full
-    # Postgres stack.
-    if: needs.changes.outputs.db == 'true' && !cancelled()
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: "{{COMPONENT_PREFIX}}."
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: supabase/setup-cli@v3
-        with:
-          version: latest
-
-      - name: Start local stack
-        run: supabase start
 
       # This step used to echo "no pgTAP tests yet" and exit 0 on an empty
       # directory, which meant the job booted a full Postgres stack and reported
@@ -701,6 +679,8 @@ jobs:
       # component, exactly as in the `docs` job below.
       - name: Read the pgTAP relaxation
         id: relax
+        # Not gated on the Splinter step: both checks report on every run.
+        if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
         working-directory: "."
         run: |
           set -euo pipefail
@@ -717,6 +697,7 @@ jobs:
           esac
 
       - name: Run pgTAP tests
+        if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -736,15 +717,23 @@ jobs:
         env:
           RELAX_STATE: ${{ steps.relax.outputs.state }}
 
-      # See lint-database's identical step for why this exists on a
-      # self-hosted runner and didn't on an ephemeral hosted one.
+      # `supabase start`'s containers are created on the RUNNER'S Docker host,
+      # not scoped to this job's own lifecycle -- on an ephemeral hosted runner
+      # (Blacksmith, as here) that host is a fresh, disposable VM, so nothing
+      # needed cleaning up. On a self-hosted runner, every job shares the SAME
+      # long-lived Docker daemon, so a stack left running collides with the
+      # next run of this same job ("container name already in use"). always()
+      # so a failed lint still tears the stack down -- otherwise the FIRST
+      # failure here permanently wedges every run after it.
       - name: Stop local stack
         if: always()
         run: supabase stop --no-backup
 
   deploy-database:
     name: Deploy migrations
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # 2vcpu-x64: a few seconds of `supabase db push`, so the weight is all
+    # billing; the Supabase CLI stays on x64.
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     # Only a merge to main, and only behind the schema jobs. `supabase db push`
     # is the one step here that touches production, so it must not be reachable
     # from a PR, and a migration must never land there without the lint and the
@@ -754,7 +743,7 @@ jobs:
     #
     # Those jobs are themselves gated on `changes`, so a docs-only push skips
     # them and skips this with them. That is correct: no migration, no deploy.
-    needs: [check, lint-database, test-database]
+    needs: [check, database]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 10
     # Never two at once. Concurrent pushes would race `db push` against the same
@@ -871,18 +860,17 @@ jobs:
     # on a docs-only PR where the check job skips. Fails only if a required job
     # actually FAILED or was CANCELLED; a skipped job counts as OK.
     runs-on: [self-hosted, Linux, pi-gate]
-    needs: [changes, check, lint-database, test-database]
+    needs: [changes, check, database]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} lint-database=${{ needs.lint-database.result }} test-database=${{ needs.test-database.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} database=${{ needs.database.result }}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.check.result }}" \
-            "${{ needs.lint-database.result }}" \
-            "${{ needs.test-database.result }}"; do
+            "${{ needs.database.result }}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::A required job did not pass (result=$r)"
               exit 1

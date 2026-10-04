@@ -46,6 +46,18 @@ import (
 //     wedges branch protection on every PR in the fleet. The same test runs the
 //     aggregator with everything skipped to prove skipped is treated as passing.
 
+// foldedCheckSteps are steps in web's `changes` job that are NOT part of the
+// drift audit: two other checks folded in beside it (dependency review and
+// env-schema validation, formerly workflows of their own), and the step that
+// records their verdicts. Each is gated on its OWN filter output rather than
+// `lacquer`, and TestDriftIsAStepGatedOnTheFilter holds it to exactly that, so
+// the exemption cannot turn into an ungated step.
+var foldedCheckSteps = map[string]string{
+	"depreview": "steps.filter.outputs.deps_changed",
+	"envvalid":  "steps.filter.outputs.env_changed",
+	"folded":    "always()",
+}
+
 // ciProfiles are the profiles shipping a ci.yml with the drift audit.
 var ciProfiles = []string{"ios", "supabase", "web"}
 
@@ -169,6 +181,13 @@ func TestDriftIsAStepGatedOnTheFilter(t *testing.T) {
 				if !seenFilter {
 					continue // the plain checkout that feeds the diff
 				}
+				if gate, folded := foldedCheckSteps[st.ID]; folded {
+					if !strings.Contains(st.If, gate) {
+						t.Errorf("the folded-check step %q has `if: %s`, want it to consult %q",
+							stepLabel(st.ID, st.Name), st.If, gate)
+					}
+					continue
+				}
 				seenAudit = true
 				if st.ID == "drift" {
 					seenVerdict = true
@@ -276,15 +295,26 @@ func TestCIOKEnforcesTheDriftVerdict(t *testing.T) {
 // is written in, so a fabricated result can be substituted for each.
 var needsResult = regexp.MustCompile(`\$\{\{\s*needs\.([A-Za-z0-9_-]+)\.result\s*\}\}`)
 
-// driftOutput matches the expression the aggregator reads the folded-in audit's
-// verdict from, so a fabricated verdict can be substituted for it.
-var driftOutput = regexp.MustCompile(`\$\{\{\s*needs\.changes\.outputs\.drift\s*\}\}`)
+// changesOutput matches any `${{ needs.changes.outputs.<name> }}` expression the
+// aggregator reads, so a fabricated value can be substituted for each. The drift
+// verdict is one; web's folded checks (env_valid, dep_review) are others.
+var changesOutput = regexp.MustCompile(`\$\{\{\s*needs\.changes\.outputs\.([A-Za-z0-9_]+)\s*\}\}`)
 
 // runAggregator substitutes job results and the drift verdict into the extracted
-// ci-ok script and runs it, reporting whether it failed.
+// ci-ok script and runs it, reporting whether it failed. Any OTHER output the
+// script reads is substituted empty ("did not apply").
 func runAggregator(t *testing.T, script string, results map[string]string, drift string) (string, bool) {
 	t.Helper()
-	substituted := driftOutput.ReplaceAllLiteralString(script, drift)
+	return runAggregatorOutputs(t, script, results, map[string]string{"drift": drift})
+}
+
+// runAggregatorOutputs is runAggregator with every `changes` output given by
+// name. An output the script reads that is not in the map is empty.
+func runAggregatorOutputs(t *testing.T, script string, results map[string]string, outputs map[string]string) (string, bool) {
+	t.Helper()
+	substituted := changesOutput.ReplaceAllStringFunc(script, func(m string) string {
+		return outputs[changesOutput.FindStringSubmatch(m)[1]]
+	})
 	substituted = needsResult.ReplaceAllStringFunc(substituted, func(m string) string {
 		job := needsResult.FindStringSubmatch(m)[1]
 		r, ok := results[job]

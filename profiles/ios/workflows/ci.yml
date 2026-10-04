@@ -50,35 +50,24 @@ jobs:
     # in at the end. No Xcode either way, so it runs on Blacksmith rather than
     # tying up the dedicated Mac (see CLAUDE.md "CI Runners").
     #
-    # 2vcpu-arm, not 4vcpu-x64, and the reason is billing rather than speed.
-    # Blacksmith bills vCPU-weighted minutes with a ONE-MINUTE MINIMUM per job:
-    # a 4-vCPU job that finishes in 23s still bills 4 minutes. Measured over a
-    # week, this job ran 67 times at a 23s average and accounted for 288 billable
-    # minutes -- more than every test, lint and build job on the fleet combined,
-    # while doing nothing but `git diff` and `grep`. Halving the vCPUs halves the
-    # weighting, and ARM carries a x0.625 rate multiplier on top, so the same
-    # work bills 1.25 minutes instead of 4.
+    # `pi-gate` (free), not Blacksmith. This job is `git diff`, `grep` and the
+    # drift audit, with no toolchain, so there is nothing to bill for. On
+    # Blacksmith it billed a ONE-MINUTE MINIMUM per run (1.25 on 2vcpu-arm, 4 on
+    # 4vcpu-x64) to do seconds of work; here it bills nothing.
     #
-    # ARM is safe here specifically because the drift audit already resolves its
-    # tarball by `uname -m` (aarch64|arm64 -> arm64) and lacquer publishes a
-    # linux_arm64 build. A job that downloaded an amd64-only binary must NOT be
-    # moved without adding that mapping first -- the failure is a binary that
-    # will not execute, discovered on someone's PR.
+    # pi-gate is an ARM (aarch64) role label carried by runners on two boxes, the
+    # same ones `ci-ok` already depends on, so this adds no new single point of
+    # failure beyond reaching it sooner: if pi-gate is down, the first job of the
+    # run waits instead of only the last. ARM is safe for the same reason it was
+    # on Blacksmith: the drift audit resolves its tarball by `uname -m`
+    # (aarch64|arm64 -> arm64) and lacquer publishes a linux_arm64 build. A job
+    # that downloaded an amd64-only binary must NOT run here without adding that
+    # mapping first.
     #
-    # The supabase profile is deliberately left on 4vcpu-x64: its jobs drive
-    # Postgres, pgTAP and the Supabase CLI, and the saving is not worth
-    # revalidating that stack on a different architecture.
-    #
-    # This label reverted once already: #339 templated this job's ARM label and
-    # release.yml's deliberately-x64 jobs into the SAME templated `LINUX_RUNNER`
-    # value,
-    # which cannot hold two different intended values, and #340 then collapsed
-    # that token to one hardcoded x64 label for all 14 Blacksmith jobs -- silently
-    # undoing this decision along with four others. It is hardcoded again here,
-    # per job, specifically so a future refactor cannot repeat that merge.
-    # internal/shipped/blacksmith_runner_labels_test.go pins this value against a
-    # per-job table so drift like #340 fails a named Go test instead of shipping.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # The label is hardcoded per job on purpose (see #339/#340, where one shared
+    # templated runner value silently reverted several jobs). Pinned by
+    # internal/shipped/pi_gate_jobs_test.go.
+    runs-on: [self-hosted, Linux, pi-gate]
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
@@ -606,6 +595,218 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" lacquer
           chmod +x "$RUNNER_TEMP/lacquer"
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile ios
+      # --- Folded in from the former `Baseline` job. It was a second Mac job that
+      # repeated checkout and the toolchain check to run a few seconds of work;
+      # one job is one runner pickup and one billed slot-minute fewer per run.
+      # None of these steps has a Swift-sources condition: a project with no Swift
+      # yet (Phase 0) still has its baseline asserted. The finds below skip
+      # .lacquer-checkout, which the doctor steps above clone into the workspace.
+      - name: Create Secrets.xcconfig (build-time placeholder)
+        run: |
+          # -showBuildSettings evaluates the project the same way a build does, so
+          # a missing base config fails it exactly as it fails the build jobs.
+          # Seed EVERY Secrets.xcconfig.example under the component, each beside
+          # itself — not just the one at the component root.
+          #
+          # kit keeps its example at BOTH ./Secrets.xcconfig.example and
+          # Kit/Kit/Secrets.xcconfig.example, and the Xcode project reads the
+          # nested one. The old single-path copy seeded only the root, "succeeded",
+          # and the Release build then died with:
+          #   could not find included file 'Kit/Kit/Secrets.xcconfig'
+          # — an error that points nowhere near the step that caused it. The
+          # guard made it worse: a project with no example at the root was a
+          # silent no-op rather than a signal.
+          find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
+            -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' -not -path '*/.lacquer-checkout/*' \
+            -print0 2>/dev/null | while IFS= read -r -d '' ex; do
+              target="${ex%.example}"
+              [ -f "$target" ] || cp "$ex" "$target"
+            done
+
+          # And the scheme's own directory, when the component root holds the only
+          # example: an Xcode project resolves baseConfigurationReference against the
+          # app target's folder, not the component root, so seeding beside the example
+          # alone exits 0 having seeded nothing the build can open. See the Build
+          # (Release) job above for the failure this reproduces.
+          nexamples=$(find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
+            -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' -not -path '*/.lacquer-checkout/*' \
+            2>/dev/null | wc -l | tr -d ' ')
+          scheme_dir="{{COMPONENT_PREFIX}}{{SCHEME}}"
+          if [ "$nexamples" = "1" ] && [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ] \
+            && [ -d "$scheme_dir" ] && [ ! -f "$scheme_dir/Secrets.xcconfig" ]; then
+            cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "$scheme_dir/Secrets.xcconfig"
+          fi
+
+      - name: Generate Xcode project (XcodeGen)
+        run: |
+          # project.yml at the component root means the project is generated by
+          # XcodeGen. Most of this fleet commits the generated .xcodeproj as a
+          # build artifact (see profiles/ios/CLAUDE.ios.md) -- regenerating it
+          # here is then a no-op. A project that instead gitignores it (a real,
+          # deliberate choice: the pbxproj is merge-hostile and nobody reviews
+          # it) has no .xcodeproj in a clean checkout at all, and every step
+          # below that references {{XCODEPROJ}} fails before it can even open
+          # the project. Guarded on project.yml so a project with no XcodeGen
+          # spec (xcodeproj committed with no generator) is unaffected.
+          if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
+            (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
+          fi
+
+      # A declared xcodeproj that doesn't exist on disk yet is expected for a
+      # component declared per the archetype rule before any code exists (e.g.
+      # a Phase-0 backend-first project) — `lacquer audit`'s baseline check
+      # already treats that as Unchecked, not an error, when the component has
+      # no Swift sources either. This job's own `xcodebuild -showBuildSettings`
+      # call below has no equivalent exemption and previously failed outright
+      # for exactly that case, with an error that points at Xcode rather than
+      # at the real (expected, pre-code) cause.
+      - name: Detect Xcode project
+        id: xcodeproj
+        run: |
+          if [ -d "{{XCODEPROJ}}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=false" >> "$GITHUB_OUTPUT"
+          has_swift=$(find {{COMPONENT_PREFIX}}. -name '*.swift' \
+            -not -path '*/.build/*' -not -path '*/DerivedData*/*' -not -path '*/.lacquer-checkout/*' -print -quit)
+          if [ -z "$has_swift" ]; then
+            echo "::notice::{{XCODEPROJ}} does not exist and {{COMPONENT_PREFIX}} has no Swift sources yet — nothing to baseline-check (pre-code component)."
+            exit 0
+          fi
+          echo "::error::{{XCODEPROJ}} does not exist, but Swift sources are present under {{COMPONENT_PREFIX}}. Commit the generated .xcodeproj, or add a project.yml so XcodeGen can regenerate it."
+          exit 1
+
+      # The relaxation mechanism is only as good as the checks that honour it.
+      # `lacquer audit` reads [baseline.relax]; THIS job did not — so a project
+      # with a valid, unexpired warnings_as_errors relaxation passed audit and
+      # failed CI on the same key. kit and port-of-entry both hit that.
+      #
+      # Reads the manifest directly rather than via docs-relaxation.sh, which is
+      # hardcoded to the `documentation` key.
+      - name: Read the baseline relaxations
+        id: baserelax
+        if: steps.xcodeproj.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          for key in swift_version warnings_as_errors strict_concurrency; do
+            line=$(awk -v k="$key" '
+              /^\[baseline\.relax\][[:space:]]*$/ { inblock = 1; next }
+              /^\[/                                 { inblock = 0 }
+              inblock && $0 ~ "^[[:space:]]*"k"[[:space:]]*=" { print; exit }
+            ' .lacquer.toml 2>/dev/null || true)
+            [ -n "$line" ] || continue
+            until_date=$(printf '%s' "$line" | sed -n 's/.*until[[:space:]]*=[[:space:]]*"\([0-9-]\{10\}\)".*/\1/p')
+            [ -n "$until_date" ] || { echo "::error::[baseline.relax].$key needs an until date"; exit 1; }
+            if [ "$(date -u +%Y-%m-%d)" \> "$until_date" ]; then
+              echo "::error::The [baseline.relax] $key entry expired on ${until_date}. Meet the baseline or extend it deliberately."
+              exit 1
+            fi
+            echo "::warning::${key} is relaxed until ${until_date} — checked and reported, but not blocking."
+            echo "relax_${key}=1" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Assert the project baseline
+        if: steps.xcodeproj.outputs.present == 'true'
+        env:
+          RELAX_SWIFT_VERSION: ${{ steps.baserelax.outputs.relax_swift_version }}
+          RELAX_WARNINGS_AS_ERRORS: ${{ steps.baserelax.outputs.relax_warnings_as_errors }}
+        run: |
+          set -o pipefail
+          # This checks the EFFECTIVE build settings, deliberately a different
+          # fidelity from `lacquer audit`, which reads the pbxproj statically.
+          # xcconfig layering and inherited values are invisible to a static read;
+          # they are visible here. Two independent checks at different fidelity —
+          # the same shape as the SPM cache validation above.
+          #
+          # -showBuildSettings resolves per target for every target in the
+          # scheme's build action — so a half-finished migration where the app is
+          # compliant but a widget or watch target is not shows up here. Targets
+          # OUTSIDE the scheme are not covered by this job; `lacquer audit`'s
+          # static read walks every build configuration in the project and covers
+          # exactly that gap. Neither check subsumes the other, which is the point
+          # of running both.
+          # Capture stderr instead of discarding it — a prior version routed it to
+          # /dev/null, so when this failed for a reason OTHER than "no baseline
+          # violations" (a provisioning/scheme/destination error, say), the real
+          # cause was thrown away and only the generic error below ever surfaced.
+          settings_err=$(mktemp)
+          settings=$(xcodebuild -showBuildSettings \
+            -project "{{XCODEPROJ}}" \
+            -scheme "{{SCHEME}}" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            2>"$settings_err") || {
+            echo "::error::xcodebuild -showBuildSettings failed; cannot verify the baseline."
+            cat "$settings_err" >&2
+            rm -f "$settings_err"
+            exit 1
+          }
+          rm -f "$settings_err"
+
+          fail=0
+
+          # Guard: if the grep below matches nothing, an absent setting would read
+          # as "no violations" — the silent-pass failure mode the SwiftLint step
+          # guards against too. Require at least one SWIFT_VERSION line.
+          #
+          # A here-string, not `printf ... | grep -q`: `-q` exits the instant it
+          # finds a match, and $settings regularly exceeds the ~64KB pipe buffer.
+          # Under `set -o pipefail`, the still-writing printf's resulting SIGPIPE
+          # outranks grep's real (successful) match, so the pipeline reports
+          # failure even though the line was right there — reproduced directly:
+          # a >64KB payload with an early match reliably exits 141 through the
+          # pipe form and 0 through the here-string. Every other grep in this
+          # step already reads through a full-consuming stage (sort -u) first,
+          # so this is the only spot that needed it.
+          if ! grep -q 'SWIFT_VERSION' <<<"$settings"; then
+            echo "::error::No SWIFT_VERSION in -showBuildSettings output — the baseline check is silently doing nothing."
+            exit 1
+          fi
+
+          # Every resolved SWIFT_VERSION must be 6 or newer.
+          # $1+0 forces a numeric comparison: a bare string compare would make an
+          # empty or non-numeric value sort below "6" and fail spuriously.
+          bad=$(printf '%s\n' "$settings" | grep 'SWIFT_VERSION = ' \
+            | sed 's/.*SWIFT_VERSION = //' | tr -d ' ' | sort -u \
+            | awk -F. 'NF && $1+0 < 6 { print }')
+          if [ -n "$bad" ]; then
+            if [ -n "${RELAX_SWIFT_VERSION:-}" ]; then
+              echo "::warning::SWIFT_VERSION below 6 in at least one target: $(printf '%s' "$bad" | tr '\n' ' ') (relaxed)"
+            else
+              echo "::error::SWIFT_VERSION below 6 in at least one target: $(printf '%s' "$bad" | tr '\n' ' ')"
+              fail=1
+            fi
+          fi
+
+          # Warnings-as-errors must be on everywhere Swift is compiled. A target
+          # that never sets it resolves to NO, which is exactly the gap this job
+          # exists to catch.
+          wae_bad=0
+          if printf '%s\n' "$settings" | grep 'SWIFT_TREAT_WARNINGS_AS_ERRORS = ' \
+            | sed 's/.*= //' | tr -d ' ' | sort -u | grep -qv '^YES$'; then
+            wae_bad=1
+          fi
+          # Here-string, not `printf ... | grep -q` -- see the SWIFT_VERSION guard
+          # above for why: a bare pipe into `-q` risks a pipefail-amplified
+          # SIGPIPE false failure once $settings passes the pipe buffer size.
+          if ! grep -q 'SWIFT_TREAT_WARNINGS_AS_ERRORS' <<<"$settings"; then
+            wae_bad=1
+          fi
+          if [ "$wae_bad" -ne 0 ]; then
+            if [ -n "${RELAX_WARNINGS_AS_ERRORS:-}" ]; then
+              echo "::warning::SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every target (relaxed)."
+            else
+              echo "::error::SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every target."
+              fail=1
+            fi
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Project baseline not met. See profiles/ios/baseline.toml in the lacquer, or add a time-boxed [baseline.relax] entry to .lacquer.toml."
+            exit 1
+          fi
+          echo "Project baseline met."
 
   build-release:
     name: Build (Release){{IOS_CI_PRODUCT_SUFFIX}}
@@ -1739,256 +1940,7 @@ jobs:
             echo "Deleting this run's simulator: $id"
             xcrun simctl shutdown "$id" 2>/dev/null || true
             xcrun simctl delete "$id" 2>/dev/null || true
-          done
-
-  baseline:
-    name: Baseline
-    runs-on: [self-hosted, macOS, ARM64, dedicated]
-    needs: changes
-    # Skip on docs-only PRs, same gate as Lint. A skipped job counts as passing
-    # for the CI OK aggregator.
-    # SECURITY: same-repo guard — fork-PR code must not run on the self-hosted runner.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
-    timeout-minutes: 10
-    steps:
-      # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
-      # host arrives with no PR and no warning, and its first symptom is a red
-      # `main` on an unrelated merge. This turns that into a named failure.
-      #
-      # The licence check is the load-bearing half. An unaccepted Xcode licence
-      # does not report itself as a licence problem — the observed first symptom
-      # was `unable to spawn process '.../embeddedBinaryValidationUtility' (No
-      # such file or directory)` for a file that was sitting on disk, which sends
-      # you looking for a corrupted install. `-checkFirstLaunchStatus` exits
-      # non-zero for exactly this state and costs nothing.
-      - name: Verify the toolchain
-        run: |
-          set -euo pipefail
-          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-<unset, inheriting xcode-select>}"
-          if ! xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
-            echo "::error::Xcode's first-launch tasks are not complete on this runner — most often an unaccepted licence after an upgrade. Every xcodebuild and simctl call will fail, and NOT with a message that says so. Run: sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch"
-            exit 1
-          fi
-          have="$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g; s/ $//')"
-          echo "Toolchain: $have"
-          echo "Toolchain: \`$have\`" >> "$GITHUB_STEP_SUMMARY"
-          # Echoed unconditionally, asserted only when the project declares an
-          # expectation. Most of the fleet declares none and must keep building
-          # on whatever the host has; for them the echo above is the whole point,
-          # because it makes a silent upgrade visible in the log.
-          want="{{IOS_XCODE_EXPECTED}}"
-          if [ -n "$want" ] && ! printf '%s' "$have" | grep -qF "$want"; then
-            echo "::error::This project expects Xcode $want; the runner has: $have. A toolchain moved under CI without a PR. Either install/select the expected Xcode on the host, or change xcode_version in .lacquer.toml deliberately — as a change that runs CI before it lands."
-            exit 1
-          fi
-      - uses: actions/checkout@v7
-
-      - name: Create Secrets.xcconfig (build-time placeholder)
-        run: |
-          # -showBuildSettings evaluates the project the same way a build does, so
-          # a missing base config fails it exactly as it fails the build jobs.
-          # Seed EVERY Secrets.xcconfig.example under the component, each beside
-          # itself — not just the one at the component root.
-          #
-          # kit keeps its example at BOTH ./Secrets.xcconfig.example and
-          # Kit/Kit/Secrets.xcconfig.example, and the Xcode project reads the
-          # nested one. The old single-path copy seeded only the root, "succeeded",
-          # and the Release build then died with:
-          #   could not find included file 'Kit/Kit/Secrets.xcconfig'
-          # — an error that points nowhere near the step that caused it. The
-          # guard made it worse: a project with no example at the root was a
-          # silent no-op rather than a signal.
-          find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
-            -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' \
-            -print0 2>/dev/null | while IFS= read -r -d '' ex; do
-              target="${ex%.example}"
-              [ -f "$target" ] || cp "$ex" "$target"
-            done
-
-          # And the scheme's own directory, when the component root holds the only
-          # example: an Xcode project resolves baseConfigurationReference against the
-          # app target's folder, not the component root, so seeding beside the example
-          # alone exits 0 having seeded nothing the build can open. See the Build
-          # (Release) job above for the failure this reproduces.
-          nexamples=$(find {{COMPONENT_PREFIX}}. -name 'Secrets.xcconfig.example' \
-            -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' \
-            2>/dev/null | wc -l | tr -d ' ')
-          scheme_dir="{{COMPONENT_PREFIX}}{{SCHEME}}"
-          if [ "$nexamples" = "1" ] && [ -f "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" ] \
-            && [ -d "$scheme_dir" ] && [ ! -f "$scheme_dir/Secrets.xcconfig" ]; then
-            cp "{{COMPONENT_PREFIX}}Secrets.xcconfig.example" "$scheme_dir/Secrets.xcconfig"
-          fi
-
-      - name: Generate Xcode project (XcodeGen)
-        run: |
-          # project.yml at the component root means the project is generated by
-          # XcodeGen. Most of this fleet commits the generated .xcodeproj as a
-          # build artifact (see profiles/ios/CLAUDE.ios.md) -- regenerating it
-          # here is then a no-op. A project that instead gitignores it (a real,
-          # deliberate choice: the pbxproj is merge-hostile and nobody reviews
-          # it) has no .xcodeproj in a clean checkout at all, and every step
-          # below that references {{XCODEPROJ}} fails before it can even open
-          # the project. Guarded on project.yml so a project with no XcodeGen
-          # spec (xcodeproj committed with no generator) is unaffected.
-          if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
-            (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
-          fi
-
-      # A declared xcodeproj that doesn't exist on disk yet is expected for a
-      # component declared per the archetype rule before any code exists (e.g.
-      # a Phase-0 backend-first project) — `lacquer audit`'s baseline check
-      # already treats that as Unchecked, not an error, when the component has
-      # no Swift sources either. This job's own `xcodebuild -showBuildSettings`
-      # call below has no equivalent exemption and previously failed outright
-      # for exactly that case, with an error that points at Xcode rather than
-      # at the real (expected, pre-code) cause.
-      - name: Detect Xcode project
-        id: xcodeproj
-        run: |
-          if [ -d "{{XCODEPROJ}}" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "present=false" >> "$GITHUB_OUTPUT"
-          has_swift=$(find {{COMPONENT_PREFIX}}. -name '*.swift' \
-            -not -path '*/.build/*' -not -path '*/DerivedData*/*' -print -quit)
-          if [ -z "$has_swift" ]; then
-            echo "::notice::{{XCODEPROJ}} does not exist and {{COMPONENT_PREFIX}} has no Swift sources yet — nothing to baseline-check (pre-code component)."
-            exit 0
-          fi
-          echo "::error::{{XCODEPROJ}} does not exist, but Swift sources are present under {{COMPONENT_PREFIX}}. Commit the generated .xcodeproj, or add a project.yml so XcodeGen can regenerate it."
-          exit 1
-
-      # The relaxation mechanism is only as good as the checks that honour it.
-      # `lacquer audit` reads [baseline.relax]; THIS job did not — so a project
-      # with a valid, unexpired warnings_as_errors relaxation passed audit and
-      # failed CI on the same key. kit and port-of-entry both hit that.
-      #
-      # Reads the manifest directly rather than via docs-relaxation.sh, which is
-      # hardcoded to the `documentation` key.
-      - name: Read the baseline relaxations
-        id: baserelax
-        if: steps.xcodeproj.outputs.present == 'true'
-        run: |
-          set -euo pipefail
-          for key in swift_version warnings_as_errors strict_concurrency; do
-            line=$(awk -v k="$key" '
-              /^\[baseline\.relax\][[:space:]]*$/ { inblock = 1; next }
-              /^\[/                                 { inblock = 0 }
-              inblock && $0 ~ "^[[:space:]]*"k"[[:space:]]*=" { print; exit }
-            ' .lacquer.toml 2>/dev/null || true)
-            [ -n "$line" ] || continue
-            until_date=$(printf '%s' "$line" | sed -n 's/.*until[[:space:]]*=[[:space:]]*"\([0-9-]\{10\}\)".*/\1/p')
-            [ -n "$until_date" ] || { echo "::error::[baseline.relax].$key needs an until date"; exit 1; }
-            if [ "$(date -u +%Y-%m-%d)" \> "$until_date" ]; then
-              echo "::error::The [baseline.relax] $key entry expired on ${until_date}. Meet the baseline or extend it deliberately."
-              exit 1
-            fi
-            echo "::warning::${key} is relaxed until ${until_date} — checked and reported, but not blocking."
-            echo "relax_${key}=1" >> "$GITHUB_OUTPUT"
-          done
-
-      - name: Assert the project baseline
-        if: steps.xcodeproj.outputs.present == 'true'
-        env:
-          RELAX_SWIFT_VERSION: ${{ steps.baserelax.outputs.relax_swift_version }}
-          RELAX_WARNINGS_AS_ERRORS: ${{ steps.baserelax.outputs.relax_warnings_as_errors }}
-        run: |
-          set -o pipefail
-          # This checks the EFFECTIVE build settings, deliberately a different
-          # fidelity from `lacquer audit`, which reads the pbxproj statically.
-          # xcconfig layering and inherited values are invisible to a static read;
-          # they are visible here. Two independent checks at different fidelity —
-          # the same shape as the SPM cache validation above.
-          #
-          # -showBuildSettings resolves per target for every target in the
-          # scheme's build action — so a half-finished migration where the app is
-          # compliant but a widget or watch target is not shows up here. Targets
-          # OUTSIDE the scheme are not covered by this job; `lacquer audit`'s
-          # static read walks every build configuration in the project and covers
-          # exactly that gap. Neither check subsumes the other, which is the point
-          # of running both.
-          # Capture stderr instead of discarding it — a prior version routed it to
-          # /dev/null, so when this failed for a reason OTHER than "no baseline
-          # violations" (a provisioning/scheme/destination error, say), the real
-          # cause was thrown away and only the generic error below ever surfaced.
-          settings_err=$(mktemp)
-          settings=$(xcodebuild -showBuildSettings \
-            -project "{{XCODEPROJ}}" \
-            -scheme "{{SCHEME}}" \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            2>"$settings_err") || {
-            echo "::error::xcodebuild -showBuildSettings failed; cannot verify the baseline."
-            cat "$settings_err" >&2
-            rm -f "$settings_err"
-            exit 1
-          }
-          rm -f "$settings_err"
-
-          fail=0
-
-          # Guard: if the grep below matches nothing, an absent setting would read
-          # as "no violations" — the silent-pass failure mode the SwiftLint step
-          # guards against too. Require at least one SWIFT_VERSION line.
-          #
-          # A here-string, not `printf ... | grep -q`: `-q` exits the instant it
-          # finds a match, and $settings regularly exceeds the ~64KB pipe buffer.
-          # Under `set -o pipefail`, the still-writing printf's resulting SIGPIPE
-          # outranks grep's real (successful) match, so the pipeline reports
-          # failure even though the line was right there — reproduced directly:
-          # a >64KB payload with an early match reliably exits 141 through the
-          # pipe form and 0 through the here-string. Every other grep in this
-          # step already reads through a full-consuming stage (sort -u) first,
-          # so this is the only spot that needed it.
-          if ! grep -q 'SWIFT_VERSION' <<<"$settings"; then
-            echo "::error::No SWIFT_VERSION in -showBuildSettings output — the baseline check is silently doing nothing."
-            exit 1
-          fi
-
-          # Every resolved SWIFT_VERSION must be 6 or newer.
-          # $1+0 forces a numeric comparison: a bare string compare would make an
-          # empty or non-numeric value sort below "6" and fail spuriously.
-          bad=$(printf '%s\n' "$settings" | grep 'SWIFT_VERSION = ' \
-            | sed 's/.*SWIFT_VERSION = //' | tr -d ' ' | sort -u \
-            | awk -F. 'NF && $1+0 < 6 { print }')
-          if [ -n "$bad" ]; then
-            if [ -n "${RELAX_SWIFT_VERSION:-}" ]; then
-              echo "::warning::SWIFT_VERSION below 6 in at least one target: $(printf '%s' "$bad" | tr '\n' ' ') (relaxed)"
-            else
-              echo "::error::SWIFT_VERSION below 6 in at least one target: $(printf '%s' "$bad" | tr '\n' ' ')"
-              fail=1
-            fi
-          fi
-
-          # Warnings-as-errors must be on everywhere Swift is compiled. A target
-          # that never sets it resolves to NO, which is exactly the gap this job
-          # exists to catch.
-          wae_bad=0
-          if printf '%s\n' "$settings" | grep 'SWIFT_TREAT_WARNINGS_AS_ERRORS = ' \
-            | sed 's/.*= //' | tr -d ' ' | sort -u | grep -qv '^YES$'; then
-            wae_bad=1
-          fi
-          # Here-string, not `printf ... | grep -q` -- see the SWIFT_VERSION guard
-          # above for why: a bare pipe into `-q` risks a pipefail-amplified
-          # SIGPIPE false failure once $settings passes the pipe buffer size.
-          if ! grep -q 'SWIFT_TREAT_WARNINGS_AS_ERRORS' <<<"$settings"; then
-            wae_bad=1
-          fi
-          if [ "$wae_bad" -ne 0 ]; then
-            if [ -n "${RELAX_WARNINGS_AS_ERRORS:-}" ]; then
-              echo "::warning::SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every target (relaxed)."
-            else
-              echo "::error::SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every target."
-              fail=1
-            fi
-          fi
-
-          if [ "$fail" -ne 0 ]; then
-            echo "::error::Project baseline not met. See profiles/ios/baseline.toml in the lacquer, or add a time-boxed [baseline.relax] entry to .lacquer.toml."
-            exit 1
-          fi
-          echo "Project baseline met."{{IOS_CI_WATCH_TEST_JOB}}
+          done{{IOS_CI_WATCH_TEST_JOB}}
 
   ci-ok:
     name: CI OK
@@ -2020,17 +1972,16 @@ jobs:
     # not render), so requiring any of them by name buys a gate that a skip can
     # satisfy. This one is `if: always()` and reads `needs.*.result`, which is
     # why it is the only name worth requiring.
-    needs: [changes, lint, baseline, build-release, test{{IOS_CI_WATCH_NEED}}]
+    needs: [changes, lint, build-release, test{{IOS_CI_WATCH_NEED}}]
     if: always()
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
         run: |
-          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} baseline=${{ needs.baseline.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}{{IOS_CI_WATCH_ECHO}}"
+          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}{{IOS_CI_WATCH_ECHO}}"
           for r in \
             "${{ needs.changes.result }}" \
             "${{ needs.lint.result }}" \
-            "${{ needs.baseline.result }}" \
             "${{ needs.build-release.result }}" \
             "${{ needs.test.result }}"{{IOS_CI_WATCH_RESULT}}; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then

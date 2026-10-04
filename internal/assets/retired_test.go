@@ -72,8 +72,6 @@ var keptWhenRetired = []string{
 	".github/workflows/ios-ci.yml",
 	".github/workflows/web-ci.yml",
 	".github/workflows/supabase-ci.yml",
-	".github/workflows/web-dependency-review.yml",
-	".github/workflows/web-env-validation.yml",
 	// Event-driven, not timed.
 	".github/workflows/ios-release.yml",
 	// Lint / format / build configs.
