@@ -38,8 +38,8 @@ in that unit, never in wall clock.
    "mutation → test that caught it" in the PR body under `## Mutations`.
 2. **`## Proven on`.** Any change under `profiles/*/workflows/` is proven on
    ONE real repo before merge. Sync the branch's lacquer build into the pilot
-   repo on a throwaway branch, open a draft PR there, and paste the run URL
-   and its billed minutes into the lacquer PR. CI rejects the PR without it.
+   repo on a throwaway branch, open a draft PR there, and record the run under
+   `## Proven on` (see rule 6 for what may be named). CI rejects the PR without it.
    Close the proof PR afterwards: the 24-hour PR cap applies to it too.
 3. **`## Fleet dry-run`** for anything that changes a detector or `audit`
    (units 2 and 4): run it against every managed repo, and paste the output.
@@ -55,10 +55,10 @@ in that unit, never in wall clock.
    That includes PR bodies, commit messages, test fixtures and code
    comments. Tests use generic fixtures (`CoreKit`, `DataKit`, `Demo`). The
    proof runs, billed before/after and dry-run output go to your PM, who
-   files them in the operator's private fleet repo. The lacquer PR says only
-   "proven on the pilot repo, run linked in the private record" plus the
-   run's URL. Pilot repos are private, so their run URLs reveal nothing to
-   the public.
+   files them in the operator's private fleet repo. The lacquer PR's
+   `## Proven on` says only "pilot repo (private; recorded in the operator's
+   fleet repo), run <numeric id>, <date>". A run URL would name the repo, so
+   it goes to your PM, not into the PR. CI checks for the heading.
 7. Run `go test ./...` before every push. Two CI rounds per PR, through
    `lacquer ci-round begin`. No force-push.
 
@@ -211,7 +211,7 @@ Commit: `ci(release): coordination jobs on pi-gate`.
 - Sync the branch build into the pilot iOS+supabase repo and the pilot web
   repo (throwaway branches). Open one draft PR each that touches code, so
   every job runs.
-- `## Proven on` in the lacquer PR: the run URLs only. The billed table,
+- `## Proven on` in the lacquer PR: the numeric run ids only (see rule 6). The billed table,
   before and after per run, goes to your PM, never into lacquer. "Before" is the pilot's last 10 PR runs on main's
   templates; "after" is the proof runs. Compute billed with the design §1b
   rules. Use cached JSON, `per_page=100`, and stop at 1,000 remaining rate
