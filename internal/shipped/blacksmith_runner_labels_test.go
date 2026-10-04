@@ -88,6 +88,8 @@ var expectedBlacksmithRunnerLabels = map[blacksmithJobKey]blacksmithLabel{
 	// Every `changes` job, the release coordination jobs and the supabase health
 	// ping moved to pi-gate (free); see pi_gate_jobs_test.go. They are absent
 	// here on purpose: a Blacksmith label reappearing on one is UNLISTED.
+	{"ios", "release.yml", "select-products"}:      {arm2, armWhy + "; release coordination stays hosted: unproven on pi-gate for a real release"},
+	{"ios", "release.yml", "notify-on-failure"}:    {arm2, armWhy + "; release coordination stays hosted: unproven on pi-gate for a real release"},
 	{"ios", "release.yml", "verify-ci-provenance"}: {arm2, armWhy + "; stays hosted because release_provenance_test pins the release safety gate to a hosted Linux runner"},
 	{"web", "ci.yml", "check"}:                     {x64_4, x64BuildWhy},
 	{"supabase", "ci.yml", "check"}:                {arm2, supabaseDenoArmWhy},

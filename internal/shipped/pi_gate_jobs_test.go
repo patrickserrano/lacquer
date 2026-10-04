@@ -78,8 +78,6 @@ func TestCoordinationJobsRunOnPiGate(t *testing.T) {
 		{"supabase", "ci.yml", "changes"},
 		{"supabase", "ci.yml", "ci-ok"},
 		{"supabase", "health.yml", "ping"},
-		{"ios", "release.yml", "select-products"},
-		{"ios", "release.yml", "notify-on-failure"},
 	}
 	checked := 0
 	var bad []string

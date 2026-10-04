@@ -171,8 +171,7 @@ jobs:
   # pins it.
   select-products:
     name: Select products
-    # pi-gate (free): coordination only. See internal/shipped/pi_gate_jobs_test.go.
-    runs-on: [self-hosted, Linux, pi-gate]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 2
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
@@ -881,8 +880,7 @@ jobs:
     # release. Same billing rationale as verify-ci-provenance above, and the
     # same #339/#340 incident silently reverted it to x64; see that job's
     # comment and internal/shipped/blacksmith_runner_labels_test.go.
-    # pi-gate (free): coordination only. See internal/shipped/pi_gate_jobs_test.go.
-    runs-on: [self-hosted, Linux, pi-gate]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     needs: [verify-ci-provenance, select-products, build-and-deploy]
     # `always()` rather than `failure()`, because a failed selection SKIPS
     # build-and-deploy rather than failing it, and a job whose need was skipped
