@@ -70,8 +70,9 @@ defect class in issue #333 wearing a test's clothes.
 ## 3. Anything infrastructural proves on one repository before the fleet
 
 Runner labels, workflow topology, anything that renders into every managed repo.
-A pull request that changes `profiles/*/workflows/` names the repository and
-run it was proven on under a `## Proven on` heading; CI rejects it otherwise.
+A pull request that changes `profiles/*/workflows/` records the proof run under
+a `## Proven on` heading, by run id and date, and never names a managed
+repository, because this repository is public. CI rejects it without the heading.
 
 `blacksmith-2vcpu-ubuntu-2404-arm` shipped fleet-wide having been proven on zero
 repositories. No runner is ever assigned to it on the account that mattered, and

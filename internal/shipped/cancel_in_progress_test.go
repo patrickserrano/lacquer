@@ -181,8 +181,7 @@ func runCancelInProgressCheck(t *testing.T, dir string) {
 		if doc.Concurrency.CancelInProgress.IsZero() {
 			// No top-level concurrency block, or one with no
 			// cancel-in-progress key (e.g. profiles/ios/workflows/
-			// cleanup-ci.yml, profiles/supabase/workflows/health.yml,
-			// profiles/web/workflows/{dependency-review,env-validation}.yml).
+			// cleanup-ci.yml, profiles/supabase/workflows/health.yml).
 			// Nothing to assert.
 			continue
 		}

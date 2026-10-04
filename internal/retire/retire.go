@@ -71,6 +71,10 @@ var Unshipped = []string{
 	".github/workflows/ios-claude.yml",
 	".github/workflows/ios-dependency-audit.yml",
 	".github/workflows/ios-quality-review.yml",
+	// Folded into web-ci.yml's `changes` job as steps, so each stopped being a
+	// workflow of its own (and a 4-vCPU Blacksmith job per run).
+	".github/workflows/web-dependency-review.yml",
+	".github/workflows/web-env-validation.yml",
 }
 
 // Drops reports whether a retired project stops receiving this asset. src is the

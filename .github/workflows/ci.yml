@@ -236,7 +236,7 @@ jobs:
           changed=$(git diff --name-only "$BASE...$HEAD")
           workflows=$(grep -E '^profiles/[^/]+/workflows/' <<<"$changed" || true)
           if [ -n "$workflows" ] && ! grep -qE '^#{2,3} Proven on' <<<"$BODY"; then
-            echo "::error::This PR changes a workflow that renders into every managed repository. CLAUDE.md rule 3: prove it on one repository first and name the repository and run under a '## Proven on' heading in the PR body."
+            echo "::error::This PR changes a workflow that renders into every managed repository. CLAUDE.md rule 3: prove it on one repository first and record the proof run under a '## Proven on' heading in the PR body, by run id and date. Do not name a managed repository: this repository is public."
             exit 1
           fi
           echo "Proven-on requirement OK."

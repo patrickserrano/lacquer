@@ -69,7 +69,7 @@ func TestDBJobsAreGatedOnTheDBOutput(t *testing.T) {
 		t.Fatalf("the changes job declares no `db` output (has %v)", keysOf(changes.Outputs))
 	}
 
-	for _, name := range []string{"lint-database", "test-database"} {
+	for _, name := range []string{"database"} {
 		job, ok := doc.Jobs[name]
 		if !ok {
 			t.Fatalf("no `%s` job", name)
@@ -87,14 +87,17 @@ func TestDBJobsAreGatedOnTheDBOutput(t *testing.T) {
 		}
 	}
 
-	// test-database must keep calling cancelled(): a custom `if` that names none
-	// of success()/failure()/cancelled()/always() gets success() implicitly
-	// ANDed back in, which would skip the pgTAP suite whenever lint-database
-	// merely FAILS. lint-database is a `needs` to serialize the two stacks, not
-	// a must-pass gate.
-	if got := doc.Jobs["test-database"].If; !strings.Contains(got, "cancelled()") {
-		t.Errorf("test-database `if` is %q — dropping cancelled() re-introduces the implicit "+
-			"success(), so a lint failure would silently skip the pgTAP suite too", got)
+	// The pgTAP steps of the merged `database` job must keep calling cancelled():
+	// a custom `if` that names none of success()/failure()/cancelled()/always()
+	// gets success() implicitly ANDed back in, which would skip the pgTAP suite
+	// whenever the Splinter step merely FAILS. (This was the same rule at JOB
+	// level when Splinter and pgTAP were two jobs; TestSupabaseStartsOneLocalStackPerRun
+	// pins the step-level version too.)
+	for _, st := range doc.Jobs["database"].Steps {
+		if st.Name == "Run pgTAP tests" && !strings.Contains(st.If, "cancelled()") {
+			t.Errorf("the pgTAP step `if` is %q — dropping cancelled() re-introduces the implicit "+
+				"success(), so a Splinter failure would silently skip the pgTAP suite too", st.If)
+		}
 	}
 }
 

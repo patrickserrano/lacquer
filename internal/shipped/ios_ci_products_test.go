@@ -742,7 +742,7 @@ func TestIOSCIForkGuardSurvivesTheMatrix(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := parseIOSCI(t, tc.cfg)
-			for _, job := range []string{"lint", "build-release", "test", "baseline"} {
+			for _, job := range []string{"lint", "build-release", "test"} {
 				j, ok := doc.Jobs[job]
 				if !ok {
 					t.Errorf("no %s job", job)
@@ -1049,7 +1049,8 @@ func TestLintSkipsWhenNoSwiftSources(t *testing.T) {
 	}
 }
 
-// The Baseline job's `xcodebuild -showBuildSettings` call fails outright when
+// The baseline steps (folded into the Lint job; there is no Baseline job any
+// more) run `xcodebuild -showBuildSettings` call fails outright when
 // {{XCODEPROJ}} doesn't exist on disk -- expected for a component declared
 // before its xcodeproj is committed (`lacquer audit`'s own baseline check
 // already tolerates this as Unchecked when the component has no Swift sources
@@ -1057,7 +1058,7 @@ func TestLintSkipsWhenNoSwiftSources(t *testing.T) {
 // than fail with an xcodebuild error that points at the wrong cause.
 func TestBaselineSkipsWhenXcodeprojMissing(t *testing.T) {
 	doc := parseIOSCI(t, soloConfig())
-	baseline := doc.Jobs["baseline"]
+	baseline := doc.Jobs["lint"]
 
 	var detectID string
 	for _, st := range baseline.Steps {
@@ -1066,7 +1067,7 @@ func TestBaselineSkipsWhenXcodeprojMissing(t *testing.T) {
 		}
 	}
 	if detectID == "" {
-		t.Fatal(`Baseline job has no "Detect Xcode project" step`)
+		t.Fatal(`Lint job has no "Detect Xcode project" step`)
 	}
 
 	wantIf := "steps." + detectID + ".outputs.present == 'true'"
@@ -1082,7 +1083,7 @@ func TestBaselineSkipsWhenXcodeprojMissing(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("Baseline job has no %q step", name)
+			t.Errorf("Lint job has no %q step", name)
 		}
 	}
 }

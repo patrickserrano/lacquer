@@ -19,7 +19,7 @@ var Syntax = region.Hash
 
 // Labels names only custom labels; actionlint already knows GitHub's OS,
 // architecture and self-hosted labels. Keep this in step with shipped workflows.
-const Labels = "dedicated\npi-gate\nblacksmith-4vcpu-ubuntu-2404\nblacksmith-2vcpu-ubuntu-2404-arm"
+const Labels = "dedicated\npi-gate\nblacksmith-4vcpu-ubuntu-2404\nblacksmith-2vcpu-ubuntu-2404\nblacksmith-2vcpu-ubuntu-2404-arm"
 
 // Body is the managed portion of the self-hosted-runner.labels sequence.
 func Body() string { return "    - " + strings.ReplaceAll(Labels, "\n", "\n    - ") }
