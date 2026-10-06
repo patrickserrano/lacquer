@@ -16,7 +16,9 @@ permissions:
 jobs:
   ping:
     name: Ping REST gateway
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # `pi-gate` (free): one curl. Schedule and manual dispatch only, so no
+    # pull-request code ever runs on it alongside the secrets it reads.
+    runs-on: [self-hosted, Linux, pi-gate]
     steps:
       - name: Ping Supabase REST gateway
         env:

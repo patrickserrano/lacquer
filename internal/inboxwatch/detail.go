@@ -181,6 +181,12 @@ func (d *Detail) key(k KeyEvent) []Cmd {
 			return d.openView()
 		case 'c':
 			return []Cmd{{Kind: CmdCopy, ID: d.ID, Text: d.ID}}
+		case 'y':
+			if !d.Found {
+				d.Note = "nothing to copy yet"
+				return nil
+			}
+			return []Cmd{{Kind: CmdCopy, ID: d.ID, Text: d.itemText(), Label: "item"}}
 		case 'o':
 			if !isLink(d.Entry.Ref) {
 				d.Note = "no link on this item"
@@ -219,6 +225,19 @@ func (d *Detail) replyKey(k KeyEvent) []Cmd {
 	}
 	d.clampTop()
 	return nil
+}
+
+// itemText is the whole item as the clipboard gets it: title, body and ref,
+// unwrapped, so a command in the body pastes as one line.
+func (d Detail) itemText() string {
+	e := d.Entry
+	var parts []string
+	for _, p := range []string{e.Title, e.Body, e.Ref} {
+		if p = strings.TrimSpace(p); p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // lines is the body: badge, status, fields, then the entry's own text.
@@ -350,9 +369,9 @@ func (d Detail) baseHint() string {
 		}
 		return "⏎ send · Esc cancel · ctrl-u clear"
 	case !d.CanReply:
-		return "r reply (off: no overseer pane) · D record decision · d resolve · o open link · c copy id · j/k scroll · q close"
+		return "r reply (off: no overseer pane) · D record decision · d resolve · o open link · c id · y all · j/k scroll · q close"
 	}
-	return "r reply · D record decision · d resolve · o open link · c copy id · j/k scroll · q close"
+	return "r reply · D record decision · d resolve · o open link · c id · y all · j/k scroll · q close"
 }
 
 func (d Detail) View() Frame {

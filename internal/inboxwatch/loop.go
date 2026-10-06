@@ -22,6 +22,12 @@ const (
 	// leaveSeq undoes enterSeq in reverse order, and resets colours, so the
 	// shell prompt that follows is not left in the last row's style.
 	leaveSeq = "\x1b[0m\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l"
+
+	// The same without mouse reporting, for a Term with NoMouse: a program that
+	// asks for it makes tmux capture the mouse for the popup it runs in, which
+	// is what stops a drag from selecting text.
+	enterSeqNoMouse = "\x1b[?1049h\x1b[?25l"
+	leaveSeqNoMouse = "\x1b[0m\x1b[?25h\x1b[?1049l"
 )
 
 // Term is the terminal a Program runs on. Everything that touches the real one
@@ -35,6 +41,10 @@ type Term struct {
 	// Signals ends the run (SIGINT, SIGTERM, SIGHUP); Resize reports a new size.
 	Signals <-chan os.Signal
 	Resize  <-chan os.Signal
+
+	// NoMouse leaves mouse reporting off, so the terminal selects text natively.
+	// The tmux popups set it; the list keeps the mouse.
+	NoMouse bool
 
 	TickEvery time.Duration
 	// EscWait is how long a lone ESC waits for the rest of an arrow key before
@@ -81,15 +91,19 @@ func Run(t Term, p Program, env Env) error {
 	if err != nil {
 		return fmt.Errorf("terminal: %w", err)
 	}
+	enter, leave := enterSeq, leaveSeq
+	if t.NoMouse {
+		enter, leave = enterSeqNoMouse, leaveSeqNoMouse
+	}
 	var once sync.Once
 	restore := func() {
 		once.Do(func() {
-			io.WriteString(t.Out, leaveSeq)
+			io.WriteString(t.Out, leave)
 			unraw()
 		})
 	}
 	defer restore()
-	io.WriteString(t.Out, enterSeq)
+	io.WriteString(t.Out, enter)
 
 	w, h, err := t.Size()
 	if err != nil {

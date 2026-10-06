@@ -286,3 +286,29 @@ func TestLoopSurvivesAMouseReportSplitAcrossTheEscTimer(t *testing.T) {
 	finish(t, done)
 	assertRestored(t, f)
 }
+
+// A popup must not ask the terminal for mouse reports: tmux then captures the
+// mouse for the popup and a drag cannot select text. NoMouse leaves 1000 and
+// 1006 out entirely, and still puts everything else back.
+func TestNoMouseNeverEnablesMouseReporting(t *testing.T) {
+	f := newFakeTerm()
+	f.Term.NoMouse = true
+	done := f.run(NewModel(cfgReply, 0, 0), Env{InboxPath: writeInbox(t)})
+	waitFor(t, "the first frame", func() bool { return strings.Contains(f.out.String(), "inbox clear") })
+	f.in.Write([]byte("q"))
+	if v := finish(t, done); v != nil {
+		t.Fatalf("Run returned %v", v)
+	}
+	out := f.out.String()
+	for _, mode := range []string{"\x1b[?1000", "\x1b[?1002", "\x1b[?1003", "\x1b[?1006"} {
+		if strings.Contains(out, mode) {
+			t.Errorf("output touches mouse mode %q: %q", mode, out[:min(len(out), 80)])
+		}
+	}
+	if !strings.HasPrefix(out, enterSeqNoMouse) || !strings.HasSuffix(out, leaveSeqNoMouse) {
+		t.Errorf("output does not start with %q and end with %q", enterSeqNoMouse, leaveSeqNoMouse)
+	}
+	if f.raw.Load() != 1 || f.unraw.Load() != 1 {
+		t.Errorf("raw mode entered %d times and left %d, want 1 and 1", f.raw.Load(), f.unraw.Load())
+	}
+}

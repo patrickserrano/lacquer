@@ -45,8 +45,6 @@ func TestSyncRetiredDropsScheduledWorkOnly(t *testing.T) {
 	for _, rel := range []string{
 		".github/workflows/web-ci.yml",
 		".github/workflows/supabase-ci.yml",
-		".github/workflows/web-dependency-review.yml",
-		".github/workflows/web-env-validation.yml",
 		"biome.json",
 		"lefthook.yml",
 		"CLAUDE.md",

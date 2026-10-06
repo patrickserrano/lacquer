@@ -86,8 +86,6 @@ func TestShippedPRWorkflowsAreNotScheduled(t *testing.T) {
 		"profiles/ios/workflows/ci.yml",
 		"profiles/web/workflows/ci.yml",
 		"profiles/supabase/workflows/ci.yml",
-		"profiles/web/workflows/dependency-review.yml",
-		"profiles/web/workflows/env-validation.yml",
 		"profiles/ios/workflows/release.yml",
 	} {
 		body, ok := shipped[path]

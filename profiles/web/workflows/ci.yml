@@ -52,18 +52,24 @@ jobs:
     # audit folded in at the end — so CI OK still reports on docs-only PRs where
     # the heavy check is skipped.
     #
-    # 2vcpu-arm, not 4vcpu-x64, and the reason is billing rather than speed.
-    # Blacksmith bills vCPU-weighted minutes with a ONE-MINUTE MINIMUM per job,
-    # so a job doing nothing but `git diff` and `grep` still bills as if it used
-    # the full 4 vCPUs for the whole minute. Halving the vCPUs halves that
-    # weighting, and ARM carries a x0.625 rate multiplier on top of that.
-    # Measured over 30 days: 687 billing minutes across 199 runs of this job
-    # alone. Mirrors profiles/ios/workflows/ci.yml's `changes` job -- see its
-    # comment for the ARM-safety caveat (binary architecture) and for the
-    # #339/#340 incident where templating this value together with a
-    # deliberately-x64 job into one templated `LINUX_RUNNER` value lost the
-    # distinction and silently reverted it back to x64 fleet-wide.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # `pi-gate` (free), not Blacksmith. This job is `git diff`, `grep` and the
+    # drift audit, with no toolchain, so there is nothing to bill for. On
+    # Blacksmith it billed a ONE-MINUTE MINIMUM per run (1.25 on 2vcpu-arm, 4 on
+    # 4vcpu-x64) to do seconds of work; here it bills nothing.
+    #
+    # pi-gate is a role label carried by runners on two boxes of DIFFERENT
+    # architecture (one aarch64, one x86_64), the same ones `ci-ok` already
+    # depends on. So this adds no new single point of failure beyond reaching it
+    # sooner: if pi-gate is down, the first job of the run waits instead of only
+    # the last. Either architecture is fine here because the drift audit resolves
+    # its tarball by `uname -m` and lacquer publishes both linux builds. A job
+    # that downloads a single-architecture binary must NOT run here without that
+    # mapping.
+    #
+    # The label is hardcoded per job on purpose (see #339/#340, where one shared
+    # templated runner value silently reverted several jobs). Pinned by
+    # internal/shipped/pi_gate_jobs_test.go.
+    runs-on: [self-hosted, Linux, pi-gate]
     # Bounded because this job now downloads a lacquer release and runs
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
@@ -73,6 +79,10 @@ jobs:
       lacquer: ${{ steps.filter.outputs.lacquer }}
       # Empty when the drift audit below did not run; `pass` or `fail` when it did.
       drift: ${{ steps.drift.outputs.result }}
+      # Empty when the folded check below did not apply; `pass` or `fail` when it
+      # ran. See the "Folded checks" block at the end of this job.
+      dep_review: ${{ steps.folded.outputs.dep_review }}
+      env_valid: ${{ steps.folded.outputs.env_valid }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -89,6 +99,8 @@ jobs:
             {
               echo "code=true"
               echo "lacquer=true"
+              echo "deps_changed=false"
+              echo "env_changed=false"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -145,6 +157,20 @@ jobs:
             echo "lacquer=true" >> "$GITHUB_OUTPUT"
           else
             echo "lacquer=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Gates for the two folded checks at the end of this job. Matched at any
+          # depth for the same reason as the allowlist above, and deliberately
+          # wider than either old workflow's path filter: a false positive costs
+          # seconds inside this already-billed job, a false negative skips a check.
+          if echo "$changed" | grep -qE '(^|/)(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$'; then
+            echo "deps_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deps_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$changed" | grep -qE '(^|/)\.env\.(schema|example)$'; then
+            echo "env_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "env_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
       # ---- lacquer drift ----
@@ -386,6 +412,89 @@ jobs:
             *) echo "::error::lacquer audit failed (exit $code)." ;;
           esac
           exit 0
+
+      # ---- Folded checks: dependency review and env-schema validation ----
+      #
+      # These were two workflows of their own (dependency-review.yml,
+      # env-validation.yml), each a 4-vCPU Blacksmith job: a whole billed
+      # minute at weight 4 for a few seconds of work, every time a manifest or
+      # an env file changed. They are steps here, gated on the filter outputs,
+      # so they cost nothing when they do not apply and share this job's
+      # already-free runner when they do.
+      #
+      # Neither may fail THIS job (that would skip `check` and hide the real
+      # results), so each is `continue-on-error` and the verdict leaves through
+      # an output that `ci-ok` reads, exactly like `drift`.
+      - name: Dependency review
+        id: depreview
+        if: steps.filter.outputs.deps_changed == 'true'
+        # GHAS / the Dependency Graph is not enabled on private repos, so the
+        # action fails there for reasons that are not a finding. That is why
+        # `ci-ok` treats this one as advisory, as the standalone workflow was.
+        continue-on-error: true
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC
+
+      - name: Validate .env.example against .env.schema
+        id: envvalid
+        if: steps.filter.outputs.env_changed == 'true'
+        continue-on-error: true
+        run: |
+          # The component's own directory, entered here rather than through
+          # `working-directory`: this job runs at the repository root, where
+          # .lacquer.toml lives, and its other steps depend on that.
+          cd "{{COMPONENT_PREFIX}}."
+          set -euo pipefail
+          if [ ! -f .env.schema ]; then echo "no .env.schema — nothing to validate"; exit 0; fi
+          if [ ! -f .env.example ]; then
+            echo "::error::.env.schema exists but .env.example is missing"; exit 1
+          fi
+          # Portable (mawk/gawk): load documented keys from .env.example, then
+          # enforce every `required`/`required(<prefix>)` rule in .env.schema.
+          awk '
+            function trim(s){ gsub(/^[ \t]+|[ \t]+$/,"",s); return s }
+            FNR==NR {
+              l=$0; sub(/#.*/,"",l)
+              if (l ~ /^[ \t]*$/) next
+              e=index(l,"="); if (e==0) next
+              k=trim(substr(l,1,e-1)); present[k]=1; val[k]=trim(substr(l,e+1))
+              next
+            }
+            {
+              l=$0; sub(/#.*/,"",l)
+              if (l ~ /^[ \t]*$/) next
+              e=index(l,"="); if (e==0) next
+              key=trim(substr(l,1,e-1)); rule=trim(substr(l,e+1))
+              if (rule !~ /^required/) next
+              prefix=""
+              if (rule ~ /^required\(.*\)$/) { p=rule; sub(/^required\(/,"",p); sub(/\)$/,"",p); prefix=p }
+              if (!(key in present)) {
+                printf "::error::.env.example is missing required key: %s\n", key; bad=1; next
+              }
+              if (prefix != "" && index(val[key], prefix) != 1) {
+                printf "::error::.env.example value for %s should start with \"%s\"\n", key, prefix; bad=1
+              }
+            }
+            END { if (bad) exit 1; print "env schema OK" }
+          ' .env.example .env.schema
+
+      - name: Record the folded check results
+        id: folded
+        if: always()
+        env:
+          DEP_OUTCOME: ${{ steps.depreview.outcome }}
+          ENV_OUTCOME: ${{ steps.envvalid.outcome }}
+        run: |
+          # success -> pass, failure -> fail, skipped (did not apply) -> empty.
+          # Anything else is also empty, never `pass`: only a step that really
+          # succeeded may report it.
+          verdict() { case "$1" in success) echo pass ;; failure) echo fail ;; *) echo "" ;; esac; }
+          {
+            echo "dep_review=$(verdict "$DEP_OUTCOME")"
+            echo "env_valid=$(verdict "$ENV_OUTCOME")"
+          } >> "$GITHUB_OUTPUT"
 
   check:
     name: Lint · Types · Test · Build
@@ -633,5 +742,22 @@ jobs:
           if [ -n "$drift" ] && [ "$drift" != "pass" ]; then
             echo "::error::lacquer drift was detected — see the \"Detect changed paths\" job log for what to fix."
             exit 1
+          fi
+          # The two folded checks (see the end of the `changes` job). Same shape
+          # as drift: empty means it did not apply.
+          #
+          # env_valid is a required check: anything but pass/empty fails.
+          # dep_review is ADVISORY, matching the standalone workflow it replaces,
+          # which could never block a merge: GHAS is not enabled on private
+          # repos, so the action fails there for no reason the PR can fix.
+          env_valid="${{ needs.changes.outputs.env_valid }}"
+          dep_review="${{ needs.changes.outputs.dep_review }}"
+          echo "env_valid=${env_valid:-<not run>} dep_review=${dep_review:-<not run>}"
+          if [ -n "$env_valid" ] && [ "$env_valid" != "pass" ]; then
+            echo "::error::.env.example does not satisfy .env.schema — see the \"Detect changed paths\" job log."
+            exit 1
+          fi
+          if [ -n "$dep_review" ] && [ "$dep_review" != "pass" ]; then
+            echo "::warning::Dependency review did not pass (advisory; it also fails where the Dependency Graph is off) — see the \"Detect changed paths\" job log."
           fi
           echo "All required jobs passed or were skipped."

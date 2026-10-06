@@ -56,12 +56,17 @@ type blacksmithLabel struct {
 const (
 	arm2  = "blacksmith-2vcpu-ubuntu-2404-arm"
 	x64_4 = "blacksmith-4vcpu-ubuntu-2404"
+	x64_2 = "blacksmith-2vcpu-ubuntu-2404"
 
 	armWhy = "coordination-only job (diff/jq/gh-api, no Xcode, no architecture-sensitive " +
 		"binary) -- Blacksmith bills a one-minute-per-job minimum regardless of vCPU count, " +
 		"so halving the vCPUs and taking ARM's 0.625 rate multiplier is pure savings (#312)"
 	x64BuildWhy = "a real build/lint/test job, never moved by #312 -- not worth revalidating on a " +
 		"different architecture for its billing profile"
+	supabaseDenoArmWhy = "Deno and the lacquer download both ship linux-arm64 and nothing in this job " +
+		"drives Postgres, so it bills 1.25 per minute instead of 4"
+	x64DeployWhy = "a few seconds of `supabase db push`: 2 vCPUs halves the billed weight, and the " +
+		"Supabase CLI stays on x64"
 	x64SupabaseWhy = "drives Postgres, pgTAP or the Supabase CLI -- #312 deliberately left the " +
 		"supabase profile on x64 rather than revalidating that stack on ARM"
 )
@@ -80,20 +85,16 @@ type blacksmithJobKey struct {
 // deliberately exhaustive (see TestBlacksmithRunnerLabelsPinned's unlisted-job
 // check) rather than defaulted, so a new job forces a choice here.
 var expectedBlacksmithRunnerLabels = map[blacksmithJobKey]blacksmithLabel{
-	{"ios", "ci.yml", "changes"}:                   {arm2, armWhy},
-	{"ios", "release.yml", "verify-ci-provenance"}: {arm2, armWhy},
-	{"ios", "release.yml", "select-products"}:      {arm2, armWhy},
-	{"ios", "release.yml", "notify-on-failure"}:    {arm2, armWhy},
-	{"web", "ci.yml", "changes"}:                   {arm2, armWhy},
+	// Every `changes` job, the release coordination jobs and the supabase health
+	// ping moved to pi-gate (free); see pi_gate_jobs_test.go. They are absent
+	// here on purpose: a Blacksmith label reappearing on one is UNLISTED.
+	{"ios", "release.yml", "select-products"}:      {arm2, armWhy + "; release coordination stays hosted: unproven on pi-gate for a real release"},
+	{"ios", "release.yml", "notify-on-failure"}:    {arm2, armWhy + "; release coordination stays hosted: unproven on pi-gate for a real release"},
+	{"ios", "release.yml", "verify-ci-provenance"}: {arm2, armWhy + "; stays hosted because release_provenance_test pins the release safety gate to a hosted Linux runner"},
 	{"web", "ci.yml", "check"}:                     {x64_4, x64BuildWhy},
-	{"web", "dependency-review.yml", "review"}:     {x64_4, x64BuildWhy},
-	{"web", "env-validation.yml", "validate"}:      {x64_4, x64BuildWhy},
-	{"supabase", "ci.yml", "changes"}:              {x64_4, x64SupabaseWhy},
-	{"supabase", "ci.yml", "check"}:                {x64_4, x64SupabaseWhy},
-	{"supabase", "ci.yml", "lint-database"}:        {x64_4, x64SupabaseWhy},
-	{"supabase", "ci.yml", "test-database"}:        {x64_4, x64SupabaseWhy},
-	{"supabase", "ci.yml", "deploy-database"}:      {x64_4, x64SupabaseWhy},
-	{"supabase", "health.yml", "ping"}:             {x64_4, x64SupabaseWhy},
+	{"supabase", "ci.yml", "check"}:                {arm2, supabaseDenoArmWhy},
+	{"supabase", "ci.yml", "database"}:             {x64_4, x64SupabaseWhy},
+	{"supabase", "ci.yml", "deploy-database"}:      {x64_2, x64DeployWhy},
 }
 
 // blacksmithRunsOnDoc captures just enough of a rendered workflow to read
