@@ -47,7 +47,7 @@ func TestLintConfigDoctorRejectsMissingValues(t *testing.T) {
 }
 
 func TestBuiltinProbeRejectsUnsupportedOptions(t *testing.T) {
-	for _, opts := range []string{"check='unknown'\nexpect='pass'", "check='actionlint-labels'\nexpect='fail'", "check='actionlint-labels'\nexpect='pass'\nargv=['true']", "check='actionlint-labels'\nexpect='pass'\nexpect_output='ignored'"} {
+	for _, opts := range []string{"check='unknown'\nexpect='pass'", "check='actionlint-labels'\nexpect='fail'", "check='actionlint-labels'\nexpect='pass'\nargv=['true']", "check='actionlint-labels'\nexpect='pass'\nexpect_output='ignored'", "check='biome-schema'\nexpect='pass'\nscratch='component'"} {
 		dir := t.TempDir()
 		write(t, filepath.Join(dir, "core/doctor.toml"), "[[probe]]\nname='test'\n"+opts+"\n")
 		if _, err := LoadProbes(dir, CoreLayer); err == nil {

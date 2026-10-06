@@ -45,6 +45,20 @@
 # internal/doctor's Probe.ExpectOutput) and every probe here declares one: the
 # exit status says a thing happened, the pattern says WHICH thing.
 #
+# A fourth, and the first that failed LOUDLY: biome 2.5.15 stopped reading a
+# file outside `vcs.root`. The fixture lived in the system temp directory, and
+# with `vcs.useIgnoreFile` on, biome panicked in its gitignore matcher ("Biome
+# encountered an unexpected error … path is expected to be under the root",
+# exit 101) where 2.5.14 linted it. Same fixture, same config with the ignore
+# file off: 2.5.15 rejected it on noExplicitAny, so the crash is the
+# ignore-file lookup and nothing else. expect_output is why this surfaced as
+# three FAILs instead of three silent OKs. The biome probes now declare
+# `scratch = "component"`, so the fixture is written to a hidden directory
+# inside the component (removed afterwards) and is linted exactly as the gate
+# lints the project's own files. Observed on 2.5.14 and 2.5.15: each probe
+# fails on its fixture for its own diagnostic, and passes with the violation
+# removed.
+#
 # `--colors=off` is passed for the same reason. Biome writes ANSI escapes even
 # when stdout is not a terminal, between characters as well as around them, and
 # an assertion cannot be written against text that has escape sequences inside
@@ -63,6 +77,7 @@ content = """
 export const value: any = 1
 """
 requires = ["{component}/node_modules/.bin/biome"]
+scratch = "component"
 argv = ["{component}/node_modules/.bin/biome", "ci", "--colors=off", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
 # The rule id by name. This is the probe whose two previous silent passes are
@@ -93,6 +108,7 @@ const maybe: string | undefined = process.env.HOME
 export const value = maybe!
 """
 requires = ["{component}/node_modules/.bin/biome"]
+scratch = "component"
 argv = ["{component}/node_modules/.bin/biome", "ci", "--colors=off", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
 # Non-zero exit plus THIS rule is what proves the flag. noNonNullAssertion is
@@ -115,6 +131,7 @@ content = """
 export const value   =    "double quoted and badly spaced"
 """
 requires = ["{component}/node_modules/.bin/biome"]
+scratch = "component"
 argv = ["{component}/node_modules/.bin/biome", "ci", "--colors=off", "--error-on-warnings", "--config-path", "{component}", "{dir}"]
 expect = "fail"
 # The formatter half specifically. A lint-only invocation, or formatter.enabled
@@ -270,4 +287,19 @@ expect_output = '(?s)Checked 1 file.*doctor: biome read the shipped biome\.json 
 name = "manifest-declared Biome ignores reach the synced config"
 why = "An ignored generated file must stay ignored without forking the shared biome.json; missing declared ignores fail this check."
 check = "biome-ignores"
+expect = "pass"
+
+[[probe]]
+name = "biome.json's $schema is the installed biome's own schema"
+why = """
+The shipped biome.json named the 2.5.0 schema while consumers ran 2.5.14 and
+2.5.15, and nothing noticed: Biome reports a hosted schema of another version at
+INFO severity and exits 0, and a local $schema path that resolves to nothing is
+not reported at all. So $schema now points into node_modules/@biomejs/biome, and
+this check fails when it does not land on the installed package's own schema
+file (or, for a hosted URL, when the URL's version is not the installed one).
+It needs the component's install, so it runs in the job that has one. Before
+trusting a pass it proves it rejects a mismatched URL and an unresolvable path.
+"""
+check = "biome-schema"
 expect = "pass"

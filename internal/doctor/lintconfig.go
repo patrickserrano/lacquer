@@ -50,6 +50,8 @@ func checkConfig(check, root, component string) error {
 			return fmt.Errorf("ignore check accepted a missing declared ignore")
 		}
 		return checkBiomeIgnores(data, cfg.Web.BiomeIgnores)
+	case "biome-schema":
+		return checkBiomeSchemaInstalled(root, component)
 	default:
 		return fmt.Errorf("unknown configuration probe %q", check)
 	}
