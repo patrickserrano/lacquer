@@ -54,6 +54,23 @@ type Probe struct {
 	// check, say).
 	File    string `toml:"file"`
 	Content string `toml:"content"`
+	// Scratch says where that scratch directory is made. Empty means the system
+	// temp directory, outside the project, which is the default and the right
+	// place for almost every probe: a deliberately malformed fixture there can
+	// never be committed or picked up by a watcher.
+	//
+	// "component" makes it a hidden directory INSIDE the component, removed when
+	// the probe ends. It exists for tools that refuse to read a file outside
+	// the root their config declares. Biome 2.5.15 is one: with
+	// `vcs.useIgnoreFile` on, asking it to check a file outside `vcs.root`
+	// panics in its gitignore matcher ("path is expected to be under the
+	// root", exit 101) where 2.5.14 linted the file. That crash is a non-zero
+	// exit, so before expect_output it would have read as the check rejecting
+	// the fixture; with it, every biome probe failed on every consumer that
+	// took the bump. A fixture inside the component is also linted exactly as
+	// the gate lints the project's own files, ignore file and all, which a
+	// probe-only override of the vcs settings would not be.
+	Scratch string `toml:"scratch"`
 	// Argv is the command. Placeholders: {dir} is the scratch directory,
 	// {component} the absolute component directory holding the synced configs,
 	// and {root} the project root.
@@ -146,10 +163,10 @@ func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	for i, p := range f.Probe {
-		if p.Check != "" && p.Check != "actionlint-labels" && p.Check != "biome-ignores" {
+		if p.Check != "" && p.Check != "actionlint-labels" && p.Check != "biome-ignores" && p.Check != "biome-schema" {
 			return nil, fmt.Errorf("%s: unknown built-in check %q", path, p.Check)
 		}
-		if p.Check != "" && (p.Expect != "pass" || p.ExpectOutput != "" || p.File != "" || len(p.Requires) > 0) {
+		if p.Check != "" && (p.Expect != "pass" || p.ExpectOutput != "" || p.File != "" || len(p.Requires) > 0 || p.Scratch != "") {
 			return nil, fmt.Errorf("%s: built-in checks require expect=pass and no command/fixture options", path)
 		}
 		if p.Check != "" && len(p.Argv) > 0 {
@@ -165,6 +182,11 @@ func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 		}
 		if _, err := compileExpectOutput(p.ExpectOutput); err != nil {
 			return nil, fmt.Errorf("%s: probe %q: %w", path, p.Name, err)
+		}
+		switch p.Scratch {
+		case "", "component":
+		default:
+			return nil, fmt.Errorf("%s: probe %q has scratch=%q, want \"component\" or nothing", path, p.Name, p.Scratch)
 		}
 	}
 	return f.Probe, nil
@@ -190,7 +212,9 @@ func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 //
 // Probes run in a scratch directory OUTSIDE the project, so a fixture that is
 // deliberately malformed can never be mistaken for project source, land in a
-// commit, or be picked up by a watcher.
+// commit, or be picked up by a watcher. The one exception is a probe declaring
+// scratch = "component", for a tool that will not read a file outside its
+// configured root; see Probe.Scratch.
 func Run(lacquerRoot, projectRoot string, cfg *config.Config, only []string, out io.Writer) ([]Result, error) {
 	want := map[string]bool{}
 	for _, p := range only {
@@ -281,7 +305,14 @@ func runProbe(p Probe, compPath, profile, compDir, projectRoot string) Result {
 		return r
 	}
 
-	dir, err := os.MkdirTemp("", "lacquer-doctor-")
+	scratchParent, scratchPrefix := "", "lacquer-doctor-"
+	if p.Scratch == "component" {
+		// Hidden, so a dev server's file watcher is less likely to react to it,
+		// and never gitignored: an ignored fixture is one biome skips, and the
+		// probe would then fail for the wrong reason.
+		scratchParent, scratchPrefix = compDir, ".lacquer-doctor-"
+	}
+	dir, err := os.MkdirTemp(scratchParent, scratchPrefix)
 	if err != nil {
 		r.Detail = fmt.Sprintf("could not create a scratch dir: %v", err)
 		return r

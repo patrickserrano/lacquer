@@ -408,6 +408,43 @@ jobs:
             fi
           done
 
+      # The web profile's biome doctor probes, against a REAL biome. Every consumer
+      # runs them in its own CI, and biome 2.5.15 crashed all three ("path is
+      # expected to be under the root") while this repo's suite stayed green,
+      # because nothing here had a biome to run them with. The Go suite does no
+      # network installs, so the install happens here, pinned like the claude CLI
+      # above and for the same reason: an unpinned biome would let a release turn
+      # this red with no change here. Bump it deliberately; the test proves each
+      # probe fails on its violation AND passes with the violation removed.
+      #
+      # LACQUER_TEST_REQUIRE_BIOME turns the test's local skip into a failure,
+      # and the grep requires it to have run and passed: a -run that matches
+      # nothing exits 0.
+      - name: Install biome (pinned)
+        env:
+          BIOME_VERSION: "2.5.15"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/biome"
+          npm install --prefix "$RUNNER_TEMP/biome" --no-audit --no-fund "@biomejs/biome@${BIOME_VERSION}"
+          got="$("$RUNNER_TEMP/biome/node_modules/.bin/biome" --version | awk '{print $2}')"
+          if [ "$got" != "$BIOME_VERSION" ]; then
+            echo "::error::installed biome is '$got', wanted $BIOME_VERSION."
+            exit 1
+          fi
+      - name: Prove the web biome probes against a real biome
+        env:
+          LACQUER_TEST_REQUIRE_BIOME: "1"
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/biome-probes.out"
+          LACQUER_TEST_BIOME_NODE_MODULES="$RUNNER_TEMP/biome/node_modules" \
+            go test -count=1 -run '^TestDoctorWebBiomeProbesAgainstRealBiome$' -v ./internal/shipped/ | tee "$out"
+          if ! grep -q "^--- PASS: TestDoctorWebBiomeProbesAgainstRealBiome " "$out"; then
+            echo "::error::TestDoctorWebBiomeProbesAgainstRealBiome did not run and pass. A selector that matches nothing exits 0; that is not a pass."
+            exit 1
+          fi
+
   # Behaviour eval suite: does an agent following core/CLAUDE.core.md and this
   # repo's own CLAUDE.md reach the right VERDICT on a real repo state, not just
   # "does the Go compile." See internal/eval's package doc for the full

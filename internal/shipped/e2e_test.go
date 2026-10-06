@@ -1707,7 +1707,10 @@ func firstLineOf(s string) string {
 // install`, which is a network fetch of a dependency tree per test.
 //
 // So they are not run here, and this test says so out loud rather than letting
-// a reader assume `lacquer doctor` is proved for every profile.
+// a reader assume `lacquer doctor` is proved for every profile. The biome probes
+// are the exception: TestDoctorWebBiomeProbesAgainstRealBiome runs them against
+// one borrowed install, which CI provides and requires; the TypeDoc probes
+// remain unproved by this suite.
 func TestDoctorWebProbesNeedAnInstall(t *testing.T) {
 	t.Parallel()
 	probes, err := doctor.LoadProbes(root(t), "web")
