@@ -562,6 +562,66 @@ jobs:
           # Connect without re-deriving a number that may have moved on.
           echo "build_number=$NEXT" >> "$GITHUB_OUTPUT"
 
+      # The check above reads the app's own settings. Every bundle the app
+      # embeds (a watch app, a widget or other extension) must carry the SAME
+      # build number, or App Store validation rejects the upload after the whole
+      # archive has been built and signed. agvtool -all rewrites the number in
+      # the project file, but a target-level xcconfig still overrides it.
+      #
+      # Every target, not the scheme: a scheme-level -showBuildSettings lists
+      # only the scheme's own buildable (the app), never the watch app or the
+      # extensions it embeds, so selecting embedded bundles from it matches zero
+      # of them and passes. -alltargets lists them all, and refuses
+      # -derivedDataPath, so the user-default override keeps what it writes in
+      # this checkout and the packages are the ones the strict resolve fetched.
+      #
+      # Selected: application and app-extension bundles whose id is the app's or
+      # starts with it plus a dot, which Apple requires of anything an app
+      # embeds. Test bundles are .xctest and never selected.
+      - name: Check embedded bundles' build number settings
+        env:
+          NEXT: ${{ steps.build_number.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$NEXT" =~ ^[0-9]+$ ]]; then
+            echo "::error::No build number from the previous step (got '$NEXT')."
+            exit 1
+          fi
+          if ! SETTINGS=$(xcodebuild -showBuildSettings -json \
+            -project "{{XCODEPROJ}}" -alltargets \
+            -configuration Release \
+            -IDECustomDerivedDataLocation="$PWD/DerivedData/AllTargets" \
+            -clonedSourcePackagesDirPath DerivedData/SourcePackages \
+            -onlyUsePackageVersionsFromResolvedFile); then
+            echo "::error::Could not read the Release build settings of every target in {{XCODEPROJ}}."
+            exit 1
+          fi
+          if ! REPORT=$(printf '%s' "$SETTINGS" | jq -r --arg next "$NEXT" --arg app "$PRODUCT_BUNDLE_ID" '
+              [.[] | {target, s: .buildSettings}
+                | select(.s.WRAPPER_EXTENSION == "app" or .s.WRAPPER_EXTENSION == "appex")
+                | select(.s.PRODUCT_BUNDLE_IDENTIFIER == $app
+                    or ((.s.PRODUCT_BUNDLE_IDENTIFIER // "") | startswith($app + ".")))]
+              | if any(.[]; .s.PRODUCT_BUNDLE_IDENTIFIER == $app) | not
+                then "MISSING\t\($app)"
+                else (.[] | (if .s.CURRENT_PROJECT_VERSION == $next then "OK" else "BAD" end)
+                  + "\t\(.s.PRODUCT_BUNDLE_IDENTIFIER) (target \(.target)) resolves CURRENT_PROJECT_VERSION=\(.s.CURRENT_PROJECT_VERSION // "<unset>")")
+                end' | sort -u); then
+            echo "::error::Could not parse the build settings xcodebuild printed."
+            exit 1
+          fi
+          if grep -q '^MISSING' <<<"$REPORT"; then
+            echo "::error::No application target in {{XCODEPROJ}} builds $PRODUCT_BUNDLE_ID, so its embedded bundles cannot be found."
+            exit 1
+          fi
+          if grep -q '^BAD' <<<"$REPORT"; then
+            grep '^BAD' <<<"$REPORT" | cut -f2- | while IFS= read -r line; do
+              echo "::error::$line, not $NEXT. A target-level setting (often an xcconfig) overrides the number agvtool set; App Store validation rejects a build whose embedded bundles disagree."
+            done
+            exit 1
+          fi
+          echo "Every bundle $PRODUCT_BUNDLE_ID embeds resolves CURRENT_PROJECT_VERSION=$NEXT:"
+          cut -f2- <<<"$REPORT" | sed 's/^/  /'
+
       # Archives are 60-100 MB each and used to be written into the repository
       # checkout, where they sat on the runner's disk indefinitely and showed up
       # in any tooling that walks the working tree. They belong on the dedicated
@@ -622,6 +682,57 @@ jobs:
             EXIT_CODE=0
           fi
           exit $EXIT_CODE
+
+      # The settings say what SHOULD have been built; the archive is what WAS.
+      # A build phase, a plist or a setting the read above cannot see can still
+      # ship an embedded bundle under another number, and App Store validation
+      # rejects that. So read CFBundleVersion from every app and app extension
+      # inside the archived app (Watch/, PlugIns/, Extensions/, at any depth),
+      # and fail closed when the archive or a plist cannot be read. Frameworks
+      # carry their own versions and are not compared.
+      - name: Verify the archived build number of every bundle
+        env:
+          NEXT: ${{ steps.build_number.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$NEXT" =~ ^[0-9]+$ ]]; then
+            echo "::error::No build number from the Increment build number step (got '$NEXT')."
+            exit 1
+          fi
+          APPS="$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive/Products/Applications"
+          shopt -s nullglob
+          apps=("$APPS"/*.app)
+          if [ "${#apps[@]}" -ne 1 ]; then
+            echo "::error::Expected one app in $APPS, found ${#apps[@]}. The archive cannot be verified."
+            exit 1
+          fi
+          list=$(mktemp)
+          find "${apps[0]}" -type d \( -name '*.app' -o -name '*.appex' \) -print0 > "$list"
+          failed=0 checked=0
+          while IFS= read -r -d '' bundle; do
+            rel="${bundle#"$APPS"/}"
+            if ! version=$(plutil -extract CFBundleVersion raw -o - "$bundle/Info.plist" 2>&1); then
+              echo "::error::Cannot read CFBundleVersion from $rel/Info.plist: $version"
+              failed=1
+              continue
+            fi
+            id=$(plutil -extract CFBundleIdentifier raw -o - "$bundle/Info.plist" 2>/dev/null) || id="<no CFBundleIdentifier>"
+            checked=$((checked + 1))
+            if [ "$version" != "$NEXT" ]; then
+              echo "::error::$id ($rel) was archived with CFBundleVersion $version, not $NEXT. App Store validation rejects a build whose embedded bundles disagree."
+              failed=1
+            else
+              echo "  $id ($rel): $version"
+            fi
+          done < "$list"
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::Read no bundle in ${apps[0]}."
+            exit 1
+          fi
+          echo "All $checked archived bundles carry CFBundleVersion $NEXT."
 
       - name: Export IPA
         run: |
