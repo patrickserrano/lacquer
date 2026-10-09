@@ -79,7 +79,7 @@ func TestFragmentChecksPassWhenRenderedAndFailWhenStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderedTypeDoc, err := fragments.RenderTypeDoc(typedoc, cfg.Web.TypeDocEntryPoints)
+	renderedTypeDoc, err := fragments.RenderTypeDoc(typedoc, cfg.Web.TypeDocEntryPoints, cfg.Web.TypeDocEntryPointStrategy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestFragmentChecksPassOnAnUndeclaredProject(t *testing.T) {
 	if err := checkBiomeOverrides(shippedFile(t, "profiles/web/config/biome.json"), nil); err != nil {
 		t.Errorf("biome: %v", err)
 	}
-	if err := checkTypeDocEntryPoints(shippedFile(t, "profiles/web/config/typedoc.json"), nil); err != nil {
+	if err := checkTypeDocEntryPoints(shippedFile(t, "profiles/web/config/typedoc.json"), nil, ""); err != nil {
 		t.Errorf("typedoc: %v", err)
 	}
 }
@@ -183,5 +183,37 @@ func TestTypeDocProbesPinTheirOwnEntryPoint(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatal("found no TypeDoc probe; the guarantee above is about nothing")
+	}
+}
+
+// The entry-point check also holds the strategy and the test exclude to the
+// manifest, in both directions: a declared strategy missing from the synced
+// file, a synced strategy the manifest no longer declares, and an exclude that
+// was edited (a wider one would hide real exports from the gate).
+func TestTypeDocCheckHoldsStrategyAndExcludeToTheManifest(t *testing.T) {
+	shipped := shippedFile(t, "profiles/web/config/typedoc.json")
+	entries := []string{"src/lib", "src/types"}
+	expanded, err := fragments.RenderTypeDoc(shipped, entries, "expand")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkTypeDocEntryPoints(expanded, entries, "expand"); err != nil {
+		t.Fatalf("a freshly rendered expand config failed: %v", err)
+	}
+	widened := []byte(strings.Replace(string(expanded), `"**/__tests__/**"`, `"**/__tests__/**", "src/**"`, 1))
+	for name, tc := range map[string]struct {
+		synced   []byte
+		entries  []string
+		strategy string
+		want     string
+	}{
+		"declared, not synced": {shipped, nil, "expand", `entryPointStrategy is "", want "expand"`},
+		"synced, not declared": {expanded, entries, "", `entryPointStrategy is "expand", want ""`},
+		"exclude widened":      {widened, entries, "expand", "exclude is"},
+	} {
+		err := checkTypeDocEntryPoints(tc.synced, tc.entries, tc.strategy)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want an error containing %q", name, err, tc.want)
+		}
 	}
 }

@@ -1884,6 +1884,10 @@ type Web struct {
 	BiomeIgnores       []string                  `toml:"biome_ignores"`
 	BiomeOverrides     []fragments.BiomeOverride `toml:"biome_overrides"`
 	TypeDocEntryPoints []string                  `toml:"typedoc_entry_points"`
+	// TypeDocEntryPointStrategy is "expand" or absent (TypeDoc's default).
+	// Under "expand" a directory entry covers every file under it, so a new
+	// exported file is checked without being listed.
+	TypeDocEntryPointStrategy string `toml:"typedoc_entry_point_strategy"`
 }
 
 // IOS holds optional shared ios-profile configuration.
@@ -2450,7 +2454,7 @@ func Load(path string) (*Config, error) {
 	if err := fragments.ValidateBiomeOverrides(cfg.Web.BiomeOverrides); err != nil {
 		return nil, err
 	}
-	if err := fragments.ValidateTypeDocEntryPoints(cfg.Web.TypeDocEntryPoints); err != nil {
+	if err := fragments.ValidateTypeDoc(cfg.Web.TypeDocEntryPoints, cfg.Web.TypeDocEntryPointStrategy); err != nil {
 		return nil, err
 	}
 	if err := fragments.ValidateSwiftLintRules(cfg.IOS.SwiftLintCustomRules); err != nil {

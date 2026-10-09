@@ -748,6 +748,27 @@ options = { patterns = [{ group = ["node:*"], message = "core runs on Workers" }
 typedoc_entry_points = ["core/src/index.ts", "api/src/index.ts"]
 ```
 
+Listing files means a new exported file is undocumented until someone adds it
+to the list, and the docs gate cannot fail for it. To cover new files by
+default, name directories and let TypeDoc walk them:
+
+```toml
+[web]
+typedoc_entry_points = ["src/lib", "src/components"]
+typedoc_entry_point_strategy = "expand"
+```
+
+A glob (`"src/**/*.ts"`) also covers new files, with or without the strategy.
+Whenever a strategy or a glob is declared, the rendered `typedoc.json` also
+carries `exclude: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts",
+"**/*.spec.tsx", "**/__tests__/**"]`, so test fixtures and helpers are not
+read as public surface. Without either key the file renders exactly as
+shipped, with no `exclude`. `"expand"` is the only strategy accepted:
+TypeDoc's `"packages"` mode does not apply the root's validation to each
+package, so an undocumented export passes it silently. A plain directory
+without the strategy is refused, because TypeDoc's default reads it as the
+directory's index file and fails when there is none.
+
 A fragment may only **add** enforcement. A SwiftLint custom rule may not reuse
 the id of a rule the profile names or a doctor probe asserts, because a custom
 rule with a profile custom rule's id replaces it. A Biome override may set only
@@ -770,7 +791,14 @@ switch a profile rule off against the synced file and fails if the guard
 accepts it, then confirms every declared fragment reached that file. The
 SwiftLint and Biome probes run against the rendered config, fragments included,
 so each still has to reject its own planted violation. TypeDoc's probes pass
-their own `--entryPoints`, so no manifest value changes what they test.
+their own `--entryPoints`, so no manifest value changes what they test; one of
+them pins `--entryPointStrategy expand` over a directory and must report an
+undocumented export in a file nobody listed.
+
+The web CI's `Lint · Types · Test · Build` job runs the pre-push `docs` hook's
+TypeDoc on the component's real code, in its `Docs (TypeDoc)` step, so an
+undocumented export no longer merges green when the hook did not run. It skips
+only under an active `[baseline.relax] documentation`, exactly as the hook does.
 
 ## Docs
 
