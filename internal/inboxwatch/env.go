@@ -316,6 +316,9 @@ type Env struct {
 	// (#427). It is only ever written to if it is also in the roster or the
 	// extras: naming it here does not exempt it from the gate.
 	FleetRepo string
+	// FleetErr is why FleetRepo is empty when resolving it failed (an unreadable
+	// or malformed user config); it becomes the operator-facing reason.
+	FleetErr string
 	// Diffs holds the diffs this process has fetched (nil holds none).
 	Diffs *DiffMemo
 	// Home is the directory a file: ref must stay under; empty means the user's.

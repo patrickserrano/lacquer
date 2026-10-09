@@ -17,7 +17,8 @@ import (
 // The fleet repository holds the decisions that span repositories (#427): one
 // issue there, rather than a copy in every project's, where the copies would
 // diverge. This repository is public, so none is built in: the operator names it
-// with --fleet-repo or $LACQUER_FLEET_REPO, and it is only ever written to if it
+// with --fleet-repo, $LACQUER_FLEET_REPO or the user config file (userconfig.go),
+// and it is only ever written to if it
 // is also in the roster or $LACQUER_EXTRA_REPOS, like any other repository.
 const envFleetRepo = "LACQUER_FLEET_REPO"
 
@@ -49,7 +50,7 @@ func decisionsCmd(args []string, getenv func(string) string, projectRoot string,
 	fs := flag.NewFlagSet("decisions", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fleetWide := fs.Bool("fleet", false, "the fleet-wide decisions, from the fleet repository")
-	fleetFlag := fs.String("fleet-repo", "", "the fleet repository (or $"+envFleetRepo+"; there is no default)")
+	fleetFlag := fs.String("fleet-repo", "", "the fleet repository (else $"+envFleetRepo+", else fleet_repo in the user config; there is no default)")
 	var pos []string
 	rest := args
 	for { // flags on either side of the repository
@@ -71,10 +72,11 @@ func decisionsCmd(args []string, getenv func(string) string, projectRoot string,
 	var repo string
 	switch {
 	case *fleetWide:
-		repo = fleetRepoFrom(*fleetFlag, getenv)
-		if repo == "" {
-			return fail(stderr, errors.New("decisions: no fleet repository is configured; pass --fleet-repo owner/name or set $"+envFleetRepo))
+		r, err := resolveFleetRepo(*fleetFlag, getenv)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("decisions: %w", err))
 		}
+		repo = r
 	case len(pos) == 1:
 		repo = pos[0]
 	default:
@@ -84,7 +86,7 @@ func decisionsCmd(args []string, getenv func(string) string, projectRoot string,
 		}
 		repo = slug
 	}
-	if o, n, ok := strings.Cut(repo, "/"); !ok || o == "" || n == "" || strings.ContainsAny(repo, " \t\r\n") || strings.HasPrefix(repo, "-") || strings.Contains(n, "/") {
+	if !isOwnerName(repo) {
 		return fail(stderr, fmt.Errorf("decisions: %q is not owner/name", repo))
 	}
 	err := decisions.Print(stdout, decisionsRunner, repo)

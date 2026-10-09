@@ -800,3 +800,12 @@ func TestFirstUseWithGarbageLabelListWritesNothing(t *testing.T) {
 		t.Errorf("ev = %+v, writes = %v", ev, g.writes())
 	}
 }
+
+// A fleet repository that failed to resolve says why, rather than the generic
+// "not configured"; a resolved one ignores any stale error.
+func TestDecisionTargetsFleetErrIsTheReason(t *testing.T) {
+	env := Env{FleetErr: "the user config /c/config.toml is not valid: boom"}
+	if got := env.DecisionTargets("o/r#1", ""); got.Fleet != "" || !strings.Contains(got.FleetWhy, "/c/config.toml is not valid") {
+		t.Errorf("FleetWhy %q", got.FleetWhy)
+	}
+}

@@ -65,21 +65,21 @@ func newWatchEnv(inboxPath string, isDefault bool, o overseerFlags, roster fleet
 		// The same function `lacquer console inbox resolve` calls.
 		Resolve: inbox.Resolve,
 		InTmux:  getenv("TMUX") != "",
-		// Where a fleet-wide decision is recorded. Only used if it is also in the
-		// roster or the extras: this names a repository, it does not allow one.
-		FleetRepo: fleetRepoFrom("", getenv),
 		// An id or an issue ref is agent-written and goes to tmux as part of a
 		// command tmux may expand as a format, so it travels hex-encoded: no # can
 		// be in it.
 	}
+	// Where a fleet-wide decision is recorded. Only used if it is also in the
+	// roster or the extras: this names a repository, it does not allow one.
+	applyFleetRepo(&env, "", getenv)
 	// The popup is a separate process that knows only what its command line says,
 	// so the repositories a reply may be commented on travel with it.
 	repos := env.KnownRepos()
 	// A decision also needs the roster's project-to-repository mapping, and the
 	// fleet repository if the operator named one; the default is the popup's own.
 	extraArgs := projectRepoArgs(roster)
-	if v := getenv(envFleetRepo); v != "" {
-		extraArgs = append(extraArgs, "--fleet-repo="+v)
+	if env.FleetRepo != "" {
+		extraArgs = append(extraArgs, "--fleet-repo="+env.FleetRepo)
 	}
 	env.PopupArgv = func(id string) []string {
 		return popupArgv(exe, inboxPath, o, repos, extraArgs, "--id-hex=", id)
@@ -188,7 +188,7 @@ func popupMain(args []string, getenv func(string) string, stderr io.Writer) int 
 	fs.Var(repos, "repo", "a repository a reply may also be commented on (repeatable; what the list passes)")
 	projects := &projectRepoFlags{}
 	fs.Var(projects, "project-repo", "a roster project's repository, as <hex name>=owner/name, for recording a decision (repeatable; what the list passes)")
-	fleetRepo := fs.String("fleet-repo", "", "the repository fleet-wide decisions are recorded in (what the list passes when $"+envFleetRepo+" is set)")
+	fleetRepo := fs.String("fleet-repo", "", "the repository fleet-wide decisions are recorded in (what the list passes once it has resolved one; else $"+envFleetRepo+", else the user config)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -217,7 +217,7 @@ func popupMain(args []string, getenv func(string) string, stderr io.Writer) int 
 		return fail(stderr, fmt.Errorf("inbox popup needs a terminal; it is what a tmux popup runs"))
 	}
 	env := newWatchEnv(inboxPath, isDefault, *o, fleet.Roster{Project: projects.list}, getenv, repos.list...)
-	env.FleetRepo = fleetRepoFrom(*fleetRepo, getenv)
+	applyFleetRepo(&env, *fleetRepo, getenv)
 	detail := inboxwatch.NewDetail(id, env.Overseer.Configured(), 0, 0)
 	detail.Repos = env.KnownRepos()
 	detail.Targets = env.DecisionTargets

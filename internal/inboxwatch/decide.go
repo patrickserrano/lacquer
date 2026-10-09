@@ -41,6 +41,8 @@ func (e Env) DecisionTargets(ref, project string) DecisionTargets {
 	var t DecisionTargets
 	t.Repo, t.RepoWhy = e.thisRepo(ref, project)
 	switch {
+	case e.FleetRepo == "" && e.FleetErr != "":
+		t.FleetWhy = clean(e.FleetErr)
 	case e.FleetRepo == "":
 		t.FleetWhy = "no fleet repository is configured"
 	case !validRepo(e.FleetRepo):
