@@ -10,7 +10,7 @@ propagating whatever a project already happens to declare.
 
 ## Why this exists
 
-throughline was onboarded onto lacquer on 2026-07-13 and built in Swift 5
+sierra was onboarded onto lacquer on 2026-07-13 and built in Swift 5
 language mode for the next two weeks of active development. It moved to Swift 6
 on 2026-07-26 in `f156c28` — *"build(ios): Swift 6 language mode on every target
 (#127)"* — as a single manual big-bang change. That migration is the churn.
@@ -32,7 +32,7 @@ lacquer had no mechanism to notice — which is the whole thesis of this design.
 
 Five whys:
 
-1. **Why did throughline sit on Swift 5 for two weeks, and why did the manifest
+1. **Why did sierra sit on Swift 5 for two weeks, and why did the manifest
    keep saying `5.0` afterward?** The pbxproj said `5.0` at scaffold time,
    nothing in the harness ever asserted otherwise, and once the project moved,
    nothing re-checked.
@@ -41,7 +41,7 @@ Five whys:
    `profiles/ios/config/.swiftformat:1` → `--swiftversion {{SWIFT_VERSION}}`. It
    configures a formatter. Nothing validates it.
 3. **Why detection-only?** `internal/detect/detect.go:19` scrapes `SWIFT_VERSION`
-   only from an XcodeGen `project.yml`. throughline has no `project.yml`, so
+   only from an XcodeGen `project.yml`. sierra has no `project.yml`, so
    detection returned empty; because `internal/tokens/tokens.go:39` marks the
    token *required* (fail-closed), `sync` refused to run until a value was
    hand-filled. The value that silenced the error was the one already in the
@@ -74,7 +74,7 @@ never built, so the principle degraded into a suggestion addressed to an agent.
   round-trip parser in Go today, and a corruption risk on every sync.
 - **A managed `Baseline.xcconfig` synced asset.** Elegant — existing
   region/lock/audit machinery would cover drift for free — but base-config
-  chaining is manual and fiddly (throughline already chains
+  chaining is manual and fiddly (sierra already chains
   `Secrets.xcconfig`), and a pbxproj setting silently overrides an xcconfig.
 - **CI-only command-line overrides.** One-line change, but local Xcode would
   still build Swift 5 clean and errors would appear only in CI. That dev/CI
@@ -114,7 +114,7 @@ check disabled.
 
 **Coverage is per build configuration, not per project.** A setting present in
 some configurations and absent in others is a violation reported as "4 of 12", not
-a pass. throughline's warnings-as-errors state is exactly this case, and it is the
+a pass. sierra's warnings-as-errors state is exactly this case, and it is the
 single most valuable thing the checker does on day one.
 
 ### Projects may relax, never redefine
@@ -161,7 +161,7 @@ stays fast and portable:
 
 - Scan `project.pbxproj` for `SWIFT_VERSION = <v>;` per `XCBuildConfiguration`,
   counting matches against the total build-config count. This is what surfaces
-  throughline's "12 configs" and, more importantly, catches the nastier partial
+  sierra's "12 configs" and, more importantly, catches the nastier partial
   case: set in Debug, unset in Release.
 - When a `project.yml` exists it takes precedence — the pbxproj is generated from
   it, so the pbxproj is a build artifact there.
@@ -180,8 +180,8 @@ local-SPM-cache / `actions/cache`-validate pair.
 | --- | --- |
 | `lacquer audit` | New `baseline:` section; **exit 4** on violation. Exit 3 (would-clobber) keeps precedence when both fire — data loss outranks policy. |
 | `lacquer status` | Reports the baseline informationally; no exit change. |
-| `lacquer init` | **Stops deriving `swift_version` from the project.** Writes the Spec's value and warns when the project's declared value disagrees. Detection becomes a diagnostic, not the source of truth. This is the direct fix for why throughline's manifest ever said `5.0`. |
-| `{{SWIFT_VERSION}}` | Populated from the Spec, not from detection. **Consequence:** on throughline's next sync, `.swiftformat` flips `--swiftversion 5.0` → `6`. Correct, but a real change to a file that project does not exclude. |
+| `lacquer init` | **Stops deriving `swift_version` from the project.** Writes the Spec's value and warns when the project's declared value disagrees. Detection becomes a diagnostic, not the source of truth. This is the direct fix for why sierra's manifest ever said `5.0`. |
+| `{{SWIFT_VERSION}}` | Populated from the Spec, not from detection. **Consequence:** on sierra's next sync, `.swiftformat` flips `--swiftversion 5.0` → `6`. Correct, but a real change to a file that project does not exclude. |
 | `ci.yml` | New `baseline` job on the self-hosted Mac asserting *effective* values via `xcodebuild -showBuildSettings`. Same fork guard and `changes.outputs.code` gate as `lint`. **Must be added to the `CI OK` aggregator's `needs[]` and its result loop** (`ci.yml:687`) or it will not be a required check. |
 
 ## Prose repairs
@@ -211,7 +211,7 @@ TDD, table-driven to match the existing `*_test.go` style:
 
 ## Out of scope
 
-- **throughline is not fixed by this branch.** It stays in Swift 5 until the new
+- **sierra is not fixed by this branch.** It stays in Swift 5 until the new
   `audit` is run against it and its pbxproj is corrected — deliberately, since
   flipping language mode will surface a backlog of real errors that wants its own
   change.
