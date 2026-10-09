@@ -240,6 +240,16 @@ func TestBundleSecretsControlsFailClosed(t *testing.T) {
 		{name: "a bundle's plist is not a dictionary",
 			bundles: shippedApp(map[string]string{"Demo.app/PlugIns/DemoWidget.appex": "junk"}),
 			want:    "cannot read a CFBundleIdentifier from Demo.app/PlugIns/DemoWidget.appex's Info.plist"},
+		// A well-formed plist that is not a dictionary: it parses, so only the
+		// shape check stands between it and "clean".
+		{name: "a bundle's plist is a string, not a dictionary",
+			bundles: shippedApp(map[string]string{"Demo.app/PlugIns/DemoWidget.appex": `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><string>PROXY_SECRET</string></plist>
+`}),
+			want: "cannot read a CFBundleIdentifier from Demo.app/PlugIns/DemoWidget.appex's Info.plist"},
+		{name: "a bundle's plist has no CFBundleIdentifier",
+			bundles: shippedApp(map[string]string{"Demo.app/Watch/DemoWatch.app": strings.Replace(plistWith("x"), "<key>CFBundleIdentifier</key>\n\t<string>x</string>\n", "", 1)}),
+			want:    "cannot read a CFBundleIdentifier from Demo.app/Watch/DemoWatch.app's Info.plist"},
 		{name: "a bundle's plist is garbage",
 			bundles: shippedApp(map[string]string{"Demo.app/Watch/DemoWatch.app": "not a property list\x00\x01"}),
 			want:    "cannot read a CFBundleIdentifier from Demo.app/Watch/DemoWatch.app's Info.plist"},
