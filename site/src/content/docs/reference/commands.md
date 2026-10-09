@@ -405,16 +405,35 @@ it:
 [[project.covered_elsewhere]]
 target   = "AlphaAppWatchApp Watch AppTests"
 workflow = ".github/workflows/watch-ci.yml"
-reason   = "watchOS bundle: different scheme, watch simulator destination"
+job      = "watch-tests"
+reason   = "watchOS bundle run by watch-ci.yml job watch-tests on a watch simulator"
 ```
 
+`job` is required, and `reason` must name both the workflow file and the job. A
+declaration whose workflow file does not exist fails `audit` (exit 4).
+
 The declaration is verified on every audit, never taken on trust: the workflow
-must exist, must not be one the lacquer writes, must name the target outside a
-comment, must contain a test invocation, and must be triggered by a code change.
+must exist, must not be one the lacquer writes, must have the named job, must
+name the target outside a comment, must contain a test invocation, and must be
+triggered by a code change.
 Anything short of that and the target is reported again with the failed check
 printed beside it. There is no `until` — the declaration expires by ceasing to
 verify, not on a date, and a declaration naming a target the project no longer
 has is reported as stale.
+
+### watchOS test bundles
+
+A watchOS unit-test bundle can be run by the managed workflow:
+`[project.watch_tests]` (or `[product.watch_tests]`) renders a Watch Tests job
+on a watch simulator. `audit` finds watch bundles that nothing runs, reading the
+tracked `project.pbxproj` or, when none is tracked, the XcodeGen `project.yml`
+beside the `.xcodeproj`, and prints the exact table to add, with the scheme taken
+from the scheme that tests the bundle. This is the one row of the uncovered
+report that blocks: it warns, printing the date, until the grace period ends,
+then `audit` exits 4 until the bundle is declared, verified as
+`covered_elsewhere`, or recorded in `not_run_in_ci`. A watch app with no test
+bundle at all gets a notice and never blocks. A project with no watch app gets
+nothing.
 
 ### A suite deliberately not run in CI
 

@@ -8,6 +8,11 @@ type Gate struct {
 	// the version the lock names (see ci.go). Always zero outside --ci, so
 	// fleet and local audits are unchanged.
 	LockMismatch int
+	// UnrunWatch counts watchOS test bundles nothing runs, once the grace date
+	// has passed (testtargets.WatchGateFrom); MissingWorkflows counts
+	// [[project.covered_elsewhere]] entries naming a workflow that does not
+	// exist. Both are audit-only.
+	UnrunWatch, MissingWorkflows int
 }
 
 // ExitCode ranks a lock its own version never wrote first: every other
@@ -20,7 +25,8 @@ func (g Gate) ExitCode() int {
 		return 8
 	case g.Clobbered > 0:
 		return 3
-	case g.Baseline > 0 || g.Exclusions > 0 || g.DepIgnores > 0 || g.NotRunInCI > 0 || g.Orphans > 0:
+	case g.Baseline > 0 || g.Exclusions > 0 || g.DepIgnores > 0 || g.NotRunInCI > 0 || g.Orphans > 0 ||
+		g.UnrunWatch > 0 || g.MissingWorkflows > 0:
 		return 4
 	case g.Undeclared > 0:
 		return 6

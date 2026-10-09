@@ -75,3 +75,17 @@ func watchLeg(t *testing.T, cfg *config.Config) map[string]any {
 	}
 	return legs[0]
 }
+
+// A project that declares watch_tests has a watch app, so its iOS jobs build one
+// and need the watchOS runtime installed first, whether or not it also wrote
+// watch_target = true. Requiring both was a second way to say one thing.
+func TestWatchTargetIsDerivedFromWatchTests(t *testing.T) {
+	cfg := watchProject()
+	cfg.Project.WatchTarget = false
+	if !strings.Contains(renderIOSCI(t, cfg), "name: Install watchOS Simulator Runtime") {
+		t.Error("a project declaring watch_tests does not install the watchOS runtime in its iOS jobs")
+	}
+	if strings.Contains(renderIOSCI(t, soloConfig()), "Install watchOS Simulator Runtime") {
+		t.Error("a project with neither watch_target nor watch_tests installs the watchOS runtime")
+	}
+}

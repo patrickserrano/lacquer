@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Declaration is a project's claim that a test target is run by a workflow this
@@ -17,6 +19,9 @@ type Declaration struct {
 	Target string
 	// Workflow is the repo-relative path of the workflow said to run it.
 	Workflow string
+	// Job is the id of the job in Workflow said to run it. Checked when set;
+	// config.Load requires it of every manifest entry.
+	Job string
 	// Reason is why the managed workflows cannot.
 	Reason string
 }
@@ -215,6 +220,9 @@ func problems(projectRoot string, d Declaration, managed map[string]bool) []stri
 	if managed[d.Workflow] {
 		probs = append(probs, fmt.Sprintf("%s is a file the lacquer writes — if it ran this target a "+
 			"selector would name it, and the next sync overwrites whatever was added by hand", d.Workflow))
+	}
+	if d.Job != "" && !hasJob(body, d.Job) {
+		probs = append(probs, fmt.Sprintf("%s has no job %q under `jobs:`", d.Workflow, d.Job))
 	}
 	if !mentions(text, d.Target) {
 		probs = append(probs, fmt.Sprintf("%s never names %q outside a comment", d.Workflow, d.Target))
@@ -467,4 +475,54 @@ func Apply(r Report, claims []Claim) Report {
 	}
 	r.Uncovered = kept
 	return r
+}
+
+// hasJob reports whether the workflow declares a job with this id. A file that
+// is not YAML declares none.
+func hasJob(body []byte, job string) bool {
+	var wf struct {
+		Jobs map[string]yaml.Node `yaml:"jobs"`
+	}
+	if yaml.Unmarshal(body, &wf) != nil {
+		return false
+	}
+	_, ok := wf.Jobs[job]
+	return ok
+}
+
+// MissingWorkflows is every declaration whose workflow file does not exist.
+//
+// Checked for every declaration, whether or not its target exists or the Xcode
+// project could be read: an entry naming a workflow that is not there claims
+// something false about where a suite runs, and the audit fails on it outright
+// rather than leaving it to read as a live exception.
+func MissingWorkflows(projectRoot string, decls []Declaration) []Declaration {
+	var out []Declaration
+	for _, d := range decls {
+		rel := filepath.FromSlash(d.Workflow)
+		if !filepath.IsLocal(rel) {
+			out = append(out, d)
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(projectRoot, rel)); os.IsNotExist(err) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// FormatMissingWorkflows renders MissingWorkflows for the audit, empty when
+// there are none.
+func FormatMissingWorkflows(ds []Declaration) string {
+	if len(ds) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n[[project.covered_elsewhere]] entries naming a workflow that does not exist (blocking):\n")
+	for _, d := range ds {
+		fmt.Fprintf(&b, "  %s — %s does not exist\n", d.Target, d.Workflow)
+	}
+	b.WriteString("    Each one claims a suite runs somewhere it cannot. Point it at the workflow that\n")
+	b.WriteString("    runs the suite, or remove it and let the target be reported.\n")
+	return b.String()
 }

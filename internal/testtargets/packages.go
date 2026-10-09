@@ -76,10 +76,18 @@ func localPackages(pbxproj string) []string {
 // record that there is a place a selector's target might be which was not
 // examined, so Compare can say "could not check" instead of "not there".
 func packageTargets(projectDir, pbxproj string) []Target {
+	return packageTargetsAt(projectDir, localPackages(pbxproj),
+		"project.pbxproj has an XCLocalSwiftPackageReference with no readable relativePath")
+}
+
+// packageTargetsAt reads the test targets of the local packages at rels, each
+// relative to projectDir. blank is the Unread reason for an entry whose path
+// could not be read at all; it names the file the reference came from.
+func packageTargetsAt(projectDir string, rels []string, blank string) []Target {
 	var out []Target
-	for _, rel := range localPackages(pbxproj) {
+	for _, rel := range rels {
 		if rel == "" {
-			out = append(out, Target{Unread: "project.pbxproj has an XCLocalSwiftPackageReference with no readable relativePath"})
+			out = append(out, Target{Unread: blank})
 			continue
 		}
 		dir := rel

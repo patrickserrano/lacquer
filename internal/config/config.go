@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -169,6 +170,9 @@ type Project struct {
 	// A widget or app-extension target does NOT need this — it runs on the
 	// same iOS simulator as the host app; only an actual watch app needs its
 	// own simulator platform, which is not preinstalled on a fresh runner.
+	//
+	// Implied by any watch_tests table: a project that declares one has a watch
+	// app, so it gets the install step whether or not it also sets this.
 	WatchTarget bool `toml:"watch_target"`
 	// CoveredElsewhere names test targets run by a workflow this lacquer does
 	// not manage, so the uncovered-target report can tell "nothing runs this"
@@ -928,7 +932,13 @@ type CoveredElsewhere struct {
 	// description: it is the thing the audit goes and reads, and a declaration
 	// pointing at nothing confirms nothing.
 	Workflow string `toml:"workflow"`
-	// Reason is why this target cannot be run by the managed workflows. Required,
+	// Job is the id of the job in Workflow that runs it, as written under
+	// `jobs:`. Required, and checked against the file: "this workflow" is too
+	// coarse to go and look at, and a declaration a reader cannot follow to the
+	// job that runs the suite is a mute button with a sentence attached.
+	Job string `toml:"job"`
+	// Reason is why this target cannot be run by the managed workflows, and
+	// where it IS run: it must name the workflow file and the job. Required,
 	// same standard as [baseline.relax], an attributed [project].exclude and a
 	// dependabot ignore. It is printed in the audit report beside the target, and
 	// with no expiry to force the question it is the only thing that will tell a
@@ -949,11 +959,11 @@ func (c *CoveredElsewhere) UnmarshalTOML(v any) error {
 	t, ok := v.(map[string]any)
 	if !ok {
 		return fmt.Errorf("[[project.covered_elsewhere]] entry must be a table "+
-			"{ target = \"…\", workflow = \".github/workflows/…\", reason = \"…\" }, got %T", v)
+			"{ target = \"…\", workflow = \".github/workflows/…\", job = \"…\", reason = \"…\" }, got %T", v)
 	}
 	for key := range t {
 		switch key {
-		case "target", "workflow", "reason":
+		case "target", "workflow", "job", "reason":
 		default:
 			// `until` is the likely typo, because every other exemption in this
 			// manifest carries one and a reader who knows the others will reach
@@ -967,7 +977,7 @@ func (c *CoveredElsewhere) UnmarshalTOML(v any) error {
 					"it stops being true", key)
 			}
 			return fmt.Errorf("unknown [[project.covered_elsewhere]] key %q "+
-				"(known keys: target, workflow, reason)", key)
+				"(known keys: target, workflow, job, reason)", key)
 		}
 	}
 	str := func(key string) (string, error) {
@@ -986,6 +996,9 @@ func (c *CoveredElsewhere) UnmarshalTOML(v any) error {
 		return err
 	}
 	if c.Workflow, err = str("workflow"); err != nil {
+		return err
+	}
+	if c.Job, err = str("job"); err != nil {
 		return err
 	}
 	c.Reason, err = str("reason")
@@ -1021,13 +1034,30 @@ func validateCoveredElsewhere(i int, c CoveredElsewhere) error {
 		return fmt.Errorf("%s %q has an invalid workflow %q: it must be a repo-relative path like "+
 			"\".github/workflows/watch-ci.yml\" — the audit opens this file and reads it", where, c.Target, c.Workflow)
 	}
+	if c.Job == "" {
+		return fmt.Errorf("%s %q needs a job (the id under `jobs:` in %s that runs it); the audit "+
+			"checks that the job exists, and a reader needs to know where to look", where, c.Target, c.Workflow)
+	}
+	if !jobVal.MatchString(c.Job) {
+		return fmt.Errorf("%s %q has an invalid job %q: a GitHub Actions job id (letters, digits, - and _, "+
+			"starting with a letter or _)", where, c.Target, c.Job)
+	}
 	if strings.TrimSpace(c.Reason) == "" {
 		return fmt.Errorf("%s %q needs a reason (what the managed workflows cannot run and why); "+
 			"this declaration has no expiry, so the reason is the only thing that will tell a later "+
 			"reader whether the gap still exists", where, c.Target)
 	}
+	file := path.Base(c.Workflow)
+	if !strings.Contains(c.Reason, file) || !strings.Contains(c.Reason, c.Job) {
+		return fmt.Errorf("%s %q: the reason must name where the suite actually runs, the workflow "+
+			"file %s and the job %s, so the line printed beside the target it silences says where to "+
+			"look (got %q)", where, c.Target, file, c.Job, c.Reason)
+	}
 	return nil
 }
+
+// jobVal is a GitHub Actions job id.
+var jobVal = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // Product is one shippable app built from this repository.
 //

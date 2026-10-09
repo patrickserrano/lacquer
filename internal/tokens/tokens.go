@@ -475,7 +475,7 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCIOnlyTesting:       CIOnlyTesting(products),
 		IOSCIExtraTestSetup:    CIExtraTestSetup(products),
 		IOSCIVerifySelectors:   CIVerifySelectors(products),
-		IOSWatchSimulatorSetup: WatchSimulatorSetup(p.WatchTarget),
+		IOSWatchSimulatorSetup: WatchSimulatorSetup(p.WatchTarget || len(watchLegs(products)) > 0),
 
 		IOSCIWatchTestJob: CIWatchTestJob(cfg, prefix),
 		IOSCIWatchNeed:    CIWatchNeed(products),

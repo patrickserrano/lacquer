@@ -231,6 +231,13 @@ type Report struct {
 	// (CoverageEnrolled / CoverageNotEnrolled); empty for a non-iOS project.
 	// Informational: there is no enrollment deadline, so it never blocks.
 	Coverage string `json:"coverage,omitempty"`
+	// Watch is how an iOS project's watchOS test bundle is run (WatchDeclared,
+	// WatchElsewhere, WatchUnrun, WatchNoTests); empty for a project with no
+	// watch app. WatchBlocking is set when it is WatchUnrun and the grace date
+	// (testtargets.WatchGateFrom) has passed, which fails the sweep exactly as
+	// it fails `lacquer audit`.
+	Watch         string `json:"watch,omitempty"`
+	WatchBlocking bool   `json:"watch_blocking,omitempty"`
 
 	// Xcodegen reports regeneration differences without changing the fleet gate.
 	Xcodegen []xcodegendrift.Finding `json:"xcodegen,omitempty"`
@@ -316,6 +323,9 @@ func (r Report) ExitCode() int {
 			g.Undeclared++
 		}
 	}
+	if r.WatchBlocking {
+		g.UnrunWatch++
+	}
 	return g.ExitCode()
 }
 
@@ -350,6 +360,7 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		return r
 	}
 	r.Coverage = coverageState(e.Path, cfg)
+	r.Watch, r.WatchBlocking = watchState(e.Path, cfg, now)
 	r.Retired = cfg.Project.Retired
 	r.Xcodegen = xcodegendrift.Check(e.Path, cfg.BaselineTargets())
 
