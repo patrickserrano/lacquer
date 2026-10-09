@@ -9,16 +9,16 @@ import (
 // [project] is already the implicit single product for scheme, bundle_id,
 // asc_app_id, extra_bundle_ids, extra_test_targets and watch_tests. Release
 // secrets were the one release-shaped field left out, and the omission was not
-// cosmetic: flare, kit, port-of-entry and multimeter all read build-time keys
+// cosmetic: flare, kit, app-lima and golf all read build-time keys
 // (a RevenueCat appl_ key, Aptabase, a Sentry DSN, an API key) from a
 // gitignored Secrets.xcconfig, declare no [[product]], and so had no way to ask
 // the release to write that file. Their next release would have shipped
 // placeholder or empty keys: a dead paywall, no analytics, no crash reports.
 const singleAppWithSecrets = `
 [project]
-name = "Flare"
-project_name = "Flare"
-scheme = "Flare"
+name = "Delta"
+project_name = "Delta"
+scheme = "Delta"
 bundle_id = "com.example.flare"
 asc_app_id = "1000000001"
 secrets_file = "Config/Secrets.xcconfig"
@@ -57,9 +57,9 @@ func TestProjectSecretsFoldIntoTheSynthesisedProduct(t *testing.T) {
 func TestProjectSecretsDefaultTheirFile(t *testing.T) {
 	cfg, err := loadString(t, `
 [project]
-name = "Kit"
-project_name = "Kit"
-scheme = "Kit"
+name = "Echo"
+project_name = "Echo"
+scheme = "Echo"
 secrets = { APTABASE_APP_KEY = "KIT_APTABASE_APP_KEY" }
 `)
 	if err != nil {

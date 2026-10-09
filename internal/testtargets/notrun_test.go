@@ -7,39 +7,39 @@ import (
 	"time"
 )
 
-// momfriend's shape. ios/MomFriend.xcodeproj references the local package
-// ios/MomFriendCore, whose one suite needs on-device models and is written to
+// bravoapp's shape. ios/BravoApp.xcodeproj references the local package
+// ios/BravoAppCore, whose one suite needs on-device models and is written to
 // fail, not skip, without them. ios-ci.yml compiles it (`swift build
 // --build-tests`) and deliberately never runs it, so no selector names it and no
 // workflow runs it — the report is right that it runs nowhere, and none of the
 // fixes it offers fits a suite run by a person on a device on purpose.
-const momfriendPbx = `// !$*UTF8*$!
+const bravoappPbx = `// !$*UTF8*$!
 {
 	objects = {
-		A1 /* MomFriend */ = {
+		A1 /* BravoApp */ = {
 			isa = PBXNativeTarget;
-			name = MomFriend;
+			name = BravoApp;
 			productType = "com.apple.product-type.application";
 		};
-		A2 /* MomFriendTests */ = {
+		A2 /* BravoAppTests */ = {
 			isa = PBXNativeTarget;
-			name = MomFriendTests;
+			name = BravoAppTests;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		A3 /* MomFriendUITests */ = {
+		A3 /* BravoAppUITests */ = {
 			isa = PBXNativeTarget;
-			name = MomFriendUITests;
+			name = BravoAppUITests;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		B1 /* XCLocalSwiftPackageReference "MomFriendCore" */ = {
+		B1 /* XCLocalSwiftPackageReference "BravoAppCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = MomFriendCore;
+			relativePath = BravoAppCore;
 		};
 	};
 }
 `
 
-const momfriendCI = `name: iOS CI
+const bravoappCI = `name: iOS CI
 on:
   pull_request:
 jobs:
@@ -49,19 +49,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build Swift packages
         run: |
-          swift build --package-path ios/MomFriendCore --build-tests \
+          swift build --package-path ios/BravoAppCore --build-tests \
             -Xswiftc -warnings-as-errors
       - name: Test
         run: |
           xcodebuild test \
-            -project ios/MomFriend.xcodeproj \
-            -scheme MomFriend \
-            "-only-testing:MomFriendTests"
+            -project ios/BravoApp.xcodeproj \
+            -scheme BravoApp \
+            "-only-testing:BravoAppTests"
 `
 
-var momfriendSelectors = []string{"MomFriendTests"}
+var bravoappSelectors = []string{"BravoAppTests"}
 
-const momfriendReason = "needs on-device models; built in CI, run on device before release"
+const bravoappReason = "needs on-device models; built in CI, run on device before release"
 
 // inTerm and expired sit either side of the declaration's until date.
 var (
@@ -69,17 +69,17 @@ var (
 	expired = time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC)
 )
 
-func momfriendDecl() []NotRun {
-	return []NotRun{{Target: "MomFriendCoreTests", Reason: momfriendReason, Until: "2026-12-31"}}
+func bravoappDecl() []NotRun {
+	return []NotRun{{Target: "BravoAppCoreTests", Reason: bravoappReason, Until: "2026-12-31"}}
 }
 
-// momfriend lays the project out with the given extra files; "" deletes one.
-func momfriend(t *testing.T, extra map[string]string) (string, []Target) {
+// bravoapp lays the project out with the given extra files; "" deletes one.
+func bravoapp(t *testing.T, extra map[string]string) (string, []Target) {
 	t.Helper()
 	files := map[string]string{
-		"ios/MomFriend.xcodeproj/project.pbxproj": momfriendPbx,
-		"ios/MomFriendCore/Package.swift":         flarePackage("MomFriendCore", "MomFriendCoreTests"),
-		".github/workflows/ios-ci.yml":            momfriendCI,
+		"ios/BravoApp.xcodeproj/project.pbxproj": bravoappPbx,
+		"ios/BravoAppCore/Package.swift":         flarePackage("BravoAppCore", "BravoAppCoreTests"),
+		".github/workflows/ios-ci.yml":           bravoappCI,
 	}
 	for k, v := range extra {
 		if v == "" {
@@ -88,7 +88,7 @@ func momfriend(t *testing.T, extra map[string]string) (string, []Target) {
 		}
 		files[k] = v
 	}
-	pbx := writeProject(t, "ios/MomFriend.xcodeproj", files)
+	pbx := writeProject(t, "ios/BravoApp.xcodeproj", files)
 	root := filepath.Dir(filepath.Dir(filepath.Dir(pbx)))
 	return root, parsePath(t, pbx)
 }
@@ -98,13 +98,13 @@ func deliberate(root string, targets []Target, selectors []string, decls []Decla
 	return Deliberate(audit(root, targets, selectors, decls), targets, notRun, now)
 }
 
-// The control: without a declaration, momfriend's suite is uncovered. If this
+// The control: without a declaration, bravoapp's suite is uncovered. If this
 // ever fails, every test below is testing a fixture, not the feature.
-func TestMomfriendSuiteIsUncoveredWithoutADeclaration(t *testing.T) {
-	root, targets := momfriend(t, nil)
-	r := deliberate(root, targets, momfriendSelectors, nil, nil, inTerm)
-	if got := uncoveredNames(r); got != "MomFriendCoreTests MomFriendUITests" {
-		t.Fatalf("uncovered = %q, want MomFriendCoreTests MomFriendUITests", got)
+func TestBravoappSuiteIsUncoveredWithoutADeclaration(t *testing.T) {
+	root, targets := bravoapp(t, nil)
+	r := deliberate(root, targets, bravoappSelectors, nil, nil, inTerm)
+	if got := uncoveredNames(r); got != "BravoAppCoreTests BravoAppUITests" {
+		t.Fatalf("uncovered = %q, want BravoAppCoreTests BravoAppUITests", got)
 	}
 	if len(r.NotRun) != 0 || Blocking(r) != 0 {
 		t.Fatalf("notRun = %+v, blocking = %d; want none", r.NotRun, Blocking(r))
@@ -118,10 +118,10 @@ func TestMomfriendSuiteIsUncoveredWithoutADeclaration(t *testing.T) {
 // gets a line of its own, reason and date included; the other uncovered target
 // is untouched, and nothing blocks.
 func TestDeclaredSuiteMovesToItsOwnLine(t *testing.T) {
-	root, targets := momfriend(t, nil)
-	r := deliberate(root, targets, momfriendSelectors, nil, momfriendDecl(), inTerm)
-	if got := uncoveredNames(r); got != "MomFriendUITests" {
-		t.Fatalf("uncovered = %q, want just MomFriendUITests", got)
+	root, targets := bravoapp(t, nil)
+	r := deliberate(root, targets, bravoappSelectors, nil, bravoappDecl(), inTerm)
+	if got := uncoveredNames(r); got != "BravoAppUITests" {
+		t.Fatalf("uncovered = %q, want just BravoAppUITests", got)
 	}
 	if len(r.NotRun) != 1 {
 		t.Fatalf("notRun = %+v, want one", r.NotRun)
@@ -133,14 +133,14 @@ func TestDeclaredSuiteMovesToItsOwnLine(t *testing.T) {
 		t.Errorf("Blocking = %d, want 0 while in term", n)
 	}
 	out := Format(r)
-	want := "deliberately not run in CI: MomFriendCoreTests — " + momfriendReason + " (until 2026-12-31)"
+	want := "deliberately not run in CI: BravoAppCoreTests — " + bravoappReason + " (until 2026-12-31)"
 	if !strings.Contains(out, want) {
 		t.Errorf("report does not contain\n  %s\n%s", want, out)
 	}
 	// Printed once, as deliberate: not also listed as running nowhere.
 	uncoveredSection := out[strings.Index(out, "test targets no selector covers:"):]
 	uncoveredSection, _, _ = strings.Cut(uncoveredSection, "deliberately not run in CI:")
-	if strings.Contains(uncoveredSection, "MomFriendCoreTests  (") {
+	if strings.Contains(uncoveredSection, "BravoAppCoreTests  (") {
 		t.Errorf("the declared suite is still listed as uncovered:\n%s", out)
 	}
 }
@@ -148,9 +148,9 @@ func TestDeclaredSuiteMovesToItsOwnLine(t *testing.T) {
 // The re-surfacing. Past `until` the suite is a finding again, the expiry is
 // named, and the audit blocks.
 func TestExpiredDeclarationComesBackAndBlocks(t *testing.T) {
-	root, targets := momfriend(t, nil)
-	r := deliberate(root, targets, momfriendSelectors, nil, momfriendDecl(), expired)
-	if got := uncoveredNames(r); got != "MomFriendCoreTests MomFriendUITests" {
+	root, targets := bravoapp(t, nil)
+	r := deliberate(root, targets, bravoappSelectors, nil, bravoappDecl(), expired)
+	if got := uncoveredNames(r); got != "BravoAppCoreTests BravoAppUITests" {
 		t.Fatalf("uncovered = %q; an expired declaration must stop suppressing", got)
 	}
 	if len(r.NotRun) != 1 || !r.NotRun[0].Expired || r.NotRun[0].Applied {
@@ -160,7 +160,7 @@ func TestExpiredDeclarationComesBackAndBlocks(t *testing.T) {
 		t.Fatalf("Blocking = %d, want 1", n)
 	}
 	out := Format(r)
-	for _, want := range []string{"MomFriendCoreTests", "EXPIRED 2026-12-31", momfriendReason, "exit 4"} {
+	for _, want := range []string{"BravoAppCoreTests", "EXPIRED 2026-12-31", bravoappReason, "exit 4"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report does not contain %q:\n%s", want, out)
 		}
@@ -171,7 +171,7 @@ func TestExpiredDeclarationComesBackAndBlocks(t *testing.T) {
 // 2026-12-31" reads as "through the 31st" — and the first instant after it is
 // not. Same construction as depignore and exclusion.
 func TestUntilIsInclusiveOfTheWholeDay(t *testing.T) {
-	root, targets := momfriend(t, nil)
+	root, targets := bravoapp(t, nil)
 	for _, tc := range []struct {
 		now     time.Time
 		expired bool
@@ -181,7 +181,7 @@ func TestUntilIsInclusiveOfTheWholeDay(t *testing.T) {
 		{time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), true},
 		{time.Date(2027, 1, 1, 0, 0, 0, 1, time.UTC), true},
 	} {
-		r := deliberate(root, targets, momfriendSelectors, nil, momfriendDecl(), tc.now)
+		r := deliberate(root, targets, bravoappSelectors, nil, bravoappDecl(), tc.now)
 		if got := r.NotRun[0].Expired; got != tc.expired {
 			t.Errorf("at %s: expired = %v, want %v", tc.now.Format(time.RFC3339Nano), got, tc.expired)
 		}
@@ -194,10 +194,10 @@ func TestUntilIsInclusiveOfTheWholeDay(t *testing.T) {
 // An until that cannot be read is not in term. Load rejects one, so this is
 // the fallback if that ever changes: fail closed, not open.
 func TestUnreadableUntilIsExpired(t *testing.T) {
-	root, targets := momfriend(t, nil)
-	decls := []NotRun{{Target: "MomFriendCoreTests", Reason: momfriendReason, Until: "someday"}}
-	r := deliberate(root, targets, momfriendSelectors, nil, decls, inTerm)
-	if !r.NotRun[0].Expired || Blocking(r) != 1 || !uncovered(r, "MomFriendCoreTests") {
+	root, targets := bravoapp(t, nil)
+	decls := []NotRun{{Target: "BravoAppCoreTests", Reason: bravoappReason, Until: "someday"}}
+	r := deliberate(root, targets, bravoappSelectors, nil, decls, inTerm)
+	if !r.NotRun[0].Expired || Blocking(r) != 1 || !uncovered(r, "BravoAppCoreTests") {
 		t.Fatalf("claim = %+v, blocking = %d; an unreadable date must not be in term", r.NotRun[0], Blocking(r))
 	}
 }
@@ -214,25 +214,25 @@ func TestDeclarationForACoveredSuiteIsStale(t *testing.T) {
 	}{
 		{
 			name:      "a selector names it",
-			selectors: []string{"MomFriendTests", "MomFriendCoreTests"},
+			selectors: []string{"BravoAppTests", "BravoAppCoreTests"},
 			want:      "a managed test selector names it",
 		},
 		{
 			name:  "a workflow runs it",
-			extra: map[string]string{".github/workflows/core.yml": workflow("", "", "", "swift test --package-path ios/MomFriendCore")},
+			extra: map[string]string{".github/workflows/core.yml": workflow("", "", "", "swift test --package-path ios/BravoAppCore")},
 			want:  ".github/workflows/core.yml runs it",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			root, targets := momfriend(t, tc.extra)
+			root, targets := bravoapp(t, tc.extra)
 			sel := tc.selectors
 			if sel == nil {
-				sel = momfriendSelectors
+				sel = bravoappSelectors
 			}
-			r := deliberate(root, targets, sel, tc.decls, momfriendDecl(), inTerm)
-			if uncovered(r, "MomFriendCoreTests") {
-				t.Fatalf("MomFriendCoreTests is uncovered; the fixture does not cover it")
+			r := deliberate(root, targets, sel, tc.decls, bravoappDecl(), inTerm)
+			if uncovered(r, "BravoAppCoreTests") {
+				t.Fatalf("BravoAppCoreTests is uncovered; the fixture does not cover it")
 			}
 			if len(r.NotRun) != 1 || r.NotRun[0].Applied || !strings.Contains(r.NotRun[0].Stale, tc.want) {
 				t.Fatalf("notRun = %+v, want stale naming %q", r.NotRun, tc.want)
@@ -241,12 +241,12 @@ func TestDeclarationForACoveredSuiteIsStale(t *testing.T) {
 				t.Errorf("a stale declaration in term blocked")
 			}
 			out := Format(r)
-			for _, want := range []string{"not_run_in_ci declarations that are not doing anything", "MomFriendCoreTests — ", tc.want} {
+			for _, want := range []string{"not_run_in_ci declarations that are not doing anything", "BravoAppCoreTests — ", tc.want} {
 				if !strings.Contains(out, want) {
 					t.Errorf("report does not contain %q:\n%s", want, out)
 				}
 			}
-			if strings.Contains(out, "deliberately not run in CI: MomFriendCoreTests") {
+			if strings.Contains(out, "deliberately not run in CI: BravoAppCoreTests") {
 				t.Errorf("a covered suite is still described as not run:\n%s", out)
 			}
 		})
@@ -254,7 +254,7 @@ func TestDeclarationForACoveredSuiteIsStale(t *testing.T) {
 }
 
 // Native targets alike, including coverage by a verified covered_elsewhere.
-// dailybread's watch suite is the fixture: declared not-run it moves; declared
+// alphaapp's watch suite is the fixture: declared not-run it moves; declared
 // both not-run and covered elsewhere (which config rejects, but this package
 // does not rely on that) the verified claim wins and the declaration is stale.
 func TestNativeTargetsAreDeclaredTheSameWay(t *testing.T) {
@@ -283,16 +283,16 @@ func TestNativeTargetsAreDeclaredTheSameWay(t *testing.T) {
 // nothing. A declaration that names nothing and still printed as a live
 // exception is how a project comes to believe a gap is being managed.
 func TestDeclarationForAMissingTargetIsStale(t *testing.T) {
-	root, targets := momfriend(t, nil)
-	decls := []NotRun{{Target: "MomFriendKitTests", Reason: "renamed since", Until: "2026-12-31"}}
-	r := deliberate(root, targets, momfriendSelectors, nil, decls, inTerm)
+	root, targets := bravoapp(t, nil)
+	decls := []NotRun{{Target: "BravoAppKitTests", Reason: "renamed since", Until: "2026-12-31"}}
+	r := deliberate(root, targets, bravoappSelectors, nil, decls, inTerm)
 	if len(r.NotRun) != 1 || !strings.Contains(r.NotRun[0].Stale, "no test target with that name") {
 		t.Fatalf("notRun = %+v, want stale: no such target", r.NotRun)
 	}
-	if got := uncoveredNames(r); got != "MomFriendCoreTests MomFriendUITests" {
+	if got := uncoveredNames(r); got != "BravoAppCoreTests BravoAppUITests" {
 		t.Errorf("uncovered = %q; a stale declaration must not move anything", got)
 	}
-	if !strings.Contains(Format(r), "MomFriendKitTests — this project has no test target with that name") {
+	if !strings.Contains(Format(r), "BravoAppKitTests — this project has no test target with that name") {
 		t.Errorf("report does not name the stale declaration:\n%s", Format(r))
 	}
 }
@@ -300,8 +300,8 @@ func TestDeclarationForAMissingTargetIsStale(t *testing.T) {
 // ...unless a package the target could live in could not be read. "Could not
 // look" is not "it is not there", here as everywhere else in this package.
 func TestMissingTargetBesideAnUnreadablePackageIsNotStale(t *testing.T) {
-	root, targets := momfriend(t, map[string]string{"ios/MomFriendCore/Package.swift": ""})
-	r := deliberate(root, targets, momfriendSelectors, nil, momfriendDecl(), inTerm)
+	root, targets := bravoapp(t, map[string]string{"ios/BravoAppCore/Package.swift": ""})
+	r := deliberate(root, targets, bravoappSelectors, nil, bravoappDecl(), inTerm)
 	if len(r.NotRun) != 1 || r.NotRun[0].Stale != "" {
 		t.Fatalf("notRun = %+v; a target in an unreadable package must not be called missing", r.NotRun)
 	}
@@ -310,19 +310,19 @@ func TestMissingTargetBesideAnUnreadablePackageIsNotStale(t *testing.T) {
 // A suite the audit could not decide about (a workflow it could not read) is
 // answered by the declaration: it moves out of "could not check" too.
 func TestDeclaredUncheckedSuiteMoves(t *testing.T) {
-	root, targets := momfriend(t, map[string]string{
+	root, targets := bravoapp(t, map[string]string{
 		".github/workflows/core.yml": workflow("", "", "", `swift test --package-path "${{ matrix.package }}"`),
 	})
-	r := deliberate(root, targets, momfriendSelectors, nil, nil, inTerm)
-	if len(r.Unchecked) != 1 || r.Unchecked[0].Suite != "MomFriendCoreTests" {
-		t.Fatalf("fixture: unchecked = %+v, want MomFriendCoreTests", r.Unchecked)
+	r := deliberate(root, targets, bravoappSelectors, nil, nil, inTerm)
+	if len(r.Unchecked) != 1 || r.Unchecked[0].Suite != "BravoAppCoreTests" {
+		t.Fatalf("fixture: unchecked = %+v, want BravoAppCoreTests", r.Unchecked)
 	}
-	r = deliberate(root, targets, momfriendSelectors, nil, momfriendDecl(), inTerm)
+	r = deliberate(root, targets, bravoappSelectors, nil, bravoappDecl(), inTerm)
 	if len(r.Unchecked) != 0 || len(r.NotRun) != 1 || !r.NotRun[0].Applied {
 		t.Fatalf("unchecked = %+v, notRun = %+v; want the suite moved to deliberate", r.Unchecked, r.NotRun)
 	}
 	// Expired, it goes back where it was.
-	r = deliberate(root, targets, momfriendSelectors, nil, momfriendDecl(), expired)
+	r = deliberate(root, targets, bravoappSelectors, nil, bravoappDecl(), expired)
 	if len(r.Unchecked) != 1 || Blocking(r) != 1 {
 		t.Fatalf("unchecked = %+v, blocking = %d; want the suite back and the audit blocked", r.Unchecked, Blocking(r))
 	}
@@ -331,9 +331,9 @@ func TestDeclaredUncheckedSuiteMoves(t *testing.T) {
 // Stale and expired together still blocks: the entry is past its term, and
 // the fix — delete it — is the same either way.
 func TestStaleAndExpiredStillBlocks(t *testing.T) {
-	root, targets := momfriend(t, nil)
-	decls := []NotRun{{Target: "MomFriendKitTests", Reason: "renamed since", Until: "2026-12-31"}}
-	r := deliberate(root, targets, momfriendSelectors, nil, decls, expired)
+	root, targets := bravoapp(t, nil)
+	decls := []NotRun{{Target: "BravoAppKitTests", Reason: "renamed since", Until: "2026-12-31"}}
+	r := deliberate(root, targets, bravoappSelectors, nil, decls, expired)
 	if Blocking(r) != 1 {
 		t.Fatalf("Blocking = %d, want 1", Blocking(r))
 	}
@@ -345,9 +345,9 @@ func TestStaleAndExpiredStillBlocks(t *testing.T) {
 // Nothing declared, nothing changed: the report must be byte-identical to what
 // Apply alone produces, which is what the fleet dry-run relies on.
 func TestNoNotRunDeclarationsChangesNothing(t *testing.T) {
-	root, targets := momfriend(t, nil)
-	before := Format(audit(root, targets, momfriendSelectors, nil))
-	after := Format(deliberate(root, targets, momfriendSelectors, nil, nil, inTerm))
+	root, targets := bravoapp(t, nil)
+	before := Format(audit(root, targets, bravoappSelectors, nil))
+	after := Format(deliberate(root, targets, bravoappSelectors, nil, nil, inTerm))
 	if before != after {
 		t.Errorf("output changed with nothing declared:\n--- before\n%s\n--- after\n%s", before, after)
 	}
@@ -357,16 +357,16 @@ func TestNoNotRunDeclarationsChangesNothing(t *testing.T) {
 // other target covered, the deliberate line is the whole report — and an empty
 // report here would be the exception made invisible, the one thing it must not be.
 func TestADeclarationAloneIsStillPrinted(t *testing.T) {
-	root, targets := momfriend(t, nil)
-	sel := []string{"MomFriendTests", "MomFriendUITests"}
-	if out := Format(deliberate(root, targets, sel, nil, nil, inTerm)); !strings.Contains(out, "MomFriendCoreTests") {
+	root, targets := bravoapp(t, nil)
+	sel := []string{"BravoAppTests", "BravoAppUITests"}
+	if out := Format(deliberate(root, targets, sel, nil, nil, inTerm)); !strings.Contains(out, "BravoAppCoreTests") {
 		t.Fatalf("fixture: without the declaration the suite should be the one finding:\n%s", out)
 	}
-	r := deliberate(root, targets, sel, nil, momfriendDecl(), inTerm)
+	r := deliberate(root, targets, sel, nil, bravoappDecl(), inTerm)
 	if len(r.Uncovered) != 0 {
 		t.Fatalf("uncovered = %q, want none", uncoveredNames(r))
 	}
-	if out := Format(r); !strings.Contains(out, "deliberately not run in CI: MomFriendCoreTests") {
+	if out := Format(r); !strings.Contains(out, "deliberately not run in CI: BravoAppCoreTests") {
 		t.Errorf("the declaration is the whole report and was not printed:\n%q", out)
 	}
 }

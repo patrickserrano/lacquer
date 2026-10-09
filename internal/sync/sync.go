@@ -75,7 +75,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// Re-run detection. `init` detected once, at onboarding, and nothing ever
 	// looked again — so a project that grew a stack afterwards was unmanaged for
 	// it permanently, and every subsequent `sync` reported success while writing
-	// nothing for it. needledrop bootstrapped as TypeScript-only (correctly, it
+	// nothing for it. juliet bootstrapped as TypeScript-only (correctly, it
 	// was a spike), gained a Swift package the next day, and a year later still
 	// declared `profiles = ["web"]`: no hooks, no CI, 191 tests run by nothing.
 	//

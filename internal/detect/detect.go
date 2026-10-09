@@ -140,7 +140,7 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		// almost always a local module of that app rather than a component of its
 		// own: 6 of the 7 Swift repos in this fleet carry one, and every one of
 		// those 6 would be a false positive. The one repo where Package.swift is
-		// the whole Swift stack (needledrop/Sleevetap) has no .xcodeproj at all —
+		// the whole Swift stack (juliet/Hotel) has no .xcodeproj at all —
 		// and went unmanaged for a month because detection had no marker for it.
 		byPath[pkg] = append(byPath[pkg], SwiftProfile)
 	}

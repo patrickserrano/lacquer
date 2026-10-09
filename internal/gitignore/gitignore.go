@@ -70,7 +70,7 @@ const credentials = `# Credentials. Every pattern here matches a file that grant
 *.mobileprovision
 # PEM. The extension does not say what is inside: a .pem holds a certificate, a
 # private key, or both concatenated. Six projects had already hand-written this
-# rule independently (kit, flare, pixelfoxstudio.com, rail-web, patrickserrano,
+# rule independently (kit, flare, examplestudiostudio.com, rail-web, patrickserrano,
 # white-whales) and the repository actually holding PEM keys on disk is not one
 # of them, which is the same signal the *.p8 block was built on.
 #
@@ -113,7 +113,7 @@ Secrets.xcconfig
 // across 38 repositories, seven carry a .playwright-mcp/ directory, SIX
 // hand-wrote the identical rule for it -- at lines 2, 6, 11, 94 and 112 of five
 // different .gitignore files, none of them in a managed region -- and the
-// seventh (journalcast) wrote nothing and now has 22 files and 208K of it
+// seventh (india) wrote nothing and now has 22 files and 208K of it
 // sitting unignored, one `git add -A` from a commit.
 //
 // The three repositories with a real playwright.config disagree three further
@@ -222,7 +222,7 @@ WatchDerivedData/
 // plan is what assets.Plan returns for this project — the whole-file assets the
 // lacquer itself ships. It is read only to learn which skill names are
 // lacquer-MANAGED, so the third-party skill rules below can be narrowed to
-// exclude them. Ignoring a managed skill would be the windsock failure in a new
+// exclude them. Ignoring a managed skill would be the foxtrot failure in a new
 // place: that project ignores .agents/skills/ wholesale, which quietly untracks
 // every skill the lacquer syncs alongside the third-party ones.
 func Body(cfg *config.Config, plan []assets.Asset) (string, error) {

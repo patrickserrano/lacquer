@@ -11,7 +11,7 @@ import (
 // directory, which was "." before. Mirrors fleet.LoadRoster.
 func TestLoadRoleRosterFromARelativePathGivesAbsoluteDirs(t *testing.T) {
 	root := t.TempDir()
-	fleetOps := filepath.Join(root, "fleet-ops")
+	fleetOps := filepath.Join(root, "fleet-repo")
 	writeRoleFile(t, filepath.Join(fleetOps, "roles.toml"),
 		"[[role]]\nname=\"pm\"\ntask=\"a\"\ndir=\"../proj\"\n\n[[role]]\nname=\"lead\"\ntask=\"a\"\n")
 

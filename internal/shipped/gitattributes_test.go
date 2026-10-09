@@ -17,8 +17,8 @@ import (
 // profile — xcode-build-orchestrator/scripts/*.py, xcode-compilation-analyzer,
 // swiftui-expert-skill/scripts/instruments_parser/*.py — and it ships them once
 // per enabled tool directory. GitHub Linguist counted every byte toward the
-// language bar. Measured before this region existed: ShelfLife read as MORE
-// Python than Swift, and rail, flare, Skein, momfriend and dailybread each
+// language bar. Measured before this region existed: November read as MORE
+// Python than Swift, and rail, flare, Kilo, bravoapp and alphaapp each
 // carried 570-650KB of the identical "Python" none of them wrote.
 //
 // These tests ask REAL GIT (`git check-attr`) rather than reading the rendered
@@ -147,7 +147,7 @@ func TestGitattributesRegionCoversTheRealAssetPlan(t *testing.T) {
 // Three fleet repositories already keep real content in .gitattributes and every
 // one of them would have been destroyed by a whole-file asset:
 //
-//   - dailybread: twelve Git LFS filter lines. Clobbering those breaks LFS
+//   - alphaapp: twelve Git LFS filter lines. Clobbering those breaks LFS
 //     outright — binaries start committing as raw bytes with no pointer.
 //   - kit: line-ending and binary rules plus its OWN linguist overrides
 //     (Pods/** vendored, *.xcodeproj/** generated, docs/** documentation).
@@ -159,7 +159,7 @@ func TestGitattributesRegionCoversTheRealAssetPlan(t *testing.T) {
 // landing above a project's own pattern loses, because for .gitattributes the
 // LAST matching pattern wins.
 func TestGitattributesRegionKeepsProjectOwnedContent(t *testing.T) {
-	preexisting := `# Git LFS (dailybread)
+	preexisting := `# Git LFS (alphaapp)
 *.png filter=lfs diff=lfs merge=lfs -text
 *.jpg filter=lfs diff=lfs merge=lfs -text
 

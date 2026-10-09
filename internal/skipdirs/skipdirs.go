@@ -50,7 +50,7 @@ var exact = map[string]bool{
 	// would have rendered CLAUDE.md regions, lefthook config and CI workflows
 	// into build artifacts.
 	//
-	// Observed on pixelfoxstudio.com; the rest are the same shape for the other
+	// Observed on examplestudiostudio.com; the rest are the same shape for the other
 	// frameworks this fleet is likely to meet.
 	".next": true, ".nuxt": true, ".svelte-kit": true, ".astro": true,
 	".output": true, ".vercel": true, ".netlify": true, ".turbo": true,

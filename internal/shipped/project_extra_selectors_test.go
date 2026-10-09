@@ -16,12 +16,12 @@ import (
 // empty set and still exit 0.
 func TestProjectExtraTestTargetsReachTheWorkflowWithTheirGuard(t *testing.T) {
 	cfg := soloConfig()
-	cfg.Project.ExtraTestTargets = []string{"DailyBreadWidgetsTests"}
+	cfg.Project.ExtraTestTargets = []string{"AlphaAppWidgetsTests"}
 
 	rendered := renderIOSCI(t, cfg)
 
-	if !strings.Contains(rendered, "DailyBreadWidgetsTests") {
-		t.Error("the rendered ci.yml never names DailyBreadWidgetsTests — a [project]-declared extra " +
+	if !strings.Contains(rendered, "AlphaAppWidgetsTests") {
+		t.Error("the rendered ci.yml never names AlphaAppWidgetsTests — a [project]-declared extra " +
 			"test target did not reach `-only-testing:`, so those tests run nowhere while the job is green")
 	}
 	if !strings.Contains(rendered, "Verify Test Selectors Matched") {

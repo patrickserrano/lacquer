@@ -213,9 +213,9 @@ func TestLoadAcceptsProjectSecretKeys(t *testing.T) {
 	}
 	body := `
 [project]
-name = "Flare"
-project_name = "Flare"
-scheme = "Flare"
+name = "Delta"
+project_name = "Delta"
+scheme = "Delta"
 secrets_file = "Secrets.xcconfig"
 secrets = { REVENUECAT_API_KEY = "FLARE_REVENUECAT_API_KEY" }
 secret_formats = { REVENUECAT_API_KEY = "appl_*" }

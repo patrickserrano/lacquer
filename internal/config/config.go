@@ -52,7 +52,7 @@ type Project struct {
 	// Accepting release-shaped fields here but not test-shaped ones meant a
 	// single-product repo could only reach this field by declaring a [[product]]
 	// block, restating every value that feeds the release matrix purely to gain
-	// a test selector. That is a real cost, not a hypothetical: dailybread's
+	// a test selector. That is a real cost, not a hypothetical: alphaapp's
 	// release path had just been repaired from an empty asc_app_id, and
 	// duplicating those values invites exactly the drift that caused it.
 	//
@@ -121,7 +121,7 @@ type Project struct {
 	// `NAME: ${{ secrets.NAME }}`.
 	//
 	// This exists because its absence cost a project the entire workflow.
-	// pixelfoxstudio.com's `npm run build` statically collects page data, and
+	// examplestudiostudio.com's `npm run build` statically collects page data, and
 	// src/sanity/env.ts throws when NEXT_PUBLIC_SANITY_* are unset — so the
 	// shared job could never build it. With no slot for five secret names, the
 	// only way out was [project].exclude on web-ci.yml, which opted the repo out
@@ -200,8 +200,8 @@ type Project struct {
 	// for what each one means; nothing about them differs here.
 	//
 	// They were the one release-shaped field [project] could not spell, and the
-	// cost was not restatement but silence. flare, kit, port-of-entry and
-	// multimeter all read build-time keys — a RevenueCat appl_ key, Aptabase, a
+	// cost was not restatement but silence. flare, kit, app-lima and
+	// golf all read build-time keys — a RevenueCat appl_ key, Aptabase, a
 	// Sentry DSN, an API key — from a gitignored Secrets.xcconfig and declare no
 	// [[product]]. With no way to name those keys, the release never wrote the
 	// file, and each of them was one tag away from shipping placeholders: a dead
@@ -334,7 +334,7 @@ func (p Project) CIRoundCap() int {
 //   - Temporary debt. throughline excludes five iOS workflows carrying local
 //     fixes "until that upstreaming happens deliberately" — a sentence with no
 //     date attached, in a comment no tool can read. That should expire.
-//   - Permanent divergence. windsock is a macOS-only app and excludes the
+//   - Permanent divergence. foxtrot is a macOS-only app and excludes the
 //     iOS-simulator CI workflow. No date will ever make that exclusion wrong.
 //
 // Forcing `until` onto the second kind would mean inventing dates for decisions
@@ -415,7 +415,7 @@ func (e Exclusion) UntilDate() (time.Time, error) { return time.Parse("2006-01-0
 // the guard originally had no way to say it. Its two escapes were both wrong
 // for that case: declaring the key in `[[product]].secrets` RESURRECTS a secret
 // you are trying to remove, and excluding the workflow freezes the whole file
-// out of every future improvement to buy one deletion. pixelfoxstudio.com hit
+// out of every future improvement to buy one deletion. examplestudiostudio.com hit
 // exactly this migrating off Sanity — five obsolete SANITY_* names it could
 // neither drop nor honestly excuse.
 //
@@ -773,13 +773,13 @@ func validateProject(p Project) error {
 // NotRunInCI is one test target that deliberately runs in no CI job.
 //
 //	[[project.not_run_in_ci]]
-//	target = "MomFriendCoreTests"
+//	target = "BravoAppCoreTests"
 //	reason = "needs on-device models; built in CI, run on device before release"
 //	until  = "2026-12-31"
 //
 // It exists because the uncovered-target report had no honest answer for a
-// suite that is run on purpose, somewhere CI cannot reach. momfriend's
-// MomFriendCoreTests is built in CI and never run there: it needs on-device
+// suite that is run on purpose, somewhere CI cannot reach. bravoapp's
+// BravoAppCoreTests is built in CI and never run there: it needs on-device
 // models, and is written to fail rather than skip without them. None of the
 // fixes the report offers fits — a selector or a `swift test` step would run it
 // on a runner where it cannot pass, and covered_elsewhere would claim a
@@ -869,7 +869,7 @@ func validateXcodeproj(p string) error {
 // manage.
 //
 //	[[project.covered_elsewhere]]
-//	target   = "DailyBreadWatchApp Watch AppTests"
+//	target   = "AlphaAppWatchApp Watch AppTests"
 //	workflow = ".github/workflows/watch-ci.yml"
 //	reason   = "watchOS bundle: a different scheme and a watch simulator destination, neither expressible in a [[product]] leg (lacquer#334)"
 //
@@ -919,7 +919,7 @@ func validateXcodeproj(p string) error {
 // dependency the component does not declare is.
 type CoveredElsewhere struct {
 	// Target is the test target's EXACT name as project.pbxproj spells it —
-	// "DailyBreadWatchApp Watch AppTests", quotes and spaces included. Compared
+	// "AlphaAppWatchApp Watch AppTests", quotes and spaces included. Compared
 	// case-sensitively against the parsed targets, because a near-miss suppresses
 	// nothing and would leave the reader believing it had.
 	Target string `toml:"target"`
@@ -1121,11 +1121,11 @@ type Product struct {
 	// pre-existing workflow byte for byte, guard included — that is, absent.
 	ExtraTestTargets []string `toml:"extra_test_targets"`
 	// AppTarget is the built product name coverage is measured against —
-	// `xccov`'s target names, e.g. "A Bible Verse Daily.app".
+	// `xccov`'s target names, e.g. "A Quebec Verse Daily.app".
 	//
 	// An explicit value overrides the `<scheme>.app` default (or `<name>.app`
 	// when Scheme is empty) because those two can differ: one project has a
-	// scheme "A Bible Verse Each Day Free" producing "A Bible Verse Daily.app". Using
+	// scheme "A Quebec Verse Each Day Free" producing "A Quebec Verse Daily.app". Using
 	// the default there would select no target, and `jq` selecting nothing yields
 	// an empty coverage number rather than an error.
 	AppTarget string `toml:"app_target"`
@@ -1152,12 +1152,12 @@ type Product struct {
 // managed workflow runs on its own simulator instead.
 //
 //	[[product]]
-//	name   = "DailyBread"
-//	scheme = "DailyBread"
+//	name   = "AlphaApp"
+//	scheme = "AlphaApp"
 //
 //	  [product.watch_tests]
-//	  scheme      = "DailyBreadWatchApp Watch App"
-//	  test_target = "DailyBreadWatchApp Watch AppTests"
+//	  scheme      = "AlphaAppWatchApp Watch App"
+//	  test_target = "AlphaAppWatchApp Watch AppTests"
 //
 // TWO independent things put a watchOS suite out of reach of `test_target`,
 // `ui_test_target` and `extra_test_targets`, and fixing either one alone fixes
@@ -1191,7 +1191,7 @@ type WatchTests struct {
 	Scheme string `toml:"scheme"`
 	// TestTarget is the `-only-testing:` selector. Required, and NOT derived
 	// from the scheme the way Product.TestTarget is derived from Product.Name:
-	// the real pair is ("DailyBreadWatchApp Watch App", "DailyBreadWatchApp
+	// the real pair is ("AlphaAppWatchApp Watch App", "AlphaAppWatchApp
 	// Watch AppTests"), and a derivation that appended "Tests" to the scheme
 	// would produce a selector that matches nothing — which xcodebuild reports
 	// as a pass.
@@ -1955,7 +1955,7 @@ func Load(path string) (*Config, error) {
 		// The CI targets. Substituted into the test job's shell (inside
 		// `-only-testing:"…"`) and into a jq program, so they are held to the same
 		// charset as scheme — which already permits the spaces a real Xcode target
-		// name carries ("A Bible Verse Each Day FreeTests") and excludes every
+		// name carries ("A Quebec Verse Each Day FreeTests") and excludes every
 		// quote, backslash and shell metacharacter. Blank is valid for all three
 		// and means "derive it" (test/app) or "there are none" (ui).
 		for _, f := range []struct{ field, val string }{
@@ -2274,14 +2274,14 @@ func validateWatchTests(label string, w *WatchTests, seenSelectors map[string]bo
 		return nil
 	}
 	// Held to the same charset as scheme and test_target everywhere else: it
-	// permits the spaces a real watch scheme carries ("DailyBreadWatchApp Watch
+	// permits the spaces a real watch scheme carries ("AlphaAppWatchApp Watch
 	// App") and excludes every quote, backslash and shell metacharacter, which is
 	// what makes it safe to splice into the rendered job's command line.
 	if !projNameVal.MatchString(w.Scheme) {
 		return fmt.Errorf("%s: watch_tests.scheme %q is missing or invalid — the watch bundle is a testable of a DIFFERENT scheme, which is the whole reason this table exists, so there is nothing to default it to", label, w.Scheme)
 	}
 	if !projNameVal.MatchString(w.TestTarget) {
-		return fmt.Errorf("%s: watch_tests.test_target %q is missing or invalid — it is not derived from the scheme, because the real pair is (%q, %q) and appending \"Tests\" to a scheme produces a selector that matches nothing and still exits 0", label, w.TestTarget, "DailyBreadWatchApp Watch App", "DailyBreadWatchApp Watch AppTests")
+		return fmt.Errorf("%s: watch_tests.test_target %q is missing or invalid — it is not derived from the scheme, because the real pair is (%q, %q) and appending \"Tests\" to a scheme produces a selector that matches nothing and still exits 0", label, w.TestTarget, "AlphaAppWatchApp Watch App", "AlphaAppWatchApp Watch AppTests")
 	}
 	if _, ok := w.Simulator(); !ok {
 		return fmt.Errorf("%s: watch_tests.platform %q is not a platform this lacquer can stand up a simulator for (have: %s). It is a closed set rather than a free-form -destination because the value is spliced into the rendered job's shell, and because each platform needs its own device type, runtime pin and boot-readiness signal — none of which can be guessed from the name", label, w.PlatformName(), strings.Join(SimulatorPlatformNames(), ", "))
@@ -2333,7 +2333,7 @@ func validateBaseline(b Baseline) error {
 var componentPathVal = regexp.MustCompile(`^(\.|[A-Za-z0-9._][A-Za-z0-9._-]*(/[A-Za-z0-9._][A-Za-z0-9._-]*)*)$`)
 
 // xcodeprojVal is componentPathVal plus spaces. An Xcode project named after a
-// human-readable app title — "A Bible Verse Each Day.xcodeproj" — is completely
+// human-readable app title — "A Quebec Verse Each Day.xcodeproj" — is completely
 // ordinary, and rejecting it locked the oldest app in the fleet out of lacquer
 // entirely. Spaces are safe here and NOT in a component path because every
 // {{XCODEPROJ}} substitution site is quoted (`-project "{{XCODEPROJ}}"`),

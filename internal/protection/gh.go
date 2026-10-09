@@ -245,7 +245,7 @@ func Check(projectRoot, repo, branch string) Report {
 // The status code alone does not establish that, and getting this wrong would
 // have made the whole command lie. Measured on the live API:
 //
-//	repos/PixelFoxStudio/Windsock/branches/main/protection
+//	repos/ExampleStudioStudio/Foxtrot/branches/main/protection
 //	  -> 404 {"message":"Branch not protected"}      genuinely unprotected
 //	repos/cli/cli/branches/trunk/protection
 //	  -> 404 {"message":"Not Found"}                 no admin, so not allowed to look

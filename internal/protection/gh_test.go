@@ -43,12 +43,12 @@ type answer = struct {
 const notProtected = `{"message":"Branch not protected","documentation_url":"https://docs.github.com/rest","status":"404"}`
 const forbidden = `{"message":"Upgrade to GitHub Pro or make this repository public to enable this feature.","status":"403"}`
 
-// The dailybread response, copied from the live API.
-const dailybreadProtection = `{"required_status_checks":{"checks":[{"app_id":15368,"context":"Build (Release)"},{"app_id":15368,"context":"Lint + Test"}],"contexts":["Build (Release)","Lint + Test"],"strict":true}}`
+// The alphaapp response, copied from the live API.
+const alphaappProtection = `{"required_status_checks":{"checks":[{"app_id":15368,"context":"Build (Release)"},{"app_id":15368,"context":"Lint + Test"}],"contexts":["Build (Release)","Lint + Test"],"strict":true}}`
 
 func TestFetchReadsRequiredContexts(t *testing.T) {
 	stubGH(t, map[string]answer{
-		"repos/org/app/branches/main/protection": {stdout: dailybreadProtection},
+		"repos/org/app/branches/main/protection": {stdout: alphaappProtection},
 		"repos/org/app/rules/branches/main":      {stdout: `[]`},
 	})
 	req, err := Fetch("org/app", "main")
@@ -82,13 +82,13 @@ func TestFetchReadsTheChecksArrayAlone(t *testing.T) {
 }
 
 // 404 "Branch not protected" is an ANSWER. Returning it as an error would turn
-// the Windsock/image-proxy finding into "could not check" and hide it.
+// the Foxtrot/image-proxy finding into "could not check" and hide it.
 func TestBranchNotProtectedIsAnAnswerNotAFailure(t *testing.T) {
 	stubGH(t, map[string]answer{
-		"repos/org/windsock/branches/main/protection": {stdout: notProtected, fail: true},
-		"repos/org/windsock/rules/branches/main":      {stdout: `[]`},
+		"repos/org/foxtrot/branches/main/protection": {stdout: notProtected, fail: true},
+		"repos/org/foxtrot/rules/branches/main":      {stdout: `[]`},
 	})
-	req, err := Fetch("org/windsock", "main")
+	req, err := Fetch("org/foxtrot", "main")
 	if err != nil {
 		t.Fatalf("an unprotected branch was reported as an error, hiding the finding: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestA404WithoutAdminIsNotReportedAsUnprotected(t *testing.T) {
 }
 
 // 403 is the personal-account-on-Free case, verified against
-// patrickserrano/dailybread-image-proxy before its org transfer. It must reach
+// patrickserrano/alphaapp-image-proxy before its org transfer. It must reach
 // the caller as an error, so the verdict becomes Unavailable rather than a pass.
 func TestForbiddenProtectionIsAnError(t *testing.T) {
 	stubGH(t, map[string]answer{
@@ -188,7 +188,7 @@ func TestUnreadableRulesetsCannotOverturnAPass(t *testing.T) {
 // that was never read is exactly the defect this package exists to catch.
 func TestUnreadableRulesetsTurnAFindingIntoUnchecked(t *testing.T) {
 	stubGH(t, map[string]answer{
-		"repos/org/app/branches/main/protection": {stdout: dailybreadProtection},
+		"repos/org/app/branches/main/protection": {stdout: alphaappProtection},
 		"repos/org/app/rules/branches/main":      {stdout: forbidden, fail: true},
 	})
 	_, err := Fetch("org/app", "main")
@@ -261,9 +261,9 @@ func gitInit(t *testing.T, dir, origin string) {
 // differently from their repository, so the slug comes from the remote.
 func TestSlugComesFromTheOriginRemote(t *testing.T) {
 	for _, tc := range []struct{ origin, want string }{
-		{"git@github.com:PixelFoxStudio/dailybread.git", "PixelFoxStudio/dailybread"},
-		{"https://github.com/PixelFoxStudio/Windsock.git", "PixelFoxStudio/Windsock"},
-		{"https://github.com/PixelFoxStudio/Windsock", "PixelFoxStudio/Windsock"},
+		{"git@github.com:ExampleStudioStudio/alphaapp.git", "ExampleStudioStudio/alphaapp"},
+		{"https://github.com/ExampleStudioStudio/Foxtrot.git", "ExampleStudioStudio/Foxtrot"},
+		{"https://github.com/ExampleStudioStudio/Foxtrot", "ExampleStudioStudio/Foxtrot"},
 	} {
 		dir := filepath.Join(t.TempDir(), "checkout")
 		if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -147,9 +147,9 @@ func TestDBGateStillSkipsOrdinarySource(t *testing.T) {
 	for _, p := range []string{
 		// The three real PRs that motivated this: pure SwiftUI, in a repo that
 		// happens to carry a Supabase component.
-		"Rail/Features/Memories/OnThisDayWidget.swift",
-		"Rail/DesignSystem/Components/Badge.swift",
-		"ios/MomFriend/Core/Routing/Router.swift",
+		"Charlie/Features/Memories/OnThisDayWidget.swift",
+		"Charlie/DesignSystem/Components/Badge.swift",
+		"ios/BravoApp/Core/Routing/Router.swift",
 		"RailTests/Memories/MemoryStoreTests.swift",
 		// Web and Deno source, which the `check` job covers.
 		"admin/src/app/page.tsx",
@@ -188,7 +188,7 @@ func TestChangesFilterEmitsDBOutput(t *testing.T) {
 		},
 		{
 			"a pure-SwiftUI PR in a repo that also has a Supabase component",
-			"pull_request", []string{"Rail/Features/Memories/OnThisDayWidget.swift"},
+			"pull_request", []string{"Charlie/Features/Memories/OnThisDayWidget.swift"},
 			map[string]string{"code": "true", "db": "false", "lacquer": "false"},
 		},
 		{

@@ -173,7 +173,7 @@ func TestComponentsDerivesSwiftVersion(t *testing.T) {
 // RLS rules) was then never synced. rail shipped in that state.
 func TestDetectRootLayoutWithBothIosAndSupabase(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "Rail.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Charlie.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "supabase", "config.toml"))
 
 	comps, _, err := Components(root)

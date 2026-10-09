@@ -14,7 +14,7 @@ func TestAppendRecordThenReadRecords(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sessions.jsonl")
 	r1 := Record{Kind: ProjectKind, Name: "alpha", Mode: Tmux, Dir: "/w/alpha", Task: "do a thing", StartedAt: time.Now().UTC()}
-	r2 := Record{Kind: RoleKind, Name: "lead", Mode: Background, Dir: "/fleet-ops", Task: "supervise", DaemonID: "abc123", StartedAt: time.Now().UTC()}
+	r2 := Record{Kind: RoleKind, Name: "lead", Mode: Background, Dir: "/fleet-repo", Task: "supervise", DaemonID: "abc123", StartedAt: time.Now().UTC()}
 	if err := AppendRecord(path, r1); err != nil {
 		t.Fatal(err)
 	}

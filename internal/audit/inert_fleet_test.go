@@ -42,7 +42,7 @@ func managedCI(t *testing.T, prefix string) string {
 
 // managedRelease is profiles/ios/workflows/release.yml with its secrets step
 // rendered by the real renderer. With no product declaring secrets that renders
-// nothing — the state of kit, port-of-entry and multimeter, whose releases
+// nothing — the state of kit, app-lima and golf, whose releases
 // write no Secrets.xcconfig at all.
 func managedRelease(t *testing.T, secretsStep string) string {
 	t.Helper()
@@ -82,17 +82,17 @@ func TestCIPlaceholderSeedIsNotTheReleaseWritingSecrets(t *testing.T) {
 			// flare's shape before its release wrote the key: a REPLACE_ME
 			// RevenueCat placeholder shipped while this audit said nothing.
 			name:   "flare",
-			prefix: "Flare/",
+			prefix: "Delta/",
 			manifest: `
 [project]
-name = "Flare"
-project_name = "Flare"
-scheme = "Flare"
+name = "Delta"
+project_name = "Delta"
+scheme = "Delta"
 
 [[product]]
-name = "Flare"
-scheme = "Flare"
-bundle_id = "com.example.Flare"
+name = "Delta"
+scheme = "Delta"
+bundle_id = "com.example.Delta"
 asc_app_id = "1234567890"
 secrets = { REVENUECAT_PUBLIC_SDK_KEY = "REVENUECAT_PUBLIC_SDK_KEY" }
 secret_formats = { REVENUECAT_PUBLIC_SDK_KEY = "appl_*" }
@@ -104,17 +104,17 @@ secret_formats = { REVENUECAT_PUBLIC_SDK_KEY = "appl_*" }
 			manifest: `
 [project]
 name = "kit"
-project_name = "Kit"
-scheme = "Kit"
+project_name = "Echo"
+scheme = "Echo"
 secrets = { REVENUECAT_API_KEY = "KIT_REVENUECAT_API_KEY" }
 `,
 		},
 		{
-			name:   "port-of-entry",
+			name:   "app-lima",
 			prefix: "",
 			manifest: `
 [project]
-name = "dick-passport"
+name = "app-oscar"
 project_name = "PortOfEntry"
 scheme = "PortOfEntry"
 
@@ -127,14 +127,14 @@ secrets = { REVENUECAT_API_KEY = "PORT_OF_ENTRY_REVENUECAT_API_KEY" }
 `,
 		},
 		{
-			name:   "multimeter",
+			name:   "golf",
 			prefix: "ios/",
 			manifest: `
 [project]
-name = "multimeter"
-project_name = "Multimeter"
-scheme = "Multimeter"
-secrets = { SENTRY_DSN = "MULTIMETER_SENTRY_DSN" }
+name = "golf"
+project_name = "Golf"
+scheme = "Golf"
+secrets = { SENTRY_DSN = "GOLF_SENTRY_DSN" }
 `,
 		},
 	}
@@ -200,18 +200,18 @@ secret_formats = { REVENUECAT_API_KEY = "appl_*" }
 			// Managed release EXCLUDED; the project's own release writes the
 			// declared file with a redirect for one leg and seeds it for the
 			// other. Its UI-test workflow also seeds it from the example.
-			name: "a-bible-verse-each-day",
+			name: "a-quebec-verse-each-day",
 			manifest: `
 [project]
-name = "a-bible-verse-each-day"
-project_name = "ABibleVerseEachDay"
-scheme = "ABibleVerseEachDay"
+name = "a-quebec-verse-each-day"
+project_name = "AQuebecVerseEachDay"
+scheme = "AQuebecVerseEachDay"
 exclude = [{ path = ".github/workflows/ios-release.yml", reason = "project-owned release" }]
 
 [[product]]
-name = "A Bible Verse Each Day"
-scheme = "ABibleVerseEachDay"
-bundle_id = "com.example.ABibleVerseEachDay"
+name = "A Quebec Verse Each Day"
+scheme = "AQuebecVerseEachDay"
+bundle_id = "com.example.AQuebecVerseEachDay"
 asc_app_id = "1234567890"
 secrets_file = "Config/Monetization.xcconfig"
 secrets = { REVENUECAT_PUBLIC_SDK_KEY = "REVENUECAT_PUBLIC_SDK_KEY", ADMOB_APPLICATION_ID = "ADMOB_APPLICATION_ID" }
@@ -256,13 +256,13 @@ secrets = { REVENUECAT_PUBLIC_SDK_KEY = "REVENUECAT_PUBLIC_SDK_KEY", ADMOB_APPLI
 			manifest: `
 [project]
 name = "rail"
-project_name = "Rail"
-scheme = "Rail"
+project_name = "Charlie"
+scheme = "Charlie"
 
 [[product]]
-name = "Rail"
-scheme = "Rail"
-bundle_id = "com.example.Rail"
+name = "Charlie"
+scheme = "Charlie"
+bundle_id = "com.example.Charlie"
 asc_app_id = "1234567890"
 secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
 `,
@@ -289,15 +289,15 @@ secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN"
 			},
 		},
 		{
-			// momfriend's own ios-release.yml: seed from the example, rewrite
+			// bravoapp's own ios-release.yml: seed from the example, rewrite
 			// through awk into a .tmp, then mv the .tmp into place. The seed alone
 			// is not a write; the mv is.
-			name: "momfriend",
+			name: "bravoapp",
 			manifest: `
 [project]
-name = "momfriend"
-project_name = "MomFriend"
-scheme = "MomFriend"
+name = "bravoapp"
+project_name = "BravoApp"
+scheme = "BravoApp"
 secrets = { PROXY_SECRET = "PROXY_SECRET", SENTRY_DSN = "SENTRY_DSN" }
 `,
 			workflows: func(t *testing.T) map[string]string {
@@ -309,33 +309,33 @@ secrets = { PROXY_SECRET = "PROXY_SECRET", SENTRY_DSN = "SENTRY_DSN" }
       - name: Create Secrets.xcconfig
         run: |
           if [ -f "ios/Secrets.xcconfig.example" ]; then
-            cp "ios/Secrets.xcconfig.example" "ios/MomFriend/Secrets.xcconfig"
+            cp "ios/Secrets.xcconfig.example" "ios/BravoApp/Secrets.xcconfig"
           fi
           : "${SENTRY_DSN:?SENTRY_DSN is not set}"
           awk -v proxy_secret="$PROXY_SECRET" -v sentry_dsn="$SENTRY_DSN" '
             /^PROXY_SECRET = / { print "PROXY_SECRET = " proxy_secret; next }
             /^SENTRY_DSN = / { print "SENTRY_DSN = " sentry_dsn; next }
             { print }
-          ' "ios/MomFriend/Secrets.xcconfig" > "ios/MomFriend/Secrets.xcconfig.tmp"
-          mv "ios/MomFriend/Secrets.xcconfig.tmp" "ios/MomFriend/Secrets.xcconfig"
+          ' "ios/BravoApp/Secrets.xcconfig" > "ios/BravoApp/Secrets.xcconfig.tmp"
+          mv "ios/BravoApp/Secrets.xcconfig.tmp" "ios/BravoApp/Secrets.xcconfig"
 `,
 				}
 			},
 		},
 		{
-			// dailybread cuts TestFlight builds from its own testflight.yml, which
+			// alphaapp cuts TestFlight builds from its own testflight.yml, which
 			// calls the managed writer; its managed ios-release.yml writes nothing.
-			name: "dailybread",
+			name: "alphaapp",
 			manifest: `
 [project]
-name = "dailybread"
-project_name = "DailyBread"
-scheme = "DailyBread"
+name = "alphaapp"
+project_name = "AlphaApp"
+scheme = "AlphaApp"
 secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
 `,
 			workflows: func(t *testing.T) map[string]string {
 				return map[string]string{
-					"ios-ci.yml":      managedCI(t, "DailyBread/"),
+					"ios-ci.yml":      managedCI(t, "AlphaApp/"),
 					"ios-release.yml": managedRelease(t, ""),
 					"testflight.yml": `jobs:
   testflight:
@@ -345,7 +345,7 @@ secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN"
           REVENUECAT_API_KEY: ${{ secrets.REVENUECAT_API_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
-          scripts/write-release-config.sh "DailyBread/Secrets.xcconfig" \
+          scripts/write-release-config.sh "AlphaApp/Secrets.xcconfig" \
             "REVENUECAT_API_KEY=appl_*" \
             "SENTRY_DSN=https://*"
 `,
@@ -378,7 +378,7 @@ secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN"
 func TestTheManagedWriterAsRenderedCounts(t *testing.T) {
 	for _, tc := range []struct{ prefix, secretsFile string }{
 		{"", ""},
-		{"Flare/", ""},
+		{"Delta/", ""},
 		{"ios/", "Config/Monetization.xcconfig"},
 	} {
 		manifest := `

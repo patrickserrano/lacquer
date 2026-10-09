@@ -27,9 +27,9 @@ func loadManifest(t *testing.T, dir, manifest string) *config.Config {
 
 const singleAppSecrets = `
 [project]
-name = "Flare"
-project_name = "Flare"
-scheme = "Flare"
+name = "Delta"
+project_name = "Delta"
+scheme = "Delta"
 secrets = { REVENUECAT_API_KEY = "FLARE_REVENUECAT_API_KEY", SENTRY_DSN = "FLARE_SENTRY_DSN" }
 `
 
@@ -43,7 +43,7 @@ func TestProjectSecretsWithNoWriterAreReported(t *testing.T) {
 	if len(fs) != 1 {
 		t.Fatalf("[project].secrets with nothing writing them was not reported: %+v", fs)
 	}
-	if fs[0].Product != "Flare" {
+	if fs[0].Product != "Delta" {
 		t.Errorf("Product = %q, want the project name", fs[0].Product)
 	}
 	if got := strings.Join(fs[0].Keys, ","); got != "REVENUECAT_API_KEY,SENTRY_DSN" {
@@ -62,7 +62,7 @@ func TestProjectSecretsWithNoWriterAreReported(t *testing.T) {
 }
 
 func TestProjectSecretsWithAWriterAreQuiet(t *testing.T) {
-	dir := inertRepo(t, "jobs:\n  release:\n    steps:\n      - name: Write release configuration (Flare)\n        run: scripts/write-release-config.sh \"Secrets.xcconfig\"\n")
+	dir := inertRepo(t, "jobs:\n  release:\n    steps:\n      - name: Write release configuration (Delta)\n        run: scripts/write-release-config.sh \"Secrets.xcconfig\"\n")
 	if fs := InertSecretDeclarations(dir, loadManifest(t, dir, singleAppSecrets)); len(fs) != 0 {
 		t.Fatalf("a single-app project whose release DOES write its secrets was flagged: %+v", fs)
 	}

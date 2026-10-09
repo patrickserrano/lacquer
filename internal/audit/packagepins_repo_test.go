@@ -69,16 +69,16 @@ func only(t *testing.T, fs []PinFinding, kind string) []PinFinding {
 	return out
 }
 
-// momfriend's exact case: exactVersion 9.26.0 in the pbxproj (for privacy
+// bravoapp's exact case: exactVersion 9.26.0 in the pbxproj (for privacy
 // verification), Dependabot bumped only Package.resolved to 9.28.0, and SPM
 // quietly resolved back to 9.26.0 at build time, so nothing ever went red.
-func TestPackagePinsMomfriendExactVersion(t *testing.T) {
-	resolved := "ios/MomFriend.xcodeproj/" + bundleResolved
-	pbx := "ios/MomFriend.xcodeproj/project.pbxproj"
+func TestPackagePinsBravoappExactVersion(t *testing.T) {
+	resolved := "ios/BravoApp.xcodeproj/" + bundleResolved
+	pbx := "ios/BravoApp.xcodeproj/project.pbxproj"
 	root := pinRepo(t, map[string]string{
-		pbx:                               pbxprojMomfriend,
-		resolved:                          resolvedMomfriend,
-		"ios/MomFriendCore/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: \"MomFriendCore\")\n",
+		pbx:                              pbxprojBravoapp,
+		resolved:                         resolvedBravoapp,
+		"ios/BravoAppCore/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: \"BravoAppCore\")\n",
 	}, nil)
 
 	fs := PackagePinFindings(root)
@@ -90,13 +90,13 @@ func TestPackagePinsMomfriendExactVersion(t *testing.T) {
 	if f.Package != "sentry-cocoa" || f.Resolved != resolved || f.Pinned != "9.28.0" {
 		t.Errorf("finding = %+v", f)
 	}
-	if want := lineOf(t, resolvedMomfriend, `"version" : "9.28.0"`, 1); f.Line != want {
+	if want := lineOf(t, resolvedBravoapp, `"version" : "9.28.0"`, 1); f.Line != want {
 		t.Errorf("resolved line = %d, want %d", f.Line, want)
 	}
-	if f.Req == nil || f.Req.File != pbx || f.Req.Line != lineOf(t, pbxprojMomfriend, "requirement = {", 1) {
+	if f.Req == nil || f.Req.File != pbx || f.Req.Line != lineOf(t, pbxprojBravoapp, "requirement = {", 1) {
 		t.Errorf("requirement = %+v", f.Req)
 	}
-	// aptabase and purchases-ios-spm satisfy their requirements; MomFriendCore
+	// aptabase and purchases-ios-spm satisfy their requirements; BravoAppCore
 	// declares nothing. Nothing else to say beyond the summary.
 	if k := kinds(fs); len(fs) != 2 || k[PinChecked] != 1 {
 		t.Errorf("findings = %+v; want the summary and the violation", fs)
@@ -125,8 +125,8 @@ func TestPackagePinsMomfriendExactVersion(t *testing.T) {
 // what Dependabot bumps or what a checkout builds.
 func TestPackagePinsIgnoresUntrackedResolved(t *testing.T) {
 	root := pinRepo(t,
-		map[string]string{"App.xcodeproj/project.pbxproj": pbxprojMomfriend},
-		map[string]string{"App.xcodeproj/" + bundleResolved: resolvedMomfriend})
+		map[string]string{"App.xcodeproj/project.pbxproj": pbxprojBravoapp},
+		map[string]string{"App.xcodeproj/" + bundleResolved: resolvedBravoapp})
 	if fs := PackagePinFindings(root); len(fs) != 0 {
 		t.Errorf("findings = %+v; want none for an untracked Package.resolved", fs)
 	}
@@ -138,11 +138,11 @@ func TestPackagePinsIgnoresUntrackedResolved(t *testing.T) {
 // A project whose resolved file satisfies everything says so, in one line —
 // "checked and fine" must not look like "never looked".
 func TestPackagePinsCleanProjectSaysWhatItChecked(t *testing.T) {
-	fixed := strings.Replace(resolvedMomfriend, `"version" : "9.28.0"`, `"version" : "9.26.0"`, 1)
+	fixed := strings.Replace(resolvedBravoapp, `"version" : "9.28.0"`, `"version" : "9.26.0"`, 1)
 	root := pinRepo(t, map[string]string{
-		"App.xcodeproj/project.pbxproj":   pbxprojMomfriend,
+		"App.xcodeproj/project.pbxproj":   pbxprojBravoapp,
 		"App.xcodeproj/" + bundleResolved: fixed,
-		"MomFriendCore/Package.swift":     "// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: \"MomFriendCore\")\n",
+		"BravoAppCore/Package.swift":      "// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: \"BravoAppCore\")\n",
 	}, nil)
 	fs := PackagePinFindings(root)
 	if k := kinds(fs); k[PinViolates] != 0 || k[PinUnpinned] != 0 || k[PinUnrequired] != 0 {
@@ -161,7 +161,7 @@ func TestPackagePinsCleanProjectSaysWhatItChecked(t *testing.T) {
 // notes: the first is a stale lockfile, the second is usually a transitive
 // dependency. Neither is the lockfile contradicting a requirement.
 func TestPackagePinsUnpinnedAndUnrequiredAreNotes(t *testing.T) {
-	pbx := strings.Replace(pbxprojMomfriend, "/* End XCRemoteSwiftPackageReference section */",
+	pbx := strings.Replace(pbxprojBravoapp, "/* End XCRemoteSwiftPackageReference section */",
 		`		B00000000000000000000001 /* XCRemoteSwiftPackageReference "swift-collections" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/apple/swift-collections";
@@ -171,7 +171,7 @@ func TestPackagePinsUnpinnedAndUnrequiredAreNotes(t *testing.T) {
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */`, 1)
-	resolved := strings.Replace(resolvedMomfriend, `  "pins" : [`, `  "pins" : [
+	resolved := strings.Replace(resolvedBravoapp, `  "pins" : [`, `  "pins" : [
     {
       "identity" : "swift-log",
       "kind" : "remoteSourceControl",
@@ -214,7 +214,7 @@ func TestPackagePinsXcodeGenWithoutPbxproj(t *testing.T) {
 	yml := "name: App\npackages:\n  Sentry:\n    url: https://github.com/getsentry/sentry-cocoa.git\n    exactVersion: 9.26.0\n  Aptabase:\n    url: https://github.com/aptabase/aptabase-swift\n    minorVersion: 0.3.11\n  RevenueCat:\n    url: https://github.com/RevenueCat/purchases-ios-spm\n    from: 5.0.0\n"
 	root := pinRepo(t, map[string]string{
 		"ios/project.yml":                     yml,
-		"ios/App.xcodeproj/" + bundleResolved: resolvedMomfriend,
+		"ios/App.xcodeproj/" + bundleResolved: resolvedBravoapp,
 	}, nil)
 	fs := PackagePinFindings(root)
 	v := only(t, fs, PinViolates)
@@ -234,10 +234,10 @@ func TestPackagePinsXcodeGenWithoutPbxproj(t *testing.T) {
 // generate will change the requirement.
 func TestPackagePinsPbxprojWinsOverProjectYml(t *testing.T) {
 	yml := "name: App\npackages:\n  Sentry:\n    url: https://github.com/getsentry/sentry-cocoa\n    from: 9.27.0\n  Aptabase:\n    url: https://github.com/aptabase/aptabase-swift\n    from: 0.3.11\n"
-	fixed := strings.Replace(resolvedMomfriend, `"version" : "9.28.0"`, `"version" : "9.26.0"`, 1)
+	fixed := strings.Replace(resolvedBravoapp, `"version" : "9.28.0"`, `"version" : "9.26.0"`, 1)
 	root := pinRepo(t, map[string]string{
 		"project.yml":                     yml,
-		"App.xcodeproj/project.pbxproj":   pbxprojMomfriend,
+		"App.xcodeproj/project.pbxproj":   pbxprojBravoapp,
 		"App.xcodeproj/" + bundleResolved: fixed,
 	}, nil)
 	fs := PackagePinFindings(root)
@@ -300,11 +300,11 @@ func TestPackagePinsIncomparableRequirementIsNotAPass(t *testing.T) {
 // transitive; the summary says so rather than "all satisfied" alone.
 func TestPackagePinsSummaryCountsUnreadDeclarations(t *testing.T) {
 	root := pinRepo(t, map[string]string{
-		"App.xcodeproj/project.pbxproj":   pbxprojMomfriend,
-		"App.xcodeproj/" + bundleResolved: strings.Replace(resolvedMomfriend, `"version" : "9.28.0"`, `"version" : "9.26.0"`, 1),
+		"App.xcodeproj/project.pbxproj":   pbxprojBravoapp,
+		"App.xcodeproj/" + bundleResolved: strings.Replace(resolvedBravoapp, `"version" : "9.28.0"`, `"version" : "9.26.0"`, 1),
 	}, nil)
 	out := FormatPackagePins(PackagePinFindings(root))
-	if !strings.Contains(out, "all satisfied; 1 declaration not read (see notes)") || !strings.Contains(out, "MomFriendCore  not checked") {
+	if !strings.Contains(out, "all satisfied; 1 declaration not read (see notes)") || !strings.Contains(out, "BravoAppCore  not checked") {
 		t.Errorf("unread local package not surfaced:\n%s", out)
 	}
 }
@@ -347,19 +347,19 @@ func TestPackagePinsSwiftPackageFollowsLocalDependencies(t *testing.T) {
 // audit could not read is reported as not checked, never guessed.
 func TestPackagePinsPbxprojLocalPackageAndUnchecked(t *testing.T) {
 	root := pinRepo(t, map[string]string{
-		"App.xcodeproj/project.pbxproj":   pbxprojMomfriend,
-		"App.xcodeproj/" + bundleResolved: strings.Replace(resolvedMomfriend, `"version" : "9.28.0"`, `"version" : "9.26.0"`, 1),
-		"MomFriendCore/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\nlet v = \"1.0.0\"\nlet package = Package(name: \"MomFriendCore\", dependencies: [\n" +
+		"App.xcodeproj/project.pbxproj":   pbxprojBravoapp,
+		"App.xcodeproj/" + bundleResolved: strings.Replace(resolvedBravoapp, `"version" : "9.28.0"`, `"version" : "9.26.0"`, 1),
+		"BravoAppCore/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\nlet v = \"1.0.0\"\nlet package = Package(name: \"BravoAppCore\", dependencies: [\n" +
 			"    .package(url: \"https://github.com/aptabase/aptabase-swift.git\", exact: \"0.3.10\"),\n" +
 			"    .package(url: \"https://github.com/example/computed\", from: v),\n])\n",
 	}, nil)
 	fs := PackagePinFindings(root)
 	v := only(t, fs, PinViolates)
-	if len(v) != 1 || v[0].Package != "aptabase-swift" || v[0].Req.File != "MomFriendCore/Package.swift" || v[0].Req.Line != 5 {
+	if len(v) != 1 || v[0].Package != "aptabase-swift" || v[0].Req.File != "BravoAppCore/Package.swift" || v[0].Req.Line != 5 {
 		t.Fatalf("violations = %+v; findings = %+v", v, fs)
 	}
 	u := only(t, fs, PinUnchecked)
-	if len(u) != 1 || u[0].File != "MomFriendCore/Package.swift" || u[0].Line != 6 {
+	if len(u) != 1 || u[0].File != "BravoAppCore/Package.swift" || u[0].Line != 6 {
 		t.Fatalf("unchecked = %+v; findings = %+v", u, fs)
 	}
 	if !strings.Contains(FormatPackagePins(fs), "not checked") {
@@ -374,16 +374,16 @@ func TestPackagePinsStandaloneWorkspace(t *testing.T) {
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:ios/MomFriend.xcodeproj">
+      location = "group:ios/BravoApp.xcodeproj">
    </FileRef>
 </Workspace>
 `,
-		"App.xcworkspace/xcshareddata/swiftpm/Package.resolved": resolvedMomfriend,
-		"ios/MomFriend.xcodeproj/project.pbxproj":               pbxprojMomfriend,
+		"App.xcworkspace/xcshareddata/swiftpm/Package.resolved": resolvedBravoapp,
+		"ios/BravoApp.xcodeproj/project.pbxproj":                pbxprojBravoapp,
 	}, nil)
 	fs := PackagePinFindings(root)
 	v := only(t, fs, PinViolates)
-	if len(v) != 1 || v[0].Package != "sentry-cocoa" || v[0].Req.File != "ios/MomFriend.xcodeproj/project.pbxproj" {
+	if len(v) != 1 || v[0].Package != "sentry-cocoa" || v[0].Req.File != "ios/BravoApp.xcodeproj/project.pbxproj" {
 		t.Fatalf("findings = %+v", fs)
 	}
 }
@@ -392,11 +392,11 @@ func TestPackagePinsStandaloneWorkspace(t *testing.T) {
 // is said — never a clean result.
 func TestPackagePinsUnreadableIsReported(t *testing.T) {
 	root := pinRepo(t, map[string]string{
-		"A.xcodeproj/project.pbxproj":   pbxprojMomfriend,
+		"A.xcodeproj/project.pbxproj":   pbxprojBravoapp,
 		"A.xcodeproj/" + bundleResolved: "{ not json",
 		"B.xcodeproj/project.pbxproj":   "{ objects = { X = { isa = XCRemoteSwiftPackageReference; ",
-		"B.xcodeproj/" + bundleResolved: resolvedMomfriend,
-		"C.xcodeproj/" + bundleResolved: resolvedMomfriend,
+		"B.xcodeproj/" + bundleResolved: resolvedBravoapp,
+		"C.xcodeproj/" + bundleResolved: resolvedBravoapp,
 	}, nil)
 	fs := PackagePinFindings(root)
 	u := only(t, fs, PinUnchecked)
@@ -416,8 +416,8 @@ func TestPackagePinsUnreadableIsReported(t *testing.T) {
 
 func itoa(n int) string { return strconv.Itoa(n) }
 
-// momfriend's pbxproj, trimmed to the package sections.
-const pbxprojMomfriend = `// !$*UTF8*$!
+// bravoapp's pbxproj, trimmed to the package sections.
+const pbxprojBravoapp = `// !$*UTF8*$!
 {
 	archiveVersion = 1;
 	classes = {
@@ -426,9 +426,9 @@ const pbxprojMomfriend = `// !$*UTF8*$!
 	objects = {
 
 /* Begin XCLocalSwiftPackageReference section */
-		F34E09373030F66F00A9D293 /* XCLocalSwiftPackageReference "MomFriendCore" */ = {
+		F34E09373030F66F00A9D293 /* XCLocalSwiftPackageReference "BravoAppCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = MomFriendCore;
+			relativePath = BravoAppCore;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -460,10 +460,10 @@ const pbxprojMomfriend = `// !$*UTF8*$!
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		F34E09383030F9F500A9D293 /* MomFriendCore */ = {
+		F34E09383030F9F500A9D293 /* BravoAppCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F34E09373030F66F00A9D293 /* XCLocalSwiftPackageReference "MomFriendCore" */;
-			productName = MomFriendCore;
+			package = F34E09373030F66F00A9D293 /* XCLocalSwiftPackageReference "BravoAppCore" */;
+			productName = BravoAppCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -8,10 +8,10 @@
 //
 //   - A selector naming a target the project does not have. Measured in `steps`:
 //     the manifest derived `test_target` from the product's DISPLAY name
-//     ("Steps Lite"), producing `Steps LiteTests`, which exists nowhere. 91 unit
+//     ("Mike Lite"), producing `Mike LiteTests`, which exists nowhere. 91 unit
 //     tests were selected by a name matching nothing.
 //   - A test target the project has that no selector names. Measured in
-//     dailybread, three times: a widget suite, a watch suite that did not even
+//     alphaapp, three times: a widget suite, a watch suite that did not even
 //     compile under Swift 6, and a UI suite that had never run at all. Each was
 //     found months later and by accident.
 //
@@ -56,7 +56,7 @@ type Target struct {
 var (
 	nativeTarget = regexp.MustCompile(`isa = PBXNativeTarget;`)
 	// Xcode quotes a name only when it needs to, so both forms occur — and the
-	// quoted form is not exotic: "DailyBreadWatchApp Watch AppTests" is a real
+	// quoted form is not exotic: "AlphaAppWatchApp Watch AppTests" is a real
 	// target in this fleet.
 	nameLine    = regexp.MustCompile(`^\s*name = (?:"([^"]*)"|([A-Za-z0-9_.\-]+));`)
 	productLine = regexp.MustCompile(`^\s*productType = "([^"]*)";`)
@@ -73,8 +73,8 @@ const (
 // as whether it declares any test targets — and conflating them is how this
 // check produced its first false positive. `lacquer audit` runs against
 // projects with no .xcodeproj at all (a Swift package, a web component), and
-// against manifests that name one which does not exist yet: multimeter declares
-// `xcodeproj = "ios/Multimeter.xcodeproj"` and says in its own comment that the
+// against manifests that name one which does not exist yet: golf declares
+// `xcodeproj = "ios/Golf.xcodeproj"` and says in its own comment that the
 // file is still to be created. Treating "could not read it" as "it contains
 // nothing" made every selector look like it named a target the project did not
 // have. The absence of a project is not evidence about the selectors.
@@ -313,7 +313,7 @@ func Format(r Report) string {
 		b.WriteString("    run in months is as likely to be testing an app that changed under it.\n")
 		// The one resolution that is neither wiring nor deleting: a suite run on
 		// purpose somewhere CI cannot reach. Without this line it had no honest
-		// answer and stayed here forever (momfriend's MomFriendCoreTests).
+		// answer and stayed here forever (bravoapp's BravoAppCoreTests).
 		b.WriteString("    A suite deliberately run only outside CI (on a device, by hand) can say so\n")
 		b.WriteString("    in [[project.not_run_in_ci]], with a reason and an until date.\n")
 		if packages {

@@ -24,7 +24,7 @@
 // A queue that depends on someone remembering to write to it rots, and the
 // first version of this package proved it: every entry existed because a human
 // or an agent ran `lacquer console inbox add`, and the evidence that this fails
-// was on the machine already (~/Developer/fleet-ops/sessions.jsonl has ten
+// was on the machine already (~/Developer/fleet-repo/sessions.jsonl has ten
 // entries, all from one day, with nothing since). So the writers now sit in the
 // processes that see the events (internal/producers, internal/cirounds):
 //

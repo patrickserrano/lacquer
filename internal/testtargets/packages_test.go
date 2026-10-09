@@ -10,14 +10,14 @@ import (
 // railPbx is rail's project.pbxproj, cut down to what the audit reads: one
 // native unit-test bundle, and the two XCLocalSwiftPackageReference blocks
 // XcodeGen writes for `packages: { RailCore: { path: RailCore }, ... }`. The
-// package suites are NOT native targets — they appear only in the Rail scheme's
+// package suites are NOT native targets — they appear only in the Charlie scheme's
 // TestAction, whose BuildableReference points at `container:RailCore`.
 const railPbx = `// !$*UTF8*$!
 {
 	objects = {
-		357A64A766E9A0A0C0C8619F /* Rail */ = {
+		357A64A766E9A0A0C0C8619F /* Charlie */ = {
 			isa = PBXNativeTarget;
-			name = Rail;
+			name = Charlie;
 			productType = "com.apple.product-type.application";
 		};
 		E50ACDC4AAA70FB86B4E0579 /* RailTests */ = {
@@ -125,10 +125,10 @@ func writeProject(t *testing.T, xcodeproj string, files map[string]string) strin
 }
 
 func railProject(t *testing.T) string {
-	return writeProject(t, "Rail.xcodeproj", map[string]string{
-		"Rail.xcodeproj/project.pbxproj": railPbx,
-		"RailCore/Package.swift":         railCorePackage,
-		"RailData/Package.swift":         railDataPackage,
+	return writeProject(t, "Charlie.xcodeproj", map[string]string{
+		"Charlie.xcodeproj/project.pbxproj": railPbx,
+		"RailCore/Package.swift":            railCorePackage,
+		"RailData/Package.swift":            railDataPackage,
 	})
 }
 
@@ -194,8 +194,8 @@ func TestPackageLibraryTargetIsNotATestTarget(t *testing.T) {
 // repository — or one reachable only as another package's dependency — has test
 // targets no scheme of this project can select.
 func TestUnreferencedPackageDoesNotCount(t *testing.T) {
-	pbx := writeProject(t, "Rail.xcodeproj", map[string]string{
-		"Rail.xcodeproj/project.pbxproj": strings.Replace(railPbx,
+	pbx := writeProject(t, "Charlie.xcodeproj", map[string]string{
+		"Charlie.xcodeproj/project.pbxproj": strings.Replace(railPbx,
 			"relativePath = RailData;", "relativePath = Elsewhere;", 1),
 		"RailCore/Package.swift":  railCorePackage,
 		"RailData/Package.swift":  railDataPackage,
@@ -208,7 +208,7 @@ func TestUnreferencedPackageDoesNotCount(t *testing.T) {
 }
 
 // relativePath is relative to the directory holding the .xcodeproj, not to the
-// repository root. flare's real shape: Flare/Flare.xcodeproj references
+// repository root. flare's real shape: Delta/Delta.xcodeproj references
 // `../FlareCore`.
 func TestRelativePathResolvesFromTheXcodeprojDirectory(t *testing.T) {
 	pbx := writeProject(t, "App/App.xcodeproj", map[string]string{
@@ -225,11 +225,11 @@ func TestRelativePathResolvesFromTheXcodeprojDirectory(t *testing.T) {
 
 // A path with spaces is quoted in project.pbxproj.
 func TestQuotedRelativePath(t *testing.T) {
-	pbx := writeProject(t, "Rail.xcodeproj", map[string]string{
-		"Rail.xcodeproj/project.pbxproj": strings.Replace(railPbx,
-			"relativePath = RailCore;", `relativePath = "Packages/Rail Core";`, 1),
-		"Packages/Rail Core/Package.swift": railCorePackage,
-		"RailData/Package.swift":           railDataPackage,
+	pbx := writeProject(t, "Charlie.xcodeproj", map[string]string{
+		"Charlie.xcodeproj/project.pbxproj": strings.Replace(railPbx,
+			"relativePath = RailCore;", `relativePath = "Packages/Charlie Core";`, 1),
+		"Packages/Charlie Core/Package.swift": railCorePackage,
+		"RailData/Package.swift":              railDataPackage,
 	})
 	r := Compare(parsePath(t, pbx), railSelectors)
 	if len(r.Missing) != 0 || len(r.Unverified) != 0 {
@@ -244,9 +244,9 @@ func TestQuotedRelativePath(t *testing.T) {
 // would be the audit passing something it did not check. It is reported as
 // neither: unverified, with the reason.
 func TestUnreadablePackageMakesTheSelectorUnverifiedNotMissing(t *testing.T) {
-	pbx := writeProject(t, "Rail.xcodeproj", map[string]string{
-		"Rail.xcodeproj/project.pbxproj": railPbx,
-		"RailCore/Package.swift":         railCorePackage,
+	pbx := writeProject(t, "Charlie.xcodeproj", map[string]string{
+		"Charlie.xcodeproj/project.pbxproj": railPbx,
+		"RailCore/Package.swift":            railCorePackage,
 		// RailData/Package.swift deliberately absent.
 	})
 	r := Compare(parsePath(t, pbx), railSelectors)
@@ -267,10 +267,10 @@ func TestUnreadablePackageMakesTheSelectorUnverifiedNotMissing(t *testing.T) {
 // A package reference the audit cannot even locate is the same "could not look".
 // Skipping it would turn every selector it could explain into "missing".
 func TestPackageReferenceWithoutAPathIsUnverified(t *testing.T) {
-	pbx := writeProject(t, "Rail.xcodeproj", map[string]string{
-		"Rail.xcodeproj/project.pbxproj": strings.Replace(railPbx, "\t\t\trelativePath = RailData;\n", "", 1),
-		"RailCore/Package.swift":         railCorePackage,
-		"RailData/Package.swift":         railDataPackage,
+	pbx := writeProject(t, "Charlie.xcodeproj", map[string]string{
+		"Charlie.xcodeproj/project.pbxproj": strings.Replace(railPbx, "\t\t\trelativePath = RailData;\n", "", 1),
+		"RailCore/Package.swift":            railCorePackage,
+		"RailData/Package.swift":            railDataPackage,
 	})
 	r := Compare(parsePath(t, pbx), railSelectors)
 	if len(r.Missing) != 0 || strings.Join(r.Unverified, "|") != "RailDataTests" {
@@ -282,9 +282,9 @@ func TestPackageReferenceWithoutAPathIsUnverified(t *testing.T) {
 // A selector the readable places already account for is fine, and one they do
 // not is unverified — never quietly covered.
 func TestUnreadablePackageDoesNotCoverEverything(t *testing.T) {
-	pbx := writeProject(t, "Rail.xcodeproj", map[string]string{
-		"Rail.xcodeproj/project.pbxproj": railPbx,
-		"RailCore/Package.swift":         railCorePackage,
+	pbx := writeProject(t, "Charlie.xcodeproj", map[string]string{
+		"Charlie.xcodeproj/project.pbxproj": railPbx,
+		"RailCore/Package.swift":            railCorePackage,
 	})
 	r := Compare(parsePath(t, pbx), []string{"RailTests", "RailCoreTests", "RailDataTests", "RailSyncTests"})
 	if strings.Join(r.Unverified, "|") != "RailDataTests|RailSyncTests" {
@@ -303,10 +303,10 @@ func TestCommentedOutTestTargetDoesNotCount(t *testing.T) {
 			"        /* .testTarget(\n            name: \"RailOldTests\"\n        ), */\n"+
 			// Swift block comments nest: the inner */ does not end the outer one.
 			"        /* retired: /* flaky */ .testTarget(name: \"RailNestedTests\"), */\n    ]\n)\n", 1)
-	pbx := writeProject(t, "Rail.xcodeproj", map[string]string{
-		"Rail.xcodeproj/project.pbxproj": railPbx,
-		"RailCore/Package.swift":         core,
-		"RailData/Package.swift":         railDataPackage,
+	pbx := writeProject(t, "Charlie.xcodeproj", map[string]string{
+		"Charlie.xcodeproj/project.pbxproj": railPbx,
+		"RailCore/Package.swift":            core,
+		"RailData/Package.swift":            railDataPackage,
 	})
 	r := Compare(parsePath(t, pbx), []string{"RailTests", "RailCoreTests", "RailLegacyTests", "RailNestedTests", "RailOldTests"})
 	if strings.Join(r.Missing, "|") != "RailLegacyTests|RailNestedTests|RailOldTests" {
@@ -326,10 +326,10 @@ func TestCommentMarkersInStringsAreNotComments(t *testing.T) {
 `, `            name: "RailCore",
             exclude: ["Fixtures/*.json"],
 `, 1)
-	pbx := writeProject(t, "Rail.xcodeproj", map[string]string{
-		"Rail.xcodeproj/project.pbxproj": railPbx,
-		"RailCore/Package.swift":         core,
-		"RailData/Package.swift":         railDataPackage,
+	pbx := writeProject(t, "Charlie.xcodeproj", map[string]string{
+		"Charlie.xcodeproj/project.pbxproj": railPbx,
+		"RailCore/Package.swift":            core,
+		"RailData/Package.swift":            railDataPackage,
 	})
 	r := Compare(parsePath(t, pbx), railSelectors)
 	if len(r.Missing) != 0 || len(r.Unverified) != 0 {
@@ -340,18 +340,18 @@ func TestCommentMarkersInStringsAreNotComments(t *testing.T) {
 // A test target whose name is computed rather than written — a loop, a
 // concatenation — cannot be read without running Swift. The package is then only
 // partly read, which is "could not look" for anything it might name. A
-// concatenation that STARTS with a literal is the trap: "Rail" is not the name.
+// concatenation that STARTS with a literal is the trap: "Charlie" is not the name.
 func TestComputedTestTargetNameIsUnverified(t *testing.T) {
 	for _, call := range []string{
 		`.testTarget(name: base + "SnapshotTests")`,
-		`.testTarget(name: "Rail" + "SnapshotTests")`,
+		`.testTarget(name: "Charlie" + "SnapshotTests")`,
 	} {
 		t.Run(call, func(t *testing.T) {
 			core := strings.Replace(railCorePackage, "    ]\n)\n", "        "+call+",\n    ]\n)\n", 1)
-			pbx := writeProject(t, "Rail.xcodeproj", map[string]string{
-				"Rail.xcodeproj/project.pbxproj": railPbx,
-				"RailCore/Package.swift":         core,
-				"RailData/Package.swift":         railDataPackage,
+			pbx := writeProject(t, "Charlie.xcodeproj", map[string]string{
+				"Charlie.xcodeproj/project.pbxproj": railPbx,
+				"RailCore/Package.swift":            core,
+				"RailData/Package.swift":            railDataPackage,
 			})
 			r := Compare(parsePath(t, pbx), append(append([]string{}, railSelectors...), "RailSnapshotTests"))
 			if len(r.Missing) != 0 {

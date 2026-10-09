@@ -1,7 +1,7 @@
 // Package shadow finds project-owned workflows that release a build alongside
 // the lacquer's own release workflow.
 //
-// The failure it exists for: dailybread carried BOTH the managed
+// The failure it exists for: alphaapp carried BOTH the managed
 // `ios-release.yml` and a project-owned `testflight.yml`, and the project-owned
 // one is what cut builds 313 through 317. Every hardening on the managed path
 // was bypassed on the path that actually shipped: no provenance gate, no
@@ -95,7 +95,7 @@ var riskProbes = []riskProbe{
 // Check returns every project-owned workflow that releases a build while a
 // managed release workflow is present.
 //
-// The second condition is what keeps this honest. windsock ships a
+// The second condition is what keeps this honest. foxtrot ships a
 // project-owned `macos-release.yml` and EXCLUDES `ios-release.yml`, with a
 // recorded reason: it is a macOS-only app and the generic iOS archive workflow
 // does not apply. That is a declared replacement, not a shadow, and flagging it

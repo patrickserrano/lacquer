@@ -37,9 +37,9 @@ import (
 //     2026-09-18: a package with one product gets one scheme, named after the
 //     PACKAGE, and it runs every test target; with several products it is
 //     `<package>-Package` that runs them, and a product's own scheme has no test
-//     action (xcodebuild refuses, loudly). sleevetap runs its SleevetapNFC
+//     action (xcodebuild refuses, loudly). hotel runs its HotelNFC
 //     package's 91 tests exactly this way, through `flowdeck test -w
-//     .swiftpm/xcode/package.xcworkspace -s SleevetapNFC`.
+//     .swiftpm/xcode/package.xcworkspace -s HotelNFC`.
 //
 // Where a command runs is the step's `working-directory:`, else the job's
 // `defaults.run.working-directory`, else the workflow's, else the repository
@@ -52,7 +52,7 @@ import (
 // are data, not commands, and are skipped.
 //
 // WHAT DOES NOT: `swift build --build-tests` (it compiles the suite and runs
-// none of it — momfriend does exactly this, deliberately), a `swift test` in any
+// none of it — bravoapp does exactly this, deliberately), a `swift test` in any
 // other directory, an `echo` of the command, anything in a comment, a workflow
 // only `workflow_dispatch` or `schedule` starts, and build-for-testing. Nor a
 // command the reader does not recognise — `make`, fastlane, a script outside the
@@ -671,7 +671,7 @@ func isFile(root, rel string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
-// packageWorkspace is the workspace wrapper Xcode (and sleevetap's verify.sh)
+// packageWorkspace is the workspace wrapper Xcode (and hotel's verify.sh)
 // puts inside a package so xcodebuild -workspace can open it.
 const packageWorkspace = ".swiftpm/xcode/package.xcworkspace"
 

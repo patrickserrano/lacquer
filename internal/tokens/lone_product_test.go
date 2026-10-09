@@ -14,8 +14,8 @@ import (
 // what flare does today.
 func TestLoneProductSuppliesProjectTokens(t *testing.T) {
 	cfg := &config.Config{
-		Project: config.Project{ProjectName: "Flare"},
-		Product: []config.Product{{Name: "Flare", Scheme: "FlareScheme", BundleID: "com.x.flare", AscAppID: "123"}},
+		Project: config.Project{ProjectName: "Delta"},
+		Product: []config.Product{{Name: "Delta", Scheme: "FlareScheme", BundleID: "com.x.flare", AscAppID: "123"}},
 	}
 	v := Values(cfg, "")
 	for tok, want := range map[string]string{Scheme: "FlareScheme", BundleID: "com.x.flare", AscAppID: "123"} {
@@ -29,8 +29,8 @@ func TestLoneProductSuppliesProjectTokens(t *testing.T) {
 // does not override what the manifest said at the project level.
 func TestProjectTokensWinOverALoneProduct(t *testing.T) {
 	cfg := &config.Config{
-		Project: config.Project{ProjectName: "Flare", Scheme: "ProjScheme", BundleID: "com.x.proj", AscAppID: "999"},
-		Product: []config.Product{{Name: "Flare", Scheme: "FlareScheme", BundleID: "com.x.flare", AscAppID: "123"}},
+		Project: config.Project{ProjectName: "Delta", Scheme: "ProjScheme", BundleID: "com.x.proj", AscAppID: "999"},
+		Product: []config.Product{{Name: "Delta", Scheme: "FlareScheme", BundleID: "com.x.flare", AscAppID: "123"}},
 	}
 	v := Values(cfg, "")
 	for tok, want := range map[string]string{Scheme: "ProjScheme", BundleID: "com.x.proj", AscAppID: "999"} {

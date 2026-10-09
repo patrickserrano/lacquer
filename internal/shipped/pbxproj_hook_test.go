@@ -13,7 +13,7 @@ import (
 // The iOS profile's PreToolUse hook blocks Edit/Write on Xcode project files.
 // Its non-XcodeGen message used to say "Create Swift files and add them to the
 // target in Xcode." That sent the operator into Xcode for every version bump
-// (flare 1.0.1, dailybread 1.9), and Xcode then rewrote unrelated project lines
+// (flare 1.0.1, alphaapp 1.9), and Xcode then rewrote unrelated project lines
 // (lacquer#410). The BLOCK is right — a hand-edit of a .pbxproj is how a project
 // stops building — so these tests pin both halves: the hook still blocks, and
 // what it says now names the two sanctioned paths.

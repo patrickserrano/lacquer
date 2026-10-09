@@ -24,8 +24,8 @@ import (
 //	##[error].lacquer.lock is missing, so there is no synced version to prove
 //	the checks against. Run `lacquer sync` to establish the baseline.
 //
-// Single-component projects stayed green throughout — momfriend (admin/,
-// server/) and multimeter were the only casualties. A comment cannot carry
+// Single-component projects stayed green throughout — bravoapp (admin/,
+// server/) and golf were the only casualties. A comment cannot carry
 // that, because the person adding the next step reads the step above it, and
 // the step above it was already correct.
 func TestComponentJobsPinStepsThatReadRepoRootFiles(t *testing.T) {

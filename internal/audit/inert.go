@@ -17,7 +17,7 @@ import (
 // simply is not in the project, the declaration is inert — it reads as
 // configured, it survives review, and it produces nothing.
 //
-// a-bible-verse-each-day is the live case. It declares three keys with
+// a-quebec-verse-each-day is the live case. It declares three keys with
 // `secret_formats` shape checks:
 //
 //	secrets = { REVENUECAT_PUBLIC_SDK_KEY = ..., ADMOB_APPLICATION_ID = ..., ... }
@@ -72,7 +72,7 @@ const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 // Any one of those satisfied a substring match, so on every project using the
 // default path CI's placeholders counted as the release writing real values,
 // and the audit could not fire. flare shipped a REPLACE_ME RevenueCat key; kit,
-// port-of-entry and multimeter archive with empty keys.
+// app-lima and golf archive with empty keys.
 //
 // A write, here, is exactly one of:
 //
@@ -81,7 +81,7 @@ const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 //   - an output redirection (`>`, `>>`, `>|`, `&>`) into the file;
 //   - the destination of `cp`, `mv` or `install`, unless every source is a
 //     `.example` — copying the committed template into place is a placeholder
-//     seed, whichever workflow does it (momfriend's release seeds first and
+//     seed, whichever workflow does it (bravoapp's release seeds first and
 //     writes afterwards, and the write is what counts);
 //   - a `tee` operand, or the file operand of an in-place `sed -i`.
 //
@@ -89,15 +89,15 @@ const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 // Secrets.xcconfig.example, Secrets.xcconfig.tmp and OldSecrets.xcconfig are
 // other files. The declared path is relative to the component while a
 // workflow runs from the repository root, so a writer naming it under a
-// directory (Flare/Secrets.xcconfig, ios/MomFriend/Secrets.xcconfig) counts.
+// directory (Delta/Secrets.xcconfig, ios/BravoApp/Secrets.xcconfig) counts.
 //
 // The rule is decided by what a command does, never by which workflow holds it
 // or what a step is called: the first version of this audit keyed on the
 // managed step's NAME and reported a correct hand-rolled writer as broken
 // (CLAUDE.md, "Three defects"). Every writer the fleet actually has is one of
-// the shapes above: the managed call (Steps, flare, dailybread's testflight.yml),
+// the shapes above: the managed call (Steps, flare, alphaapp's testflight.yml),
 // a redirection after a multi-line sed (rail), an awk into a .tmp then `mv`
-// (momfriend), a redirection from a block (a-bible-verse-each-day).
+// (bravoapp), a redirection from a block (a-quebec-verse-each-day).
 //
 // What it still over-accepts, deliberately, because a false "not written" is
 // what teaches people the finding is noise: the managed writer called with no
@@ -345,7 +345,7 @@ func InertSecretDeclarations(projectRoot string, cfg *config.Config) []InertSecr
 	// "Write release configuration" — the managed step's name — and that was
 	// wrong in the direction that matters.
 	//
-	// a-bible-verse-each-day declares secrets_file = "Config/Monetization.xcconfig"
+	// a-quebec-verse-each-day declares secrets_file = "Config/Monetization.xcconfig"
 	// and excludes ios-release.yml, so the managed step is genuinely absent. But
 	// its project-owned release carries a hand-rolled step, "Create protected
 	// runtime configuration", that reads all three secrets, FAILS CLOSED on any

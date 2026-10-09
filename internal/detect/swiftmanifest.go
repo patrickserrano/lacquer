@@ -26,7 +26,7 @@ import (
 //	Package.resolved file.
 //
 // That aborted the whole Dependabot job — github-actions updates included — daily
-// in three repositories (Queueify, rail, windsock), while the file it was
+// in three repositories (Queueify, rail, foxtrot), while the file it was
 // rendered from looked completely correct.
 //
 // The rules below are not read off Dependabot's documentation; they are what this
@@ -35,10 +35,10 @@ import (
 //   - Steps: swift PRs open, entry at "/", Package.resolved committed inside
 //     Steps.xcodeproj at the root.
 //   - kit: swift PRs open, entry at "/", Package.resolved committed inside
-//     Kit/Kit.xcodeproj — a directory LEVEL BELOW the entry. So the search for a
+//     Echo/Echo.xcodeproj — a directory LEVEL BELOW the entry. So the search for a
 //     bundled Package.resolved is recursive beneath `directory`.
-//   - windsock: no swift PRs, entry at "/", with WindsockKit/Package.swift and
-//     WindsockKit/Package.resolved committed one level below. So a bare SwiftPM
+//   - foxtrot: no swift PRs, entry at "/", with FoxtrotKit/Package.swift and
+//     FoxtrotKit/Package.resolved committed one level below. So a bare SwiftPM
 //     package is NOT found recursively — it has to be named exactly.
 //   - Queueify, rail: no swift PRs; nothing at all is committed for it to read
 //     (both keep the xcodeproj's Package.resolved out of the repo via
@@ -140,7 +140,7 @@ func (ix SwiftManifestIndex) DependabotDirs(comp string) []string {
 		return []string{comp}
 	}
 	// Nothing at comp: name the bare packages beneath it instead, since Dependabot
-	// will not find them from above (windsock). Outermost only — a package
+	// will not find them from above (foxtrot). Outermost only — a package
 	// vendored inside another is resolved by its parent.
 	var out []string
 	for d := range ix.pkgDirs {

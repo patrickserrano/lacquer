@@ -12,7 +12,7 @@ func TestLoad(t *testing.T) {
 	path := filepath.Join(dir, ".lacquer.toml")
 	data := `
 [project]
-name = "journalcast"
+name = "india"
 
 [[component]]
 path = "ios"
@@ -30,8 +30,8 @@ profiles = ["web"]
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Project.Name != "journalcast" {
-		t.Errorf("project name = %q, want journalcast", cfg.Project.Name)
+	if cfg.Project.Name != "india" {
+		t.Errorf("project name = %q, want india", cfg.Project.Name)
 	}
 	if len(cfg.Components) != 2 {
 		t.Fatalf("got %d components, want 2", len(cfg.Components))
@@ -572,7 +572,7 @@ func TestXcodeprojAllowsSpacesButNotMetacharacters(t *testing.T) {
 		val string
 		ok  bool
 	}{
-		{"A Bible Verse Each Day.xcodeproj", true},
+		{"A Quebec Verse Each Day.xcodeproj", true},
 		{"App.xcodeproj", true},
 		{"ios/My App.xcodeproj", true},
 		{"", true}, // blank is allowed; sync fails closed if the token is used
@@ -752,7 +752,7 @@ func TestLoadRejectsUnsafeProductCITargets(t *testing.T) {
 	}
 	// A real project's values: spaces are ordinary in an Xcode target name, and
 	// the built product legitimately differs from the scheme.
-	ok := "test_target = \"A Bible Verse Each Day FreeTests\"\napp_target = \"A Bible Verse Daily.app\"\nui_test_target = \"\"\n"
+	ok := "test_target = \"A Quebec Verse Each Day FreeTests\"\napp_target = \"A Quebec Verse Daily.app\"\nui_test_target = \"\"\n"
 	if _, err := loadString(t, base+ok); err != nil {
 		t.Errorf("real-world target names must load: %v", err)
 	}
@@ -985,11 +985,11 @@ func TestProductCITargetDefaults(t *testing.T) {
 		wantTest string
 		wantApp  string
 	}{
-		{"display label differs", Product{Name: "Steps Lite", Scheme: "StepsFree"}, "StepsFreeTests", "StepsFree.app"},
+		{"display label differs", Product{Name: "Mike Lite", Scheme: "StepsFree"}, "StepsFreeTests", "StepsFree.app"},
 		{"matching name and scheme", Product{Name: "Solo", Scheme: "Solo"}, "SoloTests", "Solo.app"},
 		{"no scheme", Product{Name: "Solo"}, "SoloTests", "Solo.app"},
 		{"scheme only", Product{Scheme: "StepsFree"}, "StepsFreeTests", "StepsFree.app"},
-		{"explicit overrides", Product{Name: "Steps Lite", Scheme: "StepsFree", TestTarget: "FreeUnit", AppTarget: "Daily.app"}, "FreeUnit", "Daily.app"},
+		{"explicit overrides", Product{Name: "Mike Lite", Scheme: "StepsFree", TestTarget: "FreeUnit", AppTarget: "Daily.app"}, "FreeUnit", "Daily.app"},
 		{"blank", Product{}, "", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1031,10 +1031,10 @@ func TestLoadRejectsCollidingProductSlugs(t *testing.T) {
 
 func TestProductSlug(t *testing.T) {
 	for name, want := range map[string]string{
-		"Free":                        "free",
-		"StepsFree":                   "stepsfree",
-		"A Bible Verse Each Day Free": "a-bible-verse-each-day-free",
-		"MyApp Lite":                  "myapp-lite",
+		"Free":                         "free",
+		"StepsFree":                    "stepsfree",
+		"A Quebec Verse Each Day Free": "a-quebec-verse-each-day-free",
+		"MyApp Lite":                   "myapp-lite",
 	} {
 		if got := (Product{Name: name}).Slug(); got != want {
 			t.Errorf("Slug(%q) = %q, want %q", name, got, want)

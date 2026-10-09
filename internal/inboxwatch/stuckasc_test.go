@@ -69,15 +69,15 @@ func ascModel(t *testing.T, adv time.Duration, raw []byte) Model {
 
 // healthyASC is a snapshot read at t0+adv, fresh, listing one app with nothing stuck.
 func healthyASC(adv time.Duration) ASCState {
-	st := ParseASC(mustJSON(nil, ascSnap(adv+time.Minute, dailyBread(
+	st := ParseASC(mustJSON(nil, ascSnap(adv+time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "IN_REVIEW", 30*time.Minute, "firstSeen", nil)}, []obj{}))), "/x/asc-snapshot.json")
 	st.At = t0.Add(adv)
 	return st
 }
 
-// dailyBread is the app the tests hang versions and builds on.
-func dailyBread(versions, builds []obj) obj {
-	return ascApp("com.patrickserrano.dailybread", "Daily Bread", versions, builds)
+// alphaApp is the app the tests hang versions and builds on.
+func alphaApp(versions, builds []obj) obj {
+	return ascApp("com.patrickserrano.alphaapp", "Alpha App", versions, builds)
 }
 
 func withAt(st ASCState, at time.Time) ASCState { st.At = at; return st }
@@ -128,9 +128,9 @@ func wantProblem(t *testing.T, m Model, sub string) {
 }
 
 const (
-	rejKey  = "asc-rejected:com.patrickserrano.dailybread:IOS:1.9"
-	waitKey = "asc-waiting:com.patrickserrano.dailybread:IOS:1.9"
-	unatKey = "asc-unattached:com.patrickserrano.dailybread:IOS:412"
+	rejKey  = "asc-rejected:com.patrickserrano.alphaapp:IOS:1.9"
+	waitKey = "asc-waiting:com.patrickserrano.alphaapp:IOS:1.9"
+	unatKey = "asc-unattached:com.patrickserrano.alphaapp:IOS:412"
 )
 
 // ---- thresholds ----
@@ -155,7 +155,7 @@ func TestASCThresholdsAreTheOperators(t *testing.T) {
 func TestRejectedIsStuckAtThreeHoursAndNotBefore(t *testing.T) {
 	for _, state := range []string{"REJECTED", "DEVELOPER_REJECTED"} {
 		snap := func(since time.Duration) []byte {
-			return mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+			return mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 				[]obj{ascVer("v1", "IOS", "1.9", state, since, "firstSeen", nil)}, []obj{})))
 		}
 		wantKeys(t, ascModel(t, 0, snap(3*time.Hour-time.Minute)))
@@ -166,7 +166,7 @@ func TestRejectedIsStuckAtThreeHoursAndNotBefore(t *testing.T) {
 
 func TestWaitingForReviewIsStuckAtTwentyFourHoursAndNotBefore(t *testing.T) {
 	snap := func(since time.Duration) []byte {
-		return mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+		return mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 			[]obj{ascVer("v1", "IOS", "1.9", "WAITING_FOR_REVIEW", since, "reviewSubmission.submittedDate", nil)}, []obj{})))
 	}
 	wantKeys(t, ascModel(t, 0, snap(24*time.Hour-time.Minute)))
@@ -177,7 +177,7 @@ func TestWaitingForReviewIsStuckAtTwentyFourHoursAndNotBefore(t *testing.T) {
 
 func TestAValidBuildAttachedToNothingIsStuckAtThreeHoursAndNotBefore(t *testing.T) {
 	snap := func(uploaded time.Duration) []byte {
-		return mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+		return mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 			[]obj{ascVer("v1", "IOS", "1.8", "READY_FOR_SALE", 90*24*time.Hour, "firstSeen", "b1")},
 			[]obj{ascBld("b1", "IOS", "400", "VALID", 90*24*time.Hour, "v1"), ascBld("b2", "IOS", "412", "VALID", uploaded, nil)})))
 	}
@@ -193,7 +193,7 @@ func TestAnUnattachedBuildThatIsNotValidOrIsExpiredIsNotStuck(t *testing.T) {
 	} {
 		b := ascBld("b2", "IOS", "412", "VALID", 9*time.Hour, nil)
 		mut(b)
-		m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(nil, []obj{b}))))
+		m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(nil, []obj{b}))))
 		if len(ascKeys(m)) != 0 {
 			t.Errorf("%s build is stuck: %v", name, ascKeys(m))
 		}
@@ -203,7 +203,7 @@ func TestAnUnattachedBuildThatIsNotValidOrIsExpiredIsNotStuck(t *testing.T) {
 // A VALID build nothing attaches, while a newer build is attached, is a build
 // that was superseded: it must not sit on the tab forever.
 func TestASupersededUnattachedBuildIsNotStuck(t *testing.T) {
-	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "PREPARE_FOR_SUBMISSION", 0, "firstSeen", "b3")},
 		[]obj{
 			ascBld("b2", "IOS", "411", "VALID", 20*time.Hour, nil), // older, never submitted
@@ -212,21 +212,21 @@ func TestASupersededUnattachedBuildIsNotStuck(t *testing.T) {
 	wantKeys(t, m)
 	// The same older build IS stuck when nothing newer exists: the mutation that
 	// drops the newest-build rule must show here and above.
-	m = ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(nil,
+	m = ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(nil,
 		[]obj{ascBld("b2", "IOS", "411", "VALID", 20*time.Hour, nil)}))))
-	wantKeys(t, m, "asc-unattached:com.patrickserrano.dailybread:IOS:411")
+	wantKeys(t, m, "asc-unattached:com.patrickserrano.alphaapp:IOS:411")
 }
 
 // Of several VALID builds nothing attaches, only the newest is stuck, and a newer
 // build of any state (still processing, say) means the older one was passed over.
 func TestOnlyTheNewestUnattachedBuildIsStuck(t *testing.T) {
-	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(nil, []obj{
+	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(nil, []obj{
 		ascBld("b1", "IOS", "410", "VALID", 30*time.Hour, nil),
 		ascBld("b2", "IOS", "411", "VALID", 20*time.Hour, nil),
 		ascBld("b3", "IOS", "412", "VALID", 10*time.Hour, nil),
 	}))))
-	wantKeys(t, m, "asc-unattached:com.patrickserrano.dailybread:IOS:412")
-	m = ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(nil, []obj{
+	wantKeys(t, m, "asc-unattached:com.patrickserrano.alphaapp:IOS:412")
+	m = ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(nil, []obj{
 		ascBld("b2", "IOS", "411", "VALID", 20*time.Hour, nil),
 		ascBld("b3", "IOS", "412", "PROCESSING", 10*time.Hour, nil),
 	}))))
@@ -237,7 +237,7 @@ func TestOnlyTheNewestUnattachedBuildIsStuck(t *testing.T) {
 // depend on READY_FOR_SALE alone.
 func TestEitherLiveStateSupersedesAnOlderUnattachedBuild(t *testing.T) {
 	for _, live := range []string{"READY_FOR_SALE", "READY_FOR_DISTRIBUTION"} {
-		m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+		m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 			[]obj{ascVer("v1", "IOS", "1.9", live, 0, "firstSeen", "b3")},
 			[]obj{
 				ascBld("b2", "IOS", "411", "VALID", 20*time.Hour, nil),
@@ -247,13 +247,13 @@ func TestEitherLiveStateSupersedesAnOlderUnattachedBuild(t *testing.T) {
 			t.Errorf("%s: %v", live, got)
 		}
 		// And a build newer than the live version's is the one that is stuck.
-		m = ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+		m = ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 			[]obj{ascVer("v1", "IOS", "1.9", live, 0, "firstSeen", "b3")},
 			[]obj{
 				ascBld("b3", "IOS", "412", "VALID", 10*time.Hour, "v1"),
 				ascBld("b4", "IOS", "413", "VALID", 5*time.Hour, nil),
 			}))))
-		if got := ascKeys(m); len(got) != 1 || got[0] != "asc-unattached:com.patrickserrano.dailybread:IOS:413" {
+		if got := ascKeys(m); len(got) != 1 || got[0] != "asc-unattached:com.patrickserrano.alphaapp:IOS:413" {
 			t.Errorf("%s: newest build not stuck: %v", live, got)
 		}
 	}
@@ -262,7 +262,7 @@ func TestEitherLiveStateSupersedesAnOlderUnattachedBuild(t *testing.T) {
 // A build is superseded by a newer build the version list attaches even when the
 // builds list does not say so, and never by a build of another platform.
 func TestASupersededBuildIsJudgedPerPlatformAndByTheVersionsBuild(t *testing.T) {
-	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "READY_FOR_SALE", 0, "firstSeen", "b3")},
 		[]obj{
 			ascBld("b2", "IOS", "411", "VALID", 20*time.Hour, nil),
@@ -271,11 +271,11 @@ func TestASupersededBuildIsJudgedPerPlatformAndByTheVersionsBuild(t *testing.T) 
 	// b3 is the version's own build, so not newer than itself; b2 is not the newest.
 	wantKeys(t, m)
 	// A newer macOS build does not supersede an iOS one.
-	m = ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(nil, []obj{
+	m = ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(nil, []obj{
 		ascBld("b2", "IOS", "411", "VALID", 20*time.Hour, nil),
 		ascBld("b3", "MAC_OS", "9", "VALID", 1*time.Hour, "vmac"),
 	}))))
-	wantKeys(t, m, "asc-unattached:com.patrickserrano.dailybread:IOS:411")
+	wantKeys(t, m, "asc-unattached:com.patrickserrano.alphaapp:IOS:411")
 }
 
 func TestOtherStatesAreNeverStuck(t *testing.T) {
@@ -283,12 +283,12 @@ func TestOtherStatesAreNeverStuck(t *testing.T) {
 	for i, st := range []string{"READY_FOR_SALE", "IN_REVIEW", "PENDING_DEVELOPER_RELEASE", "PREPARE_FOR_SUBMISSION", "PENDING_APPLE_RELEASE", "PROCESSING_FOR_APP_STORE"} {
 		vs = append(vs, ascVer("v"+string(rune('a'+i)), "IOS", "1."+string(rune('0'+i)), st, 400*time.Hour, "firstSeen", nil))
 	}
-	wantKeys(t, ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(vs, []obj{})))))
+	wantKeys(t, ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(vs, []obj{})))))
 }
 
 // The clock moves with no new snapshot: a row appears when its threshold passes.
 func TestAnASCRowAppearsAsTheClockPassesItsThreshold(t *testing.T) {
-	raw := mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	raw := mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 2*time.Hour, "firstSeen", nil)}, []obj{})))
 	wantKeys(t, ascModel(t, 0, raw))
 	wantKeys(t, ascModel(t, 61*time.Minute, raw), rejKey)
@@ -297,11 +297,11 @@ func TestAnASCRowAppearsAsTheClockPassesItsThreshold(t *testing.T) {
 // ---- what the row says ----
 
 func TestARejectedRowSaysWhatItIsWhereItLinksAndWhatToDoAboutResolutionCenter(t *testing.T) {
-	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour+12*time.Minute, "firstSeen", nil)}, []obj{}))))
 	s := screen(m)
 	for _, want := range []string{
-		"Daily Bread 1.9 (iOS)",
+		"Alpha App 1.9 (iOS)",
 		"REJECTED",
 		"at least 4h12m",
 		"https://appstoreconnect.apple.com/apps/1234567890/distribution",
@@ -314,19 +314,19 @@ func TestARejectedRowSaysWhatItIsWhereItLinksAndWhatToDoAboutResolutionCenter(t 
 }
 
 func TestOnlyAFirstSeenTimeIsSaidToBeAtLeast(t *testing.T) {
-	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "WAITING_FOR_REVIEW", 30*time.Hour, "reviewSubmission.submittedDate", nil)}, []obj{}))))
 	s := screen(m)
 	if strings.Contains(s, "at least") {
 		t.Errorf("an exact time is said to be a floor:\n%s", s)
 	}
-	if !strings.Contains(s, "30h00m") || !strings.Contains(s, "Daily Bread 1.9 (iOS)") {
+	if !strings.Contains(s, "30h00m") || !strings.Contains(s, "Alpha App 1.9 (iOS)") {
 		t.Errorf("waiting row:\n%s", s)
 	}
 }
 
 func TestOnlyARejectedRowCarriesTheResolutionCenterText(t *testing.T) {
-	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "WAITING_FOR_REVIEW", 30*time.Hour, "reviewSubmission.submittedDate", nil)},
 		[]obj{ascBld("b2", "IOS", "412", "VALID", 9*time.Hour, nil)}))))
 	if strings.Contains(screen(m), "Resolution Center") {
@@ -336,10 +336,10 @@ func TestOnlyARejectedRowCarriesTheResolutionCenterText(t *testing.T) {
 }
 
 func TestTheUnattachedRowNamesTheBuild(t *testing.T) {
-	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(nil,
+	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(nil,
 		[]obj{ascBld("b2", "IOS", "412", "VALID", 5*time.Hour, nil)}))))
 	s := screen(m)
-	for _, want := range []string{"Daily Bread", "412", "(iOS)", "5h00m", "attached to no version", "appstoreconnect.apple.com"} {
+	for _, want := range []string{"Alpha App", "412", "(iOS)", "5h00m", "attached to no version", "appstoreconnect.apple.com"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("screen lacks %q:\n%s", want, s)
 		}
@@ -355,7 +355,7 @@ func TestPlatformsAreNamedTheWayTheyAreSpoken(t *testing.T) {
 }
 
 func TestASnapshotThatNamesNoAppLinkStillShowsTheRow(t *testing.T) {
-	app := dailyBread([]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour, "firstSeen", nil)}, []obj{})
+	app := alphaApp([]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour, "firstSeen", nil)}, []obj{})
 	delete(app, "ascAppId")
 	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, app)))
 	wantKeys(t, m, rejKey)
@@ -397,7 +397,7 @@ func TestAMissingSnapshotIsCouldntCheckAndNamesThePath(t *testing.T) {
 
 func TestEnvReadsTheSnapshotBesideTheInboxFile(t *testing.T) {
 	dir := t.TempDir()
-	raw := mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	raw := mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour, "firstSeen", nil)}, []obj{})))
 	if err := os.WriteFile(filepath.Join(dir, ASCSnapshotFile), raw, 0o600); err != nil {
 		t.Fatal(err)
@@ -419,7 +419,7 @@ func TestEnvReadsTheSnapshotBesideTheInboxFile(t *testing.T) {
 
 func TestAStaleSnapshotIsCouldntCheckAtNinetyOneMinutes(t *testing.T) {
 	mk := func(age time.Duration) []byte {
-		return mustJSON(t, ascSnap(age, dailyBread(
+		return mustJSON(t, ascSnap(age, alphaApp(
 			[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 9*time.Hour, "firstSeen", nil)}, []obj{})))
 	}
 	wantKeys(t, ascModel(t, 0, mk(89*time.Minute)), rejKey)
@@ -436,7 +436,7 @@ func TestAStaleSnapshotIsCouldntCheckAtNinetyOneMinutes(t *testing.T) {
 
 func TestAFutureGeneratedAtIsCouldntCheck(t *testing.T) {
 	future := func(d time.Duration) []byte {
-		s := ascSnap(0, dailyBread(nil, []obj{}))
+		s := ascSnap(0, alphaApp(nil, []obj{}))
 		s["generatedAt"] = t0.Add(d).UTC().Format(time.RFC3339)
 		return mustJSON(t, s)
 	}
@@ -448,7 +448,7 @@ func TestAFutureGeneratedAtIsCouldntCheck(t *testing.T) {
 
 func TestAMalformedSnapshotIsCouldntCheckAndNeverNothingStuck(t *testing.T) {
 	good := func() obj {
-		return ascSnap(10*time.Minute, dailyBread(
+		return ascSnap(10*time.Minute, alphaApp(
 			[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 9*time.Hour, "firstSeen", nil)},
 			[]obj{ascBld("b1", "IOS", "412", "VALID", 9*time.Hour, nil)}))
 	}
@@ -493,11 +493,11 @@ func TestAMalformedSnapshotIsCouldntCheckAndNeverNothingStuck(t *testing.T) {
 		}
 	}
 	// The good one is stuck, so the fixture itself is not what is being rejected.
-	wantKeys(t, ascModel(t, 0, mustJSON(t, good())), rejKey, "asc-unattached:com.patrickserrano.dailybread:IOS:412")
+	wantKeys(t, ascModel(t, 0, mustJSON(t, good())), rejKey, "asc-unattached:com.patrickserrano.alphaapp:IOS:412")
 }
 
 func TestUnknownFieldsAreIgnored(t *testing.T) {
-	s := ascSnap(10*time.Minute, dailyBread(
+	s := ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 9*time.Hour, "firstSeen", nil)}, []obj{}))
 	s["addedLater"] = obj{"x": 1}
 	s["apps"].([]obj)[0]["alsoNew"] = []int{1}
@@ -513,7 +513,7 @@ func TestEmptyAppsIsCouldntCheckNeverNothingStuck(t *testing.T) {
 }
 
 func TestAProducerErrorIsAProblemRowAndTheOtherAppsAreStillChecked(t *testing.T) {
-	s := ascSnap(10*time.Minute, dailyBread(
+	s := ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour, "firstSeen", nil)}, []obj{}))
 	s["errors"] = []obj{
 		{"bundleId": "com.example.flare", "message": "HTTP 401 from /v1/apps"},
@@ -543,13 +543,13 @@ func TestAFailedProducerRunWithNoAppsSaysWhy(t *testing.T) {
 
 func TestAVersionInACheckedStateWithNoStateSinceIsNamedAndTheRestStillShow(t *testing.T) {
 	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute,
-		dailyBread([]obj{
+		alphaApp([]obj{
 			ascVer("v1", "IOS", "1.9", "REJECTED", -1, "", nil), // no stateSince
 			ascVer("v2", "MAC_OS", "2.0", "WAITING_FOR_REVIEW", 30*time.Hour, "reviewSubmission.submittedDate", nil),
 			ascVer("v3", "IOS", "1.7", "READY_FOR_SALE", -1, "", nil), // not a checked state: needs none
 		}, []obj{}))))
-	wantKeys(t, m, "asc-waiting:com.patrickserrano.dailybread:MAC_OS:2.0")
-	wantProblem(t, m, "Daily Bread 1.9 (iOS)")
+	wantKeys(t, m, "asc-waiting:com.patrickserrano.alphaapp:MAC_OS:2.0")
+	wantProblem(t, m, "Alpha App 1.9 (iOS)")
 	if n := len(problemsOf(m)); n != 1 {
 		t.Errorf("problems = %q", problemsOf(m))
 	}
@@ -567,7 +567,7 @@ func TestBeforeTheSnapshotIsReadTheTabIsCheckingNotEmptyNorBroken(t *testing.T) 
 func TestAHealthySnapshotWithNothingStuckSaysSo(t *testing.T) {
 	p := Program(tabModel(t, 160, 30))
 	p = onTab(t, p.(Model), "5")
-	raw := mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	raw := mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "IN_REVIEW", 1*time.Hour, "firstSeen", nil)}, []obj{})))
 	p, _ = send(t, p, tickAt(0), PRsEvent{At: t0}, LaterEvent{At: t0},
 		LoadedEvent{Data: Data{ASC: withAt(ParseASC(raw, "/x/asc-snapshot.json"), t0)}, At: t0})
@@ -579,7 +579,7 @@ func TestAHealthySnapshotWithNothingStuckSaysSo(t *testing.T) {
 // ---- dismissal reuses 424a ----
 
 func TestADismissedASCRowIsHiddenUntilThePeriodEndsThenReturns(t *testing.T) {
-	raw := mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	raw := mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour, "firstSeen", nil)}, []obj{})))
 	m := ascModel(t, 0, raw)
 	wantKeys(t, m, rejKey)
@@ -599,7 +599,7 @@ func TestADismissedASCRowIsHiddenUntilThePeriodEndsThenReturns(t *testing.T) {
 	}
 	// Still hidden just before the period ends. Each read of the snapshot keeps it hidden.
 	p, _ = send(t, p, tickAt(12*time.Hour-time.Minute),
-		LoadedEvent{Data: Data{ASC: ParseASC(mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+		LoadedEvent{Data: Data{ASC: ParseASC(mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 			[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 16*time.Hour-time.Minute, "firstSeen", nil)}, []obj{}))), "/x")}, At: t0.Add(12*time.Hour - time.Minute)})
 	if got := shownKeys(p.(Model)); len(got) != 0 {
 		t.Errorf("hidden row came back early: %v", got)
@@ -607,7 +607,7 @@ func TestADismissedASCRowIsHiddenUntilThePeriodEndsThenReturns(t *testing.T) {
 }
 
 func TestADismissedASCRowComesBackWhenTheDismissalExpires(t *testing.T) {
-	raw := mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	raw := mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour, "firstSeen", nil)}, []obj{})))
 	m := ascModel(t, 0, raw)
 	m.Stuck.Dismissed = map[string]time.Time{rejKey: t0.Add(time.Hour)}
@@ -638,7 +638,7 @@ func TestDismissingAnASCRowWritesItsKeyToTheDismissalsFile(t *testing.T) {
 // 424a writes the operator's reply back as a comment on a GitHub ref. An App
 // Store row has no GitHub ref, and nothing on the Stuck tab replies at all.
 func TestNoGitHubWriteBackFiresForAnASCRow(t *testing.T) {
-	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, dailyBread(
+	m := ascModel(t, 0, mustJSON(t, ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour, "firstSeen", nil)},
 		[]obj{ascBld("b2", "IOS", "412", "VALID", 9*time.Hour, nil)}))))
 	it, ok := m.selectedStuck()
@@ -648,7 +648,7 @@ func TestNoGitHubWriteBackFiresForAnASCRow(t *testing.T) {
 	if it.Repo != "" || it.Number != 0 {
 		t.Errorf("an App Store row carries a GitHub identity: %q #%d", it.Repo, it.Number)
 	}
-	for _, ref := range []string{it.Ref(), it.URL, "Daily Bread 1.9 (iOS)", "https://appstoreconnect.apple.com/apps/1234567890/distribution"} {
+	for _, ref := range []string{it.Ref(), it.URL, "Alpha App 1.9 (iOS)", "https://appstoreconnect.apple.com/apps/1234567890/distribution"} {
 		if g, ok := ParseGitHubRef(ref); ok {
 			t.Errorf("%q parses as the GitHub ref %v", ref, g)
 		}

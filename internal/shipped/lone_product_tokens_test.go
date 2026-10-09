@@ -33,13 +33,13 @@ func syncManifest(t *testing.T, manifest string) (string, error) {
 func TestLoneProductRendersEveryTemplate(t *testing.T) {
 	project, err := syncManifest(t, `
 [project]
-name = "Flare"
-project_name = "Flare"
-xcodeproj = "Flare.xcodeproj"
+name = "Delta"
+project_name = "Delta"
+xcodeproj = "Delta.xcodeproj"
 swift_version = "6"
 
 [[product]]
-name = "Flare"
+name = "Delta"
 scheme = "FlareScheme"
 bundle_id = "com.example.flare"
 asc_app_id = "1000000001"

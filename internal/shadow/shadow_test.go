@@ -37,7 +37,7 @@ jobs:
       - run: security set-keychain-settings login.keychain-db
 `
 
-// The live case. dailybread carried the managed ios-release.yml AND a
+// The live case. alphaapp carried the managed ios-release.yml AND a
 // project-owned testflight.yml, and the project-owned one cut builds 313-317 —
 // so every gate on the managed path was bypassed on the path that shipped.
 func TestASecondReleasePathIsReported(t *testing.T) {
@@ -71,7 +71,7 @@ jobs:
 	}
 }
 
-// windsock is the reason this check has a second condition. It ships a
+// foxtrot is the reason this check has a second condition. It ships a
 // project-owned macos-release.yml and EXCLUDES ios-release.yml with a recorded
 // reason — a macOS-only app the generic iOS archive workflow does not fit.
 // That is a declared replacement, not a shadow. Flagging it would teach people

@@ -108,7 +108,7 @@ func TestWarningsInheritedFromProjectLevelPasses(t *testing.T) {
 	}
 }
 
-// TestWarningsMissingEverywhereFails is the kit / skein / mindmint shape.
+// TestWarningsMissingEverywhereFails is the kit / kilo / mindmint shape.
 func TestWarningsMissingEverywhereFails(t *testing.T) {
 	dir := pbxproj(t,
 		[]cfg{{id: "P1", name: "Debug"}, {id: "P2", name: "Release"}},
@@ -131,7 +131,7 @@ func TestTargetCannotOptOutOfProjectLevel(t *testing.T) {
 	}
 }
 
-// TestXcconfigUnconditionalPasses is rail and a-bible-verse-each-day: the value
+// TestXcconfigUnconditionalPasses is rail and a-quebec-verse-each-day: the value
 // lives ONLY in an xcconfig. This is the case that was completely invisible
 // until PBXFileReference's single-line form was handled — rail was reported
 // with six violations while being fully compliant.
@@ -279,7 +279,7 @@ func TestRealProjectMissingDebugStillFails(t *testing.T) {
 	}
 }
 
-// TestWorktreeXcconfigCannotShadowTheRealOne pins the a-bible-verse-each-day
+// TestWorktreeXcconfigCannotShadowTheRealOne pins the a-quebec-verse-each-day
 // failure: that repo keeps three copies of Config/Base.xcconfig, two of them in
 // abandoned .claude/worktrees checkouts, and one of those sets nothing. A
 // lexical walk reaches ".claude/..." before "Config/", so the stale copy won
@@ -301,7 +301,7 @@ func TestWorktreeXcconfigCannotShadowTheRealOne(t *testing.T) {
 	}
 }
 
-// TestDeclaredButMissingXcodeprojIsSkipped. multimeter declares an xcodeproj
+// TestDeclaredButMissingXcodeprojIsSkipped. golf declares an xcodeproj
 // that is not on disk, deliberately and with a manifest comment saying so —
 // it is pre-code. `lacquer audit` already exits non-zero on that, so refusing
 // the sync too would convert an existing warning into a new block, on exactly
@@ -328,7 +328,7 @@ func TestNonIOSTargetsAreIgnored(t *testing.T) {
 	}
 }
 
-// gitignoredXcodegenProject lays out dailybread #554's clean checkout: the
+// gitignoredXcodegenProject lays out alphaapp #554's clean checkout: the
 // .xcodeproj DIRECTORY exists (it commits project.xcworkspace/.../
 // Package.resolved) but project.pbxproj does not, and project.yml is beside it.
 // EnforceTargets' own guard stats only the directory, so this shape passes it

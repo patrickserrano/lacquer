@@ -13,7 +13,7 @@ import (
 //
 // The first is a native target in project.pbxproj. The second is a `.testTarget`
 // of a local Swift package the project references — rail's RailCoreTests and
-// RailDataTests, which XcodeGen wires into the Rail scheme with
+// RailDataTests, which XcodeGen wires into the Charlie scheme with
 // `testTargets: [{ package: RailCore/RailCoreTests }]`. Those never appear as
 // PBXNativeTarget, so reading only the native targets reported both as naming a
 // target the project does not have: a false alarm on the one project in the
@@ -36,7 +36,7 @@ var (
 	relativePathLine  = regexp.MustCompile(`\brelativePath = (?:"((?:[^"\\]|\\.)*)"|([^;\s]+));`)
 
 	// Every `.testTarget(` call, and the subset whose name is a plain string
-	// literal. The trailing [,)] refuses `name: "Rail" + suffix`, which is a
+	// literal. The trailing [,)] refuses `name: "Charlie" + suffix`, which is a
 	// computed name and not the literal it begins with.
 	testTargetCall  = regexp.MustCompile(`\.testTarget\s*\(`)
 	testTargetNamed = regexp.MustCompile(`\.testTarget\s*\(\s*name\s*:\s*"([^"\\]+)"\s*[,)]`)
@@ -68,7 +68,7 @@ func localPackages(pbxproj string) []string {
 
 // packageTargets reads the test targets of every local package the project
 // references. projectDir is the directory holding the .xcodeproj, which is what
-// relativePath is relative to (flare's Flare/Flare.xcodeproj references
+// relativePath is relative to (flare's Delta/Delta.xcodeproj references
 // `../FlareCore`).
 //
 // A package that cannot be fully read contributes an entry with Unread set, in

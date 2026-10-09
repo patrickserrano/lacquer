@@ -250,7 +250,7 @@ func indexXcconfigs(componentDir string) map[string]string {
 			// Worktrees hold a FULL SECOND COPY of the project, often months
 			// stale, and a lexical walk reaches ".claude/worktrees/..." before
 			// "Config/" -- so an abandoned worktree silently shadows the real
-			// file. Measured on a-bible-verse-each-day: three Base.xcconfig
+			// file. Measured on a-quebec-verse-each-day: three Base.xcconfig
 			// copies, and the one a walk hits first sets nothing, which reported
 			// 12 violations against a project that is fully compliant. The same
 			// hazard cost two other bad measurements in one day, so it is worth
@@ -309,7 +309,7 @@ func EnforceTargets(projectRoot string, targets []Target) (unchecked []string, e
 		if _, err := os.Stat(path); err != nil {
 			// A declared-but-absent xcodeproj is skipped, not refused. It is
 			// already a reported condition -- `lacquer audit` exits non-zero on
-			// it -- and at least one project (multimeter) sits in that state
+			// it -- and at least one project (golf) sits in that state
 			// deliberately, with a comment in its manifest saying so, because it
 			// is pre-code. Refusing here would turn an existing warning into a
 			// new sync block that nobody asked for, and it would do it on the
