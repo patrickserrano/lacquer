@@ -381,7 +381,14 @@ func TestStrictResolveStepFailsClosed(t *testing.T) {
 					t.Fatalf("xcodebuild called = %v, want %v\n%s", called, c.wantCall, out)
 				}
 				if c.wantCall {
-					for _, w := range []string{"-resolvePackageDependencies", strictResolveFlag, "-derivedDataPath", "-project"} {
+					// The same project, scheme and derived data as the job's
+					// builds, so the packages it checks are the ones they use.
+					scheme, dd := "Demo", "DerivedData"
+					if strings.HasPrefix(where, "release.yml") {
+						scheme = "P" // $PRODUCT_SCHEME, from the matrix
+					}
+					for _, w := range []string{"-resolvePackageDependencies", strictResolveFlag,
+						"-project\n" + soloConfig().Project.Xcodeproj, "-scheme\n" + scheme, "-derivedDataPath\n" + dd} {
 						if !strings.Contains(string(args), w+"\n") {
 							t.Errorf("xcodebuild was not given %s; args:\n%s", w, args)
 						}
