@@ -53,7 +53,7 @@ posts nothing.
    that is an issue or PR in the roster or `--extra-repo`s, else the item's
    `project` mapped through the roster; if neither resolves it says why and still
    offers fleet. *Fleet-wide* is the fleet repository (`$LACQUER_FLEET_REPO`,
-   default `patrickserrano/the operator's fleet repo`), so a decision that spans repositories lives
+   or `--fleet-repo`; no built-in default), so a decision that spans repositories lives
    in one place instead of a copy in each project's.
 
 The decision is one comment on the repository's one open issue labelled
@@ -403,7 +403,7 @@ it:
 
 ```toml
 [[project.covered_elsewhere]]
-target   = "DailyBreadWatchApp Watch AppTests"
+target   = "AlphaAppWatchApp Watch AppTests"
 workflow = ".github/workflows/watch-ci.yml"
 reason   = "watchOS bundle: different scheme, watch simulator destination"
 ```
@@ -419,14 +419,14 @@ has is reported as stale.
 ### A suite deliberately not run in CI
 
 Some suites are run on purpose somewhere CI can't reach. bravoapp's
-`MomFriendCoreTests` needs on-device models and is written to fail, not skip,
+`BravoAppCoreTests` needs on-device models and is written to fail, not skip,
 without them, so CI builds it and never runs it. The audit is right that nothing
 in CI runs it, and none of its suggested fixes applies. Say so, with a reason and
 a date:
 
 ```toml
 [[project.not_run_in_ci]]
-target = "MomFriendCoreTests"
+target = "BravoAppCoreTests"
 reason = "needs on-device models; built in CI, run on device before release"
 until  = "2026-12-31"
 ```
@@ -441,7 +441,7 @@ While the declaration is in term, the suite leaves the "no selector covers" list
 and is printed on a line of its own, so it stays visible:
 
 ```
-deliberately not run in CI: MomFriendCoreTests — needs on-device models; built in CI, run on device before release (until 2026-12-31)
+deliberately not run in CI: BravoAppCoreTests — needs on-device models; built in CI, run on device before release (until 2026-12-31)
 ```
 
 **Past `until`, it expires.** The suite goes back in the report, the expiry is
