@@ -143,3 +143,27 @@ func TestRatchetClaudeOwnership(t *testing.T) {
 		})
 	}
 }
+
+func TestAuditSaysCoverageIsMeasuredInCI(t *testing.T) {
+	lq := realLacquer(t)
+	dir := fixtureProject(t, lq)
+	chdir(t, dir)
+	env := envMap(map[string]string{"LACQUER_ROOT": lq})
+	var out bytes.Buffer
+	if code := run([]string{"sync"}, env, &out, &out); code != 0 {
+		t.Fatalf("sync: %d %s", code, &out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".lacquer.ratchet.toml"), []byte("[ratchet]\nclaude_md_project_lines = 100000\nunjustified_suppressions = 0\nios_uncovered_lines = 4312\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := run([]string{"audit"}, env, &out, &out); code != 0 {
+		t.Fatalf("audit = %d, want 0 (the coverage key is not measured locally):\n%s", code, &out)
+	}
+	if !strings.Contains(out.String(), "ratchet: ios_uncovered_lines is measured in CI (not checked here)") {
+		t.Fatalf("audit did not say coverage is measured in CI:\n%s", &out)
+	}
+	if strings.Contains(out.String(), "ios_uncovered_lines improved") || strings.Contains(out.String(), "ios_uncovered_lines regressed") {
+		t.Fatalf("audit compared an unmeasured metric:\n%s", &out)
+	}
+}

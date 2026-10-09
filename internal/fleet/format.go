@@ -58,7 +58,7 @@ func Text(w io.Writer, reports []Report) {
 		}
 		if len(notes) == 0 {
 			healthy++
-			fmt.Fprintf(w, "  ok    %-*s  %s\n", width, r.Name, drift(r))
+			fmt.Fprintf(w, "  ok    %-*s  %s\n", width, r.Name, strings.TrimSpace(drift(r)+coverageNote(r)))
 			continue
 		}
 		mark := "warn"
@@ -69,7 +69,11 @@ func Text(w io.Writer, reports []Report) {
 		for _, n := range notes[1:] {
 			fmt.Fprintf(w, "        %-*s  %s\n", width, "", n)
 		}
+		if r.Coverage != "" {
+			fmt.Fprintf(w, "        %-*s  %s\n", width, "", strings.TrimSpace(coverageNote(r)))
+		}
 	}
+	defer coverageSummary(w, reports)
 
 	if retired > 0 {
 		fmt.Fprintf(w, "\n%d project(s): %d clean, %d blocking, %d retired\n", len(reports), healthy, blocking, retired)
@@ -178,6 +182,30 @@ func Notes(r Report) []string {
 		out = append(out, fmt.Sprintf("%d behind, %d to add — sync would update it", r.Audit.Behind, r.Audit.Add))
 	}
 	return out
+}
+
+// coverageNote is the enrollment column. Not a Note: an un-enrolled project is
+// not unhealthy, and a note would turn its `ok` into `warn`.
+func coverageNote(r Report) string {
+	if r.Coverage == "" {
+		return ""
+	}
+	return "  coverage " + r.Coverage
+}
+
+func coverageSummary(w io.Writer, reports []Report) {
+	var ios, enrolled int
+	for _, r := range reports {
+		if r.Coverage != "" {
+			ios++
+		}
+		if r.Coverage == CoverageEnrolled {
+			enrolled++
+		}
+	}
+	if ios > 0 {
+		fmt.Fprintf(w, "\ncoverage gate: %d of %d iOS project(s) enrolled\n", enrolled, ios)
+	}
 }
 
 func drift(r Report) string {

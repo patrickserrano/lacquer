@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -226,6 +227,10 @@ type Report struct {
 
 	// Ratchets reports changes against the project-owned numeric ceilings.
 	Ratchets []ratchet.Finding `json:"ratchets,omitempty"`
+	// Coverage is whether an iOS project has enrolled in the CI coverage gate
+	// (CoverageEnrolled / CoverageNotEnrolled); empty for a non-iOS project.
+	// Informational: there is no enrollment deadline, so it never blocks.
+	Coverage string `json:"coverage,omitempty"`
 
 	// Xcodegen reports regeneration differences without changing the fleet gate.
 	Xcodegen []xcodegendrift.Finding `json:"xcodegen,omitempty"`
@@ -249,6 +254,30 @@ type Report struct {
 	// wrong: a sweep would report a dead project as one of the healthy ones,
 	// and the clean count would climb every time something was retired.
 	Retired *config.Retirement `json:"retired,omitempty"`
+}
+
+const (
+	CoverageEnrolled    = "enrolled"
+	CoverageNotEnrolled = "not enrolled"
+)
+
+// coverageState reports an iOS project's coverage-gate enrollment, "" for any
+// other project. Check has already read the ratchet file, so a read error here
+// cannot occur without having been reported.
+func coverageState(root string, cfg *config.Config) string {
+	ios := false
+	for _, c := range cfg.Components {
+		if slices.Contains(c.Profiles, "ios") {
+			ios = true
+		}
+	}
+	if !ios {
+		return ""
+	}
+	if b, err := ratchet.Read(root); err == nil && ratchet.Enrolled(b) {
+		return CoverageEnrolled
+	}
+	return CoverageNotEnrolled
 }
 
 // IsRetired reports whether this project has been retired.
@@ -320,6 +349,7 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		r.Error = err.Error()
 		return r
 	}
+	r.Coverage = coverageState(e.Path, cfg)
 	r.Retired = cfg.Project.Retired
 	r.Xcodegen = xcodegendrift.Check(e.Path, cfg.BaselineTargets())
 

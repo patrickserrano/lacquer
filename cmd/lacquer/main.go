@@ -81,7 +81,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 
 	switch args[0] {
 	case "ratchet":
-		return runRatchet(args[1:], projectRoot, stdout, stderr)
+		return runRatchet(args[1:], projectRoot, lacquerRoot, stdout, stderr)
 	case "settings":
 		return runSettings(args[1:], stdout, stderr)
 	case "init":
@@ -198,6 +198,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, err)
 		}
 		fmt.Fprint(stdout, ratchet.Format(res.Ratchets))
+		if b, err := ratchet.Read(projectRoot); err == nil && ratchet.Enrolled(b) {
+			fmt.Fprint(stdout, ratchet.CoverageNotes(b, &config.Config{}))
+		}
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
 		if len(res.WarningsUnchecked) > 0 {
 			fmt.Fprintf(stdout, "warnings-as-errors: NOT CHECKED — the gate could not read these projects, so it did not vouch for them:\n  %s\n", strings.Join(res.WarningsUnchecked, "\n  "))
@@ -453,8 +456,11 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fmt.Fprint(stdout, ratchet.Format(ratchets))
 		if b, err := ratchet.Read(projectRoot); err != nil {
 			return fail(stderr, err)
-		} else if b == nil {
-			fmt.Fprintln(stdout, "ratchet: no baseline; run lacquer ratchet --write and commit the file")
+		} else {
+			if b == nil {
+				fmt.Fprintln(stdout, "ratchet: no baseline; run lacquer ratchet --write and commit the file")
+			}
+			fmt.Fprint(stdout, ratchet.CoverageNotes(b, cfg))
 		}
 
 		reports, err := baselineReports(lacquerRoot, projectRoot)

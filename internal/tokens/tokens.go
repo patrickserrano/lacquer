@@ -244,6 +244,10 @@ const (
 	// to pass the target through `--arg` instead, which changes the argument list
 	// and not just a value inside it.
 	IOSCICoverageJQ = "{{IOS_CI_COVERAGE_JQ}}"
+	// IOSCICoverageProduct is the coverage gate's --product: "-" for the lone
+	// product, and the leg's slug in a matrix, which is the suffix of that
+	// product's ios_uncovered_lines_<slug> ratchet key.
+	IOSCICoverageProduct = "{{IOS_CI_COVERAGE_PRODUCT}}"
 	// IOSCIArtifactSuffix scopes the test-results artifact per product. Two legs
 	// uploading `ios-test-results` would collide.
 	IOSCIArtifactSuffix = "{{IOS_CI_ARTIFACT_SUFFIX}}"
@@ -348,6 +352,7 @@ var registry = []entry{
 	{IOSCIWatchResult, false},
 	{IOSCIAppTarget, true},
 	{IOSCICoverageJQ, true},
+	{IOSCICoverageProduct, true},
 	{IOSCIArtifactSuffix, false},
 	{IOSCISimSuffix, false},
 	{IOSXcodeExpected, false},
@@ -469,13 +474,14 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCIWatchEcho:    CIWatchEcho(products),
 		IOSCIWatchResult:  CIWatchResult(products),
 
-		IOSCIAppTarget:      CIAppTarget(products),
-		IOSCICoverageJQ:     CICoverageJQ(products),
-		IOSCIArtifactSuffix: CIArtifactSuffix(products),
-		IOSCISimSuffix:      CISimSuffix(products),
-		IOSXcodeExpected:    cfg.Project.XcodeVersion,
-		IOSArchiveRoot:      archiveRoot(cfg.Project.ArchiveRoot),
-		IOSCISimMatch:       CISimMatch(products),
+		IOSCIAppTarget:       CIAppTarget(products),
+		IOSCICoverageJQ:      CICoverageJQ(products),
+		IOSCICoverageProduct: CICoverageProduct(products),
+		IOSCIArtifactSuffix:  CIArtifactSuffix(products),
+		IOSCISimSuffix:       CISimSuffix(products),
+		IOSXcodeExpected:     cfg.Project.XcodeVersion,
+		IOSArchiveRoot:       archiveRoot(cfg.Project.ArchiveRoot),
+		IOSCISimMatch:        CISimMatch(products),
 
 		DependabotUpdates: dependabotUpdates(cfg),
 	}
@@ -800,6 +806,14 @@ func CICoverageJQ(products []config.Product) string {
 		return "" // fail closed, as above
 	}
 	return fmt.Sprintf(`'.targets[] | select(.name == %q) | .lineCoverage * 100'`, app)
+}
+
+// CICoverageProduct names the product the coverage gate measures.
+func CICoverageProduct(products []config.Product) string {
+	if multi(products) {
+		return "${PRODUCT_SLUG}"
+	}
+	return "-"
 }
 
 // CIArtifactSuffix scopes the uploaded test results per product.

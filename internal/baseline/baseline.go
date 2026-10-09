@@ -53,3 +53,30 @@ func LoadSpec(lacquerRoot, profile string) (Spec, bool, error) {
 	}
 	return f.Baseline, true, nil
 }
+
+// CoverageFloor reads [baseline].coverage_floor, the line-coverage percent the
+// app target must reach. Required: a lacquer whose baseline omits it must not
+// read as a 0% floor that every project passes.
+func CoverageFloor(lacquerRoot, profile string) (int, error) {
+	path := filepath.Join(lacquerRoot, "profiles", profile, "baseline.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("coverage floor: %w (is LACQUER_ROOT the lacquer checkout?)", err)
+	}
+	var f struct {
+		Baseline struct {
+			CoverageFloor int `toml:"coverage_floor"`
+		} `toml:"baseline"`
+	}
+	md, err := toml.Decode(string(data), &f)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if !md.IsDefined("baseline", "coverage_floor") {
+		return 0, fmt.Errorf("%s has no [baseline].coverage_floor", path)
+	}
+	if v := f.Baseline.CoverageFloor; v < 0 || v > 100 {
+		return 0, fmt.Errorf("%s: coverage_floor %d is not a percentage", path, v)
+	}
+	return f.Baseline.CoverageFloor, nil
+}
