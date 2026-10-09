@@ -801,3 +801,44 @@ reviewer's ruling, which replaces D18's build list:
   has work once a project declares a package component, and a package a project
   declared should build, so it blocks from the first declaration. The step's
   comment and its error text say so.
+
+### Addendum (2026-10-09, after the consumer proof): renders come from committed inputs, and dry-runs render from a clean clone
+
+The first consumer proof of v1.66.0 reported three apparent defects: an
+XcodeGen-only project's `ios-ci.yml` audited as drift in CI, no Watch Tests job
+although `[project.watch_tests]` was declared, and SwiftLint apparently run as
+one root group. All three were retracted. The committed `ios-ci.yml` had been
+rendered before `[project.watch_tests]` and `[baseline.relax]` were added to the
+manifest and never re-synced, so CI's audit was right to report it behind. A
+re-render shows the watch job, and Lint groups per component.
+
+Reproducing it exposed a blind spot in how renders had been compared:
+
+- **`lacquer sync` regenerates a missing XcodeGen project itself** when
+  `xcodegen` is on PATH and a `project.yml` sits beside the declared
+  `.xcodeproj` (`baseline.EnsureXcodeproj`). On a Mac with XcodeGen installed, a
+  "clean clone" therefore has a generated `project.pbxproj` by the time anything
+  is compared. The fleet dry-runs for this stack, which reported byte-identical
+  renders across the fleet, rendered on such a Mac. Both sides of every
+  comparison had the generated project, so a render that read it could not have
+  been told apart from one that did not.
+- **The CI side has neither.** The drift audit runs on Linux from a fresh
+  checkout, with no generated project and no `xcodegen`.
+
+What changes:
+
+- **Every rendered file must be a function of committed inputs only.**
+  `TestRenderDoesNotDependOnAGeneratedProject` syncs every shipped fixture that
+  declares an Xcode project twice: once as CI sees it (generated files absent,
+  `xcodegen` hidden from PATH) and once as a developer's machine does (the
+  generated project present, ignored, uncommitted). The rendered trees must be
+  byte-identical. `TestWatchTestsRenderWithNoGeneratedProject` holds the same for
+  a declared watch bundle, and `TestSyncedLintRunsOncePerComponent` runs the
+  synced Lint step against an app component beside a package component.
+- **A fleet dry-run of anything that renders renders from a CI-like checkout:**
+  a fresh clone, no generate step before the render, and `xcodegen` removed from
+  PATH so `sync` cannot generate the project behind your back. Compare that
+  render with one made with the generated project present. A dry-run made in a
+  developer checkout, or in a clone on a machine where `sync` can run XcodeGen,
+  cannot see a dependency on generated files, so its PR must not describe it as
+  CI-equivalent.
