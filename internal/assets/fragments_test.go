@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/patrickserrano/lacquer/internal/config"
@@ -101,5 +102,32 @@ func TestFragmentsRenderOnlyWhereDeclared(t *testing.T) {
 	}
 	if len(with) != len(without) {
 		t.Errorf("declaring fragments changed the plan: %d -> %d assets", len(without), len(with))
+	}
+}
+
+// The strategy key alone changes typedoc.json and nothing else, and what it
+// changes is the strategy plus the test exclude, with the default entry point
+// kept. Without it the exclude is absent: the shipped file has none, and the
+// render must not grow one for every web project on sync.
+func TestTypeDocStrategyRendersOnlyTypeDoc(t *testing.T) {
+	without := renderEvery(t, "")
+	with := renderEvery(t, "[web]\ntypedoc_entry_point_strategy = 'expand'\n")
+	var changed []string
+	for dest, body := range with {
+		if without[dest] != body {
+			changed = append(changed, dest)
+		}
+	}
+	if !slices.Equal(changed, []string{"web/typedoc.json"}) {
+		t.Fatalf("declaring the strategy changed %v, want exactly web/typedoc.json", changed)
+	}
+	got := with["web/typedoc.json"]
+	for _, want := range []string{`"entryPoints": ["src/index.ts"],`, `"entryPointStrategy": "expand",`, `"**/*.test.ts"`, `"**/__tests__/**"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered typedoc.json lacks %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(without["web/typedoc.json"], `"exclude"`) || strings.Contains(without["web/typedoc.json"], "entryPointStrategy") {
+		t.Errorf("an undeclared project's typedoc.json carries a strategy or exclude:\n%s", without["web/typedoc.json"])
 	}
 }

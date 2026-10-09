@@ -58,7 +58,7 @@ func checkFragments(check, root, component string) error {
 		if err != nil {
 			return err
 		}
-		return checkTypeDocEntryPoints(data, cfg.Web.TypeDocEntryPoints)
+		return checkTypeDocEntryPoints(data, cfg.Web.TypeDocEntryPoints, cfg.Web.TypeDocEntryPointStrategy)
 	}
 }
 
@@ -146,42 +146,57 @@ func checkBiomeOverrides(synced []byte, declared []fragments.BiomeOverride) erro
 	return nil
 }
 
-func checkTypeDocEntryPoints(synced []byte, declared []string) error {
+func checkTypeDocEntryPoints(synced []byte, declared []string, strategy string) error {
 	if fragments.ValidateTypeDocEntryPoints([]string{"../outside/index.ts"}) == nil {
 		return fmt.Errorf("the entry-point guard accepted a path outside the component")
 	}
-	want := declared
-	if len(want) == 0 {
-		want = []string{"src/index.ts"}
+	if fragments.ValidateTypeDoc([]string{"src"}, "packages") == nil {
+		return fmt.Errorf("the strategy guard accepted \"packages\", which does not apply the docs validation per package")
 	}
-	got, err := typeDocEntryPoints(synced)
+	want := typeDocKeys{EntryPoints: declared, EntryPointStrategy: strategy, Exclude: fragments.TypeDocExcludes(declared, strategy)}
+	if len(want.EntryPoints) == 0 {
+		want.EntryPoints = []string{"src/index.ts"}
+	}
+	got, err := readTypeDocKeys(synced)
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(got, want) {
-		return fmt.Errorf("typedoc.json's entryPoints are %q, want %q; re-sync", got, want)
+	if !reflect.DeepEqual(got.EntryPoints, want.EntryPoints) {
+		return fmt.Errorf("typedoc.json's entryPoints are %q, want %q; re-sync", got.EntryPoints, want.EntryPoints)
+	}
+	if got.EntryPointStrategy != want.EntryPointStrategy {
+		return fmt.Errorf("typedoc.json's entryPointStrategy is %q, want %q; re-sync", got.EntryPointStrategy, want.EntryPointStrategy)
+	}
+	if !reflect.DeepEqual(got.Exclude, want.Exclude) {
+		return fmt.Errorf("typedoc.json's exclude is %q, want %q; re-sync", got.Exclude, want.Exclude)
 	}
 	return nil
 }
 
-// typeDocEntryPoints reads entryPoints from typedoc.json, which carries //
-// comments: each full-line comment is dropped before parsing. The shipped file
-// has no comment after a value, and a line that did would fail to parse here,
-// loudly, rather than be misread.
-func typeDocEntryPoints(data []byte) ([]string, error) {
+// typeDocKeys are the typedoc.json keys the manifest decides. An absent key
+// reads as its zero value, which is what an undeclared manifest wants.
+type typeDocKeys struct {
+	EntryPoints        []string `json:"entryPoints"`
+	EntryPointStrategy string   `json:"entryPointStrategy"`
+	Exclude            []string `json:"exclude"`
+}
+
+// readTypeDocKeys reads them from typedoc.json, which carries // comments: each
+// full-line comment is dropped before parsing. The shipped file has no comment
+// after a value, and a line that did would fail to parse here, loudly, rather
+// than be misread.
+func readTypeDocKeys(data []byte) (typeDocKeys, error) {
 	var kept [][]byte
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		if !bytes.HasPrefix(bytes.TrimSpace(line), []byte("//")) {
 			kept = append(kept, line)
 		}
 	}
-	var doc struct {
-		EntryPoints []string `json:"entryPoints"`
-	}
+	var doc typeDocKeys
 	if err := json.Unmarshal(bytes.Join(kept, []byte("\n")), &doc); err != nil {
-		return nil, fmt.Errorf("typedoc.json does not parse: %w", err)
+		return doc, fmt.Errorf("typedoc.json does not parse: %w", err)
 	}
-	return doc.EntryPoints, nil
+	return doc, nil
 }
 
 // normalise round-trips a TOML-decoded override through JSON so it compares

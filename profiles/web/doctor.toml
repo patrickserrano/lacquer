@@ -235,6 +235,35 @@ expect = "pass"
 expect_output = '(?s)does not have any documentation.*html generated at \./out'
 
 [[probe]]
+name = "TypeDoc under expand reports an undocumented export in a file nobody listed"
+why = """
+[web] typedoc_entry_point_strategy = "expand" exists so a new exported file is
+checked without anyone adding it to typedoc_entry_points: the entry is a
+directory, and TypeDoc walks it. That only holds if the shipped options still
+let the walk reach the file, so this pins the strategy and a directory on the
+command line (like every probe here, nothing in the manifest decides what it
+checks) and plants the undocumented export two levels down, beside a documented
+one. Observed on TypeDoc 0.28.20: exit 4, the nested symbol named. Without
+"expand" the same directory entry is not walked at all (exit 3, "Unable to find
+any entry points"), which is why the pattern names the symbol and its file.
+"""
+file = "probe.ts"
+content = """
+/** A documented export, listed by name. */
+export const listed = 1
+"""
+requires = ["{component}/node_modules/.bin/typedoc"]
+argv = ["sh", "-c", """
+set -e
+mkdir -p src/deep
+printf '%s\\n' 'export const unlisted = 2' > src/deep/added.ts
+printf '%s' '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"bundler","strict":true},"include":["probe.ts","src"]}' > tsconfig.json
+exec {component}/node_modules/.bin/typedoc --options {component}/typedoc.json --entryPointStrategy expand --entryPoints ./probe.ts --entryPoints ./src --out ./out --tsconfig ./tsconfig.json
+"""]
+expect = "fail"
+expect_output = '(?s)unlisted \(Variable\), defined in .*src/deep/added\.ts, does not have any documentation'
+
+[[probe]]
 name = "the shipped biome.json uses no deprecated configuration"
 why = """
 biome.json set `"recommended": true`, which Biome deprecated: "will be removed
@@ -309,7 +338,9 @@ why = """
 [web] typedoc_entry_points replaces the shipped single-barrel default. The
 TypeDoc probes here pass their own --entryPoints, so no value can change what
 they prove; this checks the synced typedoc.json carries the declared list (or the
-default), and that the guard still refuses a path outside the component.
+default), the declared entryPointStrategy and the test exclude that comes with a
+strategy or a glob (and neither when none is declared), and that the guard still
+refuses a path outside the component and the "packages" strategy.
 """
 check = "typedoc-entry-points"
 expect = "pass"

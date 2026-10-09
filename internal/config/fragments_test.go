@@ -56,6 +56,9 @@ func TestFragmentKeysRefuseUnknownKeys(t *testing.T) {
 		"swiftlint config knob":  {"[ios]\ndisabled_rules=['identifier_name']\n", "unknown key"},
 		"empty entry points":     {"[web]\ntypedoc_entry_points=[]\n", "typedoc_entry_points is empty"},
 		"bad rule severity":      {"[ios.swiftlint_custom_rules.x]\nregex='a'\nseverity='fatal'\n", "severity"},
+		"packages strategy":      {"[web]\ntypedoc_entry_point_strategy='packages'\n", "undocumented exports pass silently"},
+		"unknown strategy":       {"[web]\ntypedoc_entry_point_strategy='resolve'\n", `the only value is "expand"`},
+		"bare directory":         {"[web]\ntypedoc_entry_points=['src/lib']\n", "a directory"},
 		"override lowering rule": {"[[web.biome_overrides]]\nincludes=['**']\nlinter.rules.style.noDefaultExport='off'\n", "never lower"},
 	} {
 		_, err := loadManifest(t, c.body)

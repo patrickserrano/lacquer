@@ -282,7 +282,7 @@ a new CI job adds a row here, and a hook never runs weaker than its CI twin.
 | `check` → `pnpm run build` | pre-push `build` |
 | `check` → `turbo run <task>` (monorepo) | same branch in pre-commit `typecheck`, pre-push `test` / `build` |
 | `check` → `pnpm audit` | pre-push `audit` (network, so not at commit time) |
-| `./node_modules/.bin/typedoc` | pre-push `docs`; local only, no CI counterpart |
+| `check` → `Docs (TypeDoc)` | pre-push `docs`: the same `./node_modules/.bin/typedoc`, and both skip only under an active `[baseline.relax] documentation` |
 | `Detect changed paths` → drift audit | `lacquer audit` (exit 3) |
 
 One deliberate asymmetry: pre-commit runs Biome over **staged files** while CI

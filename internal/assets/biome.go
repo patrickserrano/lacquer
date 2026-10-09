@@ -78,7 +78,7 @@ func renderFragments(a Asset, body []byte, cfg *config.Config) ([]byte, error) {
 		}
 		return projfrag.RenderBiomeOverrides(body, rules, cfg.Web.BiomeOverrides)
 	case "typedoc.json":
-		return projfrag.RenderTypeDoc(body, cfg.Web.TypeDocEntryPoints)
+		return projfrag.RenderTypeDoc(body, cfg.Web.TypeDocEntryPoints, cfg.Web.TypeDocEntryPointStrategy)
 	case ".swiftlint.yml":
 		if len(cfg.IOS.SwiftLintCustomRules) == 0 {
 			return body, nil
