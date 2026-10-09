@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -144,6 +145,9 @@ type Result struct {
 // check in the harness was the one nothing tested.
 const CoreLayer = "core"
 
+// builtinChecks are the configuration probes checkConfig implements.
+var builtinChecks = []string{"actionlint-labels", "biome-ignores", "biome-overrides", "biome-schema", "swiftlint-custom-rules", "typedoc-entry-points"}
+
 // LoadProbes reads a layer's self-tests. A layer shipping none is fine.
 // The core layer lives at core/doctor.toml; every other name is a profile.
 func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
@@ -163,7 +167,7 @@ func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	for i, p := range f.Probe {
-		if p.Check != "" && p.Check != "actionlint-labels" && p.Check != "biome-ignores" && p.Check != "biome-schema" {
+		if p.Check != "" && !slices.Contains(builtinChecks, p.Check) {
 			return nil, fmt.Errorf("%s: unknown built-in check %q", path, p.Check)
 		}
 		if p.Check != "" && (p.Expect != "pass" || p.ExpectOutput != "" || p.File != "" || len(p.Requires) > 0 || p.Scratch != "") {

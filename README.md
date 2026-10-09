@@ -721,6 +721,57 @@ managed, so future shared lint improvements still arrive. Doctor checks the
 synced runner labels and declared ignores, with negative controls that reject
 missing values; these configuration checks need no external linter binary.
 
+### Project fragments
+
+Three managed configs also take a project-owned fragment from `.lacquer.toml`,
+so a project that needs one more rule, or its own docs entry points, keeps the
+shared file instead of excluding it:
+
+```toml
+# Custom rules added to every iOS component's .swiftlint.yml.
+[ios.swiftlint_custom_rules.sentry_import_confined]
+name = "import Sentry confined"
+regex = '^\s*import\s+Sentry\s*$'
+message = "Report through ErrorReporter"
+severity = "error"
+excluded = ['.*Core/Reporting/ErrorReporter\.swift$']
+
+# Per-path Biome overrides appended to biome.json's overrides, in Biome's shape.
+[[web.biome_overrides]]
+includes = ["core/**"]
+[web.biome_overrides.linter.rules.style.noRestrictedImports]
+level = "error"
+options = { patterns = [{ group = ["node:*"], message = "core runs on Workers" }] }
+
+# typedoc.json's entryPoints (default ["src/index.ts"]).
+[web]
+typedoc_entry_points = ["core/src/index.ts", "api/src/index.ts"]
+```
+
+A fragment may only **add** enforcement. A SwiftLint custom rule may not reuse
+the id of a rule the profile names or a doctor probe asserts, because a custom
+rule with a profile custom rule's id replaces it. A Biome override may set only
+`includes` and `linter.rules`, at level `"error"`, with `options` only on the
+`noRestricted*` rules, and never on a rule the profile's `biome.json` sets or a
+doctor probe asserts. Entry points must stay inside the component. `sync` and
+`audit` refuse anything else, naming the key, so a pull request that tries it
+fails its drift check. A project that declares none of these keys renders all
+three files byte-identical to the shared default.
+
+The fragments live in the manifest rather than in project-owned child configs
+on purpose. SwiftLint's `child_config` would accept `disabled_rules`,
+`only_rules`, `excluded` and any rule's own settings, each of which silently
+loosens the profile, and an edit to such a file would not wake the drift audit
+that every shipped CI runs only when a lacquer-managed path changes.
+`.lacquer.toml` always wakes it.
+
+Doctor runs one check per fragment kind. Each plants a fragment that would
+switch a profile rule off against the synced file and fails if the guard
+accepts it, then confirms every declared fragment reached that file. The
+SwiftLint and Biome probes run against the rendered config, fragments included,
+so each still has to reject its own planted violation. TypeDoc's probes pass
+their own `--entryPoints`, so no manifest value changes what they test.
+
 ## Docs
 
 The opt-in [rule eval suite](evals/README.md) compares Claude's behavior with

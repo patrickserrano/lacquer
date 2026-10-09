@@ -52,6 +52,8 @@ func checkConfig(check, root, component string) error {
 		return checkBiomeIgnores(data, cfg.Web.BiomeIgnores)
 	case "biome-schema":
 		return checkBiomeSchemaInstalled(root, component)
+	case "swiftlint-custom-rules", "biome-overrides", "typedoc-entry-points":
+		return checkFragments(check, root, component)
 	default:
 		return fmt.Errorf("unknown configuration probe %q", check)
 	}
