@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-const notRunBase = "[project]\nname = \"MomFriend\"\nproject_name = \"MomFriend\"\nscheme = \"MomFriend\"\n" +
-	"xcodeproj = \"ios/MomFriend.xcodeproj\"\n"
+const notRunBase = "[project]\nname = \"BravoApp\"\nproject_name = \"BravoApp\"\nscheme = \"BravoApp\"\n" +
+	"xcodeproj = \"ios/BravoApp.xcodeproj\"\n"
 
-// momfriend's real case: a local-package suite CI builds and never runs, because
+// bravoapp's real case: a local-package suite CI builds and never runs, because
 // it needs on-device models and is written to fail, not skip, without them.
 const goodNotRun = notRunBase + `
 [[project.not_run_in_ci]]
-target = "MomFriendCoreTests"
+target = "BravoAppCoreTests"
 reason = "needs on-device models; built in CI, run on device before release"
 until  = "2026-12-31"
 `
@@ -28,7 +28,7 @@ func TestNotRunInCILoads(t *testing.T) {
 		t.Fatalf("got %d entries, want 1", len(got))
 	}
 	want := NotRunInCI{
-		Target: "MomFriendCoreTests",
+		Target: "BravoAppCoreTests",
 		Reason: "needs on-device models; built in CI, run on device before release",
 		Until:  "2026-12-31",
 	}

@@ -498,7 +498,7 @@ repo's `.lacquer.toml` (only the `[weekly]` table) on disk; it does not
 commit. Tests: a fixed fake roster of 16 names, with a golden table; adding
 a 17th name moves nobody; `--check` catches a planted collision.
 
-The operator's applied table lives in fleet-ops (private). Do not commit the
+The operator's applied table lives in the operator's fleet repo (private). Do not commit the
 real table here.
 
 ---
@@ -607,7 +607,7 @@ slot → none. Mutation: drop the slot check → "repo with no slot" fails by na
 3. Report before and after: median and mean billed per PR, Mac slot-min and
    Blacksmith billed separately, the share of push runs that reused, and
    whether a weekly run fired in its slot and what it found.
-4. Propose the fleet sync to your PM with those numbers. Foxy schedules it.
+4. Propose the fleet sync to your PM with those numbers. the operator schedules it.
 
 ---
 

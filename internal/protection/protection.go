@@ -13,13 +13,13 @@
 // Measured across 17 non-archived repositories in the fleet this was built for:
 //
 //   - 14 require exactly `CI OK`. That is the intended shape.
-//   - dailybread requires `Build (Release), Lint + Test`. Its project-owned
+//   - alphaapp requires `Build (Release), Lint + Test`. Its project-owned
 //     ios-ci.yml posts `Lint` and `Test` as SEPARATE contexts and never posts
 //     `Lint + Test` at all; only merge-gate.yml does, as a conditional skip leg.
 //     On PR #482 — an entitlement change — BOTH required checks were satisfied
 //     purely by skips, and `CI OK` was not required at all. Nothing ran, and
 //     nothing said so.
-//   - Windsock and dailybread-image-proxy require NOTHING. That is the same
+//   - Foxtrot and alphaapp-image-proxy require NOTHING. That is the same
 //     defect at zero, and it is reported as a finding rather than a pass: a
 //     branch with no required context is a branch where every check is advisory.
 //
@@ -48,7 +48,7 @@
 // network deliberately, and which reports "could not look" as its own answer
 // with its own exit code. A personal account on GitHub Free cannot use branch
 // protection on a private repo at all, and the API answers 403 — verified
-// against patrickserrano/dailybread-image-proxy before its org transfer. A 403
+// against patrickserrano/alphaapp-image-proxy before its org transfer. A 403
 // is NOT a pass and is not a finding either; collapsing it into either one would
 // make this check an instance of the defect it exists to catch.
 package protection
@@ -83,7 +83,7 @@ const (
 	// every one of them can be satisfied by a skip: the aggregate is not among
 	// them, and no required context is posted by a job that always reports. The
 	// required set can therefore go green without any of the work having
-	// happened. dailybread.
+	// happened. alphaapp.
 	AllRequiredSkippable Verdict = "all-required-skippable"
 	// NothingRequired means protection exists and requires no status check at
 	// all. Every check on the PR is advisory.

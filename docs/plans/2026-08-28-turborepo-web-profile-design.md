@@ -2,7 +2,7 @@
 
 **Status:** Design validated via brainstorming; not yet planned/implemented.
 
-**Origin:** pixelfoxstudio.com added `apps/admin` (a second Next.js app, Payload
+**Origin:** the consumer site added `apps/admin` (a second Next.js app, Payload
 CMS, in a pnpm workspace alongside the root site). Lacquer's `[[component]]`
 model supports one component per profile (`internal/config/config.go`), so
 `apps/admin` cannot be declared and is excluded (`.lacquer.toml`
@@ -80,7 +80,7 @@ bans resolver-dispatched tool invocation (`internal/shipped/shipped_test.go`'s
 of a project dependency" entry): `dlx`/`npx` fall through to PATH or download
 an unpinned version, so a project without `turbo` as a devDependency would get
 a green step run by whatever version happened to be resolved, exactly the
-`sleevetap`/biome incident that ban exists to prevent. Matches the `Biome`
+`hotel`/biome incident that ban exists to prevent. Matches the `Biome`
 step's own `./node_modules/.bin/biome` convention immediately below it.
 
 All four steps still run inside `working-directory: "{{COMPONENT_PREFIX}}."`
@@ -109,14 +109,14 @@ component root; biome's own recursion already reaches subdirectories like
 `[project].build_env` in `.lacquer.toml` already accepts an arbitrary flat
 list of secret **names** (rendered into `{{WEB_BUILD_ENV}}`, values pulled
 from GitHub `secrets`). No schema change: a project with multiple apps needing
-different secrets (pixelfoxstudio.com's root `NEXT_PUBLIC_SANITY_*` vs.
+different secrets (the consumer site's root `NEXT_PUBLIC_SANITY_*` vs.
 `apps/admin`'s `CMS_DATABASE_URI`/`PAYLOAD_SECRET`/`R2_*`) just lists all of
 them — they land in the same job's environment since one `turbo run build`
 step builds every package together.
 
 **Explicitly out of scope:** whether `apps/admin`'s build can succeed in CI
 without a live Postgres instance (service container, or a build-time flag to
-skip DB-dependent static generation). That's a pixelfoxstudio.com-side
+skip DB-dependent static generation). That's a consumer-side
 implementation concern, not a lacquer design question.
 
 ---
@@ -131,7 +131,7 @@ implementation concern, not a lacquer design question.
 3. Version bump per the lacquer's normal process (profile content only — no
    `internal/config` change, no new token).
 
-**pixelfoxstudio.com** (separate PR, after `lacquer sync` picks up the above):
+**the consumer site** (separate PR, after `lacquer sync` picks up the above):
 1. Add `turbo` devDependency; add root `turbo.json` with `lint`/`typecheck`/
    `test`/`build` tasks (root package already has all four scripts).
 2. Give `apps/admin` a `lint` script (currently missing) so turbo gates it

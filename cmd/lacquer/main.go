@@ -493,7 +493,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return fail(stderr, err)
 			}
 			// Only compare when the project was actually READ. A manifest may name
-			// an .xcodeproj that does not exist yet (multimeter says so in its own
+			// an .xcodeproj that does not exist yet (golf says so in its own
 			// comment), and reporting every selector as naming a missing target
 			// then would be the check confusing "I could not look" with "it is not
 			// there" -- the exact failure it exists to catch.
@@ -1446,7 +1446,7 @@ func watchLive(w io.Writer, sessionsPath string, roster fleet.Roster, roles cons
 //
 // Go's flag package stops at the first argument that is not a flag, and every
 // console subcommand is one. So a flag after the subcommand was never parsed:
-// `watch --relaunch`, the form fleet-ops documents, printed the status and
+// `watch --relaunch`, the form fleet-repo documents, printed the status and
 // relaunched nothing; `kill x --force` refused as if --force were absent; and
 // #399 had to refuse a flag after dispatch, or `dispatch p "task" --dry-run`
 // would have launched for real with the flag as task text. Nothing reported
@@ -1541,7 +1541,7 @@ func consoleSubcommand(args []string) (string, error) {
 // would kill for real. A flag missing from this table is refused everywhere,
 // so a new one cannot pass unscoped.
 //
-// The file flags apply everywhere, because fleet-ops' console.sh passes
+// The file flags apply everywhere, because fleet-repo' console.sh passes
 // --roster, --roles and --sessions on every invocation, whatever follows.
 var consoleFlagScope = map[string][]string{
 	"roster":   nil,

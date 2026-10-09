@@ -26,8 +26,8 @@ import (
 func watchProject() *config.Config {
 	cfg := soloConfig()
 	cfg.Project.WatchTests = &config.WatchTests{
-		Scheme:     "DailyBreadWatchApp Watch App",
-		TestTarget: "DailyBreadWatchApp Watch AppTests",
+		Scheme:     "AlphaAppWatchApp Watch App",
+		TestTarget: "AlphaAppWatchApp Watch AppTests",
 	}
 	return cfg
 }
@@ -80,8 +80,8 @@ func TestWatchProductRendersAWatchOSDestination(t *testing.T) {
 	leg := legs[0]
 	for _, tc := range []struct{ key, want string }{
 		// The two halves of the gap, both per-leg.
-		{"scheme", "DailyBreadWatchApp Watch App"},
-		{"test_target", "DailyBreadWatchApp Watch AppTests"},
+		{"scheme", "AlphaAppWatchApp Watch App"},
+		{"test_target", "AlphaAppWatchApp Watch AppTests"},
 		// THE destination. This is the field that did not exist: without it a
 		// leg inherits platform=iOS Simulator no matter which scheme it names.
 		{"destination_prefix", "platform=watchOS Simulator"},

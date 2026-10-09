@@ -373,7 +373,7 @@ Publish articles or press releases to earn dofollow backlinks. Best for product 
 | **Site Promotion Directory** | 46 | Marketing-focused directory. |
 | **Semfirms** | 45 | Marketing services directory. |
 | **CabinetM** | 45 | Marketing technology directory. |
-| **Cold Email Kit** | 44 | Email marketing directory. |
+| **Cold Email Echo** | 44 | Email marketing directory. |
 | **Directory LDM Studio** | 40 | General directory. |
 | **Quality Internet Directory** | 39 | General web directory. |
 | **ProofStories** | 32 | Marketing stories/case studies. |

@@ -308,7 +308,7 @@ type Env struct {
 	PopupArgv func(id string) []string
 	IssueArgv func(ref string) []string
 	// ExtraRepos are repositories the roster does not list that the Later and
-	// PRs tabs should still cover (foxy-prs's extras).
+	// PRs tabs should still cover (the operator's PR tool's extras).
 	ExtraRepos []string
 	// InTmux says whether a popup can be shown.
 	InTmux bool
@@ -457,7 +457,7 @@ func (e Env) entry(id string) EntryEvent {
 // operator had typed it there, then records it. The entry's title is left out on
 // purpose: it is agent-written text, and typed here it would arrive in the
 // overseer's input looking like the operator's own words. The overseer looks the
-// title up by id. (foxy-inbox made the same change, 4a8d084.) The record is written
+// title up by id. (the operator's inbox tool made the same change, 4a8d084.) The record is written
 // only after both keystrokes went in: a reply the overseer never got must not
 // read as answered.
 func (e Env) reply(c Cmd) Event {
@@ -586,7 +586,7 @@ func (e Env) showPopup(kind CmdKind, id string, argv func(string) []string, titl
 // the popup selects text in the terminal instead of reaching tmux, and returns
 // what puts it back. The session's own value is restored, or unset when it had
 // none, so the global one applies again (never -g: other sessions are not ours).
-// The popup is driven by keys and needs no mouse. foxy-inbox's native_selection.
+// The popup is driven by keys and needs no mouse. the operator's inbox tool's native_selection.
 func (e Env) nativeSelection() (restore func()) {
 	prev, _ := e.Cmd.Run("", "tmux", "show", "-qv", "mouse")
 	prev = strings.TrimSpace(prev)
@@ -609,7 +609,7 @@ func (e Env) harvest() Event {
 // formatQuote escapes what tmux would expand in a format string. -T is one on
 // every version, so an id holding "#(cmd)" would run cmd when the popup opened
 // (verified on tmux 3.7c), and the id comes from a file any agent can write.
-// (foxy-inbox's tmux_literal.) The -E command is handled differently, see popup.
+// (the operator's inbox tool's tmux_literal.) The -E command is handled differently, see popup.
 func formatQuote(s string) string { return strings.ReplaceAll(s, "#", "##") }
 
 // shellJoin quotes argv for the shell tmux runs a popup command with.

@@ -77,7 +77,7 @@ func DispatchConfigured(roster fleet.Roster, sessions []Session, name, task stri
 
 // Placement is where a session runs when its dispatcher decides that rather
 // than lacquer. A fleet PM decides each IC's branch and worktree, creates
-// them, and names them in the brief (fleet-ops personas/pm.md); without this
+// them, and names them in the brief (fleet-repo personas/pm.md); without this
 // a bg dispatch ran in a dispatch-<id> worktree of lacquer's own, leaving the
 // PM's unused and an extra one behind to clean up.
 //

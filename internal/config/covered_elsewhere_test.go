@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-const coveredBase = "[project]\nname = \"DailyBread\"\nproject_name = \"DailyBread\"\nscheme = \"DailyBread\"\n"
+const coveredBase = "[project]\nname = \"AlphaApp\"\nproject_name = \"AlphaApp\"\nscheme = \"AlphaApp\"\n"
 
 const goodCovered = coveredBase + `
 [[project.covered_elsewhere]]
-target = "DailyBreadWatchApp Watch AppTests"
+target = "AlphaAppWatchApp Watch AppTests"
 workflow = ".github/workflows/watch-ci.yml"
 reason = "watchOS bundle: a different scheme and a watch simulator destination, neither expressible in a [[product]] leg"
 `
@@ -23,7 +23,7 @@ func TestCoveredElsewhereLoads(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("got %d entries, want 1", len(got))
 	}
-	if got[0].Target != "DailyBreadWatchApp Watch AppTests" {
+	if got[0].Target != "AlphaAppWatchApp Watch AppTests" {
 		t.Errorf("target = %q — a quoted name with spaces is the normal case here, not an exotic one", got[0].Target)
 	}
 	if got[0].Workflow != ".github/workflows/watch-ci.yml" || got[0].Reason == "" {

@@ -553,8 +553,8 @@ func TestCleanupCIDeletesOnlyOldIdleCIDevices(t *testing.T) {
 
 	h.device("CI-iPhone-40000000001", "44444444-4444-4444-4444-444444444444", "Shutdown", young)
 	h.device("CI-iPhone", "55555555-5555-5555-5555-555555555555", "Shutdown", old)
-	h.device("CI-DailyBread", "66666666-6666-6666-6666-666666666666", "Shutdown", old)
-	h.device("dailybread-store-teardown-iPhone17Pro-ios27", "77777777-7777-7777-7777-777777777777", "Shutdown", old)
+	h.device("CI-AlphaApp", "66666666-6666-6666-6666-666666666666", "Shutdown", old)
+	h.device("alphaapp-store-teardown-iPhone17Pro-ios27", "77777777-7777-7777-7777-777777777777", "Shutdown", old)
 	h.device("iPhone 17 Pro", "88888888-8888-8888-8888-888888888888", "Shutdown", old)
 	h.device("My CI-iPhone-7", "99999999-9999-9999-9999-999999999999", "Shutdown", old)
 	// Booted but old: leaked by a killed job. Not deleted (it is booted), and
@@ -870,7 +870,7 @@ func TestCleanupCIQuietWindow(t *testing.T) {
 	t.Run("another Runner.Worker skips the pass", func(t *testing.T) {
 		h := newCleanupHost(t)
 		seed(h)
-		other := filepath.Join(h.dir, "pixelfox-2")
+		other := filepath.Join(h.dir, "examplestudio-2")
 		h.procAs(githubUID, 2001, 2000, "00:04:00", theirRunner+"/bin/Runner.Worker spawnclient 164 167")
 		// A runner that has self-updated runs its worker from bin.<version>.
 		h.proc(2011, 2010, "00:03:00", other+"/bin.2.335.1/Runner.Worker spawnclient 160 163")
@@ -907,7 +907,7 @@ func TestCleanupCIQuietWindow(t *testing.T) {
 		h := newCleanupHost(t)
 		seed(h)
 		h.device("CI-iPhone-2", "22222222-2222-2222-2222-222222222222", "Booted", 5*time.Minute)
-		h.proc(2011, 2010, "00:03:00", filepath.Join(h.dir, "pixelfox-2")+"/bin/Runner.Worker spawnclient 160 163")
+		h.proc(2011, 2010, "00:03:00", filepath.Join(h.dir, "examplestudio-2")+"/bin/Runner.Worker spawnclient 160 163")
 		r := h.mustRun("aggressive", "false", "workflow_dispatch")
 		if r.destructive() {
 			t.Errorf("an aggressive run acted while another job was running\n%s", r.calls)
@@ -1065,7 +1065,7 @@ func TestCleanupCIOtherCleanupsDoNotBlock(t *testing.T) {
 	t.Run("a marker deeper in the tree still identifies the cleanup", func(t *testing.T) {
 		h := newCleanupHost(t)
 		seed(h)
-		theirs := filepath.Join(h.dir, "pixelfox-2")
+		theirs := filepath.Join(h.dir, "examplestudio-2")
 		h.cleanupJob(os.Getuid(), 3000, theirs, "/bin/sh -c wrapper", cleanupStep(theirs))
 		r := h.mustRun("standard", "false", "schedule")
 		if !r.killed(1001) {
@@ -1075,7 +1075,7 @@ func TestCleanupCIOtherCleanupsDoNotBlock(t *testing.T) {
 	t.Run("a cleanup and a normal job skip", func(t *testing.T) {
 		h := newCleanupHost(t)
 		seed(h)
-		cleanup, busy := "/Users/github/actions-runner-2", filepath.Join(h.dir, "pixelfox-2")
+		cleanup, busy := "/Users/github/actions-runner-2", filepath.Join(h.dir, "examplestudio-2")
 		h.cleanupJob(githubUID, 3000, cleanup, cleanupStep(cleanup))
 		h.cleanupJob(os.Getuid(), 4000, busy, "/opt/homebrew/bin/bash -e "+busy+"/_work/_temp/c3d4.sh",
 			"/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test")
@@ -1104,7 +1104,7 @@ func TestCleanupCIOtherCleanupsDoNotBlock(t *testing.T) {
 	t.Run("the marker only as part of a word is not a cleanup", func(t *testing.T) {
 		h := newCleanupHost(t)
 		seed(h)
-		theirs := filepath.Join(h.dir, "pixelfox-2")
+		theirs := filepath.Join(h.dir, "examplestudio-2")
 		h.cleanupJob(os.Getuid(), 3000, theirs, "/opt/homebrew/bin/bash -e "+theirs+"/_work/_temp/e5f6.sh",
 			"cat /tmp/"+cleanupMarker+".lock", "echo --"+cleanupMarker+"-x")
 		r := h.mustRun("standard", "false", "schedule")

@@ -16,12 +16,12 @@ import (
 // shipped the placeholders: a dead paywall, no analytics, no crash reports.
 const flareShaped = `
 [project]
-name = "Flare"
-project_name = "Flare"
-scheme = "Flare"
+name = "Delta"
+project_name = "Delta"
+scheme = "Delta"
 bundle_id = "com.example.flare"
 asc_app_id = "1000000001"
-xcodeproj = "Flare.xcodeproj"
+xcodeproj = "Delta.xcodeproj"
 secrets = { REVENUECAT_API_KEY = "FLARE_REVENUECAT_API_KEY", APTABASE_APP_KEY = "FLARE_APTABASE_APP_KEY" }
 secret_formats = { REVENUECAT_API_KEY = "appl_*" }
 
@@ -60,12 +60,12 @@ func TestProjectSecretsRenderTheReleaseConfigStep(t *testing.T) {
 	if step == nil {
 		t.Fatal("[project].secrets rendered no release configuration step, so the release would ship placeholder keys")
 	}
-	if got, _ := step["name"].(string); got != "Write release configuration (Flare)" {
+	if got, _ := step["name"].(string); got != "Write release configuration (Delta)" {
 		t.Errorf("step name = %q", got)
 	}
 	// The synthesised product's name is the project name, which is also what
 	// the release matrix carries, so the gate matches the only leg there is.
-	if got, _ := step["if"].(string); got != "matrix.product.name == 'Flare'" {
+	if got, _ := step["if"].(string); got != "matrix.product.name == 'Delta'" {
 		t.Errorf("gate = %q, want the synthesised product's leg", got)
 	}
 	env, _ := step["env"].(map[string]any)

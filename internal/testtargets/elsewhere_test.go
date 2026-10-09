@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The shape dailybread actually has: its own scheme, a watch simulator
+// The shape alphaapp actually has: its own scheme, a watch simulator
 // destination, a watch-only `-only-testing:` selector, and a pull_request
 // trigger. The xcodebuild call is split over continuation lines because that is
 // how every real one is written.
@@ -25,13 +25,13 @@ jobs:
       - name: Run watch tests
         run: |
           xcodebuild test \
-            -project DailyBread.xcodeproj \
-            -scheme "DailyBreadWatchApp Watch App" \
+            -project AlphaApp.xcodeproj \
+            -scheme "AlphaAppWatchApp Watch App" \
             -destination "platform=watchOS Simulator,id=$WATCH_ID" \
-            -only-testing:"DailyBreadWatchApp Watch AppTests"
+            -only-testing:"AlphaAppWatchApp Watch AppTests"
 `
 
-const watchTarget = "DailyBreadWatchApp Watch AppTests"
+const watchTarget = "AlphaAppWatchApp Watch AppTests"
 
 // project writes workflow files into a throwaway project root.
 func project(t *testing.T, files map[string]string) string {
@@ -74,11 +74,11 @@ func uncovered(r Report, name string) bool {
 	return false
 }
 
-// The false positive this exists to remove. dailybread's watch-ci.yml runs 76
+// The false positive this exists to remove. alphaapp's watch-ci.yml runs 76
 // watch tests on every pull request, and the audit called the target uncovered.
 func TestVerifiedDeclarationRemovesTheFalsePositive(t *testing.T) {
 	dir := project(t, map[string]string{".github/workflows/watch-ci.yml": watchCI})
-	r := report(t, dir, []string{"DailyBreadTests"}, decl(), nil)
+	r := report(t, dir, []string{"AlphaAppTests"}, decl(), nil)
 
 	if uncovered(r, watchTarget) {
 		t.Errorf("a verified covered_elsewhere target is still reported as running nowhere: %+v", r.Uncovered)
@@ -115,13 +115,13 @@ func TestUnverifiableDeclarationsDoNotSuppressTheFinding(t *testing.T) {
 
 	// Names the target only in a comment.
 	commented := strings.Replace(watchCI,
-		`            -only-testing:"DailyBreadWatchApp Watch AppTests"`,
-		"          # covers DailyBreadWatchApp Watch AppTests\n          echo done", 1)
+		`            -only-testing:"AlphaAppWatchApp Watch AppTests"`,
+		"          # covers AlphaAppWatchApp Watch AppTests\n          echo done", 1)
 
 	// Exists, names the target, triggers on a PR — and runs no tests. The shape
 	// of a workflow that was going to run them and never did.
 	noTests := "name: Watch CI\non:\n  pull_request:\n\njobs:\n  watch-tests:\n    runs-on: macos-15\n" +
-		"    steps:\n      - name: DailyBreadWatchApp Watch AppTests\n        run: echo \"TODO: wire this up\"\n"
+		"    steps:\n      - name: AlphaAppWatchApp Watch AppTests\n        run: echo \"TODO: wire this up\"\n"
 
 	// Runs the tests, but only when somebody remembers to press the button.
 	manual := strings.Replace(watchCI, "on:\n  pull_request:\n    branches: [main]\n  workflow_dispatch:",
@@ -138,7 +138,7 @@ func TestUnverifiableDeclarationsDoNotSuppressTheFinding(t *testing.T) {
 		{"nothing triggers it on a code change", map[string]string{".github/workflows/watch-ci.yml": manual}, "not triggered by a code change"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := report(t, project(t, tc.files), []string{"DailyBreadTests"}, decl(), nil)
+			r := report(t, project(t, tc.files), []string{"AlphaAppTests"}, decl(), nil)
 			if !uncovered(r, watchTarget) {
 				t.Fatalf("an unverifiable declaration removed the finding — %q is now reported by nothing", watchTarget)
 			}
@@ -168,7 +168,7 @@ func TestDeclarationCannotPointAtAManagedWorkflow(t *testing.T) {
 	d := decl()
 	d[0].Workflow = ".github/workflows/ci.yml"
 
-	r := report(t, dir, []string{"DailyBreadTests"}, d, map[string]bool{".github/workflows/ci.yml": true})
+	r := report(t, dir, []string{"AlphaAppTests"}, d, map[string]bool{".github/workflows/ci.yml": true})
 	if !uncovered(r, watchTarget) {
 		t.Fatal("a declaration naming a lacquer-managed workflow suppressed the finding")
 	}
@@ -185,7 +185,7 @@ func TestDeclarationPathCannotEscapeTheProject(t *testing.T) {
 	d := decl()
 	d[0].Workflow = "../elsewhere/.github/workflows/watch-ci.yml"
 
-	r := report(t, dir, []string{"DailyBreadTests"}, d, nil)
+	r := report(t, dir, []string{"AlphaAppTests"}, d, nil)
 	if !uncovered(r, watchTarget) {
 		t.Fatal("an escaping path was followed and suppressed the finding")
 	}
@@ -198,9 +198,9 @@ func TestDeclarationPathCannotEscapeTheProject(t *testing.T) {
 // quiet the three other suites nothing runs.
 func TestOtherUncoveredTargetsAreStillReported(t *testing.T) {
 	dir := project(t, map[string]string{".github/workflows/watch-ci.yml": watchCI})
-	r := report(t, dir, []string{"DailyBreadTests"}, decl(), nil)
+	r := report(t, dir, []string{"AlphaAppTests"}, decl(), nil)
 
-	for _, want := range []string{"DailyBreadWidgetsTests", "DailyBreadWatchApp Watch AppUITests"} {
+	for _, want := range []string{"AlphaAppWidgetsTests", "AlphaAppWatchApp Watch AppUITests"} {
 		if !uncovered(r, want) {
 			t.Errorf("%q stopped being reported because a DIFFERENT target was declared covered elsewhere", want)
 		}
@@ -219,8 +219,8 @@ func TestDeclarationsThatStoppedMeaningAnythingAreReported(t *testing.T) {
 
 	t.Run("target no longer exists", func(t *testing.T) {
 		d := decl()
-		d[0].Target = "DailyBreadWatchApp Watch AppTests-renamed"
-		r := report(t, dir, []string{"DailyBreadTests"}, d, nil)
+		d[0].Target = "AlphaAppWatchApp Watch AppTests-renamed"
+		r := report(t, dir, []string{"AlphaAppTests"}, d, nil)
 		if len(r.Stale) != 1 {
 			t.Fatalf("stale = %+v, want the renamed declaration", r.Stale)
 		}
@@ -233,7 +233,7 @@ func TestDeclarationsThatStoppedMeaningAnythingAreReported(t *testing.T) {
 		// The state after the lacquer grows a way to run the target: the
 		// selector covers it, and the declaration is a second answer to a
 		// question nobody is asking any more.
-		r := report(t, dir, []string{"DailyBreadTests", watchTarget}, decl(), nil)
+		r := report(t, dir, []string{"AlphaAppTests", watchTarget}, decl(), nil)
 		if len(r.Stale) != 1 || len(r.Elsewhere) != 0 {
 			t.Fatalf("stale=%+v elsewhere=%+v, want the declaration reported as redundant", r.Stale, r.Elsewhere)
 		}

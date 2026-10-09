@@ -10,7 +10,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/ciwait"
 )
 
-// PR is one open pull request, as foxy-prs reports it.
+// PR is one open pull request, as the operator's PR tool reports it.
 type PR struct {
 	Repo      string
 	Number    int
@@ -53,7 +53,7 @@ func prArgs(repo string) []string {
 		"number,title,author,isDraft,createdAt,url,mergeStateStatus,statusCheckRollup"}
 }
 
-// parsePRs reads one repository's gh output, keeping gh's order: foxy-prs never
+// parsePRs reads one repository's gh output, keeping gh's order: the operator's PR tool never
 // re-sorted within a repository.
 func parsePRs(repo string, out []byte) ([]PR, error) {
 	var data []struct {

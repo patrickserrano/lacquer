@@ -26,11 +26,11 @@ func TestRequirementSatisfiedBy(t *testing.T) {
 		pin  pinState
 		want bool
 	}{
-		// momfriend: exactVersion 9.26.0 in the pbxproj, Dependabot moved the
+		// bravoapp: exactVersion 9.26.0 in the pbxproj, Dependabot moved the
 		// lockfile to 9.27.0 and then 9.28.0.
 		{"exact equal", exact("9.26.0"), ver("9.26.0"), true},
-		{"exact, momfriend's 9.28.0", exact("9.26.0"), ver("9.28.0"), false},
-		{"exact, momfriend's 9.27.0", exact("9.26.0"), ver("9.27.0"), false},
+		{"exact, bravoapp's 9.28.0", exact("9.26.0"), ver("9.28.0"), false},
+		{"exact, bravoapp's 9.27.0", exact("9.26.0"), ver("9.27.0"), false},
 		{"exact, patch above", exact("9.26.0"), ver("9.26.1"), false},
 		{"exact, patch below", exact("9.26.1"), ver("9.26.0"), false},
 		{"exact, prerelease of it", exact("9.26.0"), ver("9.26.0-beta.1"), false},
@@ -247,8 +247,8 @@ const resolvedV2 = `{
 }
 `
 
-// momfriend's, verbatim.
-const resolvedMomfriend = `{
+// bravoapp's, verbatim.
+const resolvedBravoapp = `{
   "originHash" : "33a2d2f2b66914b638d2a720148e9c1957c892efa4f25c445bdc227dd9a471bf",
   "pins" : [
     {
@@ -321,10 +321,10 @@ func TestParseResolvedFormats(t *testing.T) {
 			{"nuke", "https://github.com/kean/Nuke", nukeState, lineOf(t, resolvedV2, `"branch" : "main"`, 1)},
 			{"sentry-cocoa", "https://github.com/getsentry/sentry-cocoa", sentryState, lineOf(t, resolvedV2, `"version" : "9.28.0"`, 1)},
 		}},
-		{"v3", resolvedMomfriend, []want{
-			{"aptabase-swift", "https://github.com/aptabase/aptabase-swift", pinState{Version: "0.3.11", Revision: "cfd67fac2a228d448d9d2ac92ffc71589cc3ef00"}, lineOf(t, resolvedMomfriend, `"version" : "0.3.11"`, 1)},
-			{"purchases-ios-spm", "https://github.com/RevenueCat/purchases-ios-spm.git", pinState{Version: "5.89.0", Revision: "1b65c3baa951ad5ef4ab46f3b96a6e1dcc5cf015"}, lineOf(t, resolvedMomfriend, `"version" : "5.89.0"`, 1)},
-			{"sentry-cocoa", "https://github.com/getsentry/sentry-cocoa", sentryState, lineOf(t, resolvedMomfriend, `"version" : "9.28.0"`, 1)},
+		{"v3", resolvedBravoapp, []want{
+			{"aptabase-swift", "https://github.com/aptabase/aptabase-swift", pinState{Version: "0.3.11", Revision: "cfd67fac2a228d448d9d2ac92ffc71589cc3ef00"}, lineOf(t, resolvedBravoapp, `"version" : "0.3.11"`, 1)},
+			{"purchases-ios-spm", "https://github.com/RevenueCat/purchases-ios-spm.git", pinState{Version: "5.89.0", Revision: "1b65c3baa951ad5ef4ab46f3b96a6e1dcc5cf015"}, lineOf(t, resolvedBravoapp, `"version" : "5.89.0"`, 1)},
+			{"sentry-cocoa", "https://github.com/getsentry/sentry-cocoa", sentryState, lineOf(t, resolvedBravoapp, `"version" : "9.28.0"`, 1)},
 		}},
 	}
 	for _, c := range cases {
@@ -362,17 +362,17 @@ const pbxprojAllKinds = `// !$*UTF8*$!
 	objects = {
 
 /* Begin PBXBuildFile section */
-		F34E09393030F9F500A9D293 /* MomFriendCore in Frameworks */ = {isa = PBXBuildFile; productRef = F34E09383030F9F500A9D293 /* MomFriendCore */; };
+		F34E09393030F9F500A9D293 /* BravoAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = F34E09383030F9F500A9D293 /* BravoAppCore */; };
 /* End PBXBuildFile section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		F34E09373030F66F00A9D293 /* XCLocalSwiftPackageReference "MomFriendCore" */ = {
+		F34E09373030F66F00A9D293 /* XCLocalSwiftPackageReference "BravoAppCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = MomFriendCore;
+			relativePath = BravoAppCore;
 		};
-		F34E09373030F66F00A9D294 /* XCLocalSwiftPackageReference "Shared Kit" */ = {
+		F34E09373030F66F00A9D294 /* XCLocalSwiftPackageReference "Shared Echo" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../Shared Kit";
+			relativePath = "../Shared Echo";
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -429,10 +429,10 @@ const pbxprojAllKinds = `// !$*UTF8*$!
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		F34E09383030F9F500A9D293 /* MomFriendCore */ = {
+		F34E09383030F9F500A9D293 /* BravoAppCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F34E09373030F66F00A9D293 /* XCLocalSwiftPackageReference "MomFriendCore" */;
-			productName = MomFriendCore;
+			package = F34E09373030F66F00A9D293 /* XCLocalSwiftPackageReference "BravoAppCore" */;
+			productName = BravoAppCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
@@ -462,7 +462,7 @@ func TestParsePbxprojPackages(t *testing.T) {
 			t.Errorf("requirement %d = %+v\nwant %+v", i, remote[i], want[i])
 		}
 	}
-	if strings.Join(local, "|") != "MomFriendCore|../Shared Kit" {
+	if strings.Join(local, "|") != "BravoAppCore|../Shared Echo" {
 		t.Errorf("local packages = %q", local)
 	}
 	if _, _, err := parsePbxprojPackages("{ objects = { A = { isa = XCRemoteSwiftPackageReference; "); err == nil {
@@ -470,7 +470,7 @@ func TestParsePbxprojPackages(t *testing.T) {
 	}
 }
 
-const xcodegenPackages = `name: Rail
+const xcodegenPackages = `name: Charlie
 
 options:
   bundleIdPrefix: com.example
@@ -511,7 +511,7 @@ packages:
     url: https://github.com/example/unconstrained
 
 targets:
-  Rail:
+  Charlie:
     type: application
 `
 
@@ -520,7 +520,7 @@ func TestParseXcodeGenPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Name != "Rail" {
+	if spec.Name != "Charlie" {
 		t.Errorf("name = %q", spec.Name)
 	}
 	at := func(key string) int { return lineOf(t, xcodegenPackages, "  "+key+":", 1) }
@@ -561,7 +561,7 @@ import PackageDescription
    /* nested */ still a comment .package(url: "https://github.com/nested/comment", from: "1.0.0") */
 let version = "1.0.0"
 let package = Package(
-    name: "WindsockKit",
+    name: "FoxtrotKit",
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift", .upToNextMajor(from: "7.11.0")),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
@@ -586,7 +586,7 @@ let package = Package(
         .package(id: "scope.registry", from: "1.0.0"),
         .package(url: "https://github.com/example/traits", from: "1.0.0", traits: ["A"]),
     ],
-    targets: [.target(name: "WindsockKit", dependencies: [.product(name: "GRDB", package: "GRDB.swift")])]
+    targets: [.target(name: "FoxtrotKit", dependencies: [.product(name: "GRDB", package: "GRDB.swift")])]
 )
 `
 

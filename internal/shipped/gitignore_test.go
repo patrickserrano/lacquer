@@ -244,7 +244,7 @@ func TestGitignoreRegionIgnoresCredentials(t *testing.T) {
 // rules and CI create: profiles/ios/CLAUDE.ios.md tells agents to build with
 // `-d DerivedData-<feature>`, the ios CI workflow creates DerivedData and
 // WatchDerivedData of its own, and *.profraw is the LLVM coverage file the same
-// builds emit. Measured directly against a real project (multimeter) before
+// builds emit. Measured directly against a real project (golf) before
 // this existed: ios/DerivedData-menubar/x, DerivedData-menubar/x,
 // ios/WatchDerivedData/x, default.profraw and ios/default.profraw were all
 // genuinely untracked-but-unignored.
@@ -350,7 +350,7 @@ func TestGitignoreSkillRulesFollowTheManifest(t *testing.T) {
 	}
 
 	// Every skill the lacquer itself syncs must stay tracked, in every tool dir
-	// it was synced into. This is the windsock failure the design exists to
+	// it was synced into. This is the foxtrot failure the design exists to
 	// avoid, and it is asserted against the REAL asset plan rather than a
 	// hand-picked name, so a skill added to the lacquer is covered automatically.
 	cfg, err := config.Load(filepath.Join(project, ".lacquer.toml"))

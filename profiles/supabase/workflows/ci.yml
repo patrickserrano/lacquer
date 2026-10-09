@@ -265,7 +265,7 @@ jobs:
       - name: Resolve the lacquer version this project synced with
         id: lacquerrel
         # Pinned to the repo root. .lacquer.lock lives there, and this job may
-        # DEFAULT to a component subdirectory -- momfriend's web component is
+        # DEFAULT to a component subdirectory -- bravoapp's web component is
         # "admin/.", its supabase one "server/". Without this the lookup reads
         # admin/.lacquer.lock, finds nothing, and reports the project as never
         # synced. The "Prove the checks can fail" step below already carried
@@ -488,7 +488,7 @@ jobs:
         # `deno test` exits 1 with "No test modules found" on an empty set, so a
         # supabase component that has not written its first edge-function test
         # yet cannot pass CI at all — a new project has to fail before it can
-        # succeed. That is the state momfriend was in; the fmt step happened to
+        # succeed. That is the state bravoapp was in; the fmt step happened to
         # fail first, so this one never got the chance to report it.
         #
         # `--permit-no-files` alone would fix that by making zero tests pass
@@ -533,7 +533,7 @@ jobs:
       - name: Resolve the lacquer version this project synced with
         id: doctorrel
         # Pinned to the repo root. .lacquer.lock lives there, and this job may
-        # DEFAULT to a component subdirectory -- momfriend's web component is
+        # DEFAULT to a component subdirectory -- bravoapp's web component is
         # "admin/.", its supabase one "server/". Without this the lookup reads
         # admin/.lacquer.lock, finds nothing, and reports the project as never
         # synced. The "Prove the checks can fail" step below already carried
@@ -621,7 +621,7 @@ jobs:
     #
     #   * Synology (x64) -- too weak to boot the full local Supabase stack
     #     (Postgres plus ~8 auxiliary services) inside `supabase start`'s own
-    #     timeout. Measured on PixelFoxStudio/rail: "Starting database..." ran
+    #     timeout. Measured on ExampleStudioStudio/rail: "Starting database..." ran
     #     ~145s before it gave up with ECONNREFUSED. A cold-start cost, not a
     #     networking bug -- confirmed by the container still being
     #     mid-migration, not crashed or unreachable, when it was killed.

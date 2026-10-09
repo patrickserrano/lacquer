@@ -74,6 +74,12 @@ A pull request that changes `profiles/*/workflows/` records the proof run under
 a `## Proven on` heading, by run id and date, and never names a managed
 repository, because this repository is public. CI rejects it without the heading.
 
+This repository is public, so shipped content must not name a managed repository
+or app either. `TestShippedContentNamesNoPrivateConsumer` checks every tracked
+file against a private denylist kept outside this repo; run it with
+`LACQUER_PUBLIC_DENYLIST=<file> go test ./internal/shipped -run NamesNoPrivate`.
+It skips when the variable is unset.
+
 `blacksmith-2vcpu-ubuntu-2404-arm` shipped fleet-wide having been proven on zero
 repositories. No runner is ever assigned to it on the account that mattered, and
 the failure mode is the worst available: the job does not go red, it **queues**.

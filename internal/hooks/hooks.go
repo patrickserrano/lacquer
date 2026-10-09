@@ -34,7 +34,7 @@ type Manager struct {
 	//
 	// These are deliberately the generator's own fingerprint rather than its
 	// name. The first version matched the bare name and produced a FALSE
-	// NEGATIVE on windsock, whose hand-written hook opens "# Versioned
+	// NEGATIVE on foxtrot, whose hand-written hook opens "# Versioned
 	// pre-commit hook" — the check saw the words, concluded pre-commit had
 	// installed it, and reported nothing. A marker that a human writing about
 	// the tool would also type cannot distinguish the tool's output from prose
@@ -62,7 +62,7 @@ type Finding struct {
 	HooksPathSet string
 	// ForeignHook is a hook script present at HooksDir that this manager did not
 	// write. It separates two situations a bare "not installed" would conflate:
-	// nothing runs at all, versus something else runs instead. windsock is the
+	// nothing runs at all, versus something else runs instead. foxtrot is the
 	// second -- it points core.hooksPath at a versioned scripts/githooks/ whose
 	// pre-commit does the same job by hand. Reporting that as "nothing runs it"
 	// would be false, and a check that mislabels a deliberate setup is one people
@@ -85,7 +85,7 @@ type Finding struct {
 	// installed rival, so installing this one keeps both rule sets running. It
 	// is what turns the collision from a judgement call into one command.
 	//
-	// Measured on rail and momfriend: pre-commit installed the hooks before the
+	// Measured on rail and bravoapp: pre-commit installed the hooks before the
 	// lefthook bridge (#317) existed, so lefthook.yml -- which calls `pre-commit
 	// run` -- reported as a collision with no remedy, and an operator had to ask
 	// what to run. Detected rather than assumed, because a lefthook.yml WITHOUT

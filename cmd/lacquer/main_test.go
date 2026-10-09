@@ -743,7 +743,7 @@ func TestAuditFleetGateParity(t *testing.T) {
 	}
 }
 
-// dailybread #554: a clean checkout of a project whose XcodeGen output is
+// alphaapp #554: a clean checkout of a project whose XcodeGen output is
 // gitignored has the .xcodeproj DIRECTORY (it commits Package.resolved inside
 // it) but no project.pbxproj. `lacquer audit` exited 1 with "read xcodeproj:
 // open ...: no such file or directory". It must say NOT CHECKED, not fail.

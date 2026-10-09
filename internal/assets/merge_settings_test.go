@@ -77,14 +77,14 @@ func shape(components ...config.Component) *config.Config {
 }
 
 var (
-	shapeIOSOnly    = shape(config.Component{Path: ".", Profiles: []string{"ios"}})
-	shapeIOSWeb     = shape(config.Component{Path: ".", Profiles: []string{"ios"}}, config.Component{Path: "web", Profiles: []string{"web"}})
-	shapeRail       = shape(config.Component{Path: ".", Profiles: []string{"ios"}}, config.Component{Path: "server", Profiles: []string{"supabase"}})
-	shapeAll        = shape(config.Component{Path: ".", Profiles: []string{"ios"}}, config.Component{Path: "web", Profiles: []string{"web"}}, config.Component{Path: "server", Profiles: []string{"supabase"}})
-	shapeWebOnly    = shape(config.Component{Path: ".", Profiles: []string{"web"}})
-	shapeSupaOnly   = shape(config.Component{Path: ".", Profiles: []string{"supabase"}})
-	shapePixelFox   = shape(config.Component{Path: ".", Profiles: []string{"web", "marketing"}})
-	stopCommandText = "lacquer console inbox hook stop"
+	shapeIOSOnly       = shape(config.Component{Path: ".", Profiles: []string{"ios"}})
+	shapeIOSWeb        = shape(config.Component{Path: ".", Profiles: []string{"ios"}}, config.Component{Path: "web", Profiles: []string{"web"}})
+	shapeRail          = shape(config.Component{Path: ".", Profiles: []string{"ios"}}, config.Component{Path: "server", Profiles: []string{"supabase"}})
+	shapeAll           = shape(config.Component{Path: ".", Profiles: []string{"ios"}}, config.Component{Path: "web", Profiles: []string{"web"}}, config.Component{Path: "server", Profiles: []string{"supabase"}})
+	shapeWebOnly       = shape(config.Component{Path: ".", Profiles: []string{"web"}})
+	shapeSupaOnly      = shape(config.Component{Path: ".", Profiles: []string{"supabase"}})
+	shapeExampleStudio = shape(config.Component{Path: ".", Profiles: []string{"web", "marketing"}})
+	stopCommandText    = "lacquer console inbox hook stop"
 )
 
 func stopHookCount(d settingsDoc) int {
@@ -219,7 +219,7 @@ func TestSingleClaimantSettingsAreTheProfilesOwnFile(t *testing.T) {
 	}{
 		"web-only":      {shapeWebOnly, "web"},
 		"supabase-only": {shapeSupaOnly, "supabase"},
-		"web+marketing": {shapePixelFox, "web"},
+		"web+marketing": {shapeExampleStudio, "web"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			want, err := os.ReadFile("../../profiles/" + tc.profile + "/root/.claude/settings.json")

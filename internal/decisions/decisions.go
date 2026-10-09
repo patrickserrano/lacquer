@@ -5,7 +5,7 @@
 // labelled `decisions`, and each recorded decision is one comment on it, so
 // there is nothing to commit, no rendered copy to go stale, and the operator's
 // words are greppable by anyone who can read the repository. Decisions that
-// span repositories go in one such issue in the fleet-ops repository instead of
+// span repositories go in one such issue in the fleet-repo repository instead of
 // being copied into each project's, where they would diverge.
 //
 // This package knows the shape of the log and how to read it. Writing is not

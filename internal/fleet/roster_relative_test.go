@@ -7,13 +7,13 @@ import (
 )
 
 // A roster named relative to the cwd -- `--roster fleet.toml` from the
-// fleet-ops directory, which is how every lead runs -- must still yield
+// fleet-repo directory, which is how every lead runs -- must still yield
 // absolute project paths. Joined against filepath.Dir("fleet.toml") == ".",
 // "../proj" stayed relative, and a bg dispatch then failed taking
 // filepath.Rel of git's absolute toplevel against it (1.37.3 to 1.37.9).
 func TestLoadRosterFromARelativePathGivesAbsoluteProjectPaths(t *testing.T) {
 	root := t.TempDir()
-	fleetOps := filepath.Join(root, "fleet-ops")
+	fleetOps := filepath.Join(root, "fleet-repo")
 	write(t, filepath.Join(fleetOps, "fleet.toml"), "[[project]]\npath=\"../proj\"\n\n[[project]]\npath=\"here\"\n")
 
 	orig, err := os.Getwd()

@@ -18,14 +18,14 @@ func lacquerShipping(t *testing.T, profiles ...string) string {
 	return root
 }
 
-// The needledrop case end to end: a manifest that says "web", a repo that has
+// The juliet case end to end: a manifest that says "web", a repo that has
 // grown Swift, and a lacquer with no swift profile. The stack must be reported —
 // as the lacquer's gap, not the project's — rather than passing silently.
 func TestDriftReportsSwiftWithNoShippingProfile(t *testing.T) {
 	lq := lacquerShipping(t, "web", "ios")
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "spike", "package.json"))
-	mk(t, filepath.Join(root, "ios", "SleevetapNFC", "Package.swift"))
+	mk(t, filepath.Join(root, "ios", "HotelNFC", "Package.swift"))
 
 	cfg := &config.Config{Components: []config.Component{{Path: ".", Profiles: []string{"web"}}}}
 	findings, err := Drift(lq, root, cfg)
@@ -36,7 +36,7 @@ func TestDriftReportsSwiftWithNoShippingProfile(t *testing.T) {
 		t.Fatalf("findings = %+v, want exactly the swift one", findings)
 	}
 	f := findings[0]
-	if f.Profile != SwiftProfile || f.Path != "ios/SleevetapNFC" || f.Ships {
+	if f.Profile != SwiftProfile || f.Path != "ios/HotelNFC" || f.Ships {
 		t.Errorf("finding = %+v, want the swift package reported as unsupported", f)
 	}
 	if len(Adoptable(findings)) != 0 {
@@ -71,7 +71,7 @@ func TestDriftReportsShippingProfileAsAdoptable(t *testing.T) {
 func TestDriftIgnoresProfileDeclaredAtADifferentPath(t *testing.T) {
 	lq := lacquerShipping(t, "ios")
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "Flare", "Flare.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Delta", "Delta.xcodeproj", "project.pbxproj"))
 
 	cfg := &config.Config{Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}}}
 	findings, err := Drift(lq, root, cfg)

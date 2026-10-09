@@ -44,7 +44,7 @@ func TestBareStringIsUnattributed(t *testing.T) {
 }
 
 // An attributed, undated exclusion is a deliberate permanent divergence
-// (windsock is macOS-only and will never adopt the iOS-simulator workflow).
+// (foxtrot is macOS-only and will never adopt the iOS-simulator workflow).
 // Reported only if it goes stale — otherwise silence.
 func TestPermanentIsHealthyAndSilent(t *testing.T) {
 	f := only(t, Review(

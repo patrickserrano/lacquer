@@ -14,7 +14,7 @@ import (
 // This exists because detection ran exactly once per project — at `lacquer
 // init` — and never again. A project that grows a stack after onboarding was
 // therefore unmanaged for that stack forever, with nothing anywhere reporting
-// it: no CLAUDE region, no hooks, no CI, no error. needledrop bootstrapped as
+// it: no CLAUDE region, no hooks, no CI, no error. juliet bootstrapped as
 // TypeScript-only on 2 Aug 2025 (correctly — it was a spike), gained a Swift
 // package the next day, and still declared `profiles = ["web"]` a year later.
 // Its 191 Swift tests were run by nothing at any gate.
@@ -86,7 +86,7 @@ func Adoptable(findings []Finding) []Finding { return filterShips(findings, true
 // These are reported every run and never gate. Gating on them would punish a
 // project for the lacquer's gap, and the alternative — recording the component
 // with an empty profile list, as `init` does — is worse: it silences the report
-// while changing nothing, which is how needledrop's Swift stayed invisible.
+// while changing nothing, which is how juliet's Swift stayed invisible.
 func Unsupported(findings []Finding) []Finding { return filterShips(findings, false) }
 
 func filterShips(findings []Finding, ships bool) []Finding {

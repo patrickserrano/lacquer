@@ -51,7 +51,7 @@ func isWorkflow(dest string) bool {
 // This guard exists because of a shipped App Store rejection, and because the
 // guard that should have caught it structurally could not.
 //
-// Rail's release workflow carried a hand-written "Setup Secrets" step that wrote
+// Charlie's release workflow carried a hand-written "Setup Secrets" step that wrote
 // six app-runtime keys into an xcconfig. Lacquer's onboarding replaced that file
 // with the shared profile's release workflow, which had no such step. Nothing
 // failed: the archive built, signed, uploaded, and reached App Review with every
@@ -126,7 +126,7 @@ func checkSecretDrop(plan []Asset, cfg *config.Config, targets []string) error {
 	var b strings.Builder
 	b.WriteString("refusing to sync: this would stop these workflows reading secrets they read today.\n")
 	b.WriteString("A release built without its runtime keys does not fail — it signs, uploads and reaches\n")
-	b.WriteString("App Review as a non-functional app. Rail's 1.1.0 was rejected under Guideline 2.1(a)\n")
+	b.WriteString("App Review as a non-functional app. Charlie's 1.1.0 was rejected under Guideline 2.1(a)\n")
 	b.WriteString("exactly this way, from exactly this sync, with every check green.\n")
 	for _, f := range findings {
 		fmt.Fprintf(&b, "\n  %s\n    %s\n", f.dest, strings.Join(f.dropped, ", "))

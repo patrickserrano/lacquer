@@ -664,6 +664,6 @@ note distinguishing what's built from what's still aspirational.
 ## About
 
 Built by [Patrick Serrano](https://patrickserrano.com), an iOS engineer
-building apps under [PixelFox Studio](https://pixelfoxstudio.com). lacquer is
+building apps under a small independent studio. lacquer is
 the internal tooling that keeps engineering practice consistent across the
 whole fleet.

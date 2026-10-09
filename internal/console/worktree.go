@@ -244,7 +244,7 @@ func createWorktree(dir, branch string) (dispatchWorktree, error) {
 
 // assignedWorktree is the existing worktree a dispatcher named with
 // --worktree: a fleet PM decides each IC's branch and worktree, creates them,
-// and names them in the brief (fleet-ops personas/pm.md), so the session must
+// and names them in the brief (fleet-repo personas/pm.md), so the session must
 // run there, not in one lacquer makes beside it. It is checked, and never
 // created or removed. Before launch it receives the Spotlight marker.
 //

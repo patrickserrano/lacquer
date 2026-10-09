@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Make `profiles/web/workflows/ci.yml`'s `check` job opt-in turbo-aware — if a component has a `turbo.json`, run each task through `./node_modules/.bin/turbo`; otherwise keep today's flat `pnpm run <script>` behavior unchanged. This lets a pnpm workspace with multiple Next.js apps (e.g. pixelfoxstudio.com's root site + `apps/admin`) be reached by ONE lacquer `web` component, without lacquer ever needing to know about individual packages inside it.
+**Goal:** Make `profiles/web/workflows/ci.yml`'s `check` job opt-in turbo-aware — if a component has a `turbo.json`, run each task through `./node_modules/.bin/turbo`; otherwise keep today's flat `pnpm run <script>` behavior unchanged. This lets a pnpm workspace with multiple Next.js apps (e.g. the consumer site's root site + `apps/admin`) be reached by ONE lacquer `web` component, without lacquer ever needing to know about individual packages inside it.
 
 **Architecture:** See `docs/plans/2026-08-28-turborepo-web-profile-design.md` for the validated design. This plan implements exactly that design: `turbo.json` is never synced (project-authored), the CI branch is `if [ -f turbo.json ]`, and every turbo invocation uses the local binary (`./node_modules/.bin/turbo`) — never `pnpm dlx`/`npx` — per the repo's resolver-dispatch ban in `internal/shipped/shipped_test.go`.
 
@@ -12,7 +12,7 @@
 
 ## Task 1: Harden the resolver-dispatch ban to cover `turbo`
 
-**Why first:** The design's `./node_modules/.bin/turbo` choice exists specifically because this repo already bans `pnpm dlx <tool>`/`npx <tool>` for `biome`, `typedoc`, `vitest`, `tsc` (see `internal/shipped/shipped_test.go`'s "resolver-dispatched invocation of a project dependency" ban, born from a real incident: `sleevetap` had a passing Biome step that was silently running an unpinned global binary). `turbo` is the same class of tool and isn't in that list yet — add it now so a future accidental `pnpm dlx turbo` in this file (or any profile) fails loudly, the same way a stray `npx biome` would.
+**Why first:** The design's `./node_modules/.bin/turbo` choice exists specifically because this repo already bans `pnpm dlx <tool>`/`npx <tool>` for `biome`, `typedoc`, `vitest`, `tsc` (see `internal/shipped/shipped_test.go`'s "resolver-dispatched invocation of a project dependency" ban, born from a real incident: `hotel` had a passing Biome step that was silently running an unpinned global binary). `turbo` is the same class of tool and isn't in that list yet — add it now so a future accidental `pnpm dlx turbo` in this file (or any profile) fails loudly, the same way a stray `npx biome` would.
 
 **Files:**
 - Modify: `internal/shipped/shipped_test.go:136` (the ban's regex) and its fixture table around `internal/shipped/shipped_test.go:242-250` (`TestResolverBanUnderstandsArgvArraysAndShell`)
@@ -200,7 +200,7 @@ Replace the block currently at `profiles/web/workflows/ci.yml:170-190`:
         # arbitrary biome when the project has none installed, so a project that
         # never added @biomejs/biome still gets a green Biome step — linted by
         # whatever version npm served that minute, against rules nobody chose.
-        # sleevetap was in exactly that state: biome.json synced, biome absent
+        # hotel was in exactly that state: biome.json synced, biome absent
         # from every package.json, Biome step green, and only `lacquer doctor`
         # noticing that the check could not be running at all.
         #
@@ -402,7 +402,7 @@ one-component-per-profile rule.
 
 ## Next
 
-Separate PR, in pixelfoxstudio.com, after this ships and the project runs
+Separate PR, in the consumer site, after this ships and the project runs
 `lacquer sync`: add `turbo` devDependency + root `turbo.json`, give
 `apps/admin` a `lint` script, add its secrets to `[project].build_env`,
 remove the `apps/admin` exclude entry from `.lacquer.toml`.

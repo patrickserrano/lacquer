@@ -2,7 +2,7 @@
 
 The Stuck tab's App Store conditions (lacquer #424b) are computed from a file.
 **lacquer never holds App Store Connect credentials and never calls the ASC API.**
-A separate producer writes the file on a schedule (fleet-ops' `asc-status --json`,
+A separate producer writes the file on a schedule (the operator's fleet repo's `asc-status --json`,
 launchd, every 30–60 minutes), and lacquer only reads it.
 
 ## Where
@@ -19,14 +19,14 @@ over the file, so a reader never sees half of one. File mode 0600.
 {
   "schemaVersion": 1,
   "generatedAt": "2026-09-25T14:05:00Z",
-  "producer": "fleet-ops asc-status 1.4.0",
+  "producer": "asc-status 1.4.0",
   "errors": [
     { "bundleId": "com.example.flare", "message": "HTTP 401 from /v1/apps/…/appStoreVersions" }
   ],
   "apps": [
     {
-      "bundleId": "com.patrickserrano.dailybread",
-      "name": "Daily Bread",
+      "bundleId": "com.patrickserrano.alphaapp",
+      "name": "Alpha App",
       "ascAppId": "1234567890",
       "versions": [
         {
@@ -68,7 +68,7 @@ fields without a schema bump. Removing or retyping a field is a new
 |---|---|---|
 | `schemaVersion` | int, required | `1`. Any other value is "couldn't check: unsupported schema version N". |
 | `generatedAt` | time, required | When the producer finished reading ASC. Staleness is measured from this, never from the file's mtime. |
-| `producer` | string | Free text, shown in problems ("from fleet-ops asc-status 1.4.0"). |
+| `producer` | string | Free text, shown in problems ("from asc-status 1.4.0"). |
 | `errors` | array | What the producer could not read. Each entry: `message` (required) and `bundleId` (optional; absent means the whole run). Each one is shown as a "couldn't check" row. A run that failed completely still writes a snapshot, with `apps: []` and an entry here, so the tab says why rather than going stale. |
 | `apps` | array, required | One per app the producer covers. `[]` with no `errors` means "checked, the producer covers no apps"; lacquer shows that as a problem ("snapshot lists no apps"), never as "nothing stuck". |
 
@@ -139,7 +139,7 @@ that was never submitted from sitting on the tab forever.
 
 A rejected row's detail says: *If you've replied in Resolution Center, dismiss
 this until Apple responds.* The ASC API does not show a re-review after a
-Resolution Center reply (A Bible Verse: Daily 2.1.1, 2026-09-25), so the
+Resolution Center reply (A Quebec Verse: Daily 2.1.1, 2026-09-25), so the
 version stays `REJECTED` while Apple is in fact reviewing it. Dismissal
 (`x`, a period, `stuck-dismissed.json`) is the answer, as for any other row.
 

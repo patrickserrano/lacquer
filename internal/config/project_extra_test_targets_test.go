@@ -8,7 +8,7 @@ import (
 // [project] is already the implicit single product for asc_app_id, bundle_id,
 // extra_bundle_ids and scheme. extra_test_targets now follows the same rule.
 //
-// The gap this closes was silent by construction: dailybread gained a second
+// The gap this closes was silent by construction: alphaapp gained a second
 // test target (51 tests) that the scheme runs locally, while the synced
 // workflow's `-only-testing:` whitelist named only the app's own bundle. The
 // job stayed green while those 51 never executed — the same shape as a
@@ -16,10 +16,10 @@ import (
 func TestProjectExtraTestTargetsFoldIntoTheSynthesisedProduct(t *testing.T) {
 	cfg, err := loadString(t, `
 [project]
-name = "DailyBread"
-project_name = "DailyBread"
-scheme = "DailyBread"
-extra_test_targets = ["DailyBreadWidgetsTests"]
+name = "AlphaApp"
+project_name = "AlphaApp"
+scheme = "AlphaApp"
+extra_test_targets = ["AlphaAppWidgetsTests"]
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -29,11 +29,11 @@ extra_test_targets = ["DailyBreadWidgetsTests"]
 		t.Fatalf("got %d products, want the synthesised one", len(products))
 	}
 	got := strings.Join(products[0].TestSelectors(), "|")
-	if !strings.Contains(got, "DailyBreadWidgetsTests") {
+	if !strings.Contains(got, "AlphaAppWidgetsTests") {
 		t.Errorf("selectors = %q — [project].extra_test_targets did not reach the synthesised product, "+
 			"so the extra suite would still be run by nothing while CI stayed green", got)
 	}
-	if !strings.Contains(got, "DailyBreadTests") {
+	if !strings.Contains(got, "AlphaAppTests") {
 		t.Errorf("selectors = %q — the derived unit target was lost", got)
 	}
 }

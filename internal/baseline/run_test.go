@@ -226,7 +226,7 @@ func TestRunPreCodeIgnoresSwiftInBuildOutput(t *testing.T) {
 // mistyped path — it needs xcodegen to make it appear at all, and this
 // environment might not have it (e.g. a GitHub-hosted Linux runner running
 // the web/supabase profiles' "No lacquer drift" job). Discovered live on
-// sleevetap, which deliberately doesn't commit its generated pbxproj.
+// hotel, which deliberately doesn't commit its generated pbxproj.
 func TestRunProjectYMLWithoutXcodegenIsUncheckedNotAnError(t *testing.T) {
 	lr, pr := projectDirs(t, "")
 	writeSwift(t, pr, filepath.Join("ios", "App", "App.swift"))
@@ -288,14 +288,14 @@ func TestRunProjectYMLRegeneratesAndChecksWhenXcodegenAvailable(t *testing.T) {
 	}
 }
 
-// writeDailyBreadShape lays out a clean checkout of a project whose XcodeGen
-// output is gitignored, in the EXACT shape of PixelFoxStudio/dailybread #554:
+// writeAlphaAppShape lays out a clean checkout of a project whose XcodeGen
+// output is gitignored, in the EXACT shape of ExampleStudioStudio/alphaapp #554:
 // the .xcodeproj DIRECTORY exists, because it commits
 // project.xcworkspace/xcshareddata/swiftpm/Package.resolved (Dependabot needs
 // it), but project.pbxproj does not, and a sibling project.yml is the source.
 // A fixture with the directory absent would pass against code that still fails
 // on this shape: both Run's and EnforceTargets' guards stat the directory.
-func writeDailyBreadShape(t *testing.T, projectRoot string) {
+func writeAlphaAppShape(t *testing.T, projectRoot string) {
 	t.Helper()
 	resolved := filepath.Join(projectRoot, "ios", "App.xcodeproj", "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved")
 	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
@@ -310,14 +310,14 @@ func writeDailyBreadShape(t *testing.T, projectRoot string) {
 	writeSwift(t, projectRoot, filepath.Join("ios", "App", "App.swift"))
 }
 
-// The defect from dailybread #554's "No lacquer drift" job: the xcodeproj
+// The defect from alphaapp #554's "No lacquer drift" job: the xcodeproj
 // directory is there, the pbxproj is not, there is no xcodegen. Run's guard
 // only looked at the directory, so this shape reached ReadXcodeproj and
 // `lacquer audit` exited 1 with "read xcodeproj: open .../project.pbxproj: no
 // such file or directory" on a project with nothing wrong. Unchecked, visibly.
 func TestRunGitignoredPbxprojInsideCommittedXcodeprojDirIsUnchecked(t *testing.T) {
 	lr, pr := projectDirs(t, "")
-	writeDailyBreadShape(t, pr)
+	writeAlphaAppShape(t, pr)
 	t.Setenv("PATH", t.TempDir()) // no xcodegen reachable
 
 	reps, err := Run(lr, pr, iosTarget(), nil, now)
@@ -340,7 +340,7 @@ func TestRunGitignoredPbxprojInsideCommittedXcodeprojDirIsUnchecked(t *testing.T
 // checked, when the directory was already there.
 func TestRunGitignoredPbxprojInsideCommittedXcodeprojDirRegenerates(t *testing.T) {
 	lr, pr := projectDirs(t, "")
-	writeDailyBreadShape(t, pr)
+	writeAlphaAppShape(t, pr)
 	binDir := t.TempDir()
 	script := "#!/bin/sh\ncat > App.xcodeproj/project.pbxproj <<'EOF'\n" + partialPbx + "EOF\n"
 	if err := os.WriteFile(filepath.Join(binDir, "xcodegen"), []byte(script), 0o755); err != nil {
@@ -364,7 +364,7 @@ func TestRunGitignoredPbxprojInsideCommittedXcodeprojDirRegenerates(t *testing.T
 // does not, and there is no project.yml to say why. Still a hard error.
 func TestRunMissingPbxprojWithoutProjectYMLIsAnError(t *testing.T) {
 	lr, pr := projectDirs(t, "")
-	writeDailyBreadShape(t, pr)
+	writeAlphaAppShape(t, pr)
 	if err := os.Remove(filepath.Join(pr, "ios", "project.yml")); err != nil {
 		t.Fatal(err)
 	}

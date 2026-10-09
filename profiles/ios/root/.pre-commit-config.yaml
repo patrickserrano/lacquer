@@ -1,5 +1,5 @@
 # Both hook types are installed, and every hook that doesn't declare its own
-# `stages:` is pinned to pre-commit. Adopted from momfriend, and this is very
+# `stages:` is pinned to pre-commit. Adopted from bravoapp, and this is very
 # likely the origin of "the SwiftLint hook never blocks a commit":
 #
 #   * Without `default_stages`, a hook runs at ALL installed stages. Every
@@ -18,7 +18,7 @@ default_install_hook_types: [pre-commit, commit-msg]
 default_stages: [pre-commit]
 
 # Swift stages go through scripts/precommit-swift.sh rather than invoking the
-# tools directly. Adopted from momfriend, which had diverged from the lacquer to
+# tools directly. Adopted from bravoapp, which had diverged from the lacquer to
 # fix three real holes the direct invocation has:
 #
 #   * Agent shells often lack /opt/homebrew/bin on PATH, so `swiftlint` resolves

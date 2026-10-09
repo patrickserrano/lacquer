@@ -382,6 +382,7 @@ const watchJobBody = `
             -scheme "$WATCH_SCHEME" \
             -destination "${WATCH_DESTINATION_PREFIX},id=$DEVICE_ID" \
             -derivedDataPath @@COMPONENT_PREFIX@@WatchDerivedData \
+            -onlyUsePackageVersionsFromResolvedFile \
             "-only-testing:$WATCH_TEST_TARGET" \
             -parallel-testing-enabled NO \
             -resultBundlePath WatchTestResults.xcresult \

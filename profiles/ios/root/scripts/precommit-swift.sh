@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # precommit-swift.sh — fail-closed wrapper for the pre-commit Swift stages.
 #
-# Why this exists (momfriend, adopted into the lacquer):
+# Why this exists (bravoapp, adopted into the lacquer):
 #   * Agent shells often lack /opt/homebrew/bin on PATH, so `swiftformat` /
 #     `swiftlint` resolve as "not found". This wrapper resolves the tool from
 #     well-known Homebrew locations itself, and ERRORS (blocking the commit)

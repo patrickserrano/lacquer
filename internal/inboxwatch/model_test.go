@@ -75,7 +75,7 @@ func TestHeaderSaysInboxClearWhenNothingNeedsYou(t *testing.T) {
 	}
 }
 
-// The age is magenta exactly when it renders in days, from 48h, as foxy-inbox's
+// The age is magenta exactly when it renders in days, from 48h, as the operator's inbox tool's
 // code does. Its docstring and #409 say "a day", but a 30-hour-old item shows
 // `30h` in dim there, and that is the behaviour being matched.
 func TestAgeTurnsMagentaWhenItRendersInDays(t *testing.T) {
@@ -284,7 +284,7 @@ func TestCopyEnterAndQuit(t *testing.T) {
 			t.Errorf("%q did not quit", q)
 		}
 	}
-	// foxy-inbox's inbox tab ignores Esc, and a stray one must not close the view.
+	// the operator's inbox tool's inbox tab ignores Esc, and a stray one must not close the view.
 	if p2, _ := feed(t, p, "\x1b"); p2.Done() {
 		t.Error("Esc quit the list")
 	}

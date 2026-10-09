@@ -20,15 +20,15 @@ var machineWideLines = []struct {
 	line string
 	kind string
 }{
-	// momfriend's EXCLUDED ios-ci.yml before PixelFoxStudio/momfriend#386. Its
+	// bravoapp's EXCLUDED ios-ci.yml before ExampleStudioStudio/bravoapp#386. Its
 	// runs matched all four CoreSimulatorService restarts on 2026-09-17 to the
 	// minute, and it was still carrying these long after the lacquer's own
 	// ios-ci.yml dropped them — an exclusion freezes a file.
-	{"momfriend ios-ci pkill xctest", `          pkill -9 -f "xctest" 2>/dev/null || true`, KindPkill},
-	{"momfriend ios-ci pkill XCTestRunner", `          pkill -9 -f "XCTestRunner" 2>/dev/null || true`, KindPkill},
-	{"momfriend ios-ci killall testmanagerd", `          killall -9 testmanagerd 2>/dev/null || true`, KindKillall},
-	{"momfriend ios-ci killall Simulator", `          killall -9 Simulator 2>/dev/null || true`, KindKillall},
-	{"momfriend ios-ci killall CoreSimulatorService", `          killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || true`, KindKillall},
+	{"bravoapp ios-ci pkill xctest", `          pkill -9 -f "xctest" 2>/dev/null || true`, KindPkill},
+	{"bravoapp ios-ci pkill XCTestRunner", `          pkill -9 -f "XCTestRunner" 2>/dev/null || true`, KindPkill},
+	{"bravoapp ios-ci killall testmanagerd", `          killall -9 testmanagerd 2>/dev/null || true`, KindKillall},
+	{"bravoapp ios-ci killall Simulator", `          killall -9 Simulator 2>/dev/null || true`, KindKillall},
+	{"bravoapp ios-ci killall CoreSimulatorService", `          killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || true`, KindKillall},
 
 	// profiles/ios/workflows/cleanup-ci.yml as of v1.37.10, rendered into every
 	// iOS repository and run nightly.
@@ -79,9 +79,9 @@ var scopedLines = []struct {
 	name string
 	line string
 }{
-	// The scoped form momfriend#386 moved to, and the form unit M's cleanup-ci
+	// The scoped form bravoapp#386 moved to, and the form unit M's cleanup-ci
 	// rewrite uses: a PID this job selected.
-	{"momfriend pkill workspace", `          pkill -9 -f "$GITHUB_WORKSPACE" 2>/dev/null || true`},
+	{"bravoapp pkill workspace", `          pkill -9 -f "$GITHUB_WORKSPACE" 2>/dev/null || true`},
 	{"pkill braced workspace", `          pkill -f "${GITHUB_WORKSPACE}/build/xctest"`},
 	{"pkill runner workspace", `          pkill -f "$RUNNER_WORKSPACE"`},
 	{"pkill runner temp", `          pkill -f "$RUNNER_TEMP/derived"`},
@@ -98,14 +98,14 @@ var scopedLines = []struct {
 	{"simctl shutdown one device", `          xcrun simctl shutdown "$UDID" || true`},
 	{"simctl list all", `          xcrun simctl list devices all`},
 	{"simctl erase this device", `          xcrun simctl erase "$SIM_UDID"`},
-	{"rm one project's derived data", `          rm -rf ~/Library/Developer/Xcode/DerivedData/Rail-*`},
+	{"rm one project's derived data", `          rm -rf ~/Library/Developer/Xcode/DerivedData/Charlie-*`},
 	{"rm one device", `          rm -rf ~/Library/Developer/CoreSimulator/Devices/$UDID`},
 	{"rm this run's derived data", `          rm -rf "$RUNNER_TEMP/DerivedData"`},
 	{"rm workspace derived data", `          rm -rf "$GITHUB_WORKSPACE/DerivedData"`},
 	{"rm simulator logs", `          rm -rf ~/Library/Logs/CoreSimulator/* 2>/dev/null || true`},
 	{"du of DerivedData", `          echo "  DerivedData: $(du -sh ~/Library/Developer/Xcode/DerivedData 2>/dev/null | cut -f1 || echo 'N/A')"`},
 
-	// Comments, in every place one sits. momfriend's current ios-ci.yml:466 is
+	// Comments, in every place one sits. bravoapp's current ios-ci.yml:466 is
 	// the first: it NAMES the old kills to explain why they went.
 	{"yaml comment naming the old kills", "          # to be `pkill -9 -f xctest` plus `killall -9 testmanagerd`, `Simulator`"},
 	{"trailing comment", `          true # killall -9 Simulator`},
@@ -181,7 +181,7 @@ func TestFindingsCarryTheLineTheCommandStartsOn(t *testing.T) {
 }
 
 // Every workflow file is read — managed, project-owned and excluded alike.
-// momfriend's offender was EXCLUDED: the one class of file the lacquer stops
+// bravoapp's offender was EXCLUDED: the one class of file the lacquer stops
 // looking after is the one that still carried the kill.
 func TestEveryWorkflowIsScannedWhoeverOwnsIt(t *testing.T) {
 	dir := t.TempDir()

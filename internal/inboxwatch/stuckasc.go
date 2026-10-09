@@ -13,7 +13,7 @@ import (
 
 // The App Store conditions on the Stuck tab (lacquer #424b) are computed from a
 // file, not from a call. lacquer holds no App Store Connect credentials and never
-// calls the ASC API: a separate producer (fleet-ops' asc-status, on a schedule)
+// calls the ASC API: a separate producer (asc-status, on a schedule)
 // writes ASCSnapshotFile and lacquer only reads it. The schema, and what each
 // condition reads from it, is docs/asc-snapshot.md.
 //

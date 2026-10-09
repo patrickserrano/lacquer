@@ -32,9 +32,9 @@ func load(t *testing.T, manifest string) *config.Config {
 func TestProjectSecretsFileIsIgnored(t *testing.T) {
 	cfg := load(t, `
 [project]
-name = "Flare"
-project_name = "Flare"
-scheme = "Flare"
+name = "Delta"
+project_name = "Delta"
+scheme = "Delta"
 secrets_file = "Config/Keys.xcconfig"
 secrets = { REVENUECAT_API_KEY = "FLARE_REVENUECAT_API_KEY" }
 `)
@@ -78,9 +78,9 @@ secrets = { ADMOB_APPLICATION_ID = "ABV_ADMOB_APP_ID" }
 func TestDefaultSecretsFileAddsNoRule(t *testing.T) {
 	cfg := load(t, `
 [project]
-name = "Kit"
-project_name = "Kit"
-scheme = "Kit"
+name = "Echo"
+project_name = "Echo"
+scheme = "Echo"
 secrets = { APTABASE_APP_KEY = "KIT_APTABASE_APP_KEY" }
 `)
 	body, err := Body(cfg, nil)

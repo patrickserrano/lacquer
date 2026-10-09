@@ -109,7 +109,7 @@ func LoadRoster(path string) (Roster, error) {
 	// like "../proj" stayed relative, and meant something else to anything
 	// that compared it with an absolute path (git's toplevel, a session's
 	// cwd) or handed it to a process with a different cwd (tmux's server).
-	// A bg dispatch from fleet-ops with --roster fleet.toml failed on exactly
+	// A bg dispatch from fleet-repo with --roster fleet.toml failed on exactly
 	// that from 1.37.3 until this.
 	base, err := filepath.Abs(filepath.Dir(path))
 	if err != nil {

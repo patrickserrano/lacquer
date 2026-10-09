@@ -61,24 +61,24 @@ func soloConfig() *config.Config {
 	}}
 }
 
-// twoIOSProducts models a-bible-verse-each-day's forked matrix, including the
+// twoIOSProducts models a-quebec-verse-each-day's forked matrix, including the
 // two things a naive implementation gets wrong: the built app target differs
-// from the scheme ("A Bible Verse Daily.app" vs "A Bible Verse Each Day Free"),
+// from the scheme ("A Quebec Verse Daily.app" vs "A Quebec Verse Each Day Free"),
 // and only one variant has UI tests.
 func twoIOSProducts() *config.Config {
 	cfg := soloConfig()
 	cfg.Product = []config.Product{
 		{
-			Name: "Paid", Scheme: "A Bible Verse Each Day", BundleID: "com.x.paid",
+			Name: "Paid", Scheme: "A Quebec Verse Each Day", BundleID: "com.x.paid",
 			AscAppID: "111", TagPrefix: "paid",
-			TestTarget: "A Bible Verse Each DayTests", UITestTarget: "A Bible Verse Each DayUITests",
-			AppTarget: "A Bible Verse Daily.app",
+			TestTarget: "A Quebec Verse Each DayTests", UITestTarget: "A Quebec Verse Each DayUITests",
+			AppTarget: "A Quebec Verse Daily.app",
 		},
 		{
-			Name: "Free", Scheme: "A Bible Verse Each Day Free", BundleID: "com.x.free",
+			Name: "Free", Scheme: "A Quebec Verse Each Day Free", BundleID: "com.x.free",
 			AscAppID: "222", TagPrefix: "free",
-			TestTarget: "A Bible Verse Each Day FreeTests",
-			AppTarget:  "A Bible Verse Daily Free.app",
+			TestTarget: "A Quebec Verse Each Day FreeTests",
+			AppTarget:  "A Quebec Verse Daily Free.app",
 		},
 	}
 	return cfg
@@ -239,8 +239,8 @@ func TestIOSCIMatrixCoversEveryProduct(t *testing.T) {
 			"product silently stops being built while CI stays green", n)
 	}
 	wantSchemes := map[string]string{
-		"Paid": "A Bible Verse Each Day",
-		"Free": "A Bible Verse Each Day Free",
+		"Paid": "A Quebec Verse Each Day",
+		"Free": "A Quebec Verse Each Day Free",
 	}
 	for _, leg := range build.Strategy.Matrix.Product {
 		if want := wantSchemes[leg["name"]]; leg["scheme"] != want {
@@ -257,15 +257,15 @@ func TestIOSCIMatrixCoversEveryProduct(t *testing.T) {
 	}
 	wantLegs := map[string]map[string]string{
 		"Paid": {
-			"scheme":         "A Bible Verse Each Day",
-			"test_target":    "A Bible Verse Each DayTests",
-			"ui_test_target": "A Bible Verse Each DayUITests",
-			"app_target":     "A Bible Verse Daily.app",
+			"scheme":         "A Quebec Verse Each Day",
+			"test_target":    "A Quebec Verse Each DayTests",
+			"ui_test_target": "A Quebec Verse Each DayUITests",
+			"app_target":     "A Quebec Verse Daily.app",
 			"artifact":       "paid",
 		},
 		"Free": {
-			"scheme":      "A Bible Verse Each Day Free",
-			"test_target": "A Bible Verse Each Day FreeTests",
+			"scheme":      "A Quebec Verse Each Day Free",
+			"test_target": "A Quebec Verse Each Day FreeTests",
 			// Blank, and that is a value: this variant has no UI tests, and an
 			// empty `-only-testing:` selector matches nothing while still
 			// exiting 0.
@@ -274,7 +274,7 @@ func TestIOSCIMatrixCoversEveryProduct(t *testing.T) {
 			// products have different names, and a derived app target would
 			// select no coverage row at all — which reports as 0.0%, not as an
 			// error.
-			"app_target": "A Bible Verse Daily Free.app",
+			"app_target": "A Quebec Verse Daily Free.app",
 			"artifact":   "free",
 		},
 	}
@@ -503,12 +503,12 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 		{
 			name: "matrix leg", cfg: twoWithExtras,
 			env: []string{
-				"TEST_TARGET=A Bible Verse Each DayTests",
-				"UI_TEST_TARGET=A Bible Verse Each DayUITests",
+				"TEST_TARGET=A Quebec Verse Each DayTests",
+				"UI_TEST_TARGET=A Quebec Verse Each DayUITests",
 				"EXTRA_TEST_TARGETS=CoreKitTests\nFeature KitTests",
 			},
 			selectors: []string{
-				"A Bible Verse Each DayTests", "A Bible Verse Each DayUITests",
+				"A Quebec Verse Each DayTests", "A Quebec Verse Each DayUITests",
 				"CoreKitTests", "Feature KitTests",
 			},
 		},
@@ -1093,7 +1093,7 @@ func TestBaselineSkipsWhenXcodeprojMissing(t *testing.T) {
 // root-layout project (`[[component]] path = "."`), where COMPONENT_PREFIX
 // substitutes to the empty string -- not "." -- so the rendered line was a
 // bare `cd`, which bash resolves to $HOME rather than staying in the
-// checkout. Discovered live on OutOfTheMouths: `xcodegen generate` then
+// checkout. Discovered live on Papa: `xcodegen generate` then
 // failed with "No project spec found at /Users/<runner-user>/project.yml".
 // A subdirectory component (COMPONENT_PREFIX = "ios/App/") never exercised
 // this, which is exactly how it shipped unnoticed.
@@ -1111,7 +1111,7 @@ func TestXcodegenGenerateCdSurvivesRootLayout(t *testing.T) {
 
 // Test and Build (Release) both run `xcodebuild` directly against {{XCODEPROJ}}
 // with no equivalent to Lint/Baseline's pre-code exemption (TestLintSkipsWhenNoSwiftSources,
-// TestBaselineSkipsWhenXcodeprojMissing) -- discovered live on multimeter (a
+// TestBaselineSkipsWhenXcodeprojMissing) -- discovered live on golf (a
 // Phase-0, zero-Swift component): Test's `xcodebuild test` failed outright with
 // exit code 66 rather than skipping. Unlike Lint/Baseline, gating every one of
 // Test's ~14 downstream steps individually would be a lot of churn, so this is

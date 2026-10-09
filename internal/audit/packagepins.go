@@ -20,15 +20,17 @@ import (
 // not satisfy one they quietly re-resolve and rewrite Package.resolved in the
 // build's own checkout. So CI builds what the requirement says, stays green, and
 // the committed lockfile goes on stating a version that never ships. That is how
-// momfriend's sentry-cocoa sat at "9.28.0" in the lockfile while its pbxproj
+// bravoapp's sentry-cocoa sat at "9.28.0" in the lockfile while its pbxproj
 // pins exactVersion 9.26.0 for privacy verification: Dependabot bumps only
 // Package.resolved (9.26 → 9.27 → 9.28), each bump merged green, and each was a
 // no-op.
 //
-// Reported, not gated: nothing in the lacquer's iOS workflows builds from the
-// resolved file (no -disableAutomaticPackageResolution or
-// -onlyUsePackageVersionsFromResolvedFile), and making CI enforce it is a
-// separate decision, taken once the fleet is clean.
+// Reported, not gated, by the audit: the gate is CI. The lacquer's iOS
+// workflows resolve with -onlyUsePackageVersionsFromResolvedFile before any
+// build, test or archive and pass it on each of them, so such a pin fails the
+// project's CI instead of re-resolving green. The PinChecked summary records
+// whether the committed workflows actually do that (Gate), because a project
+// that has not synced, or that excludes the workflow, is still unguarded.
 type PinFinding struct {
 	// Kind is one of the Pin* constants.
 	Kind string
@@ -55,6 +57,12 @@ type PinFinding struct {
 	// not be compared at all. Unread is how many declarations were found and not
 	// read (see the PinUnchecked notes).
 	Pins, Reqs, Violations, Incomparable, Unread int
+	// Gate is, for PinChecked on an .xcodeproj/.xcworkspace lockfile, how
+	// strictly the committed workflows resolve against it: one of the Gate*
+	// constants. GateStrict and GateLoose are the file:line of the xcodebuild
+	// calls that do and do not pass StrictResolveFlag.
+	Gate                  string
+	GateStrict, GateLoose []string
 }
 
 const (
@@ -120,10 +128,32 @@ func PackagePinFindings(projectRoot string) []PinFinding {
 	}
 	sort.Strings(lockfiles)
 	var out []PinFinding
+	gateRead := false
+	var gate string
+	var strict, loose []string
 	for _, lf := range lockfiles {
-		out = append(out, ix.check(lf)...)
+		fs := ix.check(lf)
+		if len(fs) > 0 && fs[0].Kind == PinChecked && xcodeLockfile(lf) {
+			if !gateRead {
+				gate, strict, loose = resolutionGate(projectRoot)
+				gateRead = true
+			}
+			fs[0].Gate, fs[0].GateStrict, fs[0].GateLoose = gate, strict, loose
+		}
+		out = append(out, fs...)
 	}
 	return out
+}
+
+// xcodeLockfile reports whether xcodebuild (rather than swift build) resolves
+// against this lockfile: it sits inside an .xcodeproj or .xcworkspace.
+func xcodeLockfile(lockfile string) bool {
+	for _, s := range strings.Split(lockfile, "/") {
+		if e := path.Ext(s); e == ".xcodeproj" || e == ".xcworkspace" {
+			return true
+		}
+	}
+	return false
 }
 
 type pinIndex struct {
@@ -473,17 +503,40 @@ func FormatPackagePins(fs []PinFinding) string {
 		}
 		fmt.Fprintf(&b, "  %s  %s against %s: %s\n", f.Resolved, plural(f.Pins, "pin"), plural(f.Reqs, "requirement"), verdict)
 	}
+	// One line for the project, from the first summary that carries it: the
+	// workflows are the same for every lockfile.
+	gateStrict := false
+	for _, f := range byKind[PinChecked] {
+		if f.Gate != "" {
+			b.WriteString(gateLine(f))
+			gateStrict = f.Gate == GateStrict
+			break
+		}
+	}
 	if v := byKind[PinViolates]; len(v) > 0 {
+		// The strict wording only when every violation is in a lockfile the
+		// strict xcodebuild calls read; a Package.swift lockfile is resolved by
+		// swift build, which this does not assess.
+		strictCI := gateStrict
+		for _, f := range v {
+			strictCI = strictCI && xcodeLockfile(f.Resolved)
+		}
 		b.WriteString("pins that do not match the declared requirement:\n")
 		for _, f := range v {
 			fmt.Fprintf(&b, "  %s  %s is pinned to %s, but %s requires %s\n",
 				at(f.Resolved, f.Line), f.Package, f.Pinned, at(f.Req.File, f.Req.Line), f.Req.describe())
 		}
-		b.WriteString("SwiftPM resolves to the requirement at build time, not to the lockfile: when a pin does\n" +
-			"not satisfy it, xcodebuild / swift build re-resolve and rewrite Package.resolved in the\n" +
-			"build's own checkout, and stay green. So the committed lockfile misstates what ships, and a\n" +
-			"Dependabot PR that bumps only Package.resolved is a no-op that merges green. Fix whichever\n" +
-			"side is wrong: move the requirement if the newer version is wanted, or restore the pin.\n")
+		if strictCI {
+			b.WriteString("SwiftPM resolves to the requirement, not to the lockfile, and this project's CI resolves\n" +
+				"strictly: these pins FAIL its build, test and release until fixed. Fix whichever side is\n" +
+				"wrong: move the requirement if the newer version is wanted, or restore the pin.\n")
+		} else {
+			b.WriteString("SwiftPM resolves to the requirement at build time, not to the lockfile: when a pin does\n" +
+				"not satisfy it, xcodebuild / swift build re-resolve and rewrite Package.resolved in the\n" +
+				"build's own checkout, and stay green. So the committed lockfile misstates what ships, and a\n" +
+				"Dependabot PR that bumps only Package.resolved is a no-op that merges green. Fix whichever\n" +
+				"side is wrong: move the requirement if the newer version is wanted, or restore the pin.\n")
+		}
 	}
 	notes := len(byKind[PinUnpinned]) + len(byKind[PinUnrequired]) + len(byKind[PinDisagree]) + len(byKind[PinUnchecked])
 	if notes == 0 {
@@ -491,8 +544,12 @@ func FormatPackagePins(fs []PinFinding) string {
 	}
 	b.WriteString("notes (not findings):\n")
 	for _, f := range byKind[PinUnpinned] {
-		fmt.Fprintf(&b, "  %s  %s is required (%s, %s) but has no pin; the lockfile predates the requirement\n",
-			f.Resolved, f.Package, f.Req.describe(), at(f.Req.File, f.Req.Line))
+		consequence := ""
+		if gateStrict && xcodeLockfile(f.Resolved) {
+			consequence = ", and CI's strict resolve fails on it"
+		}
+		fmt.Fprintf(&b, "  %s  %s is required (%s, %s) but has no pin; the lockfile predates the requirement%s\n",
+			f.Resolved, f.Package, f.Req.describe(), at(f.Req.File, f.Req.Line), consequence)
 	}
 	for _, f := range byKind[PinDisagree] {
 		fmt.Fprintf(&b, "  %s  %s: project.yml asks for %s, the committed %s for %s; the build reads the pbxproj, and the next xcodegen generate will change it\n",

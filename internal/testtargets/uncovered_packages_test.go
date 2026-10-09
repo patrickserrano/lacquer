@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// flare's shape, and the gap lacquer#382 describes. Flare/Flare.xcodeproj
+// flare's shape, and the gap lacquer#382 describes. Delta/Delta.xcodeproj
 // references two local packages that sit BESIDE its directory (`../FlareCore`,
 // `../FlareData`), each with one test suite. No selector names either suite, and
 // since flare #240 retired the workflows that used to run them, nothing else
@@ -15,9 +15,9 @@ import (
 const flarePbx = `// !$*UTF8*$!
 {
 	objects = {
-		A1 /* Flare */ = {
+		A1 /* Delta */ = {
 			isa = PBXNativeTarget;
-			name = Flare;
+			name = Delta;
 			productType = "com.apple.product-type.application";
 		};
 		A2 /* FlareTests */ = {
@@ -65,8 +65,8 @@ jobs:
       - name: Test
         run: |
           xcodebuild test \
-            -project "Flare/Flare.xcodeproj" \
-            -scheme "Flare" \
+            -project "Delta/Delta.xcodeproj" \
+            -scheme "Delta" \
             "-only-testing:FlareTests" \
             CODE_SIGNING_REQUIRED=NO
 `
@@ -78,7 +78,7 @@ var flareSelectors = []string{"FlareTests"}
 func flare(t *testing.T, extra map[string]string) (string, []Target) {
 	t.Helper()
 	files := map[string]string{
-		"Flare/Flare.xcodeproj/project.pbxproj": flarePbx,
+		"Delta/Delta.xcodeproj/project.pbxproj": flarePbx,
 		"FlareCore/Package.swift":               flarePackage("FlareCore", "FlareCoreTests"),
 		"FlareData/Package.swift":               flarePackage("FlareData", "FlareDataTests"),
 		".github/workflows/ios-ci.yml":          flareCI,
@@ -90,7 +90,7 @@ func flare(t *testing.T, extra map[string]string) (string, []Target) {
 		}
 		files[k] = v
 	}
-	pbx := writeProject(t, "Flare/Flare.xcodeproj", files)
+	pbx := writeProject(t, "Delta/Delta.xcodeproj", files)
 	root := filepath.Dir(filepath.Dir(filepath.Dir(pbx)))
 	return root, parsePath(t, pbx)
 }
@@ -178,7 +178,7 @@ func TestAWorkflowThatRunsThePackageCoversIt(t *testing.T) {
 		"--package-path=":           workflow("", "", "", "swift test --package-path=FlareCore --parallel"),
 		"quoted, ./ and trailing /": workflow("", "", "", `swift test --package-path "./FlareCore/"`),
 		"step working-directory":    workflow("", "", "        working-directory: FlareCore\n", "swift test"),
-		// Windsock's kit-test.yml, the one real case in the fleet.
+		// Foxtrot's kit-test.yml, the one real case in the fleet.
 		"job defaults": workflow("", "    defaults:\n      run:\n        working-directory: FlareCore\n", "",
 			"swift test --enable-code-coverage"),
 		"workflow defaults": workflow("defaults:\n  run:\n    working-directory: FlareCore\n", "", "", "swift test"),
@@ -186,12 +186,12 @@ func TestAWorkflowThatRunsThePackageCoversIt(t *testing.T) {
 			"        working-directory: FlareCore\n", "swift test"),
 		"cd && swift test":    workflow("", "", "", "cd FlareCore && swift test"),
 		"cd; then swift test": workflow("", "", "", "set -euo pipefail\ncd FlareCore\nswift test 2>&1 | xcpretty"),
-		"package path relative to working-directory": workflow("", "", "        working-directory: Flare\n",
+		"package path relative to working-directory": workflow("", "", "        working-directory: Delta\n",
 			"swift test --package-path ../FlareCore"),
 		"$GITHUB_WORKSPACE":                workflow("", "", "", `swift test --package-path "$GITHUB_WORKSPACE/FlareCore"`),
 		"xcrun, continuation":              workflow("", "", "", "xcrun swift test \\\n  --package-path FlareCore \\\n  --parallel"),
-		"xcodebuild -only-testing":         workflow("", "", "", "xcodebuild test \\\n  -scheme Flare \\\n  -only-testing:FlareCoreTests"),
-		"xcodebuild -only-testing a class": workflow("", "", "", `xcodebuild test -scheme Flare "-only-testing:FlareCoreTests/ParserTests"`),
+		"xcodebuild -only-testing":         workflow("", "", "", "xcodebuild test \\\n  -scheme Delta \\\n  -only-testing:FlareCoreTests"),
+		"xcodebuild -only-testing a class": workflow("", "", "", `xcodebuild test -scheme Delta "-only-testing:FlareCoreTests/ParserTests"`),
 		"workflow_call":                    strings.Replace(workflow("", "", "", "swift test --package-path FlareCore"), "pull_request:", "workflow_call:", 1),
 	}
 	for name, wf := range cases {
@@ -221,19 +221,19 @@ func TestAWorkflowThatRunsThePackageCoversIt(t *testing.T) {
 // suite on no pull request. Every one must leave it reported.
 func TestThingsThatDoNotRunThePackageDoNotCoverIt(t *testing.T) {
 	cases := map[string]string{
-		// momfriend's shape: compiled, deliberately never run.
+		// bravoapp's shape: compiled, deliberately never run.
 		"swift build --build-tests":    workflow("", "", "", "swift build --package-path FlareCore --build-tests"),
 		"another package":              workflow("", "", "", "swift test --package-path FlareData"),
 		"repo root, no package path":   workflow("", "", "", "swift test"),
-		"a parent of the package":      workflow("", "", "        working-directory: Flare\n", "swift test"),
+		"a parent of the package":      workflow("", "", "        working-directory: Delta\n", "swift test"),
 		"commented out":                workflow("", "", "", "# swift test --package-path FlareCore\necho skipped"),
 		"trailing comment":             workflow("", "", "", "true # ; swift test --package-path FlareCore"),
 		"list the tests, run none":     workflow("", "", "", "swift test --package-path FlareCore --list-tests"),
 		"echoed, not run":              workflow("", "", "", `echo "swift test --package-path FlareCore"`),
 		"cd, then back":                workflow("", "", "", "cd FlareCore\ncd ..\nswift test"),
-		"xcodebuild build-for-testing": workflow("", "", "", "xcodebuild build-for-testing -scheme Flare -only-testing:FlareCoreTests"),
-		"xcodebuild a prefix":          workflow("", "", "", "xcodebuild test -scheme Flare -only-testing:FlareCoreTestsExtra"),
-		"xcodebuild -skip-testing":     workflow("", "", "", "xcodebuild test -scheme Flare -only-testing:FlareCoreTests -skip-testing:FlareCoreTests"),
+		"xcodebuild build-for-testing": workflow("", "", "", "xcodebuild build-for-testing -scheme Delta -only-testing:FlareCoreTests"),
+		"xcodebuild a prefix":          workflow("", "", "", "xcodebuild test -scheme Delta -only-testing:FlareCoreTestsExtra"),
+		"xcodebuild -skip-testing":     workflow("", "", "", "xcodebuild test -scheme Delta -only-testing:FlareCoreTests -skip-testing:FlareCoreTests"),
 		"manual trigger only": strings.Replace(workflow("", "", "", "swift test --package-path FlareCore"),
 			"  pull_request:\n", "  workflow_dispatch:\n", 1),
 		"schedule only": strings.Replace(workflow("", "", "", "swift test --package-path FlareCore"),
@@ -300,8 +300,8 @@ func testable(name, skipped string) string {
 // TestAction lists, so it reaches a package suite exactly when the committed
 // scheme lists it and does not skip it.
 func TestXcodebuildSchemeReachesWhatTheSchemeLists(t *testing.T) {
-	const run = `xcodebuild test -project Flare/Flare.xcodeproj -scheme "Flare" -destination "platform=iOS Simulator,name=iPhone 16"`
-	const schemePath = "Flare/Flare.xcodeproj/xcshareddata/xcschemes/Flare.xcscheme"
+	const run = `xcodebuild test -project Delta/Delta.xcodeproj -scheme "Delta" -destination "platform=iOS Simulator,name=iPhone 16"`
+	const schemePath = "Delta/Delta.xcodeproj/xcshareddata/xcschemes/Delta.xcscheme"
 	cases := map[string]struct {
 		scheme, wantUncovered string
 		wantUnchecked         bool
@@ -325,7 +325,7 @@ func TestXcodebuildSchemeReachesWhatTheSchemeLists(t *testing.T) {
 			if c.wantUnchecked != (len(r.Unchecked) == 2) {
 				t.Fatalf("unchecked = %+v, want both suites unchecked: %v", r.Unchecked, c.wantUnchecked)
 			}
-			if c.wantUnchecked && !strings.Contains(Format(r), "Flare.xcscheme") {
+			if c.wantUnchecked && !strings.Contains(Format(r), "Delta.xcscheme") {
 				t.Errorf("the unchecked reason does not name the scheme file it could not read:\n%s", Format(r))
 			}
 		})
@@ -431,8 +431,8 @@ func TestUnparseableWorkflowIsNotChecked(t *testing.T) {
 // A package outside the repository is not this repository's to run.
 func TestPackageOutsideTheRepositoryIsNotChecked(t *testing.T) {
 	root, targets := flare(t, nil)
-	// The same targets, audited as though the project root were Flare/.
-	r := audit(filepath.Join(root, "Flare"), targets, flareSelectors, nil)
+	// The same targets, audited as though the project root were Delta/.
+	r := audit(filepath.Join(root, "Delta"), targets, flareSelectors, nil)
 	if len(r.Uncovered) != 0 || len(r.Unchecked) != 2 || !strings.Contains(r.Unchecked[0].Reason, "outside") {
 		t.Fatalf("uncovered = %q, unchecked = %+v; want both suites unchecked as outside the repository", uncoveredNames(r), r.Unchecked)
 	}
@@ -451,10 +451,10 @@ func TestCompareAloneReportsPackageSuites(t *testing.T) {
 	}
 }
 
-// sleevetap's shape, from the fleet dry-run: the step runs the package's own
+// hotel's shape, from the fleet dry-run: the step runs the package's own
 // script, which moves to the package root, writes the workspace wrapper through
 // a heredoc, and runs `flowdeck test` on the package's GENERATED scheme — named
-// after the package, and running all its suites (91 tests on sleevetap's pull
+// after the package, and running all its suites (91 tests on hotel's pull
 // requests). Reported as running nowhere by the first version of this check.
 const verifyScript = `#!/usr/bin/env bash
 # Builds and tests the package, Debug and Release.
@@ -536,8 +536,8 @@ func TestMoreWaysARunIsSpelled(t *testing.T) {
 		"here-string is not a heredoc":                {"cat <<< \"x\"\nswift test --package-path FlareCore", "FlareDataTests"},
 		"xcodebuild in the package, generated scheme": {"cd FlareCore\nxcodebuild test -scheme FlareCore -destination 'platform=macOS'", "FlareDataTests"},
 		"xcodebuild on the package workspace":         {"xcodebuild test -workspace FlareCore/.swiftpm/xcode/package.xcworkspace -scheme FlareCore", "FlareDataTests"},
-		"flowdeck --only":                             {"flowdeck test -w Flare/Flare.xcodeproj -s Flare --only FlareTests/A FlareCoreTests/B", "FlareDataTests"},
-		"flowdeck --test-targets":                     {"flowdeck test -w Flare/Flare.xcodeproj -s Flare --test-targets FlareTests,FlareDataTests", "FlareCoreTests"},
+		"flowdeck --only":                             {"flowdeck test -w Delta/Delta.xcodeproj -s Delta --only FlareTests/A FlareCoreTests/B", "FlareDataTests"},
+		"flowdeck --test-targets":                     {"flowdeck test -w Delta/Delta.xcodeproj -s Delta --test-targets FlareTests,FlareDataTests", "FlareCoreTests"},
 		"flowdeck --skip the suite":                   {"flowdeck test -w FlareCore/.swiftpm/xcode/package.xcworkspace -s FlareCore --skip FlareCoreTests", "FlareCoreTests FlareDataTests"},
 		"flowdeck discover runs nothing":              {"flowdeck test discover -w FlareCore/.swiftpm/xcode/package.xcworkspace -s FlareCore", "FlareCoreTests FlareDataTests"},
 	}

@@ -36,7 +36,7 @@
 // attached to no version for 3h (only the newest build of its app and platform,
 // so a superseded one never sits there), and a version WAITING_FOR_REVIEW for 24h.
 // They are computed from asc-snapshot.json, beside the inbox file (ASCSnapshotFile),
-// which fleet-ops' asc-status writes on a schedule. lacquer holds no App Store
+// which asc-status writes on a schedule. lacquer holds no App Store
 // Connect credentials and never calls the ASC API: reading that file, through Env
 // and on the inbox's own refresh, is the only I/O, and the model stays pure.
 //
