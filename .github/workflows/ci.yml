@@ -438,12 +438,16 @@ jobs:
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/biome-probes.out"
+          # The second test runs the same probes with project biome overrides in
+          # the synced biome.json: each must still fail on its own violation.
           LACQUER_TEST_BIOME_NODE_MODULES="$RUNNER_TEMP/biome/node_modules" \
-            go test -count=1 -run '^TestDoctorWebBiomeProbesAgainstRealBiome$' -v ./internal/shipped/ | tee "$out"
-          if ! grep -q "^--- PASS: TestDoctorWebBiomeProbesAgainstRealBiome " "$out"; then
-            echo "::error::TestDoctorWebBiomeProbesAgainstRealBiome did not run and pass. A selector that matches nothing exits 0; that is not a pass."
-            exit 1
-          fi
+            go test -count=1 -run '^(TestDoctorWebBiomeProbesAgainstRealBiome|TestDoctorWebBiomeProbesBiteWithOverrides)$' -v ./internal/shipped/ | tee "$out"
+          for t in TestDoctorWebBiomeProbesAgainstRealBiome TestDoctorWebBiomeProbesBiteWithOverrides; do
+            if ! grep -q "^--- PASS: $t " "$out"; then
+              echo "::error::$t did not run and pass. A selector that matches nothing exits 0; that is not a pass."
+              exit 1
+            fi
+          done
 
   # Behaviour eval suite: does an agent following core/CLAUDE.core.md and this
   # repo's own CLAUDE.md reach the right VERDICT on a real repo state, not just

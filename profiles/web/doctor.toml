@@ -290,6 +290,31 @@ check = "biome-ignores"
 expect = "pass"
 
 [[probe]]
+name = "manifest-declared Biome overrides reach the synced config, and cannot lower a rule"
+why = """
+[[web.biome_overrides]] lets a project add per-path rules without forking the
+shared biome.json. An override may only raise a rule to error; it may not set a
+rule the profile sets, or one these probes assert. Before checking the declared
+overrides are in the synced file, this plants two overrides against it, one
+switching a profile rule off for every path and one restating it, and fails if
+the guard accepts either: a guard that had stopped refusing would otherwise pass
+on exactly the projects whose overrides it waves through.
+"""
+check = "biome-overrides"
+expect = "pass"
+
+[[probe]]
+name = "manifest-declared TypeDoc entry points reach the synced config"
+why = """
+[web] typedoc_entry_points replaces the shipped single-barrel default. The
+TypeDoc probes here pass their own --entryPoints, so no value can change what
+they prove; this checks the synced typedoc.json carries the declared list (or the
+default), and that the guard still refuses a path outside the component.
+"""
+check = "typedoc-entry-points"
+expect = "pass"
+
+[[probe]]
 name = "biome.json's $schema is the installed biome's own schema"
 why = """
 The shipped biome.json named the 2.5.0 schema while consumers ran 2.5.14 and

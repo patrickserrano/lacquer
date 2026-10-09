@@ -439,3 +439,15 @@ expect = "pass"
 # `set -e` script that never ran the writer, or ran a writer that wrote the raw
 # value, exits 0 or 1 with no such line.
 expect_output = 'write-release-config: set DOCTOR_PROBE_DSN in .*/Secrets\.xcconfig \(// escaped as /\$\(\)/\)'
+
+[[probe]]
+name = "manifest-declared SwiftLint custom rules reach the synced config, and cannot replace a profile rule"
+why = """
+[ios.swiftlint_custom_rules] lets a project add custom rules without forking the
+shared .swiftlint.yml. A project rule reusing a profile rule's id REPLACES it, so
+one with a never-matching regex would end that rule while every probe above kept
+passing on its own fixture. Before checking the declared rules are in the synced
+file, this plants exactly that against it and fails if the guard accepts it.
+"""
+check = "swiftlint-custom-rules"
+expect = "pass"

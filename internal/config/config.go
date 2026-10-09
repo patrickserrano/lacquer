@@ -15,6 +15,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/patrickserrano/lacquer/internal/baseline"
+	"github.com/patrickserrano/lacquer/internal/fragments"
 )
 
 // profileNameRe restricts profile names to a strict allowlist. Profile names are
@@ -1875,12 +1876,28 @@ type Baseline struct {
 
 // Web holds optional shared web-profile configuration. Patterns use Biome's
 // negated files.includes syntax, relative to each web component.
+//
+// BiomeOverrides and TypeDocEntryPoints are project-owned fragments of the
+// managed biome.json and typedoc.json; internal/fragments says what they may
+// and may not change. Absent, both configs render exactly as shipped.
 type Web struct {
-	BiomeIgnores []string `toml:"biome_ignores"`
+	BiomeIgnores       []string                  `toml:"biome_ignores"`
+	BiomeOverrides     []fragments.BiomeOverride `toml:"biome_overrides"`
+	TypeDocEntryPoints []string                  `toml:"typedoc_entry_points"`
+}
+
+// IOS holds optional shared ios-profile configuration.
+//
+// SwiftLintCustomRules are project-owned custom rules rendered into every iOS
+// component's managed .swiftlint.yml. They may only ADD rules; see
+// internal/fragments. Absent, .swiftlint.yml renders exactly as shipped.
+type IOS struct {
+	SwiftLintCustomRules map[string]fragments.SwiftLintRule `toml:"swiftlint_custom_rules"`
 }
 
 type Config struct {
 	Web        Web         `toml:"web"`
+	IOS        IOS         `toml:"ios"`
 	Project    Project     `toml:"project"`
 	Components []Component `toml:"component"`
 	Product    []Product   `toml:"product"`
@@ -2044,6 +2061,19 @@ func tableFor(path string) (table, bool) {
 	return table{}, false
 }
 
+// freeFormTables are manifest subtrees decoded into maps whose key sets are
+// closed by their own validator rather than by rejectUnknownKeys.
+var freeFormTables = []string{"web.biome_overrides"}
+
+func freeForm(key string) bool {
+	for _, t := range freeFormTables {
+		if strings.HasPrefix(key, t+".") {
+			return true
+		}
+	}
+	return false
+}
+
 // rejectUnknownKeys fails the load when the manifest carries a key nothing reads.
 //
 // A misspelled key would otherwise be dropped in silence, and a manifest that
@@ -2077,14 +2107,23 @@ func tableFor(path string) (table, bool) {
 // error surfaces from toml.DecodeFile above, not from here. If a nested type
 // ever grows a custom unmarshaler WITHOUT a closed key set, this check will go on
 // looking like it covers the whole manifest while covering less.
+//
+// The same blindness applies to [[web.biome_overrides]], decoded into a plain
+// map because it is Biome's own open shape: keys written under a nested table
+// header there are reported undecoded even though the map holds them. That
+// subtree is exempt here because fragments.ValidateBiomeOverrides closes its key
+// set instead, refusing every key it does not name (see freeFormTables).
 func rejectUnknownKeys(path string, md toml.MetaData) error {
 	und := md.Undecoded()
-	if len(und) == 0 {
-		return nil
-	}
 	keys := make([]string, 0, len(und))
 	for _, k := range und {
+		if freeForm(k.String()) {
+			continue
+		}
 		keys = append(keys, k.String())
+	}
+	if len(keys) == 0 {
+		return nil
 	}
 	sort.Strings(keys)
 	// An unknown TABLE reports itself and every key beneath it. Only the
@@ -2407,6 +2446,15 @@ func Load(path string) (*Config, error) {
 		if !strings.HasPrefix(pattern, "!") || strings.TrimSpace(strings.TrimLeft(pattern, "!")) == "" || strings.ContainsAny(pattern, "\r\n") {
 			return nil, fmt.Errorf("web.biome_ignores entries must be nonempty negated Biome patterns, got %q", pattern)
 		}
+	}
+	if err := fragments.ValidateBiomeOverrides(cfg.Web.BiomeOverrides); err != nil {
+		return nil, err
+	}
+	if err := fragments.ValidateTypeDocEntryPoints(cfg.Web.TypeDocEntryPoints); err != nil {
+		return nil, err
+	}
+	if err := fragments.ValidateSwiftLintRules(cfg.IOS.SwiftLintCustomRules); err != nil {
+		return nil, err
 	}
 	return &cfg, nil
 }
