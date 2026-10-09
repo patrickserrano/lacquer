@@ -308,7 +308,7 @@ product, and every tag releases it.
 `tag_prefix` is required once a project declares more than one product — a blank
 prefix means "every tag releases this", which is right with one product and
 incoherent with two. It also **derives the release workflow's push-tag filter**:
-a repo whose products are prefixed `steps-v` and `stepsfree-v` triggers on those
+a repo whose products are prefixed `mike-v` and `mikefree-v` triggers on those
 patterns, not on `v*`. A project declaring no products keeps the historical
 `v*`.
 

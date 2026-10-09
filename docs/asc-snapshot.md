@@ -139,7 +139,7 @@ that was never submitted from sitting on the tab forever.
 
 A rejected row's detail says: *If you've replied in Resolution Center, dismiss
 this until Apple responds.* The ASC API does not show a re-review after a
-Resolution Center reply (A Quebec Verse: Daily 2.1.1, 2026-09-25), so the
+Resolution Center reply (Sample Reader: Daily 2.1.1, 2026-09-25), so the
 version stays `REJECTED` while Apple is in fact reviewing it. Dismissal
 (`x`, a period, `stuck-dismissed.json`) is the answer, as for any other row.
 
