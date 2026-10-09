@@ -45,7 +45,7 @@ func ascSnap(genAgo time.Duration, apps ...obj) obj {
 	if apps == nil {
 		apps = []obj{}
 	}
-	return obj{"schemaVersion": 1, "generatedAt": rfc(genAgo), "producer": "fleet-ops asc-status 1.4.0", "errors": []obj{}, "apps": apps}
+	return obj{"schemaVersion": 1, "generatedAt": rfc(genAgo), "producer": "asc-status 1.4.0", "errors": []obj{}, "apps": apps}
 }
 
 func mustJSON(t *testing.T, v any) []byte {
@@ -382,7 +382,7 @@ func TestAMissingSnapshotIsCouldntCheckAndNamesThePath(t *testing.T) {
 	e := Env{InboxPath: filepath.Join(dir, "inbox.jsonl"), Now: func() time.Time { return t0 }}
 	ev := e.load() // the inbox file is missing too: the snapshot is still read
 	want := filepath.Join(dir, ASCSnapshotFile)
-	if !strings.Contains(ev.Data.ASC.Err, want) || !strings.Contains(ev.Data.ASC.Err, "asc-status") {
+	if !strings.Contains(ev.Data.ASC.Err, want) || !strings.Contains(ev.Data.ASC.Err, "ASC status producer") {
 		t.Errorf("Err = %q, want it to name %s and the producer", ev.Data.ASC.Err, want)
 	}
 	p := Program(tabModel(t, 160, 30))

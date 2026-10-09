@@ -41,7 +41,7 @@ const (
 // ASCSnapshotFile sits next to the inbox file, as stuck-dismissed.json does.
 const ASCSnapshotFile = "asc-snapshot.json"
 
-const ascProducerName = "fleet-ops asc-status"
+const ascProducerName = "the fleet's ASC status producer"
 
 // ASCSnapshotPath is where the snapshot for an inbox file lives.
 func ASCSnapshotPath(inboxPath string) string {
@@ -257,7 +257,7 @@ func (e Env) readASC() ASCState {
 	fail := func(msg string) ASCState { return ASCState{Answered: true, At: at, Path: path, Err: msg} }
 	f, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return fail(fmt.Sprintf("no snapshot at %s; the producer is %s", path, ascProducerName))
+		return fail(fmt.Sprintf("no snapshot at %s; %s writes it", path, ascProducerName))
 	}
 	if err != nil {
 		return fail(fmt.Sprintf("cannot read %s: %v", path, err))

@@ -14,17 +14,15 @@ import (
 	"github.com/patrickserrano/lacquer/internal/protection"
 )
 
-// defaultFleetRepo holds the decisions that span repositories (#427): one issue
-// there, rather than a copy in every project's, where the copies would diverge.
-// It is the one place this repository is named; $LACQUER_FLEET_REPO and
-// --fleet-repo replace it, and it is only ever written to if it is also in the
-// roster or $LACQUER_EXTRA_REPOS, like any other repository.
-const defaultFleetRepo = "patrickserrano/fleet-ops"
-
+// The fleet repository holds the decisions that span repositories (#427): one
+// issue there, rather than a copy in every project's, where the copies would
+// diverge. This repository is public, so none is built in: the operator names it
+// with --fleet-repo or $LACQUER_FLEET_REPO, and it is only ever written to if it
+// is also in the roster or $LACQUER_EXTRA_REPOS, like any other repository.
 const envFleetRepo = "LACQUER_FLEET_REPO"
 
 // fleetRepoFrom is the fleet-wide repository: the flag, else the environment,
-// else the default.
+// else "" (not configured). There is no default.
 func fleetRepoFrom(flagVal string, getenv func(string) string) string {
 	if flagVal != "" {
 		return flagVal
@@ -32,7 +30,7 @@ func fleetRepoFrom(flagVal string, getenv func(string) string) string {
 	if v := getenv(envFleetRepo); v != "" {
 		return v
 	}
-	return defaultFleetRepo
+	return ""
 }
 
 // The GitHub reads `lacquer decisions` makes, and where a checkout's repository
@@ -51,7 +49,7 @@ func decisionsCmd(args []string, getenv func(string) string, projectRoot string,
 	fs := flag.NewFlagSet("decisions", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fleetWide := fs.Bool("fleet", false, "the fleet-wide decisions, from the fleet repository")
-	fleetFlag := fs.String("fleet-repo", "", "the fleet repository (or $"+envFleetRepo+"; default "+defaultFleetRepo+")")
+	fleetFlag := fs.String("fleet-repo", "", "the fleet repository (or $"+envFleetRepo+"; there is no default)")
 	var pos []string
 	rest := args
 	for { // flags on either side of the repository
@@ -74,6 +72,9 @@ func decisionsCmd(args []string, getenv func(string) string, projectRoot string,
 	switch {
 	case *fleetWide:
 		repo = fleetRepoFrom(*fleetFlag, getenv)
+		if repo == "" {
+			return fail(stderr, errors.New("decisions: no fleet repository is configured; pass --fleet-repo owner/name or set $"+envFleetRepo))
+		}
 	case len(pos) == 1:
 		repo = pos[0]
 	default:

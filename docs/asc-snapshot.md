@@ -147,7 +147,7 @@ version stays `REJECTED` while Apple is in fact reviewing it. Dismissal
 
 Never an empty list in any of these cases:
 
-- the file does not exist ("no snapshot at <path>; the producer is fleet-ops asc-status");
+- the file does not exist ("no snapshot at <path>; the fleet's ASC status producer writes it");
 - it cannot be read, is not JSON, or lacks a required field;
 - `schemaVersion` is not 1;
 - `generatedAt` is more than **90 minutes** old ("snapshot is 2h10m old");
