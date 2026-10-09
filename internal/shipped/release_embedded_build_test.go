@@ -94,7 +94,8 @@ func settingsJSON(t *testing.T, targets []fakeTarget, schemeOnly bool) []byte {
 			continue
 		}
 		out = append(out, map[string]any{"target": tg.target, "buildSettings": map[string]string{
-			"PRODUCT_BUNDLE_IDENTIFIER": tg.id, "WRAPPER_EXTENSION": tg.wrapper, "CURRENT_PROJECT_VERSION": tg.version}})
+			"PRODUCT_BUNDLE_IDENTIFIER": tg.id, "WRAPPER_EXTENSION": tg.wrapper, "CURRENT_PROJECT_VERSION": tg.version,
+			"PRODUCT_TYPE": productTypeOf[tg.wrapper]}})
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -103,19 +104,34 @@ func settingsJSON(t *testing.T, targets []fakeTarget, schemeOnly bool) []byte {
 	return b
 }
 
+// The product type xcodebuild reports for a target whose SDK is concrete, by
+// the wrapper it builds.
+var productTypeOf = map[string]string{
+	"app":    "com.apple.product-type.application",
+	"appex":  "com.apple.product-type.app-extension",
+	"xctest": "com.apple.product-type.bundle.unit-test",
+}
+
 // runBuildNumberSettings runs, in order, every step from "Increment build
 // number" up to the archive that reads build settings, as one job would.
 func runBuildNumberSettings(t *testing.T, targets []fakeTarget, allTargetsFails bool) (string, error) {
+	t.Helper()
+	return runBuildNumberSettingsJSON(t, "com.x.demo", settingsJSON(t, targets, true), settingsJSON(t, targets, false), allTargetsFails)
+}
+
+// runBuildNumberSettingsJSON is runBuildNumberSettings with the two listings
+// given as xcodebuild prints them.
+func runBuildNumberSettingsJSON(t *testing.T, appID string, schemeJSON, allJSON []byte, allTargetsFails bool) (string, error) {
 	t.Helper()
 	steps := embeddedSteps(t)
 	from, to := stepIndex(t, steps, "Increment build number"), stepIndex(t, steps, "Build and archive")
 	dir := t.TempDir()
 	bin := t.TempDir()
 	scheme, all := filepath.Join(dir, "scheme.json"), filepath.Join(dir, "all.json")
-	if err := os.WriteFile(scheme, settingsJSON(t, targets, true), 0o644); err != nil {
+	if err := os.WriteFile(scheme, schemeJSON, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(all, settingsJSON(t, targets, false), 0o644); err != nil {
+	if err := os.WriteFile(all, allJSON, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	fail := "0"
@@ -145,7 +161,7 @@ esac`, fail, all, scheme),
 	}
 	output := filepath.Join(dir, "github-output")
 	env := []string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"PRODUCT_ASC_APP_ID=1", "PRODUCT_SCHEME=Demo", "PRODUCT_BUNDLE_ID=com.x.demo",
+		"PRODUCT_ASC_APP_ID=1", "PRODUCT_SCHEME=Demo", "PRODUCT_BUNDLE_ID=" + appID,
 		"PRODUCT_EXTRA_BUNDLE_IDS=[]", "GITHUB_OUTPUT=" + output}
 	var log strings.Builder
 	ran := 0
@@ -315,10 +331,17 @@ func infoPlist(id, version string) string {
 // between the archive and the export.
 func runArchiveCheck(t *testing.T, bundles map[string]string, noApp bool) (string, error) {
 	t.Helper()
+	return runArchiveCheckApp(t, "Demo.app", bundles, noApp)
+}
+
+// runArchiveCheckApp is runArchiveCheck with the archived app named appName.
+// PRODUCT_NAME stays Demo: it names the archive, not the app inside it.
+func runArchiveCheckApp(t *testing.T, appName string, bundles map[string]string, noApp bool) (string, error) {
+	t.Helper()
 	steps := embeddedSteps(t)
 	from, to := stepIndex(t, steps, "Build and archive"), stepIndex(t, steps, "Export IPA")
 	dir := t.TempDir()
-	app := filepath.Join(dir, "Demo.xcarchive", "Products", "Applications", "Demo.app")
+	app := filepath.Join(dir, "Demo.xcarchive", "Products", "Applications", appName)
 	if noApp {
 		app = filepath.Join(dir, "Demo.xcarchive", "Products", "Applications")
 	}
@@ -430,5 +453,219 @@ func TestReleaseEmbeddedChecksAreWired(t *testing.T) {
 		if !strings.Contains(s.Run, w) {
 			t.Errorf("the every-target settings read lacks %s", w)
 		}
+	}
+}
+
+// A project whose app target sets SDKROOT = auto (an XcodeGen multiplatform
+// target with SUPPORTED_PLATFORMS iphoneos iphonesimulator). Read with
+// -alltargets and no destination, Xcode 27 resolves no platform for it, so the
+// app gets no WRAPPER_EXTENSION, WRAPPER_NAME, PLATFORM_NAME or
+// FULL_PRODUCT_NAME, while its watch app and widget, on concrete SDKs, get them
+// all. PRODUCT_TYPE, PRODUCT_BUNDLE_IDENTIFIER and CURRENT_PROJECT_VERSION are
+// on every target, and the app is listed twice. The fixture is that listing's
+// shape with every name and id replaced; a selection by wrapper lost the app
+// and failed a correct project.
+const sdkrootAutoFixture = "testdata/showbuildsettings/sdkroot-auto-alltargets.json"
+
+// sdkrootAutoListing returns the fixture with CURRENT_PROJECT_VERSION
+// overridden per target name.
+func sdkrootAutoListing(t *testing.T, versions map[string]string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(sdkrootAutoFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range list {
+		if v, ok := versions[e["target"].(string)]; ok {
+			e["buildSettings"].(map[string]any)["CURRENT_PROJECT_VERSION"] = v
+		}
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestReleaseSettingsCheckFindsAnSDKROOTAutoApp(t *testing.T) {
+	// What a -scheme read lists for the same project: the app, once.
+	scheme := func(v string) []byte {
+		return []byte(`[{"target":"Demo","buildSettings":{"PRODUCT_BUNDLE_IDENTIFIER":"com.example.demo","PRODUCT_TYPE":"com.apple.product-type.application","SDKROOT":"auto","CURRENT_PROJECT_VERSION":"` + v + `"}}]`)
+	}
+	cases := []struct {
+		name     string
+		versions map[string]string
+		wantFail bool
+		want     []string
+	}{
+		{name: "every bundle agrees",
+			want: []string{
+				"com.example.demo (target Demo) resolves CURRENT_PROJECT_VERSION=42",
+				"com.example.demo.watchkitapp (target Demo Watch App) resolves CURRENT_PROJECT_VERSION=42",
+				"com.example.demo.DemoWidget (target DemoWidgetExtension) resolves CURRENT_PROJECT_VERSION=42"}},
+		{name: "watch app at another number", versions: map[string]string{"Demo Watch App": "7"}, wantFail: true,
+			want: []string{"::error::com.example.demo.watchkitapp (target Demo Watch App) resolves CURRENT_PROJECT_VERSION=7"}},
+		{name: "widget at another number", versions: map[string]string{"DemoWidgetExtension": "7"}, wantFail: true,
+			want: []string{"::error::com.example.demo.DemoWidget (target DemoWidgetExtension) resolves CURRENT_PROJECT_VERSION=7"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, err := runBuildNumberSettingsJSON(t, "com.example.demo", scheme("42"), sdkrootAutoListing(t, c.versions), false)
+			if failed := err != nil; failed != c.wantFail {
+				t.Fatalf("failed = %v (%v), want %v\n%s", failed, err, c.wantFail, out)
+			}
+			mustContain(t, "the output", out, c.want...)
+			// Test bundles never ship, whatever their id or number.
+			for _, never := range []string{"DemoTests", "DemoUITests", "Watch-AppTests", "No application target"} {
+				if strings.Contains(out, never) {
+					t.Errorf("output mentions %s:\n%s", never, out)
+				}
+			}
+			// The app is listed twice; it is one bundle. (A failing run prints
+			// only the mismatches.)
+			if n := strings.Count(out, "com.example.demo (target Demo)"); !c.wantFail && n != 1 {
+				t.Errorf("the app is reported %d times, want once:\n%s", n, out)
+			}
+		})
+	}
+}
+
+// Selection is by PRODUCT_TYPE, from Xcode's own product type specifications
+// (XCBSpecifications, Xcode 27): every type based on
+// com.apple.product-type.application (wrapper .app) or
+// com.apple.product-type.app-extension (wrapper .appex) that an iOS or watchOS
+// app can embed. Each embedded type at another number fails; each type that
+// does not ship as an embedded bundle, at another number under the app's id,
+// is never selected.
+func TestReleaseSettingsCheckSelectsByProductType(t *testing.T) {
+	// The app is on a concrete SDK here, so it is found under any selection
+	// and each case turns on the other target alone.
+	listing := func(id, productType, version string) []byte {
+		b, err := json.Marshal([]map[string]any{
+			{"target": "Demo", "buildSettings": map[string]string{"PRODUCT_BUNDLE_IDENTIFIER": "com.x.demo",
+				"PRODUCT_TYPE": "com.apple.product-type.application", "WRAPPER_EXTENSION": "app", "CURRENT_PROJECT_VERSION": "42"}},
+			{"target": "Other", "buildSettings": map[string]string{"PRODUCT_BUNDLE_IDENTIFIER": id,
+				"PRODUCT_TYPE": productType, "CURRENT_PROJECT_VERSION": version}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	scheme := []byte(`[{"target":"Demo","buildSettings":{"PRODUCT_BUNDLE_IDENTIFIER":"com.x.demo","CURRENT_PROJECT_VERSION":"42"}}]`)
+	embedded := []string{
+		"application.watchapp2",
+		"application.watchapp2-container",
+		"application.watchapp",
+		"application.messages",
+		"application.on-demand-install-capable",
+		"app-extension",
+		"app-extension.messages",
+		"app-extension.messages-sticker-pack",
+		"app-extension.intents-service",
+		"extensionkit-extension",
+		"watchkit2-extension",
+		"watchkit-extension",
+		"tv-app-extension",
+		"tv-broadcast-extension",
+	}
+	for _, pt := range embedded {
+		t.Run("selects "+pt, func(t *testing.T) {
+			out, err := runBuildNumberSettingsJSON(t, "com.x.demo", scheme, listing("com.x.demo.embedded", "com.apple.product-type."+pt, "7"), false)
+			if err == nil {
+				t.Fatalf("a %s at another number passed\n%s", pt, out)
+			}
+			mustContain(t, "the output", out, "::error::com.x.demo.embedded (target Other) resolves CURRENT_PROJECT_VERSION=7")
+		})
+	}
+	notEmbedded := []string{
+		"bundle.unit-test",
+		"bundle.ui-testing",
+		"bundle",
+		"framework",
+		"framework.static",
+		"library.dynamic",
+		"library.static",
+		"tool",
+		"xpc-service",
+		"pluginkit-plugin",
+		"system-extension",
+		"application.java",
+		"xcode-extension",
+		"in-app-purchase-content",
+	}
+	for _, pt := range notEmbedded {
+		t.Run("ignores "+pt, func(t *testing.T) {
+			out, err := runBuildNumberSettingsJSON(t, "com.x.demo", scheme, listing("com.x.demo.other", "com.apple.product-type."+pt, "7"), false)
+			if err != nil {
+				t.Fatalf("a %s at another number failed the release: %v\n%s", pt, err, out)
+			}
+			if strings.Contains(out, "com.x.demo.other") {
+				t.Errorf("selected a %s:\n%s", pt, out)
+			}
+		})
+	}
+	// Without a type, nothing says the target ships inside the app.
+	t.Run("ignores a target with no PRODUCT_TYPE", func(t *testing.T) {
+		out, err := runBuildNumberSettingsJSON(t, "com.x.demo", scheme, listing("com.x.demo.other", "", "7"), false)
+		if err != nil || strings.Contains(out, "com.x.demo.other") {
+			t.Fatalf("selected a target with no product type (%v):\n%s", err, out)
+		}
+	})
+}
+
+// The archive of an SDKROOT = auto project: the main app (named for its
+// product, not for the archive), a watch app whose name has spaces, a widget,
+// and a test bundle that is never embedded. The archive step reads no build
+// setting; it walks the directories, so all three bundles are read.
+func TestReleaseArchiveCheckReadsAnSDKROOTAutoArchive(t *testing.T) {
+	bundles := func(over map[string]string) map[string]string {
+		b := map[string]string{
+			".":                                 infoPlist("com.example.demo", "42"),
+			"Watch/Demo Watch App.app":          infoPlist("com.example.demo.watchkitapp", "42"),
+			"PlugIns/DemoWidgetExtension.appex": infoPlist("com.example.demo.DemoWidget", "42"),
+			"Frameworks/Demo Core.framework":    infoPlist("com.example.demo.core", "1"),
+		}
+		for k, v := range over {
+			b[k] = v
+		}
+		return b
+	}
+	cases := []struct {
+		name     string
+		over     map[string]string
+		wantFail bool
+		want     []string
+	}{
+		{name: "every bundle agrees", want: []string{
+			"com.example.demo (Demo Mobile.app): 42",
+			"com.example.demo.watchkitapp (Demo Mobile.app/Watch/Demo Watch App.app): 42",
+			"com.example.demo.DemoWidget (Demo Mobile.app/PlugIns/DemoWidgetExtension.appex): 42",
+			"All 3 archived bundles"}},
+		{name: "the app at another number", wantFail: true,
+			over: map[string]string{".": infoPlist("com.example.demo", "41")},
+			want: []string{"::error::com.example.demo (Demo Mobile.app) was archived with CFBundleVersion 41"}},
+		{name: "the watch app at another number", wantFail: true,
+			over: map[string]string{"Watch/Demo Watch App.app": infoPlist("com.example.demo.watchkitapp", "7")},
+			want: []string{"::error::com.example.demo.watchkitapp (Demo Mobile.app/Watch/Demo Watch App.app) was archived with CFBundleVersion 7"}},
+		{name: "the widget at another number", wantFail: true,
+			over: map[string]string{"PlugIns/DemoWidgetExtension.appex": infoPlist("com.example.demo.DemoWidget", "7")},
+			want: []string{"::error::com.example.demo.DemoWidget (Demo Mobile.app/PlugIns/DemoWidgetExtension.appex) was archived with CFBundleVersion 7"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, err := runArchiveCheckApp(t, "Demo Mobile.app", bundles(c.over), false)
+			if failed := err != nil; failed != c.wantFail {
+				t.Fatalf("failed = %v (%v), want %v\n%s", failed, err, c.wantFail, out)
+			}
+			mustContain(t, "the output", out, c.want...)
+			if strings.Contains(out, "com.example.demo.core") {
+				t.Errorf("compared a framework's version:\n%s", out)
+			}
+		})
 	}
 }

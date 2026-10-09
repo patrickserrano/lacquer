@@ -1,0 +1,138 @@
+[
+  {
+    "action": "build",
+    "target": "Demo",
+    "buildSettings": {
+      "CONFIGURATION": "Release",
+      "CURRENT_PROJECT_VERSION": "42",
+      "MARKETING_VERSION": "1.0",
+      "PRODUCT_BUNDLE_IDENTIFIER": "com.example.demo",
+      "PRODUCT_NAME": "Demo",
+      "PRODUCT_TYPE": "com.apple.product-type.application",
+      "PROJECT_NAME": "Demo",
+      "SDKROOT": "auto",
+      "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
+      "TARGET_NAME": "Demo",
+      "TARGETED_DEVICE_FAMILY": "1"
+    }
+  },
+  {
+    "action": "build",
+    "target": "DemoTests",
+    "buildSettings": {
+      "CONFIGURATION": "Release",
+      "CURRENT_PROJECT_VERSION": "5",
+      "FULL_PRODUCT_NAME": "DemoTests.xctest",
+      "PRODUCT_BUNDLE_IDENTIFIER": "com.example.demo.DemoTests",
+      "PRODUCT_NAME": "DemoTests",
+      "PRODUCT_TYPE": "com.apple.product-type.bundle.unit-test",
+      "PROJECT_NAME": "Demo",
+      "SDKROOT": "auto",
+      "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
+      "TARGET_NAME": "DemoTests",
+      "TARGETED_DEVICE_FAMILY": "1,2",
+      "WRAPPER_EXTENSION": "xctest",
+      "WRAPPER_NAME": "DemoTests.xctest",
+      "WRAPPER_SUFFIX": ".xctest"
+    }
+  },
+  {
+    "action": "build",
+    "target": "DemoUITests",
+    "buildSettings": {
+      "CONFIGURATION": "Release",
+      "CURRENT_PROJECT_VERSION": "5",
+      "PRODUCT_BUNDLE_IDENTIFIER": "com.example.demo.DemoUITests",
+      "PRODUCT_NAME": "DemoUITests",
+      "PRODUCT_TYPE": "com.apple.product-type.bundle.ui-testing",
+      "PROJECT_NAME": "Demo",
+      "SDKROOT": "auto",
+      "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
+      "TARGET_NAME": "DemoUITests",
+      "TARGETED_DEVICE_FAMILY": "1,2"
+    }
+  },
+  {
+    "action": "build",
+    "target": "Demo Watch App",
+    "buildSettings": {
+      "CONFIGURATION": "Release",
+      "CURRENT_PROJECT_VERSION": "42",
+      "FULL_PRODUCT_NAME": "Demo Watch App.app",
+      "PLATFORM_NAME": "watchos",
+      "PRODUCT_BUNDLE_IDENTIFIER": "com.example.demo.watchkitapp",
+      "PRODUCT_NAME": "Demo Watch App",
+      "PRODUCT_TYPE": "com.apple.product-type.application",
+      "PROJECT_NAME": "Demo",
+      "SDKROOT": "/Applications/Xcode.app/Contents/Developer/Platforms/WatchOS.platform/Developer/SDKs/WatchOS27.0.sdk",
+      "SDK_NAME": "watchos27.0",
+      "SUPPORTED_PLATFORMS": "watchos watchsimulator",
+      "TARGET_NAME": "Demo Watch App",
+      "TARGETED_DEVICE_FAMILY": "4",
+      "WRAPPER_EXTENSION": "app",
+      "WRAPPER_NAME": "Demo Watch App.app",
+      "WRAPPER_SUFFIX": ".app"
+    }
+  },
+  {
+    "action": "build",
+    "target": "Demo Watch AppTests",
+    "buildSettings": {
+      "CONFIGURATION": "Release",
+      "CURRENT_PROJECT_VERSION": "5",
+      "FULL_PRODUCT_NAME": "Demo Watch AppTests.xctest",
+      "PLATFORM_NAME": "watchos",
+      "PRODUCT_BUNDLE_IDENTIFIER": "com.example.demo-Watch-AppTests",
+      "PRODUCT_NAME": "Demo Watch AppTests",
+      "PRODUCT_TYPE": "com.apple.product-type.bundle.unit-test",
+      "PROJECT_NAME": "Demo",
+      "SDKROOT": "/Applications/Xcode.app/Contents/Developer/Platforms/WatchOS.platform/Developer/SDKs/WatchOS27.0.sdk",
+      "SDK_NAME": "watchos27.0",
+      "SUPPORTED_PLATFORMS": "watchos watchsimulator",
+      "TARGET_NAME": "Demo Watch AppTests",
+      "TARGETED_DEVICE_FAMILY": "4",
+      "WRAPPER_EXTENSION": "xctest",
+      "WRAPPER_NAME": "Demo Watch AppTests.xctest",
+      "WRAPPER_SUFFIX": ".xctest"
+    }
+  },
+  {
+    "action": "build",
+    "target": "DemoWidgetExtension",
+    "buildSettings": {
+      "CONFIGURATION": "Release",
+      "CURRENT_PROJECT_VERSION": "42",
+      "FULL_PRODUCT_NAME": "DemoWidgetExtension.appex",
+      "PLATFORM_NAME": "iphoneos",
+      "PRODUCT_BUNDLE_IDENTIFIER": "com.example.demo.DemoWidget",
+      "PRODUCT_NAME": "DemoWidgetExtension",
+      "PRODUCT_TYPE": "com.apple.product-type.app-extension",
+      "PROJECT_NAME": "Demo",
+      "SDKROOT": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk",
+      "SDK_NAME": "iphoneos27.0",
+      "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
+      "TARGET_NAME": "DemoWidgetExtension",
+      "TARGETED_DEVICE_FAMILY": "1,2",
+      "WRAPPER_EXTENSION": "appex",
+      "WRAPPER_NAME": "DemoWidgetExtension.appex",
+      "WRAPPER_SUFFIX": ".appex"
+    }
+  },
+  {
+    "action": "build",
+    "target": "Demo",
+    "buildSettings": {
+      "CONFIGURATION": "Release",
+      "CURRENT_PROJECT_VERSION": "42",
+      "MARKETING_VERSION": "1.0",
+      "PRODUCT_BUNDLE_IDENTIFIER": "com.example.demo",
+      "PRODUCT_NAME": "Demo",
+      "PRODUCT_TYPE": "com.apple.product-type.application",
+      "PROJECT_NAME": "Demo",
+      "SDKROOT": "auto",
+      "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
+      "TARGET_NAME": "Demo",
+      "TARGETED_DEVICE_FAMILY": "1"
+    }
+  }
+]

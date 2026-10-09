@@ -575,9 +575,15 @@ jobs:
       # -derivedDataPath, so the user-default override keeps what it writes in
       # this checkout and the packages are the ones the strict resolve fetched.
       #
-      # Selected: application and app-extension bundles whose id is the app's or
-      # starts with it plus a dot, which Apple requires of anything an app
-      # embeds. Test bundles are .xctest and never selected.
+      # Selected: every target whose PRODUCT_TYPE is one an app embeds (an
+      # application or app extension type, from Xcode's product type specs)
+      # and whose id is the app's or starts with it plus a dot, which Apple
+      # requires of anything an app embeds. Test bundles, frameworks and
+      # libraries are other types and never selected. By type, not by
+      # WRAPPER_EXTENSION: a target with SDKROOT = auto resolves no platform in
+      # an -alltargets read, so it has no wrapper settings at all, and the app
+      # itself dropped out. Every target has a PRODUCT_TYPE. A target listed
+      # twice with the same values is reported once.
       - name: Check embedded bundles' build number settings
         env:
           NEXT: ${{ steps.build_number.outputs.build_number }}
@@ -597,8 +603,15 @@ jobs:
             exit 1
           fi
           if ! REPORT=$(printf '%s' "$SETTINGS" | jq -r --arg next "$NEXT" --arg app "$PRODUCT_BUNDLE_ID" '
-              [.[] | {target, s: .buildSettings}
-                | select(.s.WRAPPER_EXTENSION == "app" or .s.WRAPPER_EXTENSION == "appex")
+              ["application", "application.messages", "application.on-demand-install-capable",
+               "application.watchapp", "application.watchapp2", "application.watchapp2-container",
+               "app-extension", "app-extension.messages", "app-extension.messages-sticker-pack",
+               "app-extension.intents-service", "extensionkit-extension",
+               "watchkit-extension", "watchkit2-extension",
+               "tv-app-extension", "tv-broadcast-extension"
+              | "com.apple.product-type." + .] as $embedded
+              | [.[] | {target, s: .buildSettings}
+                | select(.s.PRODUCT_TYPE as $t | any($embedded[]; . == $t))
                 | select(.s.PRODUCT_BUNDLE_IDENTIFIER == $app
                     or ((.s.PRODUCT_BUNDLE_IDENTIFIER // "") | startswith($app + ".")))]
               | if any(.[]; .s.PRODUCT_BUNDLE_IDENTIFIER == $app) | not
