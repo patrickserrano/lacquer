@@ -16,7 +16,7 @@ excluded:
   # profiles/ios's "Working in worktrees" guidance) and `.claude/worktrees/` is
   # where agents put theirs — both are FULL checkouts of the project, so
   # linting them reports every violation twice and attributes half of them to
-  # paths that vanish when the worktree is removed. skein surfaced this: 12
+  # paths that vanish when the worktree is removed. kilo surfaced this: 12
   # violations, of which 5 were duplicates from `.worktrees/`.
   - "**/.worktrees"
   - "**/.claude"
@@ -59,7 +59,7 @@ disabled_rules:
 # all; min_length 1 drops it and keeps the camelCase enforcement, which is the
 # part worth having.
 #
-# Measured across underfoot, skein, kit, rail, flare and shelflife before
+# Measured across underfoot, kilo, kit, rail, flare and november before
 # enabling: ZERO violations. This costs nothing today and catches the next
 # `SENTRY_PACKAGE_INFO` or `mainThread_isActive` on the PR that introduces it.
 identifier_name:
@@ -179,7 +179,7 @@ custom_rules:
     # backtracks until "Service" matches, \s* matches zero chars since the
     # next character is "P" (from "Protocol") not whitespace, and the
     # negative lookahead never reaches the real ": Sendable" clause because
-    # it's still checking mid-identifier text. Discovered live on dailybread,
+    # it's still checking mid-identifier text. Discovered live on alphaapp,
     # which already declared Sendable on all three of its "*ServiceProtocol"
     # names and was flagged anyway.
     regex: "protocol\\s+(\\w+)(Fetching|Repository|Service|Provider|Managing)(?!\\w)\\s*(?!:.*Sendable)"

@@ -65,7 +65,7 @@ Four modes. Most teams over-index on one. Run at least three.
 
 ---
 
-## Owned: Press Page + Media Kit
+## Owned: Press Page + Media Echo
 
 Set this up once. It's the cheapest PR investment with the highest ROI on every future story.
 

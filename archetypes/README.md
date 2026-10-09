@@ -15,7 +15,7 @@ one moment the stack decision is actually being made — while the idea is still
 brief and a PCD. So the stack got decided in prose, in a document, and then
 `lacquer init` re-derived it from whichever half happened to be written first.
 
-Needledrop is the case: the PCD described an iOS app with a web backend, the
+Juliet is the case: the PCD described an iOS app with a web backend, the
 repo was bootstrapped during a TypeScript-only spike, and detection correctly
 recorded `profiles = ["web"]`. The Swift arrived the next day. Nothing re-ran
 detection, so Swift had no hooks, no CI, and no CLAUDE region for a month — 191

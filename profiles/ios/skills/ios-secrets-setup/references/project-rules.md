@@ -188,7 +188,7 @@ WHATS_NEW: ${{ github.event.inputs.whats_new || '• Bug fixes and performance i
 
 ships the placeholder every single time. It reads as configurable, it reads as
 deliberate, and it is dead on the trigger that fires ~100% of the time. Measured
-in dailybread, where every automatic TestFlight build shipped that exact string
+in alphaapp, where every automatic TestFlight build shipped that exact string
 to testers.
 
 Same shape as the `HAS_SENTRY_TOKEN` note above and as the `--test-cases`

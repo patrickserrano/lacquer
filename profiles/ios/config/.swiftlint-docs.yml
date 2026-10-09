@@ -31,7 +31,7 @@ excluded:
   # methods; the exclusion list is path-based and test targets were simply not
   # in view when it was written.
   #
-  # Measured before deciding, on dailybread: 1,321 violations, of which 718 --
+  # Measured before deciding, on alphaapp: 1,321 violations, of which 718 --
   # 54% -- were test targets, and almost all were `@Test` methods. The cheapest
   # way to clear 644 of those is `/// Tests the label.` on every one, which
   # satisfies the rule and makes the codebase worse. A rule whose cheapest
@@ -47,7 +47,7 @@ excluded:
   # code from the documentation standard, which is the failure this whole config
   # exists to prevent. `**/Tests` covers the SPM layout (flare has bare `Tests`
   # directories under Packages/); `**/*Tests` covers the Xcode convention,
-  # including names with spaces like "MomFriend Capture Watch AppTests".
+  # including names with spaces like "BravoApp Capture Watch AppTests".
   - "**/Tests"
   - "**/*Tests"
 

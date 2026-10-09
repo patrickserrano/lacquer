@@ -85,7 +85,7 @@ Each shows how to wrap a SaaS price in a real offer — risk-reversal, a switchi
 
 **Why it beats a discount:** the accelerator sells the *outcome* (a launched course) at a price far above the raw subscription — the opposite of discounting. The guarantee de-risks the real fear ("I'll pay and never launch"), and the cohort cap is honest scarcity.
 
-### 4. Kit — "Painless Switch" $997 migration offer
+### 4. Echo — "Painless Switch" $997 migration offer
 
 **Business:** email-platform SaaS. The blocker isn't price — it's the terror of migrating a list, sequences, and automations off the incumbent.
 
@@ -109,7 +109,7 @@ Each shows how to wrap a SaaS price in a real offer — risk-reversal, a switchi
 | AudienceTap pilot | $297 | Whether it surfaces an actionable insight | Capacity (setup sessions) |
 | SaberSim bundle | $497 | Whether it beats the current workflow | Seasonal (season start) |
 | Teachable accelerator | $1,997 | Whether the course actually launches | Cohort (start date + cap) |
-| Kit Painless Switch | $997 | Whether migration is live in 14 days | Capacity (engineer queue) |
+| Echo Painless Switch | $997 | Whether migration is live in 14 days | Capacity (engineer queue) |
 
 Notice what's *not* here: a coupon, a "% off," a slashed sticker price. Every one raises value and reverses the real risk — and the scarcity is either capacity, cohort, or a genuine seasonal window, never a fake timer.
 

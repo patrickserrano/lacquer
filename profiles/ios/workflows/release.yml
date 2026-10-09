@@ -719,7 +719,7 @@ jobs:
           # exist by then. `publish` exits non-zero and THE STEP FAILS A RELEASE
           # THAT WORKED.
           #
-          # Measured across three consecutive DailyBread releases, all from a
+          # Measured across three consecutive AlphaApp releases, all from a
           # single `publish` call, two altool invocations 48-80s apart:
           #   314  attempt 1 uploaded, attempt 2 409  -> step PASSED + an
           #                                              ITMS-90189 "Redundant
@@ -753,7 +753,7 @@ jobs:
           # Apple's indexing latency, with --max-find-build-wait sitting at its
           # 10-minute default.
           #
-          # Measured on DailyBread build 317: the IPA uploaded fine, ASC took
+          # Measured on AlphaApp build 317: the IPA uploaded fine, ASC took
           # over ten minutes to surface it, and the step exited 1. The tool says
           # so plainly -- "the build was successfully uploaded ... but processing
           # took longer than expected" -- while the job conclusion reads

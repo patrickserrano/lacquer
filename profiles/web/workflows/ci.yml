@@ -221,7 +221,7 @@ jobs:
       - name: Resolve the lacquer version this project synced with
         id: lacquerrel
         # Pinned to the repo root. .lacquer.lock lives there, and this job may
-        # DEFAULT to a component subdirectory -- momfriend's web component is
+        # DEFAULT to a component subdirectory -- bravoapp's web component is
         # "admin/.", its supabase one "server/". Without this the lookup reads
         # admin/.lacquer.lock, finds nothing, and reports the project as never
         # synced. The "Prove the checks can fail" step below already carried
@@ -509,7 +509,7 @@ jobs:
     # Renders to nothing when that list is empty, which is the common case.
     #
     # This slot exists because its absence cost a project the whole workflow:
-    # pixelfoxstudio.com's `npm run build` statically collects page data and
+    # the consumer site's `npm run build` statically collects page data and
     # throws without NEXT_PUBLIC_SANITY_*, so the shared job could never build
     # it. With nowhere to name five secrets, the only escape was
     # [project].exclude on this entire file — opting out of the shared CI to add
@@ -532,7 +532,7 @@ jobs:
       # the pnpm store, which it does by running pnpm — so pnpm has to exist
       # first. Reversed, the run fails with "Unable to locate executable file:
       # pnpm", which reads like a missing dependency rather than an ordering
-      # mistake — the exact trap pixelfoxstudio.com's hand-carried web-ci.yml
+      # mistake — the exact trap the consumer site's hand-carried web-ci.yml
       # had already documented before this profile could render it at all.
       #
       # No `version:` pinned on it: pnpm/action-setup reads the `packageManager`
@@ -639,7 +639,7 @@ jobs:
       - name: Resolve the lacquer version this project synced with
         id: doctorrel
         # Pinned to the repo root. .lacquer.lock lives there, and this job may
-        # DEFAULT to a component subdirectory -- momfriend's web component is
+        # DEFAULT to a component subdirectory -- bravoapp's web component is
         # "admin/.", its supabase one "server/". Without this the lookup reads
         # admin/.lacquer.lock, finds nothing, and reports the project as never
         # synced. The "Prove the checks can fail" step below already carried

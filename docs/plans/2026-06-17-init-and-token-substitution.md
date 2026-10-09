@@ -31,12 +31,12 @@ A blank value is allowed in the manifest (init stubs them), but if the correspon
 
 ```go
 func TestLoadProjectValues(t *testing.T) {
-	cfg, err := loadString(t, "[project]\nname=\"rail\"\nproject_name=\"Rail\"\nscheme=\"Rail\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"6451234567\"\n")
+	cfg, err := loadString(t, "[project]\nname=\"rail\"\nproject_name=\"Charlie\"\nscheme=\"Charlie\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"6451234567\"\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	p := cfg.Project
-	if p.ProjectName != "Rail" || p.Scheme != "Rail" || p.BundleID != "com.me.rail" || p.AscAppID != "6451234567" {
+	if p.ProjectName != "Charlie" || p.Scheme != "Charlie" || p.BundleID != "com.me.rail" || p.AscAppID != "6451234567" {
 		t.Errorf("project = %+v", p)
 	}
 }
@@ -49,9 +49,9 @@ func TestLoadAllowsBlankProjectValues(t *testing.T) {
 
 func TestLoadRejectsInjectionInProjectValues(t *testing.T) {
 	cases := []string{
-		"[project]\nname=\"x\"\nscheme=\"Rail\\n  evil: true\"\n",      // newline / YAML break
+		"[project]\nname=\"x\"\nscheme=\"Charlie\\n  evil: true\"\n",      // newline / YAML break
 		"[project]\nname=\"x\"\nbundle_id=\"com.me.$(whoami)\"\n",       // shell sub
-		"[project]\nname=\"x\"\nproject_name=\"Rail`id`\"\n",            // backtick
+		"[project]\nname=\"x\"\nproject_name=\"Charlie`id`\"\n",            // backtick
 		"[project]\nname=\"x\"\nasc_app_id=\"12a34\"\n",                 // non-digit
 		"[project]\nname=\"x\"\nscheme=\"a\\\"b\"\n",                    // quote
 	}
@@ -136,26 +136,26 @@ import (
 )
 
 func TestSubstitute(t *testing.T) {
-	p := config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.me.rail", AscAppID: "999"}
+	p := config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "com.me.rail", AscAppID: "999"}
 	in := "scheme: {{SCHEME}}\nid: {{BUNDLE_ID}}\nasc: {{ASC_APP_ID}}\nname: {{PROJECT_NAME}}\nga: ${{ github.ref }}\n"
 	out, missing := Substitute(in, p)
 	if len(missing) != 0 {
 		t.Fatalf("unexpected missing: %v", missing)
 	}
-	want := "scheme: Rail\nid: com.me.rail\nasc: 999\nname: Rail\nga: ${{ github.ref }}\n"
+	want := "scheme: Charlie\nid: com.me.rail\nasc: 999\nname: Charlie\nga: ${{ github.ref }}\n"
 	if out != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
 	}
 }
 
 func TestSubstituteReportsMissing(t *testing.T) {
-	p := config.Project{ProjectName: "Rail"} // scheme blank
+	p := config.Project{ProjectName: "Charlie"} // scheme blank
 	out, missing := Substitute("a {{SCHEME}} b {{PROJECT_NAME}}", p)
 	if len(missing) != 1 || missing[0] != "{{SCHEME}}" {
 		t.Fatalf("missing = %v, want [{{SCHEME}}]", missing)
 	}
 	// PROJECT_NAME still substituted; SCHEME left as-is.
-	if out != "a {{SCHEME}} b Rail" {
+	if out != "a {{SCHEME}} b Charlie" {
 		t.Fatalf("out = %q", out)
 	}
 }
@@ -236,13 +236,13 @@ func TestSyncSubstitutesTokens(t *testing.T) {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"x\"\nscheme=\"Rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"x\"\nscheme=\"Charlie\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 
 	if _, err := Run(harness, project); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(project, ".x.yml"))
-	if string(got) != "scheme: Rail\n" {
+	if string(got) != "scheme: Charlie\n" {
 		t.Errorf("token not substituted: %q", got)
 	}
 }
@@ -345,7 +345,7 @@ func mk(t *testing.T, path string) {
 
 func TestComponents(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "ios", "Rail.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", "Charlie.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "dashboard", "package.json"))
 	mk(t, filepath.Join(root, "cli", "Cargo.toml"))
 
@@ -360,7 +360,7 @@ func TestComponents(t *testing.T) {
 	if got["ios"] != "ios" || got["dashboard"] != "web" || got["cli"] != "rust" {
 		t.Errorf("components = %+v", comps)
 	}
-	if derived.ProjectName != "Rail" || derived.Scheme != "Rail" {
+	if derived.ProjectName != "Charlie" || derived.Scheme != "Charlie" {
 		t.Errorf("derived = %+v", derived)
 	}
 }
@@ -383,7 +383,7 @@ func TestComponents(t *testing.T) {
 ```go
 func TestInitWritesManifest(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "ios", "Rail.xcodeproj", "project.pbxproj")) // helper as in detect
+	mk(t, filepath.Join(root, "ios", "Charlie.xcodeproj", "project.pbxproj")) // helper as in detect
 	if err := Run(root); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestInitWritesManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	for _, want := range []string{"[project]", "project_name = \"Rail\"", "scheme = \"Rail\"", "[[component]]", "path = \"ios\"", "profiles = [\"ios\"]"} {
+	for _, want := range []string{"[project]", "project_name = \"Charlie\"", "scheme = \"Charlie\"", "[[component]]", "path = \"ios\"", "profiles = [\"ios\"]"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("manifest missing %q:\n%s", want, s)
 		}
@@ -430,7 +430,7 @@ Wire into `cmd/harness/main.go`: add `case "init":` calling `initcmd.Run(project
 H=/Users/patrickserrano/Developer/harness
 env -u GOROOT /opt/homebrew/bin/go build -o "$H/bin/harness" ./cmd/harness
 tmp=$(mktemp -d); ( cd "$tmp" && git init -q )
-mkdir -p "$tmp/ios/Rail.xcodeproj"; printf '//\n' > "$tmp/ios/Rail.xcodeproj/project.pbxproj"
+mkdir -p "$tmp/ios/Charlie.xcodeproj"; printf '//\n' > "$tmp/ios/Charlie.xcodeproj/project.pbxproj"
 ( cd "$tmp" && HARNESS_ROOT="$H" "$H/bin/harness" init )
 echo "--- generated manifest ---"; cat "$tmp/.harness.toml"
 echo "--- sync with blank values should FAIL closed ---"

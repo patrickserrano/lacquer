@@ -39,7 +39,7 @@ Most teams invert the priority: they spend ~90% of effort on borrowed and rented
 
 ## Platform Half-Lives
 
-Content decays at wildly different rates by channel. Match the piece to the channel's shelf life:
+Content decays at wildly different rates by channel. Match the piece to the channel's november:
 
 | Channel | Rough half-life | Implication |
 |---|---|---|
