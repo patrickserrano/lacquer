@@ -267,13 +267,15 @@ table).
 
 | CI job / step | Local |
 |---|---|
-| `Lint` → SwiftLint `--strict` | pre-commit `swiftlint` (**`--strict`**, staged files) |
+| `Lint` → SwiftLint `--strict`, once per declared Swift component, from inside it | pre-commit `swiftlint` (**`--strict`**, staged files grouped by component) |
+| `Lint` → Every Swift file belongs to a declared component | pre-commit `swiftlint` refuses a staged file under no component (from the date the warning prints); `lacquer swift-components --check` any time |
 | `Lint` → SwiftFormat `--lint` | pre-commit `swiftformat` (writes; a changed file fails the commit) |
 | `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
 | `Test` | CI-only — see below |
 | `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |
 | `Build (Release)` | CI-only: a full Release archive is not a commit-time cost, and CI now runs it on every code PR — so building Release locally duplicates it on the same Mac |
 | `Detect changed paths` → drift audit | `lacquer audit` (exit 3) — run it locally any time |
+| `Lint` → Build Swift packages | CI-only, as a build: `swift build --build-tests --package-path <dir>` for a package `lacquer swift-components` lists reproduces it |
 
 **No local `xcodebuild test`/`docbuild` hook, deliberately.** This fleet's
 self-hosted Mac runner is frequently the very same physical machine you commit

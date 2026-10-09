@@ -129,6 +129,13 @@ var legacyIOSCITokens = map[string]string{
 	// Both empty unless a project declares [baseline.relax].simulator_runtime.
 	"{{IOS_CI_SIM_RUNTIME_OVERRIDE}}": "",
 	"{{IOS_CI_RELAX_KEYS}}":           "",
+	// #522 U4. A project with one Swift component gets the one push path the
+	// template always carried, no package to build, and a lint list that is the
+	// app prefix the steps already named.
+	"{{IOS_CI_PUSH_PATHS}}":      "      - '{{COMPONENT_PREFIX}}**'",
+	"{{IOS_CI_PACKAGE_DIRS}}":    "",
+	"{{IOS_CI_PACKAGE_SKIPS}}":   "",
+	"{{IOS_CI_LINT_COMPONENTS}}": "{{COMPONENT_PREFIX}}.",
 }
 
 // iosCITokenRe finds every IOS_CI_* placeholder in the template.

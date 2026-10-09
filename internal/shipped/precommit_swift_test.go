@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/swiftcomponents"
+	"github.com/patrickserrano/lacquer/internal/tokens"
 )
 
 // precommit-swift.sh is the fail-closed wrapper every iOS project's SwiftLint
@@ -56,12 +60,27 @@ exit "${SWIFTLINT_STUB_EXIT:-0}"
 // relative paths without also proving the separate token-substitution step.
 func precommitScript(t *testing.T) string {
 	t.Helper()
+	return renderPrecommitScript(t, &config.Config{}, swiftcomponents.GateDate())
+}
+
+// renderPrecommitScript renders the wrapper for cfg's Swift components through
+// the same token functions sync uses, with the stray gate opening on gate. A
+// Config with no components renders as a root layout.
+func renderPrecommitScript(t *testing.T, cfg *config.Config, gate string) string {
+	t.Helper()
 	src := filepath.Join(root(t), "profiles", "ios", "root", "scripts", "precommit-swift.sh")
 	b, err := os.ReadFile(src)
 	if err != nil {
 		t.Fatalf("reading precommit-swift.sh: %v", err)
 	}
-	rendered := strings.ReplaceAll(string(b), "{{COMPONENT_PREFIX}}", "")
+	rendered := strings.NewReplacer(
+		"{{COMPONENT_PREFIX}}", "",
+		tokens.IOSSwiftComponents, tokens.SwiftComponentList(cfg, ""),
+		tokens.IOSSwiftGateFrom, gate,
+	).Replace(string(b))
+	if m := lacquerToken.FindString(rendered); m != "" {
+		t.Fatalf("rendered precommit-swift.sh still contains %s", m)
+	}
 
 	dir := t.TempDir()
 	dst := filepath.Join(dir, "precommit-swift.sh")

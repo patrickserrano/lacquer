@@ -1,8 +1,8 @@
 # Fixture projects
 
 Four committed projects that `lacquer sync` is run against by
-`internal/shipped/e2e_test.go`, and a fifth, `watchapp`, that only the watch
-detection tests read. They are the *pre-sync* state of a repository:
+`internal/shipped/e2e_test.go`, plus `watchapp`, which only the watch
+detection tests read, and `multiswift`, which only the Swift-component tests read. They are the *pre-sync* state of a repository:
 what a project looks like the moment before the lacquer touches it. Nothing the
 lacquer writes is committed here — that is the point. The test copies a fixture
 into a temp dir, makes it a real git repository, syncs, and asserts on what
@@ -28,6 +28,7 @@ property broke; four small ones each fail for exactly one reason.
 | `duoapp` | One iOS repo, two shipped products | `[[product]]` schemes, test targets, UI test targets, per-product release secrets and tag prefixes; a committed `Package.resolved` inside the `.xcodeproj` bundle **does** produce a `swift` Dependabot entry |
 | `spmpackage` | A bare SwiftPM package, no `.xcodeproj` anywhere | The lacquer's own declared gap: `detect.SwiftProfile` is `"swift"`, no `profiles/swift/` ships, so this reports as *unsupported* drift rather than adoptable — and must never start quietly succeeding |
 | `watchapp` | iOS app + watchOS companion + widget, XcodeGen-only (no committed `project.pbxproj`) | `lacquer audit` finds a watch test bundle nothing runs from `project.yml` alone, and that a widget is not a watch target; not synced by `e2e_test.go` |
+| `multiswift` | iOS app under `ios/` + a `tools/` package component (`stack = "ios"`, two packages, its own `.swiftlint.yml`) + one `Stray.swift` at the root | `lacquer swift-components --check` and `lacquer audit` list the stray and both components; the package under `ios/Packages` is the app's and is not built by Lint; not synced by `e2e_test.go` |
 
 ## Reading one
 

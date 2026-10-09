@@ -1,0 +1,5 @@
+# Project-owned: the tools component's own lint config.
+included:
+  - .
+excluded:
+  - "*/.build"

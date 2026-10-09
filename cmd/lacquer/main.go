@@ -41,6 +41,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/shadow"
 	"github.com/patrickserrano/lacquer/internal/skillsync"
 	"github.com/patrickserrano/lacquer/internal/status"
+	"github.com/patrickserrano/lacquer/internal/swiftcomponents"
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
 	"github.com/patrickserrano/lacquer/internal/testtargets"
 	"github.com/patrickserrano/lacquer/internal/version"
@@ -82,6 +83,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	switch args[0] {
 	case "ratchet":
 		return runRatchet(args[1:], projectRoot, lacquerRoot, stdout, stderr)
+	case "swift-components":
+		return runSwiftComponents(args[1:], projectRoot, getenv, stdout, stderr)
 	case "settings":
 		return runSettings(args[1:], stdout, stderr)
 	case "init":
@@ -597,6 +600,21 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return fail(stderr, fmt.Errorf("re-detect components: %w", err))
 		}
 		fmt.Fprint(stdout, formatDrift(findings))
+		// Swift under no declared Swift component: linted and built by nothing.
+		// The same list the Lint job's step prints, from the same code, with the
+		// same dated grace before it blocks (exit 6, an undeclared stack).
+		// Outside a git work tree (or without git) there is no repository to
+		// list, and that is said rather than read as "nothing stray". The CI step, which always
+		// has one, fails closed on the same error instead.
+		strays, err := swiftcomponents.Check(projectRoot, cfg, time.Now())
+		switch {
+		case errors.Is(err, swiftcomponents.ErrCannotList):
+			fmt.Fprintf(stdout, "\nSwift components: NOT checked for stray Swift files (%v).\n", err)
+		case err != nil:
+			return fail(stderr, fmt.Errorf("list Swift files: %w", err))
+		default:
+			fmt.Fprint(stdout, swiftcomponents.Format(strays))
+		}
 
 		// [project].exclude is the other exemption mechanism, and it is the one
 		// `formatDrift` above actively recommends ("add the path to
@@ -665,7 +683,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			Exclusions: exclusion.Blocking(exclusions), DepIgnores: depignore.Blocking(ignores),
 			NotRunInCI: notRunExpired, Orphans: len(orphans), Undeclared: len(detect.Adoptable(findings)),
 			UnrunWatch: watchBlocking, MissingWorkflows: len(missingWorkflows),
-			LockMismatch: len(lockMismatch),
+			LockMismatch: len(lockMismatch), StraySwift: strays.Blocking(),
 		}).ExitCode()
 
 	case "fleet":
@@ -1234,6 +1252,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  skills                       install [project].skills via the `skills` CLI (vercel-labs/skills)")
 	fmt.Fprintln(w, "  plugins                      install core/bootstrap/plugins.toml via `claude plugin` (machine-level)")
 	fmt.Fprintln(w, "  ratchet [--write | --loosen METRIC --reason TEXT]  measure or update metric ceilings")
+	fmt.Fprintln(w, "  swift-components [--check]   list the manifest's Swift components and the packages Lint builds;")
+	fmt.Fprintln(w, "                               --check fails on Swift under no component, after a dated grace")
 	fmt.Fprintln(w, "  doctor [--profile P]         prove each check can fail (exit 5 if one cannot); --profile")
 	fmt.Fprintln(w, "                               limits it to one stack's checks, for a runner that has only that toolchain")
 	fmt.Fprintln(w, "  fix                          run the profiles' autofixers (formatters, lint --fix) over the project")
