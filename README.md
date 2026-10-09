@@ -27,7 +27,7 @@ every project regardless.
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
-| `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change, 4 on a baseline violation, 6 on an undeclared stack (usable as a CI gate). |
+| `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change, 4 on a baseline violation, 6 on an undeclared stack (usable as a CI gate). With `--ci` (what the shipped CI runs, at the lock's own version), exit 8 when a file matches the lock's hash but not that version's render: the lock was written by a different build than it names. |
 | `lacquer wait pr <N>` | Block until every check on a PR is terminal (no tokens while it sleeps). Exit 0 none failed, 1 a check failed, 2 timed out, 3 no checks — an empty check list is never a pass. Exits 2, 3 and 4 also raise an inbox ACTION (`--no-inbox` to skip). The sanctioned way to wait for CI. |
 | `lacquer version` | Print labeled content and build versions, plus the resolved content root path. |
 

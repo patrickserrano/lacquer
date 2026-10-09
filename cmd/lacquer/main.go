@@ -1223,6 +1223,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               no longer ships still sitting in the project; exit 6 if a stack")
 	fmt.Fprintln(w, "                               on disk is undeclared — see `adopt`)")
 	fmt.Fprintln(w, "    --xcodegen-only            report regeneration setting drift only; no drift/baseline gates")
+	fmt.Fprintln(w, "    --ci                       audit at the lock's own version, as CI does: refuse any other, and")
+	fmt.Fprintln(w, "                               exit 8 on a file that matches the lock but not that version's render")
 	fmt.Fprintln(w, "  fleet --roster F [--json]    audit every project in a roster (exit 4 if any would fail its own")
 	fmt.Fprintln(w, "                               audit); --json emits a snapshot for a later run to diff against")
 	fmt.Fprintln(w, "  fleet diff A.json B.json     what changed between two snapshots (exit 4 on a regression)")
