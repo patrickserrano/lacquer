@@ -106,6 +106,14 @@ func TestProjectSecretsStepWritesAndGuards(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := releaseWriter(t)
+			// The committed template every release now requires once keys are
+			// declared. Its values differ from every case's, so the placeholder
+			// check passes the valid case and only presence and shape decide the
+			// others.
+			template := "REVENUECAT_API_KEY = appl_xxxxxxxxxxxxxxxx\nAPTABASE_APP_KEY = A-EU-0000000000\n"
+			if err := os.WriteFile(filepath.Join(dir, "Secrets.xcconfig.example"), []byte(template), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			cmd := exec.Command("bash", "-c", run)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), tc.env...)

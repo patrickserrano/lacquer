@@ -627,6 +627,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		}
 		exclusions := exclusion.Review(cfg.Project.Exclude, suppressed, time.Now())
 		fmt.Fprint(stdout, exclusion.Format(exclusions))
+		// [project].seed_once is the exclusion's replacement for files whose
+		// content is per-project, and is held to the same account for staleness.
+		seeded, err := assets.SeedOnce(lacquerRoot, cfg)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("resolve seed_once: %w", err))
+		}
+		fmt.Fprint(stdout, exclusion.FormatSeedOnce(exclusion.StaleSeedOnce(cfg.Project.SeedOnce, seeded)))
 
 		// The third exemption mechanism, reviewed here for the same reason the
 		// other two are. An ignore withholds a dependency update from a file that

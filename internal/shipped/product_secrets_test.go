@@ -182,6 +182,12 @@ func TestSecretsStepEscapesURLValues(t *testing.T) {
 	}
 	run := secretsRun(t, cfg)
 	dir := releaseWriter(t)
+	// The committed template a release with declared keys requires. One line,
+	// for the declared key, so the exact-content assertion below still reads
+	// only what the writer did to it.
+	if err := os.WriteFile(filepath.Join(dir, "Secrets.xcconfig.example"), []byte("SENTRY_DSN = https:/$()/example.invalid/0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command("bash", "-c", run)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "SENTRY_DSN=https://abc@o0.ingest.sentry.io/1")
@@ -330,6 +336,12 @@ func TestSecretFormatsRejectWrongShapedValues(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := releaseWriter(t)
+			// The committed template a release with declared keys requires,
+			// holding values no case supplies, so only shape and presence decide.
+			template := "REVENUECAT_API_KEY = appl_xxxxxxxxxxxxxxxx\nGAD_APP_ID = ca-app-pub-0000000000000000~0000000000\n"
+			if err := os.WriteFile(filepath.Join(dir, "Secrets.xcconfig.example"), []byte(template), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			cmd := exec.Command("bash", "-c", run)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "REVENUECAT_API_KEY="+tc.rc, "GAD_APP_ID="+tc.gad)

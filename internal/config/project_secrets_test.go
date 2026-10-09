@@ -1,6 +1,9 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -246,5 +249,44 @@ secret_formats = { SENTRY_DSN = "https://*@*/*" }
 				t.Errorf("SecretFormats[SENTRY_DSN] = %q", got)
 			}
 		})
+	}
+}
+
+// The writer re-checks every secret_formats glob against its own bracket class,
+// and the two sets must be identical: a character config accepts and the writer
+// refuses loads cleanly and fails every release. That is not hypothetical — `@`
+// was accepted here for the Sentry DSN shape and absent there, so every release
+// declaring `https://*@*/*` failed. TestSecretFormatCharsetIsExactly pins this
+// side; this one reads the shipped script and compares the classes character by
+// character across printable ASCII.
+func TestSecretFormatCharsetMatchesTheWriter(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "profiles", "ios", "root", "scripts", "write-release-config.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`\*\[!([^\]]+)\]\*\) fail "\$key: pattern`).FindSubmatch(data)
+	if m == nil {
+		t.Fatal("cannot find the writer's secret_formats class; if it moved, update this test rather than deleting it")
+	}
+	class := string(m[1])
+	inClass := func(c byte) bool {
+		for i := 0; i < len(class); i++ {
+			if i+2 < len(class) && class[i+1] == '-' {
+				if class[i] <= c && c <= class[i+2] {
+					return true
+				}
+				i += 2
+				continue
+			}
+			if class[i] == c {
+				return true
+			}
+		}
+		return false
+	}
+	for c := byte(0x20); c <= 0x7e; c++ {
+		if got, want := inClass(c), globPatternVal.MatchString(string(c)); got != want {
+			t.Errorf("%q: config accepts=%v, writer accepts=%v — a manifest and its release disagree", c, want, got)
+		}
 	}
 }

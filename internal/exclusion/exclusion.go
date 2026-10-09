@@ -156,3 +156,38 @@ func Format(fs []Finding) string {
 	}
 	return b.String()
 }
+
+// StaleSeedOnce returns the [project].seed_once entries that matched nothing the
+// lacquer ships for this project. matched is assets.SeedOnce.
+//
+// A live entry prints nothing, as a healthy exclusion does. A stale one is the
+// same dead text a stale exclusion is — it reads as a decision about a file and
+// governs none — and is the harder one to notice, because a seed-once file that
+// is never written looks exactly like one that was written once and left alone.
+func StaleSeedOnce(entries, matched []string) []string {
+	live := map[string]bool{}
+	for _, m := range matched {
+		live[m] = true
+	}
+	var out []string
+	for _, e := range entries {
+		if !live[e] {
+			out = append(out, e)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// FormatSeedOnce renders StaleSeedOnce's result, or "" when there is none.
+func FormatSeedOnce(stale []string) string {
+	if len(stale) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nseed_once entries needing attention:\n")
+	for _, s := range stale {
+		fmt.Fprintf(&b, "  %s: the lacquer ships nothing at this path, so this entry seeds and protects nothing — correct the path or delete it\n", s)
+	}
+	return b.String()
+}

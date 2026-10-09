@@ -153,3 +153,16 @@ func TestUnattributedAndStaleReportBoth(t *testing.T) {
 		t.Errorf("both defects must be reported, got %q", out)
 	}
 }
+
+func TestStaleSeedOnceNamesOnlyEntriesThatMatchedNothing(t *testing.T) {
+	got := StaleSeedOnce([]string{"ios/Secrets.xcconfig.example", "ios/Typo.example"}, []string{"ios/Secrets.xcconfig.example"})
+	if len(got) != 1 || got[0] != "ios/Typo.example" {
+		t.Fatalf("StaleSeedOnce = %v, want only the entry the plan never matched", got)
+	}
+	if out := FormatSeedOnce(got); !strings.Contains(out, "ios/Typo.example") {
+		t.Errorf("the report does not name the stale entry:\n%s", out)
+	}
+	if out := FormatSeedOnce(nil); out != "" {
+		t.Errorf("a project with no stale entries got a report:\n%s", out)
+	}
+}

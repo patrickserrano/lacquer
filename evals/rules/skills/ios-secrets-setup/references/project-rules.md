@@ -39,7 +39,35 @@ secrets_file = "xcconfig/Secrets.xcconfig"
 secrets = { REVENUECAT_API_KEY = "REVENUECAT_API_KEY", SENTRY_DSN = "SENTRY_DSN" }
 # Optional shape check. Non-empty is not the same as correct.
 secret_formats = { REVENUECAT_API_KEY = "appl_*", SENTRY_DSN = "https://*@*/*" }
+# Optional: the committed template, relative to the component root like
+# secrets_file. Defaults to <secrets_file>.example, beside the destination.
+secrets_example = "Secrets.xcconfig.example"
 ```
+
+A `secret_formats` glob may use letters, digits and `_ ~ . : / * ? @ -`. `@` is
+allowed because a Sentry DSN cannot be shaped without it. `( ) | &`, quotes,
+spaces and every other character are refused, at load and again by the writer,
+as "unsafe in a shell pattern": the glob is used unquoted in a shell `case`.
+
+`secrets_file` and `secrets_example` are relative to the **component**, not the
+repository. Under an `ios/` component write `App/Secrets.xcconfig`, not
+`ios/App/Secrets.xcconfig`: the second names `ios/ios/App/…`, which the release
+would create and the archive would never read, so the manifest is refused with
+the corrected value.
+
+If the template does not sit beside `secrets_file` (one example at the
+component root, the base configuration in the app's folder), name it with
+`secrets_example`. **With keys declared and no template found, the release
+refuses** and says where it looked: without the template the file would carry
+the declared keys only, and nothing could check a secret against its
+placeholder. A declared `secrets_example` is the only template consulted. The
+watch-test job seeds the same file from the same declared template.
+
+The template names this app's own keys, so its content belongs to the project.
+To keep the lacquer from treating your edits as drift, without an exclusion,
+declare it seed-once: `[project] seed_once = ["ios/Secrets.xcconfig.example"]`
+(the repository-relative path). Sync writes it if absent and never touches it
+again; audit does not compare it.
 
 A project with several `[[product]]` blocks declares the same three keys on
 each product instead, because a paid app's key written into the free app's
@@ -49,7 +77,8 @@ app reads keys from `Secrets.xcconfig` and none of this is declared, the release
 archives with the committed placeholders** — declare them.
 
 `release.yml` then runs `scripts/write-release-config.sh`, which seeds the
-committed `<secrets_file>.example` and substitutes the declared keys into it.
+committed template (`secrets_example`, else `<secrets_file>.example`) and
+substitutes the declared keys into it.
 Five things it does that a hand-written `sed` step does not:
 
 - **Fails closed on an unset OR empty secret.** An unset GitHub secret expands
