@@ -1634,6 +1634,15 @@ type Component struct {
 	// Security updates and shared tooling are different decisions. A project may
 	// legitimately keep its own CI and still want its dependencies watched.
 	Stack string `toml:"stack"`
+	// Packages lists local SwiftPM packages nested inside a Swift component whose
+	// TESTS CI must compile (#522 U4b), as paths relative to the component:
+	// `packages = ["AppCore"]` on the `ios` component names ios/AppCore.
+	//
+	// It is explicit for the reason the component list is: nothing scans for
+	// Package.swift files, so a package gets built because someone said so and
+	// can be read off the manifest. A listed package is NOT a second lint
+	// component: the outer component still lints its files, once.
+	Packages []string `toml:"packages"`
 	// DependabotIgnore names dependency versions this component cannot accept, and
 	// renders them into the generated .github/dependabot.yml as `ignore` rules.
 	//
@@ -2444,6 +2453,9 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	if err := validateSwiftNesting(cfg.Components); err != nil {
+		return nil, err
+	}
+	if err := validatePackages(cfg.Root, cfg.Components); err != nil {
 		return nil, err
 	}
 	for _, pattern := range cfg.Web.BiomeIgnores {

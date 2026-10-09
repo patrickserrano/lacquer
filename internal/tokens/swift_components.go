@@ -110,7 +110,13 @@ func SwiftComponentList(cfg *config.Config, prefix string) string {
 // Values runs once per rendered file, and each call would otherwise list the
 // repository again. Same shape as swiftManifests.
 func packages(cfg *config.Config) []swiftcomponents.Package {
-	key := cfg.Root + "\x00" + SwiftComponentList(cfg, "")
+	// The `packages` lists are part of the key: two manifests over one root and
+	// one component set can list different packages (#522 U4b).
+	var listed []string
+	for _, c := range cfg.Components {
+		listed = append(listed, c.Path+"\x01"+strings.Join(c.Packages, "\x02"))
+	}
+	key := cfg.Root + "\x00" + SwiftComponentList(cfg, "") + "\x00" + strings.Join(listed, "\x03")
 	pkgMu.Lock()
 	defer pkgMu.Unlock()
 	if pkgs, ok := pkgCache[key]; ok {

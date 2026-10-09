@@ -50,16 +50,22 @@ func runSwiftComponents(args []string, projectRoot string, getenv func(string) s
 		if err != nil {
 			return fail(stderr, err)
 		}
+		var discovered, listed []swiftcomponents.Package
+		for _, p := range pkgs {
+			if p.Listed {
+				listed = append(listed, p)
+			} else {
+				discovered = append(discovered, p)
+			}
+		}
 		fmt.Fprintln(stdout, "Packages under package components:")
-		if len(pkgs) == 0 {
+		if len(discovered) == 0 {
 			fmt.Fprintln(stdout, "  (none)")
 		}
-		for _, p := range pkgs {
-			if p.IOSOnly {
-				fmt.Fprintf(stdout, "  %s  NOT built by Lint: iOS-only (its platforms list no macOS)\n", p.Dir)
-			} else {
-				fmt.Fprintf(stdout, "  %s\n", p.Dir)
-			}
+		printPackages(stdout, discovered)
+		if len(listed) > 0 {
+			fmt.Fprintln(stdout, "Packages listed in a component's packages (built by Lint, linted by that component):")
+			printPackages(stdout, listed)
 		}
 		return 0
 	}
@@ -93,4 +99,14 @@ func runSwiftComponents(args []string, projectRoot string, getenv func(string) s
 		return 1
 	}
 	return 0
+}
+
+func printPackages(w io.Writer, pkgs []swiftcomponents.Package) {
+	for _, p := range pkgs {
+		if p.IOSOnly {
+			fmt.Fprintf(w, "  %s  NOT built by Lint: iOS-only (its platforms list no macOS)\n", p.Dir)
+		} else {
+			fmt.Fprintf(w, "  %s\n", p.Dir)
+		}
+	}
 }
