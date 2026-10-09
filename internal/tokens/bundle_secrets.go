@@ -2,6 +2,7 @@ package tokens
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/config"
@@ -105,10 +106,28 @@ func bundleSecretsSteps(products []config.Product, prefix string, site bundleSec
 			// literals, and a literal quote inside is escaped by doubling it.
 			fmt.Fprintf(&b, "        if: matrix.product.name == '%s'\n", strings.ReplaceAll(p.Name, "'", "''"))
 		}
+		// --key: the release writes the declared keys beside the template's, so
+		// a declared key the template does not carry is a secret all the same.
+		// Sorted, so the render is stable. --sources: where the check finds the
+		// Info.plist names those keys are mapped to.
+		keys := make([]string, 0, len(p.Secrets))
+		for k := range p.Secrets {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var flags strings.Builder
+		for _, k := range keys {
+			fmt.Fprintf(&flags, "--key %s ", k)
+		}
+		sources := strings.TrimSuffix(prefix, "/")
+		if sources == "" {
+			sources = "."
+		}
 		// The directory is double-quoted rather than %q'd so the release's
 		// $ARCHIVE_DIR and $PRODUCT_NAME expand. Every other value is
-		// charset-validated at config.Load and cannot carry a quote or a $.
-		fmt.Fprintf(&b, "        run: %s %q %q \"%s\"", bundleSecretsScript, prefix+p.SecretsTemplate(), app, dir)
+		// charset-validated at config.Load and cannot carry a quote or a $:
+		// keys are identifiers, paths and names hold no shell metacharacter.
+		fmt.Fprintf(&b, "        run: %s %s--sources %q %q %q \"%s\"", bundleSecretsScript, flags.String(), sources, prefix+p.SecretsTemplate(), app, dir)
 	}
 	return b.String()
 }

@@ -21,11 +21,9 @@ import (
 // signs, uploads and passes review.
 //
 // The tests below lay bundles out on disk with real Info.plists and run the
-// shipped script, and then the RENDERED workflow steps, against them. plutil is
-// the real one on a Mac; on Linux CI it is the plistlib stand-in from
-// release_embedded_build_test.go, which implements the one form the script
-// uses (`plutil -extract KEY raw -o - FILE`) and is held to the real plutil by
-// TestFakePlutilAgreesWithPlutil and TestFakePlutilAgreesOnBundleSecretsShapes.
+// shipped script, and then the RENDERED workflow steps, against them. The script
+// reads property lists with python3's plistlib, which is on a Mac and on Linux
+// CI alike, so these run the same code in both places.
 
 // leakedValue stands in for a real secret. It is planted in every bundle that
 // carries a key, and no output may ever contain it.
@@ -127,8 +125,14 @@ func bundleSecretsScript(t *testing.T) string {
 }
 
 // runBundleSecrets runs the shipped script. template "" writes the default
-// fixture template; "-" writes none.
-func runBundleSecrets(t *testing.T, template, app string, bundles map[string]string) (string, int) {
+// fixture template; "-" writes none. flags go before the positional arguments;
+// a flag value of "{sources}" is replaced by a source tree written from sources.
+func runBundleSecrets(t *testing.T, template, app string, bundles map[string]string, flags ...string) (string, int) {
+	t.Helper()
+	return runBundleSecretsWith(t, template, app, bundles, nil, flags...)
+}
+
+func runBundleSecretsWith(t *testing.T, template, app string, bundles, sources map[string]string, flags ...string) (string, int) {
 	t.Helper()
 	dir := t.TempDir()
 	tmpl := filepath.Join(dir, "Secrets.xcconfig.example")
@@ -143,9 +147,16 @@ func runBundleSecrets(t *testing.T, template, app string, bundles map[string]str
 	if bundles != nil {
 		layOut(t, products, bundles)
 	}
-	cmd := exec.Command("bash", bundleSecretsScript(t), tmpl, app, products)
-	cmd.Env = append(os.Environ(), "PATH="+plutilPath(t))
-	out, err := cmd.CombinedOutput()
+	src := filepath.Join(dir, "src")
+	for rel, body := range sources {
+		writeAt(t, filepath.Join(src, filepath.FromSlash(rel)), body)
+	}
+	args := []string{bundleSecretsScript(t)}
+	for _, f := range flags {
+		args = append(args, strings.ReplaceAll(f, "{sources}", src))
+	}
+	args = append(args, tmpl, app, products)
+	out, err := exec.Command("bash", args...).CombinedOutput()
 	code := 0
 	if err != nil {
 		ee, ok := err.(*exec.ExitError)
@@ -285,34 +296,140 @@ func TestBundleSecretsPassesACleanProduct(t *testing.T) {
 	mustContain(t, "the output", out, "Demo.app embeds no other bundle and none was built beside it")
 }
 
-// On a Mac, the stand-in must answer as plutil does for the shapes these tests
-// rely on beyond TestFakePlutilAgreesWithPlutil's: a dictionary-valued key, a
-// binary plist, and a plist whose root is not a dictionary.
-func TestFakePlutilAgreesOnBundleSecretsShapes(t *testing.T) {
-	real, err := exec.LookPath("plutil")
-	if err != nil {
-		t.Skip("no plutil to compare against; this runs on a Mac")
+// sourcePlist is a committed Info.plist mapping plist key names to setting
+// references, the way a project wires its keys in.
+func sourcePlist(entries ...[2]string) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+`)
+	for _, e := range entries {
+		b.WriteString("\t<key>" + e[0] + "</key>\n\t<string>" + e[1] + "</string>\n")
 	}
-	fake := filepath.Join(fakePlutil(t), "plutil")
-	dir := t.TempDir()
-	files := map[string]string{
-		"dict":   plistWithDict("w", "PROXY_SECRET"),
-		"binary": binaryPlist(t, plistWith("w", "PROXY_SECRET")),
-		"junk":   "junk",
+	b.WriteString("</dict>\n</plist>\n")
+	return b.String()
+}
+
+// A plist key is often not named like its setting: `RevenueCatAPIKey =
+// $(REVENUECAT_API_KEY)`. The built plist carries only the resolved value under
+// the plist's name, so matching the setting's name finds nothing, and the app
+// control fails. --sources finds the name the setting is wired to.
+func TestBundleSecretsFollowsAKeyToItsPlistName(t *testing.T) {
+	sources := map[string]string{
+		"App/Info.plist": sourcePlist(
+			[2]string{"CFBundleIdentifier", "$(PRODUCT_BUNDLE_IDENTIFIER)"},
+			[2]string{"RevenueCatAPIKey", "$(REVENUECAT_API_KEY)"},
+			[2]string{"com.example.proxy.secret", "https:/$()/${PROXY_SECRET}"},
+			[2]string{"Unrelated", "$(SOMETHING_ELSE)"}),
 	}
-	for name, body := range files {
-		writeAt(t, filepath.Join(dir, name), body)
-	}
-	for _, c := range []struct{ file, key string }{
-		{"dict", "PROXY_SECRET"}, {"dict", "REVENUECAT_API_KEY"}, {"dict", "CFBundleIdentifier"},
-		{"binary", "PROXY_SECRET"}, {"binary", "REVENUECAT_API_KEY"},
-		{"junk", "CFBundleIdentifier"},
-	} {
-		ok := func(bin string) bool {
-			return exec.Command(bin, "-extract", c.key, "raw", "-o", "-", filepath.Join(dir, c.file)).Run() == nil
+	renamed := func(over map[string]string) map[string]string {
+		b := shippedApp(over)
+		if _, ok := over["Demo.app"]; !ok {
+			b["Demo.app"] = plistWith("com.x.demo", "RevenueCatAPIKey", "com.example.proxy.secret")
 		}
-		if r, f := ok(real), ok(fake); r != f {
-			t.Errorf("%s %s: plutil ok=%v, stand-in ok=%v", c.file, c.key, r, f)
+		return b
+	}
+
+	// Without the source tree the app carries none of the settings' names.
+	out, code := runBundleSecretsWith(t, "", "Demo.app", renamed(nil), sources)
+	if code != 2 || !strings.Contains(out, "Demo.app carries none of the keys") {
+		t.Fatalf("without --sources a renamed key must fail the app control: exit %d\n%s", code, out)
+	}
+
+	out, code = runBundleSecretsWith(t, "", "Demo.app", renamed(nil), sources, "--sources", "{sources}")
+	if code != 0 {
+		t.Fatalf("a clean product with renamed keys: exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, "the output", out, "RevenueCatAPIKey", "com.example.proxy.secret", "app (allowed): Demo.app\n")
+	if strings.Contains(out, "Unrelated") || strings.Contains(out, " CFBundleIdentifier") {
+		t.Errorf("took a plist name that references no secrets key:\n%s", out)
+	}
+
+	for _, c := range []struct{ name, bundle, key string }{
+		{"a renamed key in the watch app", "Demo.app/Watch/DemoWatch.app", "RevenueCatAPIKey"},
+		// plutil -extract reads a dotted name as a key path and would miss it.
+		{"a dotted plist name in a widget", "Demo.app/PlugIns/DemoWidget.appex", "com.example.proxy.secret"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out, code := runBundleSecretsWith(t, "", "Demo.app",
+				renamed(map[string]string{c.bundle: plistWith("x", c.key)}), sources, "--sources", "{sources}")
+			if code != 1 {
+				t.Fatalf("exit %d, want 1\n%s", code, out)
+			}
+			mustContain(t, "the output", out, "::error::"+c.bundle+" carries secrets keys in its Info.plist: "+c.key+" (only Demo.app may)")
+		})
+	}
+}
+
+// The source scan reads the project, not its build output or tooling: a stale
+// copy in a worktree or DerivedData must not decide what is checked.
+func TestBundleSecretsSourceScanSkipsBuildOutputAndHiddenFolders(t *testing.T) {
+	stale := sourcePlist([2]string{"StaleName", "$(PROXY_SECRET)"})
+	sources := map[string]string{
+		"App/Info.plist":                          sourcePlist([2]string{"LiveName", "$(PROXY_SECRET)"}),
+		".claude/worktrees/old/App/Info.plist":    stale,
+		"DerivedData/Build/Products/x/Info.plist": stale,
+		"Built.app/Info.plist":                    stale,
+		"build/Info.plist":                        stale,
+	}
+	out, code := runBundleSecretsWith(t, "", "Demo.app", shippedApp(nil), sources, "--sources", "{sources}")
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, "the output", out, "LiveName")
+	if strings.Contains(out, "StaleName") {
+		t.Errorf("a plist under build output or a hidden folder decided the key list:\n%s", out)
+	}
+}
+
+// A template that defines a build setting would mark the Apple key it feeds,
+// which every bundle carries. Reserved names are never derived; a custom
+// SCREAMING_CASE name that merely starts with the same letters is.
+func TestBundleSecretsNeverDerivesAReservedPlistName(t *testing.T) {
+	template := bundleSecretsTemplate + "PRODUCT_BUNDLE_IDENTIFIER = com.x.demo\nINSTABUG = x\n"
+	sources := map[string]string{
+		"App/Info.plist": sourcePlist(
+			[2]string{"CFBundleIdentifier", "$(PRODUCT_BUNDLE_IDENTIFIER)"},
+			[2]string{"NSCameraUsageDescription", "$(INSTABUG)"},
+			[2]string{"INSTABUG_TOKEN", "$(INSTABUG)"}),
+	}
+	out, code := runBundleSecretsWith(t, template, "Demo.app", shippedApp(nil), sources, "--sources", "{sources}")
+	if code != 0 {
+		t.Fatalf("a reserved name was taken as a secrets key, so every bundle leaks: exit %d\n%s", code, out)
+	}
+	mustContain(t, "the output", out, "INSTABUG_TOKEN")
+	if strings.Contains(out, "NSCameraUsageDescription") {
+		t.Errorf("derived a reserved name:\n%s", out)
+	}
+	out, code = runBundleSecretsWith(t, template, "Demo.app",
+		shippedApp(map[string]string{"Demo.app/PlugIns/DemoWidget.appex": plistWith("w", "INSTABUG_TOKEN")}), sources, "--sources", "{sources}")
+	if code != 1 {
+		t.Fatalf("a derived SCREAMING_CASE name in a widget: exit %d, want 1\n%s", code, out)
+	}
+}
+
+// The release writes the declared keys beside the template's, so a declared key
+// the template does not carry is a secret all the same.
+func TestBundleSecretsChecksDeclaredKeys(t *testing.T) {
+	bundles := shippedApp(map[string]string{
+		"Demo.app/PlugIns/DemoWidget.appex": plistWith("w", "DECLARED_ONLY_KEY"),
+	})
+	out, code := runBundleSecrets(t, "", "Demo.app", bundles)
+	if code != 0 {
+		t.Fatalf("without --key the declared key is not a secret here: exit %d\n%s", code, out)
+	}
+	out, code = runBundleSecrets(t, "", "Demo.app", bundles, "--key", "DECLARED_ONLY_KEY")
+	if code != 1 {
+		t.Fatalf("a declared key in a widget: exit %d, want 1\n%s", code, out)
+	}
+	mustContain(t, "the output", out, "Demo.app/PlugIns/DemoWidget.appex carries secrets keys in its Info.plist: DECLARED_ONLY_KEY")
+
+	for _, bad := range [][]string{{"--key", "has space"}, {"--key", "$(x)"}, {"--key"}, {"--sources", "/no/such/dir"}, {"--bogus"}} {
+		out, code := runBundleSecrets(t, "", "Demo.app", shippedApp(nil), bad...)
+		if code != 2 {
+			t.Errorf("%v: exit %d, want 2 (usage)\n%s", bad, code, out)
 		}
 	}
 }
@@ -396,8 +513,8 @@ func TestBundleSecretsStepsRenderWhereProductsAreBuilt(t *testing.T) {
 	rel := bundleSecretsSteps(t, renderIOSWorkflow(t, "release.yml", cfg, "ios/"))
 
 	want := map[string]string{
-		"build-release": `scripts/verify-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "ios/DerivedData/Build/Products/Release-iphoneos"`,
-		"test":          `scripts/verify-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "ios/DerivedData/Build/Products"`,
+		"build-release": `scripts/verify-bundle-secrets.sh --key REVENUECAT_API_KEY --sources "ios" "ios/Secrets.xcconfig.example" "Demo.app" "ios/DerivedData/Build/Products/Release-iphoneos"`,
+		"test":          `scripts/verify-bundle-secrets.sh --key REVENUECAT_API_KEY --sources "ios" "ios/Secrets.xcconfig.example" "Demo.app" "ios/DerivedData/Build/Products"`,
 	}
 	for job, run := range want {
 		if len(ci[job]) != 1 {
@@ -417,7 +534,7 @@ func TestBundleSecretsStepsRenderWhereProductsAreBuilt(t *testing.T) {
 		t.Fatalf("release: %d bundle-secrets steps, want 1", len(rel["build-and-deploy"]))
 	}
 	s := rel["build-and-deploy"][0]
-	if got, w := s["run"], `scripts/verify-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive/Products/Applications"`; got != w {
+	if got, w := s["run"], `scripts/verify-bundle-secrets.sh --key REVENUECAT_API_KEY --sources "ios" "ios/Secrets.xcconfig.example" "Demo.app" "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive/Products/Applications"`; got != w {
 		t.Errorf("release runs\n  %s\nwant\n  %s", got, w)
 	}
 	if s["if"] != "matrix.product.name == 'Demo'" {
@@ -454,7 +571,7 @@ func TestBundleSecretsStepsArePerProduct(t *testing.T) {
 			if st[0]["if"] != "matrix.product.name == 'Free'" {
 				t.Errorf("%s %s: if = %q, want the Free leg", wf, job, st[0]["if"])
 			}
-			mustContain(t, wf+" "+job, st[0]["run"], `"Config/Monetization.xcconfig.example" "Sample Reader Daily Free.app"`)
+			mustContain(t, wf+" "+job, st[0]["run"], `--key ADMOB_APPLICATION_ID --sources "." "Config/Monetization.xcconfig.example" "Sample Reader Daily Free.app"`)
 		}
 	}
 }
@@ -494,7 +611,7 @@ func TestRenderedBundleSecretsStepsCatchAPlantedKey(t *testing.T) {
 					over["Demo.app/Watch/DemoWatch.app"] = plistWith("com.x.demo.watchkitapp", "PROXY_SECRET")
 				}
 				layOut(t, filepath.Join(dir, filepath.FromSlash(c.products)), shippedApp(over))
-				env := append([]string{"PATH=" + plutilPath(t), "ARCHIVE_DIR=" + filepath.Join(dir, "archives")}, c.env...)
+				env := append([]string{"ARCHIVE_DIR=" + filepath.Join(dir, "archives")}, c.env...)
 				out, err := runIn(t, dir, c.run, env...)
 				if strings.Contains(out, leakedValue) {
 					t.Fatalf("printed a secret value:\n%s", out)

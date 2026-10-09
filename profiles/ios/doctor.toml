@@ -466,7 +466,7 @@ template's key, and requires the shipped check to fail and name the watch app
 and the key. A check that stopped reading embedded bundles, or stopped deriving
 keys from the template, would pass it.
 """
-requires = ["bash", "plutil", "{root}/scripts/verify-bundle-secrets.sh"]
+requires = ["bash", "plutil", "python3", "{root}/scripts/verify-bundle-secrets.sh"]
 file = "Secrets.xcconfig.example"
 content = """
 DOCTOR_PROBE_KEY = placeholder
@@ -500,7 +500,7 @@ and every other bundle would then read as clean for the same reason. A check
 that stopped requiring this would pass every project whatever its bundles
 carried.
 """
-requires = ["bash", "plutil", "{root}/scripts/verify-bundle-secrets.sh"]
+requires = ["bash", "plutil", "python3", "{root}/scripts/verify-bundle-secrets.sh"]
 file = "Secrets.xcconfig.example"
 content = """
 DOCTOR_PROBE_KEY = placeholder
