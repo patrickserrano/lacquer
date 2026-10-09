@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patrickserrano/lacquer/internal/plugindefs/plugindefstest"
 )
@@ -121,4 +122,38 @@ func TestPluginDefinitionsNothingRenderedPrintsNothing(t *testing.T) {
 	if out := FormatPluginDefs(PluginDefinitionsWith(t.TempDir(), "")); out != "" {
 		t.Errorf("a project with no definitions printed %q", out)
 	}
+}
+
+func TestPluginDefinitionsClaudeThatNeverAnswersIsNotCheckedNotAPass(t *testing.T) {
+	proj := t.TempDir()
+	putDef(t, proj, ".claude/agents/good.md", goodAgent)
+	putDef(t, proj, ".agents/skills/s1/SKILL.md", "---\nname: s1\ndescription: d\n---\n")
+	fake := plugindefstest.BlockingClaude(t)
+
+	done := make(chan PluginDefs, 1)
+	start := time.Now()
+	go func() { done <- PluginDefinitionsWith(proj, fake.Path) }()
+	var r PluginDefs
+	select {
+	case r = <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the audit is still blocked after 30s: claude --version is unbounded (two roots would wait twice)")
+	}
+	if took := time.Since(start); took > 15*time.Second {
+		t.Errorf("took %s: a second root waited for the same hung claude again", took)
+	}
+	out := FormatPluginDefs(r)
+	if !r.CLIUnanswered || !strings.Contains(out, "claude plugin validate: not checked: claude did not answer --version") {
+		t.Errorf("a hung claude was not reported as not checked:\n%s", out)
+	}
+	if strings.Contains(out, "--strict (claude") {
+		t.Errorf("a hung claude read as a pass:\n%s", out)
+	}
+	if !strings.Contains(out, "lacquer check: ok") {
+		t.Errorf("the lacquer check did not still run:\n%s", out)
+	}
+	if fake.ValidateRan() {
+		t.Error("validate ran after --version timed out")
+	}
+	fake.AssertGone(t, "claude")
 }

@@ -92,11 +92,18 @@ func ValidateWithCLI(claude, root string) (CLIResult, error) {
 	if err != nil {
 		return CLIResult{}, err
 	}
-	res := CLIResult{Checked: len(m), Version: cliVersion(claude)}
+	version, err := cliVersion(claude)
+	if err != nil {
+		// No answer to --version means validate would hang or fail the same way;
+		// do not run it, and never read this as a pass.
+		return CLIResult{Checked: len(m)}, err
+	}
+	res := CLIResult{Checked: len(m), Version: version}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), validateTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claude, "plugin", "validate", "--strict", "--json", tmp)
+	ownGroup(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
@@ -144,16 +151,35 @@ type issue struct {
 	Message string `json:"message"`
 }
 
-func cliVersion(claude string) string {
-	out, err := exec.Command(claude, "--version").Output()
+// versionTimeout bounds `claude --version`, which answers instantly when
+// healthy. A claude that blocks here (a quarantined binary waiting on a
+// first-launch prompt, a login prompt, a wedged self-update) would otherwise
+// hang the audit indefinitely at 0% CPU.
+const versionTimeout = 10 * time.Second
+
+// validateTimeout bounds `claude plugin validate`.
+const validateTimeout = 2 * time.Minute
+
+// ErrVersionTimeout is returned when claude does not answer --version in time.
+var ErrVersionTimeout = errors.New("claude did not answer --version")
+
+func cliVersion(claude string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, claude, "--version")
+	ownGroup(cmd)
+	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("%w within %s", ErrVersionTimeout, versionTimeout)
+	}
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("claude did not answer --version: %w", err)
 	}
 	f := strings.Fields(string(out))
 	if len(f) == 0 {
-		return ""
+		return "", nil
 	}
-	return f[0]
+	return f[0], nil
 }
 
 func firstLine(ss ...string) string {

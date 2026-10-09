@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -42,6 +43,9 @@ type PluginDefs struct {
 	CLIIssues  []plugindefs.CLIIssue
 	// CLIErrors are runs that could not be completed. Never folded into a pass.
 	CLIErrors []string
+	// CLIUnanswered is set when claude did not answer --version in time. The CLI
+	// layer did not run, for any root, and the report says so.
+	CLIUnanswered bool
 }
 
 // PluginDefinitions checks projectRoot's rendered definitions, using the
@@ -73,10 +77,15 @@ func PluginDefinitionsWith(projectRoot, claude string) PluginDefs {
 			f.Path = rel(f.Path)
 			r.Findings = append(r.Findings, f)
 		}
-		if claude == "" {
+		if claude == "" || r.CLIUnanswered {
 			continue
 		}
 		res, err := plugindefs.ValidateWithCLI(claude, root)
+		if errors.Is(err, plugindefs.ErrVersionTimeout) {
+			// A claude that blocks once blocks for every root; do not wait again.
+			r.CLIUnanswered = true
+			continue
+		}
 		if err != nil {
 			r.CLIErrors = append(r.CLIErrors, fmt.Sprintf("%s: %v", name, err))
 			continue
@@ -112,6 +121,8 @@ func FormatPluginDefs(r PluginDefs) string {
 	}
 
 	switch {
+	case r.CLIUnanswered:
+		b.WriteString("  claude plugin validate: not checked: claude did not answer --version\n")
 	case !r.CLIFound:
 		b.WriteString("  claude plugin validate: not checked (claude CLI not found)\n")
 	case len(r.CLIIssues) == 0 && len(r.CLIErrors) == 0:
