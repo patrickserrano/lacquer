@@ -53,7 +53,7 @@
 #
 # One action appears here once, and the test enforces that the profiles agree:
 # mixed precision for one action across a repo is what made Dependabot rewrite a
-# lacquer-managed workflow in darndest-api-proxy #45. So a bump is one line here
+# lacquer-managed workflow in whiskey-api-proxy #45. So a bump is one line here
 # and one edit upstream, never a hunt for the other spelling.
 #
 # WHY IT NEVER RUNS
