@@ -95,7 +95,7 @@ const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 // or what a step is called: the first version of this audit keyed on the
 // managed step's NAME and reported a correct hand-rolled writer as broken
 // (CLAUDE.md, "Three defects"). Every writer the fleet actually has is one of
-// the shapes above: the managed call (Steps, flare, alphaapp's testflight.yml),
+// the shapes above: the managed call (mike, delta, alphaapp's testflight.yml),
 // a redirection after a multi-line sed (rail), an awk into a .tmp then `mv`
 // (bravoapp), a redirection from a block (a-quebec-verse-each-day).
 //

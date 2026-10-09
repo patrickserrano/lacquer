@@ -108,7 +108,7 @@ func TestWarningsInheritedFromProjectLevelPasses(t *testing.T) {
 	}
 }
 
-// TestWarningsMissingEverywhereFails is the kit / kilo / mindmint shape.
+// TestWarningsMissingEverywhereFails is the kit / kilo / uniform shape.
 func TestWarningsMissingEverywhereFails(t *testing.T) {
 	dir := pbxproj(t,
 		[]cfg{{id: "P1", name: "Debug"}, {id: "P2", name: "Release"}},
@@ -146,7 +146,7 @@ func TestXcconfigUnconditionalPasses(t *testing.T) {
 	}
 }
 
-// TestXcconfigReleaseOnlyFailsDebug is the Queueify defect, and the reason this
+// TestXcconfigReleaseOnlyFailsDebug is the Romeo defect, and the reason this
 // gate exists at all. `KEY[config=Release] = YES` is one bracket away from
 // `KEY = YES` in a diff and covers half of what it appears to.
 func TestXcconfigReleaseOnlyFailsDebug(t *testing.T) {

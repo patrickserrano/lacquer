@@ -374,7 +374,7 @@ func Format(rows []Row, ver version.Version) string {
 	// repository. Dependabot's github-actions ecosystem is repo-scoped — it reads
 	// every file under .github/workflows and has no way to be told that some of
 	// them have another author — so its bumps land on managed workflows as a
-	// matter of course. Measured on darndest-api-proxy, 2026-09-11: one pull
+	// matter of course. Measured on whiskey-api-proxy, 2026-09-11: one pull
 	// request rewrote `actions/checkout` in two project-owned workflows AND in
 	// the lacquer-managed web-ci.yml, in the same diff.
 	//

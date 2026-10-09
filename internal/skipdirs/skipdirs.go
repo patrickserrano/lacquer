@@ -17,7 +17,7 @@ var exact = map[string]bool{
 	// gitignored checkout of the project, so walking into it yields a phantom
 	// copy of every component in the repo.
 	//
-	// throughline had one, and it surfaced as four undeclared stacks instead of
+	// sierra had one, and it surfaced as four undeclared stacks instead of
 	// two — `admin` and `server` plus
 	// `.claude/worktrees/agent-a9b4.../admin` and `.../server`. Harmless while
 	// drift was only a report; not harmless now that an undeclared stack makes
@@ -50,7 +50,7 @@ var exact = map[string]bool{
 	// would have rendered CLAUDE.md regions, lefthook config and CI workflows
 	// into build artifacts.
 	//
-	// Observed on examplestudiostudio.com; the rest are the same shape for the other
+	// Observed on examplestudio.com; the rest are the same shape for the other
 	// frameworks this fleet is likely to meet.
 	".next": true, ".nuxt": true, ".svelte-kit": true, ".astro": true,
 	".output": true, ".vercel": true, ".netlify": true, ".turbo": true,

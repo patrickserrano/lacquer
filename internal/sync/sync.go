@@ -267,7 +267,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	// Asset preflight BEFORE any write. assets.Copy used to preflight itself,
 	// which meant a failure there aborted after the region writes below had
 	// already landed — leaving a half-synced project that reported failure.
-	// Queueify hit exactly that: one uncommitted workflow file made the asset
+	// Romeo hit exactly that: one uncommitted workflow file made the asset
 	// phase refuse, and it was left with rewritten CLAUDE.md and AGENTS.md.
 	//
 	// Everything that can refuse now refuses before anything is written. The

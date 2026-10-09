@@ -120,7 +120,7 @@ func Components(root string) ([]config.Component, config.Project, error) {
 		derived.Xcodeproj = iosXcodeproj
 		iosComp := iosXcodeprojDir
 		// Prefer the config dir when the xcodeproj lives within it (e.g. configs
-		// at ios/, xcodeproj at ios/Queueify/Queueify.xcodeproj). Among all config
+		// at ios/, xcodeproj at ios/Romeo/Romeo.xcodeproj). Among all config
 		// dirs that are ancestors of the xcodeproj, pick the deepest (most
 		// specific); unrelated config dirs elsewhere are ignored. Order-independent.
 		best := ""

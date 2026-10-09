@@ -18,7 +18,7 @@ import (
 // swiftui-expert-skill/scripts/instruments_parser/*.py — and it ships them once
 // per enabled tool directory. GitHub Linguist counted every byte toward the
 // language bar. Measured before this region existed: November read as MORE
-// Python than Swift, and rail, flare, Kilo, bravoapp and alphaapp each
+// Python than Swift, and charlie, delta, Kilo, bravoapp and alphaapp each
 // carried 570-650KB of the identical "Python" none of them wrote.
 //
 // These tests ask REAL GIT (`git check-attr`) rather than reading the rendered
@@ -163,7 +163,7 @@ func TestGitattributesRegionKeepsProjectOwnedContent(t *testing.T) {
 *.png filter=lfs diff=lfs merge=lfs -text
 *.jpg filter=lfs diff=lfs merge=lfs -text
 
-# Line endings and binaries (flare, kit)
+# Line endings and binaries (delta, echo)
 * text=auto
 *.swift text diff=swift linguist-language=Swift
 *.pbxproj binary

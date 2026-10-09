@@ -28,7 +28,7 @@ without a lacquer schema change.
   (`lint`, `typecheck`, `test`, `build`).
 - The synced CI workflow is **opt-in**: if `turbo.json` exists at the
   component root, run `turbo run <task>`; if not, fall back to today's flat
-  `pnpm run <task>`. Single-app web projects (e.g. `rail-web`, today) are
+  `pnpm run <task>`. Single-app web projects (e.g. `app-tango`, today) are
   untouched until they choose to adopt turbo.
 - `internal/config/config.go`'s one-component-per-profile rule is unchanged.
   This design makes it unnecessary for the web stack's multi-app case, not
@@ -143,7 +143,7 @@ implementation concern, not a lacquer design question.
    the exclusion's `until = "2026-11-30"` date was watching for.
 5. Handle `apps/admin`'s CI-time Postgres dependency (own problem, per above).
 
-**rail-web** stays on the no-turbo fallback path indefinitely, until it grows
+**app-tango** stays on the no-turbo fallback path indefinitely, until it grows
 a second app.
 
 ## Explicitly deferred / not built here

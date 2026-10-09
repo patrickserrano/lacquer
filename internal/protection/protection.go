@@ -19,7 +19,7 @@
 //     On PR #482 — an entitlement change — BOTH required checks were satisfied
 //     purely by skips, and `CI OK` was not required at all. Nothing ran, and
 //     nothing said so.
-//   - Foxtrot and alphaapp-image-proxy require NOTHING. That is the same
+//   - Foxtrot and alphaapp-helper-service require NOTHING. That is the same
 //     defect at zero, and it is reported as a finding rather than a pass: a
 //     branch with no required context is a branch where every check is advisory.
 //
@@ -48,7 +48,7 @@
 // network deliberately, and which reports "could not look" as its own answer
 // with its own exit code. A personal account on GitHub Free cannot use branch
 // protection on a private repo at all, and the API answers 403 — verified
-// against patrickserrano/alphaapp-image-proxy before its org transfer. A 403
+// against patrickserrano/alphaapp-helper-service before its org transfer. A 403
 // is NOT a pass and is not a finding either; collapsing it into either one would
 // make this check an instance of the defect it exists to catch.
 package protection

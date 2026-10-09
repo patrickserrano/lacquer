@@ -9,7 +9,7 @@ import (
 // [project] is already the implicit single product for scheme, bundle_id,
 // asc_app_id, extra_bundle_ids, extra_test_targets and watch_tests. Release
 // secrets were the one release-shaped field left out, and the omission was not
-// cosmetic: flare, kit, app-lima and golf all read build-time keys
+// cosmetic: delta, echo, app-lima and golf all read build-time keys
 // (a RevenueCat appl_ key, Aptabase, a Sentry DSN, an API key) from a
 // gitignored Secrets.xcconfig, declare no [[product]], and so had no way to ask
 // the release to write that file. Their next release would have shipped

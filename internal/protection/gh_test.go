@@ -82,7 +82,7 @@ func TestFetchReadsTheChecksArrayAlone(t *testing.T) {
 }
 
 // 404 "Branch not protected" is an ANSWER. Returning it as an error would turn
-// the Foxtrot/image-proxy finding into "could not check" and hide it.
+// the Foxtrot/helper-service finding into "could not check" and hide it.
 func TestBranchNotProtectedIsAnAnswerNotAFailure(t *testing.T) {
 	stubGH(t, map[string]answer{
 		"repos/org/foxtrot/branches/main/protection": {stdout: notProtected, fail: true},
@@ -121,7 +121,7 @@ func TestA404WithoutAdminIsNotReportedAsUnprotected(t *testing.T) {
 }
 
 // 403 is the personal-account-on-Free case, verified against
-// patrickserrano/alphaapp-image-proxy before its org transfer. It must reach
+// patrickserrano/alphaapp-helper-service before its org transfer. It must reach
 // the caller as an error, so the verdict becomes Unavailable rather than a pass.
 func TestForbiddenProtectionIsAnError(t *testing.T) {
 	stubGH(t, map[string]answer{

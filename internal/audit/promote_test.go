@@ -11,7 +11,7 @@ import (
 	syncpkg "github.com/patrickserrano/lacquer/internal/sync"
 )
 
-// The shape Dependabot actually produced against darndest-api-proxy on
+// The shape Dependabot actually produced against whiskey-api-proxy on
 // 2026-09-11 (PR #45): one action, several call sites, nothing else touched.
 const managedWorkflow = `name: CI
 on: push

@@ -124,12 +124,12 @@ func TestSubstituteReportsMissingProjectValue(t *testing.T) {
 }
 
 func TestSubstituteXcodeproj(t *testing.T) {
-	vals := Values(&config.Config{Project: config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "b", AscAppID: "9", Xcodeproj: "ios/Queueify/Queueify.xcodeproj"}}, "ios/")
+	vals := Values(&config.Config{Project: config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "b", AscAppID: "9", Xcodeproj: "ios/Romeo/Romeo.xcodeproj"}}, "ios/")
 	out, missing := Substitute("-project {{XCODEPROJ}}\nlint: {{COMPONENT_PREFIX}}.swiftlint.yml", vals)
 	if len(missing) != 0 {
 		t.Fatalf("missing: %v", missing)
 	}
-	if out != "-project ios/Queueify/Queueify.xcodeproj\nlint: ios/.swiftlint.yml" {
+	if out != "-project ios/Romeo/Romeo.xcodeproj\nlint: ios/.swiftlint.yml" {
 		t.Fatalf("out: %q", out)
 	}
 }

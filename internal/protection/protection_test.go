@@ -102,7 +102,7 @@ func TestARequiredCheckThatCannotSkipIsNotAFinding(t *testing.T) {
 	}
 }
 
-// Foxtrot and alphaapp-image-proxy. "Nothing required" is the same defect at
+// Foxtrot and alphaapp-helper-service. "Nothing required" is the same defect at
 // zero, and must never read as a pass.
 func TestABranchWithNoProtectionIsAFinding(t *testing.T) {
 	r := Compare("org/foxtrot", "main", Requirements{}, nil, managedWorkflows())

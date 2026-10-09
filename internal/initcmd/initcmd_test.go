@@ -222,14 +222,14 @@ func TestInitRefusesSymlinkedDocsDir(t *testing.T) {
 
 func TestInitWritesXcodeproj(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", "Romeo", "Romeo.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "ios", ".swiftlint.yml"))
 	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, ".lacquer.toml"))
 	s := string(data)
-	for _, want := range []string{`xcodeproj = "ios/Queueify/Queueify.xcodeproj"`, `path = "ios"`} {
+	for _, want := range []string{`xcodeproj = "ios/Romeo/Romeo.xcodeproj"`, `path = "ios"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("manifest missing %q:\n%s", want, s)
 		}
@@ -295,7 +295,7 @@ func lacquerWithBaseline(t *testing.T, swiftVersion string) string {
 }
 
 // init must write the ASSERTED swift_version, not the one scraped from the
-// project. Deriving it is what let throughline's manifest say "5.0": detection
+// project. Deriving it is what let sierra's manifest say "5.0": detection
 // answers "what are you", which can never answer "what should you be".
 func TestInitWritesAssertedSwiftVersion(t *testing.T) {
 	root := t.TempDir()

@@ -9,7 +9,7 @@ import (
 func TestLoadRetired(t *testing.T) {
 	cfg, err := loadWith(t, `
 [project]
-name = "queueify"
+name = "romeo"
 retired = { since = "2026-08-18", reason = "not a viable app" }
 
 [[component]]
@@ -35,7 +35,7 @@ profiles = ["web"]
 
 // A project with no [project].retired is live, and nothing about it changes.
 func TestLoadWithoutRetired(t *testing.T) {
-	cfg, err := loadWith(t, "[project]\nname = \"queueify\"\n")
+	cfg, err := loadWith(t, "[project]\nname = \"romeo\"\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
