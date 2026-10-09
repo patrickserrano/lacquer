@@ -4,7 +4,7 @@
 
 **Goal:** Add a `harness onboard` command that runs init and — when the project has no git remote — creates a private GitHub repo and wires it as `origin`. Keep `init`/`sync` pure (filesystem-only); `onboard` is the one explicitly-outward command.
 
-**Architecture:** `internal/onboardcmd` orchestrates: ensure `.harness.toml` (reuse `initcmd`), detect whether an `origin` remote exists, and if not (and not `--no-repo`) create a private repo via `gh repo create <org>/<name> --private --source=. --remote=origin`. The `gh` invocation goes through an injectable function var so tests never hit the network. Org defaults to `PixelFoxStudio`, `--private` always. `onboard` does NOT run sync (it would fail closed on the stubbed blank values); it prints next steps.
+**Architecture:** `internal/onboardcmd` orchestrates: ensure `.harness.toml` (reuse `initcmd`), detect whether an `origin` remote exists, and if not (and not `--no-repo`) create a private repo via `gh repo create <org>/<name> --private --source=. --remote=origin`. The `gh` invocation goes through an injectable function var so tests never hit the network. Org defaults to `ExampleStudioStudio`, `--private` always. `onboard` does NOT run sync (it would fail closed on the stubbed blank values); it prints next steps.
 
 **Tech Stack:** Go 1.23 — build/test with `env -u GOROOT /opt/homebrew/bin/go`. Requires `gh` (authed) at runtime; tests stub it.
 
@@ -56,17 +56,17 @@ func mk(t *testing.T, path string) {
 func TestOnboardCreatesRepoWhenNoRemote(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
-	mk(t, filepath.Join(root, "ShelfLife.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "November.xcodeproj", "project.pbxproj"))
 
 	var gotOrg, gotName, gotDir string
 	orig := ghCreate
 	ghCreate = func(dir, org, name string) error { gotDir, gotOrg, gotName = dir, org, name; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(root, "PixelFoxStudio", true); err != nil {
+	if _, err := Run(root, "ExampleStudioStudio", true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if gotOrg != "PixelFoxStudio" || gotName != "ShelfLife" || gotDir != root {
+	if gotOrg != "ExampleStudioStudio" || gotName != "November" || gotDir != root {
 		t.Errorf("ghCreate called with dir=%q org=%q name=%q", gotDir, gotOrg, gotName)
 	}
 	// init wrote a manifest
@@ -85,7 +85,7 @@ func TestOnboardSkipsRepoWhenRemoteExists(t *testing.T) {
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
 
-	if _, err := Run(root, "PixelFoxStudio", true); err != nil {
+	if _, err := Run(root, "ExampleStudioStudio", true); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if called {
@@ -101,7 +101,7 @@ func TestOnboardNoRepoFlag(t *testing.T) {
 	orig := ghCreate
 	ghCreate = func(dir, org, name string) error { called = true; return nil }
 	defer func() { ghCreate = orig }()
-	if _, err := Run(root, "PixelFoxStudio", false); err != nil {
+	if _, err := Run(root, "ExampleStudioStudio", false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if called {
@@ -216,13 +216,13 @@ func repoName(projectRoot, manifest string) (string, error) {
 
 **Files:** Modify `cmd/harness/main.go`.
 
-**Step 1:** Add an `onboard` case that parses `--org` (default `PixelFoxStudio`) and `--no-repo`, then calls `onboardcmd.Run(projectRoot, org, !noRepo)` and prints the summary. Use a `flag.NewFlagSet("onboard", ...)` over `os.Args[2:]`. Update `usage` to list `onboard` and its flags. Add the `onboardcmd` import and `flag`.
+**Step 1:** Add an `onboard` case that parses `--org` (default `ExampleStudioStudio`) and `--no-repo`, then calls `onboardcmd.Run(projectRoot, org, !noRepo)` and prints the summary. Use a `flag.NewFlagSet("onboard", ...)` over `os.Args[2:]`. Update `usage` to list `onboard` and its flags. Add the `onboardcmd` import and `flag`.
 
 Sketch:
 ```go
 case "onboard":
 	fs := flag.NewFlagSet("onboard", flag.ExitOnError)
-	org := fs.String("org", "PixelFoxStudio", "GitHub org for repo creation")
+	org := fs.String("org", "ExampleStudioStudio", "GitHub org for repo creation")
 	noRepo := fs.Bool("no-repo", false, "do not create a repo even if no remote exists")
 	_ = fs.Parse(os.Args[2:])
 	summary, err := onboardcmd.Run(projectRoot, *org, !*noRepo)
@@ -262,7 +262,7 @@ Expect: writes `.harness.toml`, prints next-step guidance, creates no repo.
 **Step 1:** `/security-review` on `origin/main..HEAD`.
 
 **Step 2:** Threat-model the outward `gh` exec:
-- **Command/arg injection:** `ghCreate` uses `exec.Command("gh", ...)` with a list argv (no shell), and `org`/`name` are passed as separate args (not interpolated into a shell string). Confirm `name` (from `[project].name`, charset-validated by config, or dir basename) and `org` (CLI flag, trusted) can't inject. Consider a malicious dir basename (e.g. a dir literally named `--something` or containing shell metachars) — does it reach `gh` as a flag? `org+"/"+name` is one positional arg, so a name like `--x` becomes `PixelFoxStudio/--x` (one token, not a flag). Confirm. If `[project].name` is used, it's charset-validated.
+- **Command/arg injection:** `ghCreate` uses `exec.Command("gh", ...)` with a list argv (no shell), and `org`/`name` are passed as separate args (not interpolated into a shell string). Confirm `name` (from `[project].name`, charset-validated by config, or dir basename) and `org` (CLI flag, trusted) can't inject. Consider a malicious dir basename (e.g. a dir literally named `--something` or containing shell metachars) — does it reach `gh` as a flag? `org+"/"+name` is one positional arg, so a name like `--x` becomes `ExampleStudioStudio/--x` (one token, not a flag). Confirm. If `[project].name` is used, it's charset-validated.
 - **No unintended outward action:** confirm `gh` is only ever invoked via the `onboard` command (not `init`/`sync`), only when `createRepo` is true AND no origin remote exists. Verify `init`/`sync` remain network-free.
 - **Visibility:** confirm `--private` is always passed (no public-repo path).
 

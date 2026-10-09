@@ -477,7 +477,7 @@ func TestLoad(t *testing.T) {
 	path := filepath.Join(dir, ".harness.toml")
 	data := `
 [project]
-name = "journalcast"
+name = "india"
 
 [[component]]
 path = "ios"
@@ -495,8 +495,8 @@ profiles = ["web"]
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Project.Name != "journalcast" {
-		t.Errorf("project name = %q, want journalcast", cfg.Project.Name)
+	if cfg.Project.Name != "india" {
+		t.Errorf("project name = %q, want india", cfg.Project.Name)
 	}
 	if len(cfg.Components) != 2 {
 		t.Fatalf("got %d components, want 2", len(cfg.Components))

@@ -330,7 +330,7 @@ makes each round cheaper.
 
 ## 8. Decisions
 
-Answers, as recorded (2026-10-04). Foxy approved D1–D3 and D6–D8 as
+Answers, as recorded (2026-10-04). the operator approved D1–D3 and D6–D8 as
 recommended. The operator approved D4, D5 and D9, verbatim: "yeah those
 reccomendations all sounds good". So **D4 = (b), D5 = yes, D9 = yes**. The
 operator's billed-minutes constraint is quoted in §1b and governs every unit.

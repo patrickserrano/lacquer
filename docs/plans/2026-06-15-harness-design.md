@@ -28,7 +28,7 @@ Today the `ios-template` repo is a **fork-once** template: a new project copies 
 runs `FIRST_RUN.md`, and immediately begins to drift. Hard-won lessons are scattered
 across three places — the template's `CLAUDE.md`, the global `~/.claude/CLAUDE.md`,
 and the auto-memory `MEMORY.md` — and a lesson learned in one project (e.g. an
-AVAudioEngine teardown fix in `journalcast`) never reaches the template, let alone
+AVAudioEngine teardown fix in `india`) never reaches the template, let alone
 `rail` or `frequency`. There is no bidirectional loop. Dependency and tooling
 upgrades are handled by hand, per project.
 
@@ -49,14 +49,14 @@ The harness closes that loop: **learn locally → harvest up → sync down every
 
 ## Core insight: a project is a set of components
 
-A project is **not** one stack. `journalcast` = `ios/` (ios) + `dashboard/` (web).
-Daily bread = `ios/` (ios) + `proxy/` (web). The harness operates on **components**,
+A project is **not** one stack. `india` = `ios/` (ios) + `dashboard/` (web).
+Alpha app = `ios/` (ios) + `proxy/` (web). The harness operates on **components**,
 each declaring its own profiles. `core` applies to every project regardless.
 
 ```toml
-# journalcast/.harness.toml
+# india/.harness.toml
 [project]
-name = "journalcast"
+name = "india"
 
 [[component]]
 path = "ios"
