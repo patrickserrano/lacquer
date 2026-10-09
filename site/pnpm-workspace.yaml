@@ -13,3 +13,9 @@
 allowBuilds:
   esbuild: true
   sharp: true
+
+# Transitive build-time dependencies pinned past their advisories. Ranges are
+# bounded to the vulnerable major so the override never drags in a new major.
+overrides:
+  "source-map-js@<1.2.2": ">=1.2.2 <2"
+  "postcss-selector-parser@<7.1.6": ">=7.1.6 <8"
