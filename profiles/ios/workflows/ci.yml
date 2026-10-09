@@ -187,7 +187,7 @@ jobs:
       # status check. That is safe only while no repo requires it BY NAME in
       # branch protection. Re-measured across all 17 non-archived repos: 14
       # require exactly "CI OK"; alphaapp requires "Build (Release), Lint +
-      # Test"; Foxtrot and alphaapp-image-proxy require NOTHING AT ALL. None
+      # Test"; Foxtrot and alphaapp-helper-service require NOTHING AT ALL. None
       # requires "No lacquer drift", and there are no rulesets at repo or org
       # level. If a repo ever does require it by name, this has to go back to
       # being its own job.
@@ -319,7 +319,7 @@ jobs:
           # SC2329 "This function is never invoked" here. actionlint surfaces that in
           # every project that syncs this file, and no project can silence it locally --
           # editing a managed file is drift, so the directive has to ship from the
-          # profile. Reproduced on rail-web with actionlint 1.7.12 / shellcheck 0.11.0.
+          # profile. Reproduced on app-tango with actionlint 1.7.12 / shellcheck 0.11.0.
           publish() { echo "result=$result" >> "$GITHUB_OUTPUT"; }
           trap publish EXIT
 

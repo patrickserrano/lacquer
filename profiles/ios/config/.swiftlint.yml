@@ -59,7 +59,7 @@ disabled_rules:
 # all; min_length 1 drops it and keeps the camelCase enforcement, which is the
 # part worth having.
 #
-# Measured across underfoot, kilo, kit, rail, flare and november before
+# Measured across underfoot, kilo, echo, charlie, delta and november before
 # enabling: ZERO violations. This costs nothing today and catches the next
 # `SENTRY_PACKAGE_INFO` or `mainThread_isActive` on the PR that introduces it.
 identifier_name:
