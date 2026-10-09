@@ -411,6 +411,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		flags := flag.NewFlagSet("audit", flag.ContinueOnError)
 		flags.SetOutput(stderr)
 		xcodegenOnly := flags.Bool("xcodegen-only", false, "report XcodeGen build-setting drift only (never gates)")
+		// CI checks the lacquer out at the tag .lacquer.lock names, so there
+		// "behind" cannot mean the lacquer advanced. See internal/audit/ci.go.
+		ci := flags.Bool("ci", false, "audit at the lock's own version: refuse any other, and exit 8 on a unit the lock vouches for that this version does not render")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -430,7 +433,19 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err != nil {
 			return fail(stderr, err)
 		}
+		if *ci {
+			// Before any report: under the wrong version every Behind row
+			// below would be misattributed, in either direction.
+			if err := audit.CheckLockVersion(projectRoot, ver); err != nil {
+				return fail(stderr, err)
+			}
+		}
 		fmt.Fprint(stdout, audit.Format(rows, ver))
+		var lockMismatch []audit.Row
+		if *ci {
+			lockMismatch = audit.NotRendered(rows)
+			fmt.Fprint(stdout, audit.FormatNotRendered(lockMismatch, ver))
+		}
 		ratchets, err := ratchet.Check(projectRoot, cfg)
 		if err != nil {
 			return fail(stderr, err)
@@ -629,6 +644,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			Clobbered: len(audit.Clobbered(rows)), Baseline: baseline.Blocking(reports) + ratchet.Blocking(ratchets),
 			Exclusions: exclusion.Blocking(exclusions), DepIgnores: depignore.Blocking(ignores),
 			NotRunInCI: notRunExpired, Orphans: len(orphans), Undeclared: len(detect.Adoptable(findings)),
+			LockMismatch: len(lockMismatch),
 		}).ExitCode()
 
 	case "fleet":

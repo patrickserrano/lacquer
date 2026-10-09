@@ -402,7 +402,11 @@ jobs:
           fi
           chmod +x "$RUNNER_TEMP/lacquer"
 
-          LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" audit
+          # --ci: this checkout IS the version the lock names, so a file that
+          # matches its lock hash but not this version's render cannot mean
+          # "the lacquer advanced". It means the lock was written by some other
+          # build, and the audit exits 8 instead of reporting it as routine.
+          LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" audit --ci
           code=$?
 
           case "$code" in
@@ -415,6 +419,7 @@ jobs:
             # re-detects on every run now, and this is what makes that visible on
             # the PR that introduces the stack rather than a year later.
             6) echo "::error::This project runs a stack .lacquer.toml does not declare, so nothing gates it — no hooks, no CI, no CLAUDE region. Run \`lacquer adopt\` to record it and re-sync, or add the path to [project].exclude if the project deliberately keeps it unmanaged." ;;
+            8) echo "::error::The managed files match .lacquer.lock's recorded hashes, but lacquer ${LACQUER_TAG} does not render them, so the lock was written by a different build than the version it names (a dev binary, a dirty lacquer checkout, an edit with its lock hash refreshed) or a project input changed after the last sync. Re-sync with the released lacquer and commit the result." ;;
             *) echo "::error::lacquer audit failed (exit $code)." ;;
           esac
           exit 0
