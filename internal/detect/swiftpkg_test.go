@@ -38,7 +38,7 @@ func TestComponentsDetectsBarePackageSwift(t *testing.T) {
 func TestComponentsIgnoresPackageSwiftBesideAnXcodeproj(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "Delta.xcodeproj", "project.pbxproj"))
-	mk(t, filepath.Join(root, "Packages", "FlareKit", "Package.swift"))
+	mk(t, filepath.Join(root, "Packages", "DeltaKit", "Package.swift"))
 
 	comps, _, err := Components(root)
 	if err != nil {

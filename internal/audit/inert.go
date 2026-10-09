@@ -17,7 +17,7 @@ import (
 // simply is not in the project, the declaration is inert — it reads as
 // configured, it survives review, and it produces nothing.
 //
-// a-quebec-verse-each-day is the live case. It declares three keys with
+// sample-reader-each-day is the live case. It declares three keys with
 // `secret_formats` shape checks:
 //
 //	secrets = { REVENUECAT_PUBLIC_SDK_KEY = ..., ADMOB_APPLICATION_ID = ..., ... }
@@ -97,7 +97,7 @@ const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 // (CLAUDE.md, "Three defects"). Every writer the fleet actually has is one of
 // the shapes above: the managed call (mike, delta, alphaapp's testflight.yml),
 // a redirection after a multi-line sed (rail), an awk into a .tmp then `mv`
-// (bravoapp), a redirection from a block (a-quebec-verse-each-day).
+// (bravoapp), a redirection from a block (sample-reader-each-day).
 //
 // What it still over-accepts, deliberately, because a false "not written" is
 // what teaches people the finding is noise: the managed writer called with no
@@ -345,7 +345,7 @@ func InertSecretDeclarations(projectRoot string, cfg *config.Config) []InertSecr
 	// "Write release configuration" — the managed step's name — and that was
 	// wrong in the direction that matters.
 	//
-	// a-quebec-verse-each-day declares secrets_file = "Config/Monetization.xcconfig"
+	// sample-reader-each-day declares secrets_file = "Config/Monetization.xcconfig"
 	// and excludes ios-release.yml, so the managed step is genuinely absent. But
 	// its project-owned release carries a hand-rolled step, "Create protected
 	// runtime configuration", that reads all three secrets, FAILS CLOSED on any

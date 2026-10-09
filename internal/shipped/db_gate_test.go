@@ -150,7 +150,7 @@ func TestDBGateStillSkipsOrdinarySource(t *testing.T) {
 		"Charlie/Features/Memories/OnThisDayWidget.swift",
 		"Charlie/DesignSystem/Components/Badge.swift",
 		"ios/BravoApp/Core/Routing/Router.swift",
-		"RailTests/Memories/MemoryStoreTests.swift",
+		"CharlieTests/Memories/MemoryStoreTests.swift",
 		// Web and Deno source, which the `check` job covers.
 		"admin/src/app/page.tsx",
 		"admin/package.json",

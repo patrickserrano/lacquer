@@ -236,7 +236,7 @@ func TestSecretsStepSeedsFromTheCommittedExample(t *testing.T) {
 
 // A sibling that declares no secrets still reads the same base configuration
 // file, and a clean checkout does not have it — `xcodebuild archive` fails
-// before compiling. This is a-quebec-verse-each-day's
+// before compiling. This is sample-reader-each-day's
 // `cp Config/Monetization.xcconfig.example …` branch, which is part of why that
 // project had to keep its own release workflow.
 func TestSiblingProductWithoutSecretsStillGetsItsConfig(t *testing.T) {
@@ -260,7 +260,7 @@ func TestSiblingProductWithoutSecretsStillGetsItsConfig(t *testing.T) {
 	}
 }
 
-// A repo tagging `steps-v1.2.3` has no tag starting with `v`. Under a fixed
+// A repo tagging `mike-v1.2.3` has no tag starting with `v`. Under a fixed
 // 'v*' filter, adopting this workflow would mean no tag ever starts a release —
 // nothing errors and nothing runs, which is the worst way for a release
 // pipeline to break.
@@ -268,8 +268,8 @@ func TestReleaseTagsFollowProductPrefixes(t *testing.T) {
 	cfg := &config.Config{
 		Project: config.Project{ProjectName: "P", Scheme: "P", BundleID: "com.x.p", AscAppID: "1", Xcodeproj: "P.xcodeproj"},
 		Product: []config.Product{
-			{Name: "Steps", Scheme: "Steps", BundleID: "com.x.s", AscAppID: "1", TagPrefix: "steps-v"},
-			{Name: "Lite", Scheme: "StepsFree", BundleID: "com.x.f", AscAppID: "2", TagPrefix: "stepsfree-v"},
+			{Name: "Mike", Scheme: "Mike", BundleID: "com.x.s", AscAppID: "1", TagPrefix: "mike-v"},
+			{Name: "Lite", Scheme: "MikeFree", BundleID: "com.x.f", AscAppID: "2", TagPrefix: "mikefree-v"},
 		},
 	}
 	var doc struct {
@@ -283,7 +283,7 @@ func TestReleaseTagsFollowProductPrefixes(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Join(doc.On.Push.Tags, ",")
-	if got != "steps-v*,stepsfree-v*" {
+	if got != "mike-v*,mikefree-v*" {
 		t.Errorf("tag filter = %q, want the products' prefixes", got)
 	}
 }

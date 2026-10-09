@@ -37,7 +37,7 @@ func manifest(t *testing.T, root string) string {
 	return string(data)
 }
 
-// rail's shape: an Xcode app and a supabase/ backend both at the repo root,
+// charlie's shape: an Xcode app and a supabase/ backend both at the repo root,
 // with only one of them declared.
 func TestAdoptAddsAProfileToAnExistingComponent(t *testing.T) {
 	lq := lacquerShipping(t, "ios", "supabase")

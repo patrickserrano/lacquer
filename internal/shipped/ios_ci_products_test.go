@@ -61,24 +61,24 @@ func soloConfig() *config.Config {
 	}}
 }
 
-// twoIOSProducts models a-quebec-verse-each-day's forked matrix, including the
+// twoIOSProducts models sample-reader-each-day's forked matrix, including the
 // two things a naive implementation gets wrong: the built app target differs
-// from the scheme ("A Quebec Verse Daily.app" vs "A Quebec Verse Each Day Free"),
+// from the scheme ("Sample Reader Daily.app" vs "Sample Reader Each Day Free"),
 // and only one variant has UI tests.
 func twoIOSProducts() *config.Config {
 	cfg := soloConfig()
 	cfg.Product = []config.Product{
 		{
-			Name: "Paid", Scheme: "A Quebec Verse Each Day", BundleID: "com.x.paid",
+			Name: "Paid", Scheme: "Sample Reader Each Day", BundleID: "com.x.paid",
 			AscAppID: "111", TagPrefix: "paid",
-			TestTarget: "A Quebec Verse Each DayTests", UITestTarget: "A Quebec Verse Each DayUITests",
-			AppTarget: "A Quebec Verse Daily.app",
+			TestTarget: "Sample Reader Each DayTests", UITestTarget: "Sample Reader Each DayUITests",
+			AppTarget: "Sample Reader Daily.app",
 		},
 		{
-			Name: "Free", Scheme: "A Quebec Verse Each Day Free", BundleID: "com.x.free",
+			Name: "Free", Scheme: "Sample Reader Each Day Free", BundleID: "com.x.free",
 			AscAppID: "222", TagPrefix: "free",
-			TestTarget: "A Quebec Verse Each Day FreeTests",
-			AppTarget:  "A Quebec Verse Daily Free.app",
+			TestTarget: "Sample Reader Each Day FreeTests",
+			AppTarget:  "Sample Reader Daily Free.app",
 		},
 	}
 	return cfg
@@ -239,8 +239,8 @@ func TestIOSCIMatrixCoversEveryProduct(t *testing.T) {
 			"product silently stops being built while CI stays green", n)
 	}
 	wantSchemes := map[string]string{
-		"Paid": "A Quebec Verse Each Day",
-		"Free": "A Quebec Verse Each Day Free",
+		"Paid": "Sample Reader Each Day",
+		"Free": "Sample Reader Each Day Free",
 	}
 	for _, leg := range build.Strategy.Matrix.Product {
 		if want := wantSchemes[leg["name"]]; leg["scheme"] != want {
@@ -257,15 +257,15 @@ func TestIOSCIMatrixCoversEveryProduct(t *testing.T) {
 	}
 	wantLegs := map[string]map[string]string{
 		"Paid": {
-			"scheme":         "A Quebec Verse Each Day",
-			"test_target":    "A Quebec Verse Each DayTests",
-			"ui_test_target": "A Quebec Verse Each DayUITests",
-			"app_target":     "A Quebec Verse Daily.app",
+			"scheme":         "Sample Reader Each Day",
+			"test_target":    "Sample Reader Each DayTests",
+			"ui_test_target": "Sample Reader Each DayUITests",
+			"app_target":     "Sample Reader Daily.app",
 			"artifact":       "paid",
 		},
 		"Free": {
-			"scheme":      "A Quebec Verse Each Day Free",
-			"test_target": "A Quebec Verse Each Day FreeTests",
+			"scheme":      "Sample Reader Each Day Free",
+			"test_target": "Sample Reader Each Day FreeTests",
 			// Blank, and that is a value: this variant has no UI tests, and an
 			// empty `-only-testing:` selector matches nothing while still
 			// exiting 0.
@@ -274,7 +274,7 @@ func TestIOSCIMatrixCoversEveryProduct(t *testing.T) {
 			// products have different names, and a derived app target would
 			// select no coverage row at all — which reports as 0.0%, not as an
 			// error.
-			"app_target": "A Quebec Verse Daily Free.app",
+			"app_target": "Sample Reader Daily Free.app",
 			"artifact":   "free",
 		},
 	}
@@ -347,7 +347,7 @@ func withExtras() *config.Config {
 	cfg := soloConfig()
 	cfg.Product = []config.Product{{
 		Name: "Demo", Scheme: "Demo", BundleID: "com.x.demo", AscAppID: "1",
-		ExtraTestTargets: []string{"CoreKitTests", "Feature KitTests"},
+		ExtraTestTargets: []string{"CoreKitTests", "Feature EchoTests"},
 	}}
 	return cfg
 }
@@ -360,18 +360,18 @@ func TestIOSCIRunsEveryDeclaredTestTarget(t *testing.T) {
 	for _, want := range []string{
 		`"-only-testing:DemoTests"`,
 		`"-only-testing:CoreKitTests"`,
-		`"-only-testing:Feature KitTests"`,
+		`"-only-testing:Feature EchoTests"`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the test run does not pass %s, so that suite does not execute and the job "+
 				"still goes green:\n%s", want, script)
 		}
 	}
-	// Quoted as ONE argument. Unquoted, "Feature KitTests" splits into
-	// `-only-testing:Feature` and `KitTests` — the first matches nothing (exit 0)
+	// Quoted as ONE argument. Unquoted, "Feature EchoTests" splits into
+	// `-only-testing:Feature` and `EchoTests` — the first matches nothing (exit 0)
 	// and the second is read as a build setting.
-	if strings.Contains(script, `-only-testing:Feature KitTests `) &&
-		!strings.Contains(script, `"-only-testing:Feature KitTests"`) {
+	if strings.Contains(script, `-only-testing:Feature EchoTests `) &&
+		!strings.Contains(script, `"-only-testing:Feature EchoTests"`) {
 		t.Errorf("a target name containing a space is not quoted as a single argument:\n%s", script)
 	}
 }
@@ -486,7 +486,7 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 	// form alone would go unnoticed, which is the same silent-pass shape one
 	// level up.
 	twoWithExtras := twoIOSProducts()
-	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature KitTests"}
+	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature EchoTests"}
 	for _, mode := range []struct {
 		name string
 		cfg  *config.Config
@@ -498,18 +498,18 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 	}{
 		{
 			name: "single product", cfg: withExtras(),
-			selectors: []string{"DemoTests", "CoreKitTests", "Feature KitTests"},
+			selectors: []string{"DemoTests", "CoreKitTests", "Feature EchoTests"},
 		},
 		{
 			name: "matrix leg", cfg: twoWithExtras,
 			env: []string{
-				"TEST_TARGET=A Quebec Verse Each DayTests",
-				"UI_TEST_TARGET=A Quebec Verse Each DayUITests",
-				"EXTRA_TEST_TARGETS=CoreKitTests\nFeature KitTests",
+				"TEST_TARGET=Sample Reader Each DayTests",
+				"UI_TEST_TARGET=Sample Reader Each DayUITests",
+				"EXTRA_TEST_TARGETS=CoreKitTests\nFeature EchoTests",
 			},
 			selectors: []string{
-				"A Quebec Verse Each DayTests", "A Quebec Verse Each DayUITests",
-				"CoreKitTests", "Feature KitTests",
+				"Sample Reader Each DayTests", "Sample Reader Each DayUITests",
+				"CoreKitTests", "Feature EchoTests",
 			},
 		},
 	} {
@@ -564,13 +564,13 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 			}
 
 			t.Run("a target name with a space is compared whole", func(t *testing.T) {
-				// "Feature KitTests" absent, "Feature" and "KitTests" present. A
+				// "Feature EchoTests" absent, "Feature" and "EchoTests" present. A
 				// comparison that word-split the selector would find both halves
 				// and report success over a suite that never ran.
 				var ran []string
 				for _, s := range mode.selectors {
-					if s == "Feature KitTests" {
-						ran = append(ran, "Feature", "KitTests")
+					if s == "Feature EchoTests" {
+						ran = append(ran, "Feature", "EchoTests")
 						continue
 					}
 					ran = append(ran, s)
@@ -625,7 +625,7 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 // each: absent, literal, and hoisted-from-env.
 func TestIOSCITestJobShellParses(t *testing.T) {
 	twoWithExtras := twoIOSProducts()
-	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature KitTests"}
+	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature EchoTests"}
 	for _, tc := range []struct {
 		name string
 		cfg  *config.Config
@@ -768,14 +768,14 @@ func TestIOSCIForkGuardSurvivesTheMatrix(t *testing.T) {
 // establishing connection", which reads like an application bug and is not one.
 //
 // The cleanup greps a SUBSTRING, so scoping the name is not sufficient on its
-// own: with products named Steps and StepsFree — a real pair — the steps leg's
-// pattern occurs inside the stepsfree leg's name. Hence the trailing " (", which
+// own: with products named Mike and MikeFree — a real pair — the mike leg's
+// pattern occurs inside the mikefree leg's name. Hence the trailing " (", which
 // `simctl list devices` always prints after a device name.
 func TestIOSCISimulatorsDoNotCollide(t *testing.T) {
 	cfg := soloConfig()
 	cfg.Product = []config.Product{
-		{Name: "Steps", Scheme: "Steps", BundleID: "com.x.steps", AscAppID: "1", TagPrefix: "steps"},
-		{Name: "StepsFree", Scheme: "StepsFree", BundleID: "com.x.free", AscAppID: "2", TagPrefix: "stepsfree"},
+		{Name: "Mike", Scheme: "Mike", BundleID: "com.x.mike", AscAppID: "1", TagPrefix: "mike"},
+		{Name: "MikeFree", Scheme: "MikeFree", BundleID: "com.x.free", AscAppID: "2", TagPrefix: "mikefree"},
 	}
 	script := stepRun(t, parseIOSCI(t, cfg), "test", "Setup Simulator")
 
@@ -783,7 +783,7 @@ func TestIOSCISimulatorsDoNotCollide(t *testing.T) {
 	staleLine := mustFind(t, regexp.MustCompile(`(?m)^\s*(STALE_IDS=.*)$`), script, "the stale-simulator cleanup")
 
 	// The other leg's simulator, booted and mid-test.
-	const victim = "    CI-iPhone-99887766-stepsfree (AAAAAAAA-1111-2222-3333-444444444444) (Booted)"
+	const victim = "    CI-iPhone-99887766-mikefree (AAAAAAAA-1111-2222-3333-444444444444) (Booted)"
 
 	run := func(slug string) string {
 		t.Helper()
@@ -800,13 +800,13 @@ func TestIOSCISimulatorsDoNotCollide(t *testing.T) {
 		return string(out)
 	}
 
-	if got := run("steps"); got != "" {
-		t.Errorf("the `steps` leg would delete the `stepsfree` leg's live simulator (%q). "+
+	if got := run("mike"); got != "" {
+		t.Errorf("the `mike` leg would delete the `mikefree` leg's live simulator (%q). "+
 			"The cleanup greps a substring, so scoping the NAME per product is not enough — the "+
 			"match has to be anchored past the end of the name.", got)
 	}
-	if got := run("stepsfree"); !strings.Contains(got, "AAAAAAAA-1111-2222-3333-444444444444") {
-		t.Errorf("the `stepsfree` leg no longer finds its OWN stale simulator (got %q). "+
+	if got := run("mikefree"); !strings.Contains(got, "AAAAAAAA-1111-2222-3333-444444444444") {
+		t.Errorf("the `mikefree` leg no longer finds its OWN stale simulator (got %q). "+
 			"Leaving strays behind is what wedges the next run.", got)
 	}
 }
@@ -830,15 +830,15 @@ func TestIOSCISimulatorsDoNotCollide(t *testing.T) {
 func TestIOSCIFinalCleanupDoesNotCollide(t *testing.T) {
 	cfg := soloConfig()
 	cfg.Product = []config.Product{
-		{Name: "Steps", Scheme: "Steps", BundleID: "com.x.steps", AscAppID: "1", TagPrefix: "steps"},
-		{Name: "StepsFree", Scheme: "StepsFree", BundleID: "com.x.free", AscAppID: "2", TagPrefix: "stepsfree"},
+		{Name: "Mike", Scheme: "Mike", BundleID: "com.x.mike", AscAppID: "1", TagPrefix: "mike"},
+		{Name: "MikeFree", Scheme: "MikeFree", BundleID: "com.x.free", AscAppID: "2", TagPrefix: "mikefree"},
 	}
 	script := stepRun(t, parseIOSCI(t, cfg), "test", "Delete this run's simulators")
 	idsLine := mustFind(t, regexp.MustCompile(`(?m)^\s*(ids=.*)$`), script, "the simulator id selection")
 
 	// The sibling leg's simulator, booted and mid-test, plus this leg's own.
-	const listing = "    CI-iPhone-99887766-stepsfree (AAAAAAAA-1111-2222-3333-444444444444) (Booted)\n" +
-		"    CI-iPhone-99887766-steps (BBBBBBBB-1111-2222-3333-444444444444) (Booted)"
+	const listing = "    CI-iPhone-99887766-mikefree (AAAAAAAA-1111-2222-3333-444444444444) (Booted)\n" +
+		"    CI-iPhone-99887766-mike (BBBBBBBB-1111-2222-3333-444444444444) (Booted)"
 
 	run := func(slug string) string {
 		t.Helper()
@@ -853,19 +853,19 @@ func TestIOSCIFinalCleanupDoesNotCollide(t *testing.T) {
 		return string(out)
 	}
 
-	steps := run("steps")
-	if strings.Contains(steps, "AAAAAAAA-1111-2222-3333-444444444444") {
-		t.Errorf("the `steps` leg would delete the `stepsfree` leg's LIVE simulator. "+
+	mike := run("mike")
+	if strings.Contains(mike, "AAAAAAAA-1111-2222-3333-444444444444") {
+		t.Errorf("the `mike` leg would delete the `mikefree` leg's LIVE simulator. "+
 			"GITHUB_RUN_ID is shared by every matrix leg, so this selector must carry the "+
-			"product suffix and be anchored past the end of the name, exactly as Setup does. got %q", steps)
+			"product suffix and be anchored past the end of the name, exactly as Setup does. got %q", mike)
 	}
-	if !strings.Contains(steps, "BBBBBBBB-1111-2222-3333-444444444444") {
-		t.Errorf("the `steps` leg no longer deletes its OWN simulator (got %q). "+
-			"Leaving strays behind fills the disk on the one shared Mac.", steps)
+	if !strings.Contains(mike, "BBBBBBBB-1111-2222-3333-444444444444") {
+		t.Errorf("the `mike` leg no longer deletes its OWN simulator (got %q). "+
+			"Leaving strays behind fills the disk on the one shared Mac.", mike)
 	}
-	if free := run("stepsfree"); !strings.Contains(free, "AAAAAAAA-1111-2222-3333-444444444444") ||
+	if free := run("mikefree"); !strings.Contains(free, "AAAAAAAA-1111-2222-3333-444444444444") ||
 		strings.Contains(free, "BBBBBBBB-1111-2222-3333-444444444444") {
-		t.Errorf("the `stepsfree` leg must delete exactly its own simulator, got %q", free)
+		t.Errorf("the `mikefree` leg must delete exactly its own simulator, got %q", free)
 	}
 }
 

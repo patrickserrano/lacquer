@@ -130,7 +130,7 @@ const (
 	// A dropdown rather than free text because this is where an operator picks
 	// by hand, and a typo would otherwise reach the fail-closed branch and waste
 	// a run. Like WebBuildEnv it stands alone at column 0 and owns its own
-	// indentation, because product names contain spaces ("A Quebec Verse Each Day
+	// indentation, because product names contain spaces ("Sample Reader Each Day
 	// Paid") and each option has to be quoted on its own line.
 	IOSProductChoices = "{{IOS_PRODUCT_CHOICES}}"
 	// IOSProductSecrets expands to one release-time configuration step per
@@ -150,8 +150,8 @@ const (
 	// IOSReleaseTags is the release workflow's push-tag filter, derived from the
 	// products' tag prefixes.
 	//
-	// It has to be derived, not fixed at 'v*'. One project tags `steps-v1.2.3`
-	// and `stepsfree-v1.2.3`, neither of which starts with `v` — under a fixed
+	// It has to be derived, not fixed at 'v*'. One project tags `mike-v1.2.3`
+	// and `mikefree-v1.2.3`, neither of which starts with `v` — under a fixed
 	// filter, adopting this workflow would mean no tag ever starts a release.
 	// Nothing errors and nothing runs, which is the worst way for a release
 	// pipeline to break.
@@ -199,7 +199,7 @@ const (
 	// leg's extra_test_targets, as a bash array, before xcodebuild is invoked.
 	//
 	// An array rather than a bare string because an Xcode target name may contain
-	// spaces ("A Quebec Verse Each Day FreeTests" is a real one), so word-splitting
+	// spaces ("Sample Reader Each Day FreeTests" is a real one), so word-splitting
 	// a joined value would pass two selectors that each match nothing — and
 	// matching nothing exits 0. The legs' lists are carried through the matrix
 	// newline-separated for the same reason: the target charset admits spaces and
@@ -259,8 +259,8 @@ const (
 	// fix, reported as "the test runner crashed before establishing connection".
 	//
 	// IOSCISimMatch exists because the cleanup greps UNANCHORED. With products
-	// named Steps and StepsFree — a real pair — `CI-iPhone-1-steps` is a
-	// substring of `CI-iPhone-1-stepsfree`, so scoping the name alone would not
+	// named Mike and MikeFree — a real pair — `CI-iPhone-1-mike` is a
+	// substring of `CI-iPhone-1-mikefree`, so scoping the name alone would not
 	// have fixed anything. Matching `"$SIM_NAME ("` pins the match to the end of
 	// the name in `simctl list devices` output, where ` (` always follows it.
 	IOSCISimSuffix = "{{IOS_CI_SIM_SUFFIX}}"
@@ -1190,7 +1190,7 @@ func ReleaseTags(products []config.Product) string {
 // Package.resolved inside .xcodeproj/.xcworkspace bundles and reads version
 // rules from project.pbxproj, which is exactly the layout these projects use:
 //
-//	Steps.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+//	Mike.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 //
 // Swift is also the ONLY ecosystem here whose directory cannot be derived from
 // the manifest. This function used to emit a swift entry for every ios component

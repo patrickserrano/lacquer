@@ -572,7 +572,7 @@ func TestXcodeprojAllowsSpacesButNotMetacharacters(t *testing.T) {
 		val string
 		ok  bool
 	}{
-		{"A Quebec Verse Each Day.xcodeproj", true},
+		{"Sample Reader Each Day.xcodeproj", true},
 		{"App.xcodeproj", true},
 		{"ios/My App.xcodeproj", true},
 		{"", true}, // blank is allowed; sync fails closed if the token is used
@@ -752,7 +752,7 @@ func TestLoadRejectsUnsafeProductCITargets(t *testing.T) {
 	}
 	// A real project's values: spaces are ordinary in an Xcode target name, and
 	// the built product legitimately differs from the scheme.
-	ok := "test_target = \"A Quebec Verse Each Day FreeTests\"\napp_target = \"A Quebec Verse Daily.app\"\nui_test_target = \"\"\n"
+	ok := "test_target = \"Sample Reader Each Day FreeTests\"\napp_target = \"Sample Reader Daily.app\"\nui_test_target = \"\"\n"
 	if _, err := loadString(t, base+ok); err != nil {
 		t.Errorf("real-world target names must load: %v", err)
 	}
@@ -775,12 +775,12 @@ func singleProductBase() string {
 func TestExtraTestTargetsLoad(t *testing.T) {
 	cfg, err := loadString(t, extraTargetsBase+
 		"test_target = \"Lite AppTests\"\nui_test_target = \"Lite UITests\"\n"+
-		"extra_test_targets = [\"CoreKitTests\", \"Feature KitTests\"]\n")
+		"extra_test_targets = [\"CoreKitTests\", \"Feature EchoTests\"]\n")
 	if err != nil {
 		t.Fatalf("a valid extra_test_targets list must load: %v", err)
 	}
 	p := cfg.Product[0]
-	want := []string{"CoreKitTests", "Feature KitTests"}
+	want := []string{"CoreKitTests", "Feature EchoTests"}
 	if len(p.ExtraTestTargets) != len(want) {
 		t.Fatalf("ExtraTestTargets = %v, want %v", p.ExtraTestTargets, want)
 	}
@@ -792,7 +792,7 @@ func TestExtraTestTargetsLoad(t *testing.T) {
 	// Order is the order the arguments are passed, and the order the CI
 	// verification step checks them back in.
 	gotSel := strings.Join(p.TestSelectors(), "|")
-	wantSel := "Lite AppTests|Lite UITests|CoreKitTests|Feature KitTests"
+	wantSel := "Lite AppTests|Lite UITests|CoreKitTests|Feature EchoTests"
 	if gotSel != wantSel {
 		t.Errorf("TestSelectors = %q, want %q", gotSel, wantSel)
 	}
@@ -834,7 +834,7 @@ func TestLoadRejectsUnrunnableExtraTestTargets(t *testing.T) {
 			"injection", "extra_test_targets = [\"$(whoami)\"]\n", "invalid extra_test_targets",
 		},
 		{
-			"quote", "extra_test_targets = [\"Core\\\"KitTests\"]\n", "invalid extra_test_targets",
+			"quote", "extra_test_targets = [\"Core\\\"EchoTests\"]\n", "invalid extra_test_targets",
 		},
 		{
 			// Passing the same selector twice runs nothing extra, so it is only
@@ -869,7 +869,7 @@ func TestLoadRejectsUnrunnableExtraTestTargets(t *testing.T) {
 	}
 	// A real-world list must still load: spaces are ordinary in a package's test
 	// target name.
-	if _, err := loadString(t, extraTargetsBase+"extra_test_targets = [\"CoreKitTests\", \"Feature KitTests\"]\n"); err != nil {
+	if _, err := loadString(t, extraTargetsBase+"extra_test_targets = [\"CoreKitTests\", \"Feature EchoTests\"]\n"); err != nil {
 		t.Errorf("a valid list must load: %v", err)
 	}
 }
@@ -985,11 +985,11 @@ func TestProductCITargetDefaults(t *testing.T) {
 		wantTest string
 		wantApp  string
 	}{
-		{"display label differs", Product{Name: "Mike Lite", Scheme: "StepsFree"}, "StepsFreeTests", "StepsFree.app"},
+		{"display label differs", Product{Name: "Mike Lite", Scheme: "MikeFree"}, "MikeFreeTests", "MikeFree.app"},
 		{"matching name and scheme", Product{Name: "Solo", Scheme: "Solo"}, "SoloTests", "Solo.app"},
 		{"no scheme", Product{Name: "Solo"}, "SoloTests", "Solo.app"},
-		{"scheme only", Product{Scheme: "StepsFree"}, "StepsFreeTests", "StepsFree.app"},
-		{"explicit overrides", Product{Name: "Mike Lite", Scheme: "StepsFree", TestTarget: "FreeUnit", AppTarget: "Daily.app"}, "FreeUnit", "Daily.app"},
+		{"scheme only", Product{Scheme: "MikeFree"}, "MikeFreeTests", "MikeFree.app"},
+		{"explicit overrides", Product{Name: "Mike Lite", Scheme: "MikeFree", TestTarget: "FreeUnit", AppTarget: "Daily.app"}, "FreeUnit", "Daily.app"},
 		{"blank", Product{}, "", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1031,10 +1031,10 @@ func TestLoadRejectsCollidingProductSlugs(t *testing.T) {
 
 func TestProductSlug(t *testing.T) {
 	for name, want := range map[string]string{
-		"Free":                         "free",
-		"StepsFree":                    "stepsfree",
-		"A Quebec Verse Each Day Free": "a-quebec-verse-each-day-free",
-		"MyApp Lite":                   "myapp-lite",
+		"Free":                        "free",
+		"MikeFree":                    "mikefree",
+		"Sample Reader Each Day Free": "sample-reader-each-day-free",
+		"MyApp Lite":                  "myapp-lite",
 	} {
 		if got := (Product{Name: name}).Slug(); got != want {
 			t.Errorf("Slug(%q) = %q, want %q", name, got, want)

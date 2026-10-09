@@ -12,9 +12,9 @@ import (
 // and the audit used to look in only one.
 //
 // The first is a native target in project.pbxproj. The second is a `.testTarget`
-// of a local Swift package the project references — rail's RailCoreTests and
-// RailDataTests, which XcodeGen wires into the Charlie scheme with
-// `testTargets: [{ package: RailCore/RailCoreTests }]`. Those never appear as
+// of a local Swift package the project references — charlie's CharlieCoreTests and
+// CharlieDataTests, which XcodeGen wires into the Charlie scheme with
+// `testTargets: [{ package: CharlieCore/CharlieCoreTests }]`. Those never appear as
 // PBXNativeTarget, so reading only the native targets reported both as naming a
 // target the project does not have: a false alarm on the one project in the
 // fleet that had done the wiring correctly (#307 there).
@@ -69,7 +69,7 @@ func localPackages(pbxproj string) []string {
 // packageTargets reads the test targets of every local package the project
 // references. projectDir is the directory holding the .xcodeproj, which is what
 // relativePath is relative to (flare's Delta/Delta.xcodeproj references
-// `../FlareCore`).
+// `../DeltaCore`).
 //
 // A package that cannot be fully read contributes an entry with Unread set, in
 // addition to whatever names it did yield. That entry is not a target: it is the

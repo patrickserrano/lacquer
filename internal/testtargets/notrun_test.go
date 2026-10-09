@@ -78,7 +78,7 @@ func bravoapp(t *testing.T, extra map[string]string) (string, []Target) {
 	t.Helper()
 	files := map[string]string{
 		"ios/BravoApp.xcodeproj/project.pbxproj": bravoappPbx,
-		"ios/BravoAppCore/Package.swift":         flarePackage("BravoAppCore", "BravoAppCoreTests"),
+		"ios/BravoAppCore/Package.swift":         deltaPackage("BravoAppCore", "BravoAppCoreTests"),
 		".github/workflows/ios-ci.yml":           bravoappCI,
 	}
 	for k, v := range extra {

@@ -267,13 +267,13 @@ func TestDependabotEmitsNoSwiftEntryWithoutAManifest(t *testing.T) {
 // This is rail, exactly: Charlie.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
 // Package.resolved is right there in the working tree, and `*.resolved` in
 // .gitignore keeps it out of the repo — so Dependabot fetches nothing and aborts.
-// RailCore/Package.swift and RailData/Package.swift ARE committed and still do not
+// CharlieCore/Package.swift and CharlieData/Package.swift ARE committed and still do not
 // qualify: no entry in this fleet has been observed to work without a resolved
 // file, and a wrong entry costs a failed job every day where a missing one costs
 // visibility. Prefer nothing.
 func TestDependabotIgnoresManifestsTheRepoDoesNotContain(t *testing.T) {
 	repo := swiftProject(t,
-		[]string{"RailCore/Package.swift", "RailData/Package.swift"},
+		[]string{"CharlieCore/Package.swift", "CharlieData/Package.swift"},
 		[]string{"Charlie.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"})
 	cfg := &config.Config{
 		Root:       repo,

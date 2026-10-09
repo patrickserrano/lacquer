@@ -39,7 +39,7 @@ func cfgWithSecrets(exclude bool) *config.Config {
 	return c
 }
 
-// a-quebec-verse-each-day, live. It declares three keys WITH secret_formats shape
+// sample-reader-each-day, live. It declares three keys WITH secret_formats shape
 // checks and excludes ios-release.yml, so nothing renders the step that writes
 // them and every release archives with all three undefined. The declaration is
 // the strongest evidence available that somebody meant them to be written, which
@@ -95,7 +95,7 @@ func TestAReleaseThatNeverWritesTheFileIsReported(t *testing.T) {
 	}
 }
 
-// a-quebec-verse-each-day, and the false positive this check shipped with for
+// sample-reader-each-day, and the false positive this check shipped with for
 // about an hour. It declares secrets_file = "Config/Monetization.xcconfig",
 // EXCLUDES ios-release.yml, and carries a project-owned release with a
 // hand-rolled step — "Create protected runtime configuration" — that reads every
