@@ -23,6 +23,10 @@ const (
 type Relax struct {
 	Until  string `toml:"until"`  // YYYY-MM-DD
 	Reason string `toml:"reason"` // why, ideally with a tracking issue
+	// Major and Minor are read by simulator_runtime alone: the simulator OS to
+	// test on instead of the fleet pin. Config rejects them on every other key.
+	Major string `toml:"major"`
+	Minor string `toml:"minor"`
 }
 
 // UntilDate parses Until. Exported so a manifest's relaxation can be rejected at
@@ -48,9 +52,16 @@ func (r Relax) UntilDate() (time.Time, error) {
 // does not have its manifest rejected at load time. "coverage" relaxes the iOS
 // coverage floor, which only the Test job's xccov report can measure; the
 // `lacquer ratchet --coverage-report` gate applies the same expiry rule.
+// "simulator_runtime" is not a build setting either: it moves the simulator the
+// iOS and watch test jobs run on off the fleet pin, and RuntimeFinding, not
+// Check, evaluates it.
 func KnownKeys() []string {
-	return []string{"swift_version", "warnings_as_errors", "strict_concurrency", "documentation", "pgtap", "coverage"}
+	return []string{"swift_version", "warnings_as_errors", "strict_concurrency", "documentation", "pgtap", "coverage", SimulatorRuntimeKey}
 }
+
+// SimulatorRuntimeKey is the relaxation that tests on an older simulator runtime
+// than the fleet pin, with major/minor naming which.
+const SimulatorRuntimeKey = "simulator_runtime"
 
 // ValidKey reports whether key is one Check knows about.
 func ValidKey(key string) bool {
@@ -283,4 +294,24 @@ func swiftMajor(v string) int {
 		return 0
 	}
 	return n
+}
+
+// RuntimeFinding evaluates a [baseline.relax].simulator_runtime entry: the
+// simulator OS a project tests on (got) against the fleet pin (want), both as
+// "major.minor".
+//
+// Unlike the CI-only keys it is never UNKNOWN. Everything the override does is in
+// the manifest and the rendered workflow, so the audit can say exactly what it
+// is: in term (RELAXED), past its date (EXPIRED, which blocks, as every expired
+// relaxation does), or naming the pin itself (a dead relaxation to delete).
+func RuntimeFinding(r Relax, got, want string, now time.Time) Finding {
+	f := Finding{
+		Key: SimulatorRuntimeKey, Setting: "simulator runtime",
+		Want: want, Got: got, Status: StatusViolation,
+	}
+	if got == want {
+		f.Status = StatusOK
+	}
+	applyRelax(&f, map[string]Relax{SimulatorRuntimeKey: r}, now)
+	return f
 }

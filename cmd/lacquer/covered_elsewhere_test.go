@@ -91,8 +91,8 @@ func TestAuditVerifiesCoveredElsewhereAgainstTheRepository(t *testing.T) {
 	write(".github/workflows/watch-ci.yml", watchWorkflow)
 	writeManifest(t, dir, "xcodeproj = \"fixture.xcodeproj\"\n"+
 		"covered_elsewhere = [{ target = \"fixture Watch AppTests\", "+
-		"workflow = \".github/workflows/watch-ci.yml\", "+
-		"reason = \"watchOS bundle: different scheme and destination, not expressible in a [[product]] leg\" }]")
+		"workflow = \".github/workflows/watch-ci.yml\", job = \"watch-tests\", "+
+		"reason = \"watchOS bundle: different scheme and destination, not expressible in a [[product]] leg; run by watch-ci.yml job watch-tests\" }]")
 
 	out := audit()
 	if uncoveredSection(out) != "" && strings.Contains(uncoveredSection(out), "fixture Watch AppTests") {

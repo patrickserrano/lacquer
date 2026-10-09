@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -169,6 +170,9 @@ type Project struct {
 	// A widget or app-extension target does NOT need this — it runs on the
 	// same iOS simulator as the host app; only an actual watch app needs its
 	// own simulator platform, which is not preinstalled on a fresh runner.
+	//
+	// Implied by any watch_tests table: a project that declares one has a watch
+	// app, so it gets the install step whether or not it also sets this.
 	WatchTarget bool `toml:"watch_target"`
 	// CoveredElsewhere names test targets run by a workflow this lacquer does
 	// not manage, so the uncovered-target report can tell "nothing runs this"
@@ -928,7 +932,13 @@ type CoveredElsewhere struct {
 	// description: it is the thing the audit goes and reads, and a declaration
 	// pointing at nothing confirms nothing.
 	Workflow string `toml:"workflow"`
-	// Reason is why this target cannot be run by the managed workflows. Required,
+	// Job is the id of the job in Workflow that runs it, as written under
+	// `jobs:`. Required, and checked against the file: "this workflow" is too
+	// coarse to go and look at, and a declaration a reader cannot follow to the
+	// job that runs the suite is a mute button with a sentence attached.
+	Job string `toml:"job"`
+	// Reason is why this target cannot be run by the managed workflows, and
+	// where it IS run: it must name the workflow file and the job. Required,
 	// same standard as [baseline.relax], an attributed [project].exclude and a
 	// dependabot ignore. It is printed in the audit report beside the target, and
 	// with no expiry to force the question it is the only thing that will tell a
@@ -949,11 +959,11 @@ func (c *CoveredElsewhere) UnmarshalTOML(v any) error {
 	t, ok := v.(map[string]any)
 	if !ok {
 		return fmt.Errorf("[[project.covered_elsewhere]] entry must be a table "+
-			"{ target = \"…\", workflow = \".github/workflows/…\", reason = \"…\" }, got %T", v)
+			"{ target = \"…\", workflow = \".github/workflows/…\", job = \"…\", reason = \"…\" }, got %T", v)
 	}
 	for key := range t {
 		switch key {
-		case "target", "workflow", "reason":
+		case "target", "workflow", "job", "reason":
 		default:
 			// `until` is the likely typo, because every other exemption in this
 			// manifest carries one and a reader who knows the others will reach
@@ -967,7 +977,7 @@ func (c *CoveredElsewhere) UnmarshalTOML(v any) error {
 					"it stops being true", key)
 			}
 			return fmt.Errorf("unknown [[project.covered_elsewhere]] key %q "+
-				"(known keys: target, workflow, reason)", key)
+				"(known keys: target, workflow, job, reason)", key)
 		}
 	}
 	str := func(key string) (string, error) {
@@ -986,6 +996,9 @@ func (c *CoveredElsewhere) UnmarshalTOML(v any) error {
 		return err
 	}
 	if c.Workflow, err = str("workflow"); err != nil {
+		return err
+	}
+	if c.Job, err = str("job"); err != nil {
 		return err
 	}
 	c.Reason, err = str("reason")
@@ -1021,13 +1034,30 @@ func validateCoveredElsewhere(i int, c CoveredElsewhere) error {
 		return fmt.Errorf("%s %q has an invalid workflow %q: it must be a repo-relative path like "+
 			"\".github/workflows/watch-ci.yml\" — the audit opens this file and reads it", where, c.Target, c.Workflow)
 	}
+	if c.Job == "" {
+		return fmt.Errorf("%s %q needs a job (the id under `jobs:` in %s that runs it); the audit "+
+			"checks that the job exists, and a reader needs to know where to look", where, c.Target, c.Workflow)
+	}
+	if !jobVal.MatchString(c.Job) {
+		return fmt.Errorf("%s %q has an invalid job %q: a GitHub Actions job id (letters, digits, - and _, "+
+			"starting with a letter or _)", where, c.Target, c.Job)
+	}
 	if strings.TrimSpace(c.Reason) == "" {
 		return fmt.Errorf("%s %q needs a reason (what the managed workflows cannot run and why); "+
 			"this declaration has no expiry, so the reason is the only thing that will tell a later "+
 			"reader whether the gap still exists", where, c.Target)
 	}
+	file := path.Base(c.Workflow)
+	if !strings.Contains(c.Reason, file) || !strings.Contains(c.Reason, c.Job) {
+		return fmt.Errorf("%s %q: the reason must name where the suite actually runs, the workflow "+
+			"file %s and the job %s, so the line printed beside the target it silences says where to "+
+			"look (got %q)", where, c.Target, file, c.Job, c.Reason)
+	}
 	return nil
 }
+
+// jobVal is a GitHub Actions job id.
+var jobVal = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // Product is one shippable app built from this repository.
 //
@@ -1224,10 +1254,14 @@ type SimulatorPlatform struct {
 	// four literal characters, not as the device. An empty or partial
 	// `-destination` is NOT an error to xcodebuild; it picks something.
 	DestinationPrefix string
-	// Runtime is the pinned simctl runtime identifier, and DownloadPlatform the
-	// name `xcodebuild -downloadPlatform` installs it under. A watch runtime is
-	// NOT preinstalled on a fresh runner.
-	Runtime          string
+	// RuntimeOS is the OS name inside a simctl runtime identifier. The version
+	// is NOT here: it comes from DefaultRuntimePin (or a project's dated
+	// override), so this table cannot hold a second hard-coded runtime. See
+	// Runtime.
+	//
+	// DownloadPlatform is the name `xcodebuild -downloadPlatform` installs the
+	// runtime under. A watch runtime is NOT preinstalled on a fresh runner.
+	RuntimeOS        string
 	DownloadPlatform string
 	// DeviceType is the simctl device type to create. Measured on this fleet's
 	// runner (watchOS 27.0): `simctl create` of this type produces a device that
@@ -1246,6 +1280,36 @@ type SimulatorPlatform struct {
 	SimPrefix string
 }
 
+// RuntimePin is a simulator OS version as simctl spells it inside a runtime
+// identifier: major and minor, both plain digits.
+type RuntimePin struct {
+	Major, Minor string
+}
+
+// DefaultRuntimePin is the fleet's ONE simulator runtime pin. The iOS Test job
+// and the watch-test job both render from it, so they cannot disagree.
+//
+// There used to be two: ci.yml's `PINNED_RUNTIME="…iOS-27-0"` literal and a
+// `watchOS-27-0` string in the platform table below. They agreed, which is the
+// only reason the second one went unnoticed; the next bump would have moved one.
+// Moving a runtime is not a harmless change either: a sync that moved the pin
+// from 26.2 to 27.0 crash-looped two consumers' test hosts.
+//
+// A var rather than a const only so a test can move it to a value nobody would
+// hard-code and prove both jobs follow. Nothing else assigns it. Bump it when the
+// host Xcode moves; a project that cannot follow yet declares a dated
+// [baseline.relax].simulator_runtime instead of excluding ci.yml.
+var DefaultRuntimePin = RuntimePin{Major: "27", Minor: "0"}
+
+// Runtime is the simctl runtime identifier for osName at this pin, e.g.
+// com.apple.CoreSimulator.SimRuntime.watchOS-27-0.
+func (p RuntimePin) Runtime(osName string) string {
+	return "com.apple.CoreSimulator.SimRuntime." + osName + "-" + p.Major + "-" + p.Minor
+}
+
+// String is the pin as a person writes it, "27.0".
+func (p RuntimePin) String() string { return p.Major + "." + p.Minor }
+
 // SimulatorPlatforms is the closed set of non-iOS destinations a watch_tests
 // table may name.
 //
@@ -1257,12 +1321,75 @@ type SimulatorPlatform struct {
 var SimulatorPlatforms = map[string]SimulatorPlatform{
 	DefaultWatchPlatform: {
 		DestinationPrefix: "platform=watchOS Simulator",
-		Runtime:           "com.apple.CoreSimulator.SimRuntime.watchOS-27-0",
+		RuntimeOS:         "watchOS",
 		DownloadPlatform:  "watchOS",
 		DeviceType:        "Apple Watch Series 12 (46mm)",
 		ReadyService:      "com.apple.Carousel",
 		SimPrefix:         "CI-Watch",
 	},
+}
+
+// Runtime is this platform's simctl runtime identifier at pin.
+func (s SimulatorPlatform) Runtime(pin RuntimePin) string { return pin.Runtime(s.RuntimeOS) }
+
+// SimulatorRuntimeOverride is the project's [baseline.relax].simulator_runtime:
+// the pin to test on instead of DefaultRuntimePin, and the relaxation carrying
+// its date and reason. ok is false when the manifest declares none.
+//
+// The override is rendered whatever its date. Rendering is deterministic: a file
+// that changed on the day an entry expired would read as drift in every audit.
+// The rendered steps compare the date themselves and stop applying it once it
+// has passed, the Lint job's relaxation step fails the run, and `lacquer audit`
+// reports it EXPIRED.
+func (c *Config) SimulatorRuntimeOverride() (pin RuntimePin, r baseline.Relax, ok bool) {
+	r, ok = c.Baseline.Relax[baseline.SimulatorRuntimeKey]
+	if !ok {
+		return RuntimePin{}, baseline.Relax{}, false
+	}
+	pin = RuntimePin{Major: r.Major, Minor: r.Minor}
+	if pin.Minor == "" {
+		pin.Minor = "0"
+	}
+	return pin, r, true
+}
+
+// RuntimeReport is the baseline report for the simulator_runtime override, for
+// callers of baseline.Run to append: baseline cannot evaluate it because the
+// fleet pin lives here, and this package imports that one. ok is false when the
+// manifest declares no override.
+func (c *Config) RuntimeReport(now time.Time) (baseline.Report, bool) {
+	pin, r, ok := c.SimulatorRuntimeOverride()
+	if !ok {
+		return baseline.Report{}, false
+	}
+	return baseline.Report{Profile: "simulator runtime", Findings: []baseline.Finding{
+		baseline.RuntimeFinding(r, pin.String(), DefaultRuntimePin.String(), now),
+	}}, true
+}
+
+// runtimeMajorVal and runtimeMinorVal hold [baseline.relax].simulator_runtime to
+// plain decimal numbers with no leading zero. Both reach `simctl create` inside a
+// runtime identifier, so nothing but digits may get through.
+var (
+	runtimeMajorVal = regexp.MustCompile(`^[1-9][0-9]?$`)
+	runtimeMinorVal = regexp.MustCompile(`^(0|[1-9][0-9]?)$`)
+)
+
+// validateRuntimeRelax checks the fields only simulator_runtime carries.
+func validateRuntimeRelax(k string, r baseline.Relax) error {
+	if k != baseline.SimulatorRuntimeKey {
+		if r.Major != "" || r.Minor != "" {
+			return fmt.Errorf("[baseline.relax].%s takes no major or minor; only simulator_runtime names a runtime", k)
+		}
+		return nil
+	}
+	if !runtimeMajorVal.MatchString(r.Major) {
+		return fmt.Errorf("[baseline.relax].simulator_runtime needs a major, the simulator OS major version as digits (e.g. \"26\"), got %q", r.Major)
+	}
+	if r.Minor != "" && !runtimeMinorVal.MatchString(r.Minor) {
+		return fmt.Errorf("[baseline.relax].simulator_runtime has an invalid minor %q: digits only (e.g. \"2\"), or leave it out for .0", r.Minor)
+	}
+	return nil
 }
 
 // SimulatorPlatformNames lists the legal `platform` values, sorted, for error
@@ -2318,6 +2445,9 @@ func validateBaseline(b Baseline) error {
 		}
 		if _, err := r.UntilDate(); err != nil {
 			return fmt.Errorf("[baseline.relax].%s has an invalid until %q (want YYYY-MM-DD)", k, r.Until)
+		}
+		if err := validateRuntimeRelax(k, r); err != nil {
+			return err
 		}
 	}
 	return nil

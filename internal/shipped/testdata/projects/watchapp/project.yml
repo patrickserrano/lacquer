@@ -1,0 +1,53 @@
+# XcodeGen spec. The audit reads this when no project.pbxproj is tracked.
+name: Watchapp
+options:
+  bundleIdPrefix: com.example
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+targets:
+  Watchapp:
+    type: application
+    platform: iOS
+    sources: [Watchapp]
+    dependencies:
+      - target: Watchapp Watch App
+      - target: WatchappWidget
+  WatchappTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [WatchappTests]
+    dependencies:
+      - target: Watchapp
+  # A widget runs on the iPhone simulator beside its host. It is NOT a watch
+  # target, and must never be read as one.
+  WatchappWidget:
+    type: app-extension
+    platform: iOS
+    sources: [WatchappWidget]
+  Watchapp Watch App:
+    type: application
+    platform: watchOS
+    sources: ["Watchapp Watch App"]
+  Watchapp Watch AppTests:
+    type: bundle.unit-test
+    platform: watchOS
+    sources: ["Watchapp Watch AppTests"]
+    dependencies:
+      - target: Watchapp Watch App
+schemes:
+  Watchapp:
+    build:
+      targets:
+        Watchapp: all
+    test:
+      targets:
+        - WatchappTests
+  Watchapp Watch App:
+    build:
+      targets:
+        Watchapp Watch App: all
+    test:
+      targets:
+        - Watchapp Watch AppTests

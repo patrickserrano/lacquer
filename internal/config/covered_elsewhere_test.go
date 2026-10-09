@@ -11,7 +11,8 @@ const goodCovered = coveredBase + `
 [[project.covered_elsewhere]]
 target = "AlphaAppWatchApp Watch AppTests"
 workflow = ".github/workflows/watch-ci.yml"
-reason = "watchOS bundle: a different scheme and a watch simulator destination, neither expressible in a [[product]] leg"
+job = "watch-tests"
+reason = "watchOS bundle: a different scheme and a watch simulator destination, neither expressible in a [[product]] leg; run by watch-ci.yml job watch-tests"
 `
 
 func TestCoveredElsewhereLoads(t *testing.T) {
@@ -50,12 +51,12 @@ func TestCoveredElsewhereRejectsMalformedEntries(t *testing.T) {
 		},
 		{
 			"no reason",
-			entry("target = \"WatchTests\"\nworkflow = \".github/workflows/watch-ci.yml\"\n"),
+			entry("target = \"WatchTests\"\nworkflow = \".github/workflows/watch-ci.yml\"\njob = \"watch-tests\"\n"),
 			"needs a reason",
 		},
 		{
 			"blank reason",
-			entry("target = \"WatchTests\"\nworkflow = \".github/workflows/watch-ci.yml\"\nreason = \"   \"\n"),
+			entry("target = \"WatchTests\"\nworkflow = \".github/workflows/watch-ci.yml\"\njob = \"watch-tests\"\nreason = \"   \"\n"),
 			"needs a reason",
 		},
 		{
@@ -88,8 +89,8 @@ func TestCoveredElsewhereRejectsMalformedEntries(t *testing.T) {
 		},
 		{
 			"the same target twice",
-			entry("target = \"WatchTests\"\nworkflow = \".github/workflows/a.yml\"\nreason = \"one\"\n") +
-				"\n[[project.covered_elsewhere]]\ntarget = \"WatchTests\"\nworkflow = \".github/workflows/b.yml\"\nreason = \"two\"\n",
+			entry("target = \"WatchTests\"\nworkflow = \".github/workflows/a.yml\"\njob = \"j\"\nreason = \"one: a.yml job j\"\n") +
+				"\n[[project.covered_elsewhere]]\ntarget = \"WatchTests\"\nworkflow = \".github/workflows/b.yml\"\njob = \"j\"\nreason = \"two: b.yml job j\"\n",
 			"twice",
 		},
 	} {

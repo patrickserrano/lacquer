@@ -187,12 +187,18 @@ guess:
 [[project.covered_elsewhere]]
 target   = "SomeTargetTests"
 workflow = ".github/workflows/some-ci.yml"
-reason   = "run by a project-owned workflow; no managed job covers it"
+job      = "some-tests"
+reason   = "run by some-ci.yml job some-tests; no managed job covers it"
 ```
 
+`job` is required, and `reason` must name both the workflow file and the job, so
+the line printed beside the target it silences says where to look. A workflow
+file that does not exist fails `audit` outright (exit 4).
+
 **It is checked, not believed.** `audit` opens that file and requires all of it:
-the workflow exists, is not one the lacquer writes, names the target outside a
-comment, contains a test invocation, and is triggered by a code change. Fail any
+the workflow exists, is not one the lacquer writes, has the named job, names the
+target outside a comment, contains a test invocation, and is triggered by a code
+change. Fail any
 one and the target goes back in the uncovered list with the failed check printed
 on its line — a declaration that suppressed a finding just by being written
 would be a check whose passing state is reachable without the checked thing

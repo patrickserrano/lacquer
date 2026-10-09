@@ -123,7 +123,7 @@ func TestNotRunInCIRejectsMalformedEntries(t *testing.T) {
 			// other says CI deliberately does not.
 			"also declared covered_elsewhere",
 			entry("target = \"CoreTests\"\nreason = \"device\"\nuntil = \"2026-12-31\"\n") +
-				"\n[[project.covered_elsewhere]]\ntarget = \"CoreTests\"\nworkflow = \".github/workflows/core.yml\"\nreason = \"core\"\n",
+				"\n[[project.covered_elsewhere]]\ntarget = \"CoreTests\"\nworkflow = \".github/workflows/core.yml\"\njob = \"core\"\nreason = \"core.yml job core\"\n",
 			"also declared in [[project.covered_elsewhere]]",
 		},
 		{

@@ -233,7 +233,7 @@ func TestEverySimulatorPlatformIsComplete(t *testing.T) {
 	for name, s := range SimulatorPlatforms {
 		for _, f := range []struct{ field, val string }{
 			{"DestinationPrefix", s.DestinationPrefix},
-			{"Runtime", s.Runtime},
+			{"RuntimeOS", s.RuntimeOS},
 			{"DownloadPlatform", s.DownloadPlatform},
 			{"DeviceType", s.DeviceType},
 			{"ReadyService", s.ReadyService},

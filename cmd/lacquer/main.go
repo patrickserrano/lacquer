@@ -506,13 +506,27 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		for _, n := range cfg.Project.NotRunInCI {
 			notRun = append(notRun, testtargets.NotRun{Target: n.Target, Reason: n.Reason, Until: n.Until})
 		}
-		notRunExpired := 0
+		notRunExpired, watchBlocking := 0, 0
+		var decls []testtargets.Declaration
+		for _, c := range cfg.Project.CoveredElsewhere {
+			decls = append(decls, testtargets.Declaration{
+				Target: c.Target, Workflow: c.Workflow, Job: c.Job, Reason: c.Reason,
+			})
+		}
+		// A covered_elsewhere entry naming a workflow that is not there claims
+		// something false about where a suite runs. Checked whether or not the
+		// project below can be read, and blocking.
+		missingWorkflows := testtargets.MissingWorkflows(projectRoot, decls)
+		fmt.Fprint(stdout, testtargets.FormatMissingWorkflows(missingWorkflows))
 		if cfg.Project.Xcodeproj != "" {
-			pbx := filepath.Join(projectRoot, cfg.Project.Xcodeproj, "project.pbxproj")
-			declared, read, err := testtargets.Parse(pbx)
+			// The tracked pbxproj, or the XcodeGen spec when none is tracked:
+			// on a clean checkout an XcodeGen-only project has no pbxproj, and
+			// reading nothing hid every target it has (see ReadForAudit).
+			proj, read, _, err := testtargets.ReadForAudit(projectRoot, cfg.Project.Xcodeproj)
 			if err != nil {
 				return fail(stderr, err)
 			}
+			declared := proj.Targets
 			// Only compare when the project was actually READ. A manifest may name
 			// an .xcodeproj that does not exist yet (golf says so in its own
 			// comment), and reporting every selector as naming a missing target
@@ -547,17 +561,17 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 						managed[d] = true
 					}
 				}
-				var decls []testtargets.Declaration
-				for _, c := range cfg.Project.CoveredElsewhere {
-					decls = append(decls, testtargets.Declaration{
-						Target: c.Target, Workflow: c.Workflow, Reason: c.Reason,
-					})
-				}
 				claims := testtargets.Verify(projectRoot, decls, declared, managed)
 				report := testtargets.Apply(testtargets.Compare(declared, selectors), claims)
 				report = testtargets.Deliberate(report, declared, notRun, time.Now())
 				fmt.Fprint(stdout, testtargets.Format(report))
 				notRunExpired = testtargets.Blocking(report)
+				// The one row of that report that blocks: a watchOS bundle
+				// nothing runs, after a dated grace period. Everything else in
+				// it stays report-only.
+				watch := testtargets.Watch(proj, report, len(cfg.Product) > 0, time.Now())
+				fmt.Fprint(stdout, testtargets.FormatWatch(watch))
+				watchBlocking = watch.Blocking()
 			} else if len(notRun) > 0 {
 				// [[project.not_run_in_ci]] carries a date, and a date must not
 				// stop being enforced because the project could not be read:
@@ -650,6 +664,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			Clobbered: len(audit.Clobbered(rows)), Baseline: baseline.Blocking(reports) + ratchet.Blocking(ratchets),
 			Exclusions: exclusion.Blocking(exclusions), DepIgnores: depignore.Blocking(ignores),
 			NotRunInCI: notRunExpired, Orphans: len(orphans), Undeclared: len(detect.Adoptable(findings)),
+			UnrunWatch: watchBlocking, MissingWorkflows: len(missingWorkflows),
 			LockMismatch: len(lockMismatch),
 		}).ExitCode()
 
@@ -1368,7 +1383,15 @@ func baselineReports(lacquerRoot, projectRoot string) ([]baseline.Report, error)
 	if err != nil {
 		return nil, fmt.Errorf("load manifest: %w", err)
 	}
-	return baseline.Run(lacquerRoot, projectRoot, cfg.BaselineTargets(), cfg.Baseline.Relax, time.Now())
+	now := time.Now()
+	reports, err := baseline.Run(lacquerRoot, projectRoot, cfg.BaselineTargets(), cfg.Baseline.Relax, now)
+	if err != nil {
+		return nil, err
+	}
+	if rep, ok := cfg.RuntimeReport(now); ok {
+		reports = append(reports, rep)
+	}
+	return reports, nil
 }
 
 // listStacks prints every archetype the lacquer ships, for `init --list-stacks`.

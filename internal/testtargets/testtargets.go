@@ -35,6 +35,9 @@ import (
 type Target struct {
 	Name string
 	UI   bool // a ui-testing bundle rather than a unit-test one
+	// Platform is WatchOS for a watchOS bundle and "" for every other one. Set
+	// by ParseProject and ParseSpec; Parse alone leaves it "".
+	Platform string
 	// Package is the relativePath of the local Swift package this test target
 	// was read from, and "" for a native target of project.pbxproj.
 	Package string
@@ -60,6 +63,9 @@ var (
 	// target in this fleet.
 	nameLine    = regexp.MustCompile(`^\s*name = (?:"([^"]*)"|([A-Za-z0-9_.\-]+));`)
 	productLine = regexp.MustCompile(`^\s*productType = "([^"]*)";`)
+	// A shared scheme's TestableReference names its target as an attribute of
+	// the BuildableReference inside it.
+	blueprintName = regexp.MustCompile(`BlueprintName\s*=\s*"([^"]*)"`)
 )
 
 const (

@@ -411,6 +411,32 @@ by Swift 6. Like stale exclusions, this notice does not change the exit code.
 An unknown baseline or a key enforced only by CI (`documentation`, `pgtap`) is
 reported as `relaxation NOT CHECKED`, never assumed live or dead.
 
+## Simulator runtime: one pin, and a dated override
+
+The iOS Test job and the rendered watch-test job test on one simulator runtime
+pin, `config.DefaultRuntimePin` (27.0 today). Both jobs render from it, so they
+cannot drift apart, and a pin bump moves both.
+
+A project whose test host cannot run on the pin yet declares the runtime to test
+on and a date, rather than excluding `ios-ci.yml` (which freezes the file out of
+every later profile change):
+
+```toml
+[baseline.relax]
+simulator_runtime = { major = "26", minor = "2", until = "2026-12-31", reason = "test host crash-loops on 27.0; tracking issue in the project" }
+```
+
+`major` and `minor` are digits only (`minor` defaults to 0); `until` and `reason`
+are required, as for every relaxation. Through `until`, the Test job and the watch
+job create their simulators on that runtime and print a warning saying so. If the
+runner does not have that runtime installed, the job fails and names it, because
+falling back to the newest runtime would test on the OS the override exists to
+avoid. After `until`, the override stops applying (both jobs return to the pin),
+the Lint job's relaxation step fails the run, and `lacquer audit` reports the
+entry `EXPIRED` and exits 4. An override that names the pin itself is reported as
+a dead relaxation. A project that declares no override renders a byte-identical
+`ios-ci.yml`.
+
 ## Proving the checks work
 
 Every serious defect found onboarding this fleet was the same shape: **a check

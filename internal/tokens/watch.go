@@ -120,7 +120,7 @@ func CIWatchTestJob(cfg *config.Config, prefix string) string {
 		// the job growing a branch. Every value comes from the platform table,
 		// never from the manifest — see config.SimulatorPlatform.
 		fmt.Fprintf(&b, "\n            device_type: %q", l.sim.DeviceType)
-		fmt.Fprintf(&b, "\n            runtime: %q", l.sim.Runtime)
+		fmt.Fprintf(&b, "\n            runtime: %q", l.sim.Runtime(config.DefaultRuntimePin))
 		fmt.Fprintf(&b, "\n            download_platform: %q", l.sim.DownloadPlatform)
 		fmt.Fprintf(&b, "\n            ready_service: %q", l.sim.ReadyService)
 		fmt.Fprintf(&b, "\n            sim_prefix: %q", l.sim.SimPrefix)
@@ -129,6 +129,7 @@ func CIWatchTestJob(cfg *config.Config, prefix string) string {
 	body := strings.NewReplacer(
 		"@@COMPONENT_PREFIX@@", prefix,
 		"@@XCODEPROJ@@", cfg.Project.Xcodeproj,
+		"@@WATCH_RUNTIME_OVERRIDE@@", watchRuntimeOverride(cfg),
 	).Replace(watchJobBody)
 	b.WriteString(body)
 	return b.String()
@@ -253,7 +254,7 @@ const watchJobBody = `
       - name: Resolve the watch simulator runtime
         id: runtime
         run: |
-          set -uo pipefail
+          set -uo pipefail@@WATCH_RUNTIME_OVERRIDE@@
           # A watch runtime is NOT preinstalled on a fresh runner, and
           # -downloadPlatform is a no-op once it is present.
           if ! xcrun simctl list runtimes | grep -q "$WATCH_RUNTIME"; then

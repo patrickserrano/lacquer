@@ -187,10 +187,14 @@ func Notes(r Report) []string {
 // coverageNote is the enrollment column. Not a Note: an un-enrolled project is
 // not unhealthy, and a note would turn its `ok` into `warn`.
 func coverageNote(r Report) string {
-	if r.Coverage == "" {
-		return ""
+	note := ""
+	if r.Coverage != "" {
+		note = "  coverage " + r.Coverage
 	}
-	return "  coverage " + r.Coverage
+	if r.Watch != "" {
+		note += "  watch " + r.Watch
+	}
+	return note
 }
 
 func coverageSummary(w io.Writer, reports []Report) {
