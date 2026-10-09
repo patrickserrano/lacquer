@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// scripts/check-bundle-secrets.sh fails when a bundle other than the app carries
+// scripts/verify-bundle-secrets.sh fails when a bundle other than the app carries
 // a key from the secrets template. The leak it catches is silent everywhere
 // else: a watch app, an extension or a test bundle that inherits the app's
 // Info.plist wiring ships a second copy of every service key, and it builds,
@@ -123,7 +123,7 @@ func layOut(t *testing.T, dir string, bundles map[string]string) {
 }
 
 func bundleSecretsScript(t *testing.T) string {
-	return filepath.Join(root(t), "profiles", "ios", "root", "scripts", "check-bundle-secrets.sh")
+	return filepath.Join(root(t), "profiles", "ios", "root", "scripts", "verify-bundle-secrets.sh")
 }
 
 // runBundleSecrets runs the shipped script. template "" writes the default
@@ -201,7 +201,7 @@ func TestBundleSecretsFailsOnAPlantedKey(t *testing.T) {
 				t.Fatalf("exit %d, want 1 (a leak):\n%s", code, out)
 			}
 			mustContain(t, "the output", out, c.want...)
-			mustContain(t, "the output", out, "check-bundle-secrets: FAIL")
+			mustContain(t, "the output", out, "verify-bundle-secrets: FAIL")
 		})
 	}
 }
@@ -348,7 +348,7 @@ func bundleSecretsSteps(t *testing.T, rendered string) map[string][]map[string]s
 					step[k] = str
 				}
 			}
-			if strings.Contains(step["run"], "check-bundle-secrets.sh") {
+			if strings.Contains(step["run"], "verify-bundle-secrets.sh") {
 				out[job] = append(out[job], step)
 			}
 		}
@@ -370,7 +370,7 @@ func TestNoSecretsRendersNoBundleSecretsStep(t *testing.T) {
 	for name, cfg := range map[string]*config.Config{"solo": soloConfig(), "two products": twoIOSProducts()} {
 		for _, wf := range []string{"ci.yml", "release.yml"} {
 			got := renderIOSWorkflow(t, wf, cfg, "")
-			if strings.Contains(got, "check-bundle-secrets") {
+			if strings.Contains(got, "verify-bundle-secrets") {
 				t.Errorf("%s: %s renders a bundle-secrets step for a project declaring no secrets", name, wf)
 			}
 		}
@@ -396,8 +396,8 @@ func TestBundleSecretsStepsRenderWhereProductsAreBuilt(t *testing.T) {
 	rel := bundleSecretsSteps(t, renderIOSWorkflow(t, "release.yml", cfg, "ios/"))
 
 	want := map[string]string{
-		"build-release": `scripts/check-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "ios/DerivedData/Build/Products/Release-iphoneos"`,
-		"test":          `scripts/check-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "ios/DerivedData/Build/Products"`,
+		"build-release": `scripts/verify-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "ios/DerivedData/Build/Products/Release-iphoneos"`,
+		"test":          `scripts/verify-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "ios/DerivedData/Build/Products"`,
 	}
 	for job, run := range want {
 		if len(ci[job]) != 1 {
@@ -417,7 +417,7 @@ func TestBundleSecretsStepsRenderWhereProductsAreBuilt(t *testing.T) {
 		t.Fatalf("release: %d bundle-secrets steps, want 1", len(rel["build-and-deploy"]))
 	}
 	s := rel["build-and-deploy"][0]
-	if got, w := s["run"], `scripts/check-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive/Products/Applications"`; got != w {
+	if got, w := s["run"], `scripts/verify-bundle-secrets.sh "ios/Secrets.xcconfig.example" "Demo.app" "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive/Products/Applications"`; got != w {
 		t.Errorf("release runs\n  %s\nwant\n  %s", got, w)
 	}
 	if s["if"] != "matrix.product.name == 'Demo'" {
@@ -485,7 +485,7 @@ func TestRenderedBundleSecretsStepsCatchAPlantedKey(t *testing.T) {
 				if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(dir, "scripts", "check-bundle-secrets.sh"), script, 0o755); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, "scripts", "verify-bundle-secrets.sh"), script, 0o755); err != nil {
 					t.Fatal(err)
 				}
 				writeAt(t, filepath.Join(dir, "ios", "Secrets.xcconfig.example"), bundleSecretsTemplate)
@@ -516,7 +516,7 @@ func TestRenderedBundleSecretsStepsCatchAPlantedKey(t *testing.T) {
 	}
 }
 
-// The script is executable, so the rendered `run: scripts/check-bundle-secrets.sh`
+// The script is executable, so the rendered `run: scripts/verify-bundle-secrets.sh`
 // can exec it.
 func TestBundleSecretsScriptIsExecutable(t *testing.T) {
 	fi, err := os.Stat(bundleSecretsScript(t))

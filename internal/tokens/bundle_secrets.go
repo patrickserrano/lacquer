@@ -9,7 +9,14 @@ import (
 
 // bundleSecretsScript is the root asset every rendered step calls. It is a
 // root asset, so it sits at scripts/ whatever the component layout.
-const bundleSecretsScript = "scripts/check-bundle-secrets.sh"
+//
+// verify-, not check-: the consumer whose repo-owned script this generalises
+// keeps it at scripts/check-bundle-secrets.sh, with a different argument list,
+// called from a workflow it has excluded. A shipped file at that path makes its
+// sync refuse, and taking the lacquer's copy would break that workflow. Under
+// its own name the two coexist until the consumer adopts the rendered CI and
+// deletes its copy.
+const bundleSecretsScript = "scripts/verify-bundle-secrets.sh"
 
 // Where a bundle-secrets step runs, and so which built products it reads.
 type bundleSecretsSite int

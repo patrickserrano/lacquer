@@ -32,7 +32,7 @@ description: Swift/Xcode-specific rules synced into any component declaring the 
 - App-runtime public keys live in gitignored `Secrets.xcconfig`; examples alone
   must never feed a release. Declare release secret names and formats in the
   manifest. CI/server credentials (including RevenueCat `sk_…`) never enter the app.
-- Only the app's Info.plist may carry those keys (`scripts/check-bundle-secrets.sh`).
+- Only the app's Info.plist may carry those keys (`scripts/verify-bundle-secrets.sh`).
 - Use `ios-secrets-setup` for wiring and `scripts/write-release-config.sh` for
   release config. Release only a SHA with successful completed CI; tags must
   point to a commit reachable from the default branch. Read `ios-release-guide`.

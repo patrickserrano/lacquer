@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# check-bundle-secrets.sh — fail when any built bundle other than the app carries
+# verify-bundle-secrets.sh — fail when any built bundle other than the app carries
 # a key from the secrets template in its Info.plist.
 #
-# Usage: scripts/check-bundle-secrets.sh <secrets-template> <App.app> <dir>
+# Usage: scripts/verify-bundle-secrets.sh <secrets-template> <App.app> <dir>
 #   <secrets-template>  the committed xcconfig template, e.g. Secrets.xcconfig.example
 #   <App.app>           the app bundle's file name: the one bundle allowed the keys
 #   <dir>               a build products directory, or an archive's
@@ -47,15 +47,15 @@ app_name="$2"
 products="${3%/}"
 
 if [[ ! -f "$template" ]]; then
-  echo "::error::check-bundle-secrets: no secrets template at $template; nothing says which keys to look for" >&2
+  echo "::error::verify-bundle-secrets: no secrets template at $template; nothing says which keys to look for" >&2
   exit 2
 fi
 if [[ "$app_name" != *.app || "$app_name" == */* ]]; then
-  echo "::error::check-bundle-secrets: '$app_name' is not an app bundle's file name (expected Name.app)" >&2
+  echo "::error::verify-bundle-secrets: '$app_name' is not an app bundle's file name (expected Name.app)" >&2
   exit 2
 fi
 if [[ ! -d "$products" ]]; then
-  echo "::error::check-bundle-secrets: no directory at $products; nothing was built there to check" >&2
+  echo "::error::verify-bundle-secrets: no directory at $products; nothing was built there to check" >&2
   exit 2
 fi
 
@@ -68,7 +68,7 @@ while IFS= read -r key; do
 done < <(sed -nE 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)([[:space:]]*\[[^]]*\])*[[:space:]]*=.*/\1/p' "$template" |
   grep -v '^INFOPLIST_' | sort -u || true)
 if [[ ${#keys[@]} -eq 0 ]]; then
-  echo "::error::check-bundle-secrets: no keys parsed from $template" >&2
+  echo "::error::verify-bundle-secrets: no keys parsed from $template" >&2
   exit 2
 fi
 echo "secret keys (from $template): ${keys[*]}"
@@ -108,13 +108,13 @@ while IFS= read -r -d '' bundle; do
   plist="$bundle/Info.plist"
   [[ -f "$plist" ]] || plist="$bundle/Contents/Info.plist"
   if ! plutil -extract CFBundleIdentifier raw -o - "$plist" >/dev/null 2>&1; then
-    echo "::error::check-bundle-secrets: cannot read a CFBundleIdentifier from $rel's Info.plist; an unreadable bundle cannot be shown clean" >&2
+    echo "::error::verify-bundle-secrets: cannot read a CFBundleIdentifier from $rel's Info.plist; an unreadable bundle cannot be shown clean" >&2
     exit 2
   fi
   found="$(keys_in "$plist")"
   if [[ "$(basename "$bundle")" == "$app_name" ]] && ! nested "$rel"; then
     if [[ -z "$found" ]]; then
-      echo "::error::check-bundle-secrets: $rel carries none of the keys; the key list or the lookup is broken" >&2
+      echo "::error::verify-bundle-secrets: $rel carries none of the keys; the key list or the lookup is broken" >&2
       exit 2
     fi
     apps+=("$bundle")
@@ -131,11 +131,11 @@ while IFS= read -r -d '' bundle; do
 done <"$list"
 
 if [[ ${#apps[@]} -eq 0 ]]; then
-  echo "::error::check-bundle-secrets: no $app_name under $products; nothing proves the lookup works" >&2
+  echo "::error::verify-bundle-secrets: no $app_name under $products; nothing proves the lookup works" >&2
   exit 2
 fi
 if [[ $leaks -gt 0 ]]; then
-  echo "check-bundle-secrets: FAIL, $leaks of $checked non-app bundles carry secrets keys (only $app_name may)"
+  echo "verify-bundle-secrets: FAIL, $leaks of $checked non-app bundles carry secrets keys (only $app_name may)"
   exit 1
 fi
 if [[ $checked -eq 0 ]]; then
@@ -145,13 +145,13 @@ if [[ $checked -eq 0 ]]; then
     for dir in PlugIns Extensions Watch AppClips; do
       for entry in "$app/$dir"/*; do
         if [[ -e "$entry" ]]; then
-          echo "::error::check-bundle-secrets: ${app#"$products"/}/$dir holds ${entry##*/}, but no bundle besides the app was checked; the scan is broken" >&2
+          echo "::error::verify-bundle-secrets: ${app#"$products"/}/$dir holds ${entry##*/}, but no bundle besides the app was checked; the scan is broken" >&2
           exit 2
         fi
       done
     done
   done
-  echo "check-bundle-secrets: $app_name embeds no other bundle and none was built beside it; nothing else can carry the keys"
+  echo "verify-bundle-secrets: $app_name embeds no other bundle and none was built beside it; nothing else can carry the keys"
   exit 0
 fi
-echo "check-bundle-secrets: checked $checked non-app bundles, none carry secrets keys (${#apps[@]} $app_name allowed)"
+echo "verify-bundle-secrets: checked $checked non-app bundles, none carry secrets keys (${#apps[@]} $app_name allowed)"

@@ -466,7 +466,7 @@ template's key, and requires the shipped check to fail and name the watch app
 and the key. A check that stopped reading embedded bundles, or stopped deriving
 keys from the template, would pass it.
 """
-requires = ["bash", "plutil", "{root}/scripts/check-bundle-secrets.sh"]
+requires = ["bash", "plutil", "{root}/scripts/verify-bundle-secrets.sh"]
 file = "Secrets.xcconfig.example"
 content = """
 DOCTOR_PROBE_KEY = placeholder
@@ -484,7 +484,7 @@ bundle Probe.app com.example.probe
 plutil -insert DOCTOR_PROBE_KEY -string probe "$P/Probe.app/Info.plist"
 bundle Probe.app/Watch/ProbeWatch.app com.example.probe.watchkitapp
 plutil -insert DOCTOR_PROBE_KEY -string probe "$P/Probe.app/Watch/ProbeWatch.app/Info.plist"
-exec bash {root}/scripts/check-bundle-secrets.sh {dir}/Secrets.xcconfig.example Probe.app "$P"
+exec bash {root}/scripts/verify-bundle-secrets.sh {dir}/Secrets.xcconfig.example Probe.app "$P"
 ''']
 expect = "fail"
 # The leak line names the bundle and the key; a refusal for any other reason (a
@@ -500,7 +500,7 @@ and every other bundle would then read as clean for the same reason. A check
 that stopped requiring this would pass every project whatever its bundles
 carried.
 """
-requires = ["bash", "plutil", "{root}/scripts/check-bundle-secrets.sh"]
+requires = ["bash", "plutil", "{root}/scripts/verify-bundle-secrets.sh"]
 file = "Secrets.xcconfig.example"
 content = """
 DOCTOR_PROBE_KEY = placeholder
@@ -513,7 +513,7 @@ for b in Probe.app Probe.app/PlugIns/ProbeWidget.appex; do
   plutil -create xml1 "$P/$b/Info.plist"
   plutil -insert CFBundleIdentifier -string "com.example.${b##*/}" "$P/$b/Info.plist"
 done
-exec bash {root}/scripts/check-bundle-secrets.sh {dir}/Secrets.xcconfig.example Probe.app "$P"
+exec bash {root}/scripts/verify-bundle-secrets.sh {dir}/Secrets.xcconfig.example Probe.app "$P"
 ''']
 expect = "fail"
-expect_output = '::error::check-bundle-secrets: Probe\.app carries none of the keys; the key list or the lookup is broken'
+expect_output = '::error::verify-bundle-secrets: Probe\.app carries none of the keys; the key list or the lookup is broken'
