@@ -442,7 +442,7 @@ func TestActionLedgerNeverRuns(t *testing.T) {
 // One action, one ref, across everything the lacquer ships.
 //
 // Mixed precision is what turns a routine bump into churn against a managed
-// file. darndest-api-proxy #45 is the measured case: two project-owned workflows
+// file. whiskey-api-proxy #45 is the measured case: two project-owned workflows
 // stale at actions/checkout@v6.0.2 and one lacquer-managed workflow at v7, and
 // Dependabot normalised ALL THREE to v7.0.1 — the managed file was rewritten
 // because its neighbours disagreed with it, not because it was out of date.
@@ -467,7 +467,7 @@ func TestShippedWorkflowsUseOneRefPerAction(t *testing.T) {
 		if len(byAction[action]) > 1 {
 			t.Errorf("the profiles ship %s at %d different refs: %s.\n"+
 				"A project receiving both gets the mixed-precision state that made Dependabot rewrite a managed "+
-				"workflow in darndest-api-proxy #45. Pick one ref and use it everywhere.",
+				"workflow in whiskey-api-proxy #45. Pick one ref and use it everywhere.",
 				action, len(byAction[action]), strings.Join(byAction[action], ", "))
 		}
 	}

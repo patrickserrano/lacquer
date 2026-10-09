@@ -108,7 +108,7 @@ func TestWarningsInheritedFromProjectLevelPasses(t *testing.T) {
 	}
 }
 
-// TestWarningsMissingEverywhereFails is the kit / kilo / mindmint shape.
+// TestWarningsMissingEverywhereFails is the kit / kilo / uniform shape.
 func TestWarningsMissingEverywhereFails(t *testing.T) {
 	dir := pbxproj(t,
 		[]cfg{{id: "P1", name: "Debug"}, {id: "P2", name: "Release"}},

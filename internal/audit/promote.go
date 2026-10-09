@@ -50,7 +50,7 @@ var usesRef = regexp.MustCompile(`^(\s*(?:-\s+)?uses:\s+)([A-Za-z0-9][\w.-]*(?:/
 // drift. There is no partial answer: "mostly an action bump" is the shape that
 // would let a real local change ride into the lacquer unread.
 //
-// Duplicates collapse. darndest-api-proxy's Dependabot pull request of
+// Duplicates collapse. whiskey-api-proxy's Dependabot pull request of
 // 2026-09-11 rewrote `actions/checkout` on eight separate lines across three
 // workflows; the promotion is one edit, and reporting it eight times is how a
 // report stops being read.

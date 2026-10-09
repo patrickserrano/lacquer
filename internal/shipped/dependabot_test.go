@@ -872,7 +872,7 @@ func ecosystemBlocks(t *testing.T, rendered string) map[string]string {
 	return blocks
 }
 
-// TestDependabotGroupsLockstepFamiliesAheadOfRoutine covers the darndest-api-proxy
+// TestDependabotGroupsLockstepFamiliesAheadOfRoutine covers the whiskey-api-proxy
 // failure of 2026-09-11: Dependabot offered vitest 5.0.0 and @vitest/coverage-v8
 // 5.0.0 as two pull requests and both died at `npm install` with
 //

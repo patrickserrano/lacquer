@@ -1346,7 +1346,7 @@ func dependabotUpdates(cfg *config.Config) string {
 // "majors stay separate" rule above, and it exists because for these packages a
 // major is not a decision that CAN be taken one package at a time.
 //
-// Measured on darndest-api-proxy, 2026-09-11. Dependabot offered vitest 5.0.0
+// Measured on whiskey-api-proxy, 2026-09-11. Dependabot offered vitest 5.0.0
 // and @vitest/coverage-v8 5.0.0 as two pull requests, and BOTH failed before a
 // test ran:
 //

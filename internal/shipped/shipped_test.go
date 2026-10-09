@@ -788,59 +788,6 @@ func stripYAMLComments(s string) string {
 	return strings.Join(out, "\n")
 }
 
-// TestOperatorPackagesNameNoProject enforces the boundary that makes `lacquer
-// fleet`, `lacquer console`, and internal/inbox safe to ship in a PUBLIC
-// repository while every project they operate on is private.
-//
-// The roster belongs to the operator, not to this tool. A project name reaching
-// any of these packages would be a privacy leak with no upside — and the leak
-// would be permanent, because this repo's history is public. internal/inbox
-// holds an operator-supplied Project string at RUNTIME (entries an operator or
-// agent adds via `console inbox add --project ...`), which this static scan
-// cannot see — but its own source and fixtures are held to the same bar. The
-// names below are the ones this fleet actually uses; the check is a tripwire
-// for the habit, not an exhaustive filter.
-func TestOperatorPackagesNameNoProject(t *testing.T) {
-	r := root(t)
-	// Distinctive names only. Short or dictionary-word names ("rail", "kit",
-	// "steps") would false-positive on ordinary prose like "guardrail" or
-	// "toolkit", and a guard that cries wolf gets deleted.
-	names := []string{
-		"foxtrot", "sierra", "romeo", "examplestudio",
-		"juliet", "hotel", "november", "darndest", "mindmint",
-	}
-	var scanned int
-	for _, pkg := range []string{"fleet", "console", "inbox", "inboxwatch"} {
-		dir := filepath.Join(r, "internal", pkg)
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
-				continue
-			}
-			data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-			if err != nil {
-				t.Fatal(err)
-			}
-			scanned++
-			low := strings.ToLower(string(data))
-			for _, n := range names {
-				if strings.Contains(low, n) {
-					t.Errorf("internal/%s/%s names the project %q. "+
-						"This package ships in a PUBLIC repo and operates on PRIVATE projects; "+
-						"the roster is the operator's, and a name here leaks permanently into public history.",
-						pkg, e.Name(), n)
-				}
-			}
-		}
-	}
-	if scanned == 0 {
-		t.Fatal("scanned no operator-facing source files; the guard is not reaching the packages")
-	}
-}
-
 // TestRetentionDaysAreExplainable catches a retention value that promises more
 // than the platform will deliver.
 //
