@@ -111,7 +111,7 @@ GitHub only.
 A decision is one comment on a repository's one open issue labelled `decisions`.
 This repo means the repository the item's ref names, else its `project` mapped
 through the roster. Fleet-wide means the fleet repository (`$LACQUER_FLEET_REPO`,
-default `patrickserrano/fleet-ops`), so a decision that spans repositories lives in
+default `patrickserrano/the operator's fleet repo`), so a decision that spans repositories lives in
 one issue and not in a copy per project. The first decision in a repository
 creates the `decisions` label and an issue titled `Decisions`; two open
 `decisions` issues are refused by name. Every write goes through the same gate as
@@ -664,6 +664,6 @@ note distinguishing what's built from what's still aspirational.
 ## About
 
 Built by [Patrick Serrano](https://patrickserrano.com), an iOS engineer
-building apps under [PixelFox Studio](https://pixelfoxstudio.com). lacquer is
+building apps under a small independent studio. lacquer is
 the internal tooling that keeps engineering practice consistent across the
 whole fleet.

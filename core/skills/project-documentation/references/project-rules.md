@@ -69,7 +69,7 @@ shipped.
 
 **Unshipped means the lacquer stopped MANAGING it. It does not mean nothing
 calls it, and it is not an instruction to delete it.** `scripts/build-docs.sh` is the live
-example: in `dick-passport`, `flare`, `kit` and `skein`, `ios-docs.yml` runs it
+example: in `app-oscar`, `flare`, `kit` and `kilo`, `ios-docs.yml` runs it
 in CI and `.pre-commit-config.yaml` runs it on every commit, so deleting it
 breaks working pipelines.
 
