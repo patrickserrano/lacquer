@@ -120,7 +120,7 @@ $ rocketsim interact activate --id 23
 ok: true   screen_changed: true     # the sheet appears; the toggle stays at 0
 ```
 
-Verified against Shelf Life's iCloud sync toggle on 2026-09-11 with RocketSim
+Verified against November's iCloud sync toggle on 2026-09-11 with RocketSim
 16.4.6: `tap` returns `element_disabled`, `activate` presents the sheet, and the
 checkbox value is unchanged at `0` throughout because changing it was never what
 the control did.
@@ -169,7 +169,7 @@ backgrounds this fleet actually uses, the opacity that first reaches 3:1 ranges 
 This rule used to read "~white @ 30% opacity, **≥ 3:1**", and those two halves cannot
 both hold: 30% fails on every ground above. A project that followed the percentage got
 a border failing the ratio the same sentence demanded. That is exactly what happened in
-Rail — the design system never defined the token at all, so a view hand-rolled
+Charlie — the design system never defined the token at all, so a view hand-rolled
 `white.opacity(0.30)` straight from this line and shipped 2.68:1.
 
 Note the failure is worst on the *lighter* dark grounds, not the darkest: at 36% pure
@@ -177,7 +177,7 @@ black passes and `#3A3A3C` does not. Picking a percentage by eye on one screen i
 this goes wrong.
 
 So **measure each token against the surface it actually sits on, and assert it in a
-test.** A ratio written only in a doc comment cannot fail, and two of Rail's were
+test.** A ratio written only in a doc comment cannot fail, and two of Charlie's were
 wrong for months.
 
 Other rules:
