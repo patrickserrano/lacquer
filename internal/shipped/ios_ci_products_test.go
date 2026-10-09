@@ -136,6 +136,10 @@ var legacyIOSCITokens = map[string]string{
 	"{{IOS_CI_PACKAGE_DIRS}}":    "",
 	"{{IOS_CI_PACKAGE_SKIPS}}":   "",
 	"{{IOS_CI_LINT_COMPONENTS}}": "{{COMPONENT_PREFIX}}.",
+	// #522 U13. Both empty unless a product declares secrets: a project with no
+	// secrets template has no key list to check bundles against.
+	"{{IOS_CI_BUNDLE_SECRETS_BUILD}}": "",
+	"{{IOS_CI_BUNDLE_SECRETS_TEST}}":  "",
 }
 
 // iosCITokenRe finds every IOS_CI_* placeholder in the template.

@@ -2579,6 +2579,19 @@ func validateSecrets(label string, p Product) error {
 			return fmt.Errorf("%s: secrets_example %q is the secrets_file itself; the template is the committed file the release copies before writing real values into secrets_file", label, p.SecretsExample)
 		}
 	}
+	// Both paths are spliced, double-quoted, into rendered shell: the release
+	// writer's arguments and the bundle-secrets check. Quoting stops a space and
+	// nothing else; a $ or a backtick still expands. So they take xcodeprojVal,
+	// the charset already chosen for a quoted path, which admits the spaces a
+	// real folder carries and no shell metacharacter.
+	for _, f := range []struct{ field, val string }{
+		{"secrets_file", p.SecretsFile},
+		{"secrets_example", p.SecretsExample},
+	} {
+		if f.val != "" && !xcodeprojVal.MatchString(filepath.ToSlash(f.val)) {
+			return fmt.Errorf("%s: %s %q contains characters that are unsafe in a shell command (allowed: letters, digits, space, . _ - and /)", label, f.field, f.val)
+		}
+	}
 	return nil
 }
 

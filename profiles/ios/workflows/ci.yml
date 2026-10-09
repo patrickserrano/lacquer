@@ -1343,7 +1343,7 @@ jobs:
             echo "::error::Release build failed — raw xcodebuild tail:"
             grep -iE 'error:|fatal|failed|ld:|actool|CodeSign' xcodebuild-release.log | tail -60
             exit 1
-          }
+          }{{IOS_CI_BUNDLE_SECRETS_BUILD}}
 
   test:
     name: Test{{IOS_CI_PRODUCT_SUFFIX}}
@@ -2046,7 +2046,7 @@ jobs:
             exit $EXIT_CODE
           else
             echo "test_result=passed" >> "$GITHUB_OUTPUT"
-          fi{{IOS_CI_VERIFY_SELECTORS}}
+          fi{{IOS_CI_VERIFY_SELECTORS}}{{IOS_CI_BUNDLE_SECRETS_TEST}}
 
       - name: Collect Simulator Diagnostics
         if: failure()
