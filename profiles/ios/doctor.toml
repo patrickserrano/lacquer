@@ -355,6 +355,33 @@ expect = "fail"
 expect_output = '::error::write-release-config: DOCTOR_PROBE_RC_KEY does not match its declared shape appl_\*'
 
 [[probe]]
+name = "the release refuses a value still holding its template placeholder"
+why = """
+The writer seeds the file from the committed `.example` and replaces only the
+keys the manifest declares. A key added to the template later, and never
+declared, ships as its template text, and a template line like
+`your-api-key` is non-empty, so nothing before this check looks at it. A
+declared secret that was set by copying the template is the same failure one
+step earlier. Either way the archive builds, signs and uploads with that
+service unconfigured.
+
+This probe seeds a template with one undeclared `your-` placeholder, supplies
+a real value for the one declared key, and requires the release to stop and
+name the undeclared key.
+"""
+requires = ["bash", "{root}/scripts/write-release-config.sh"]
+file = "Secrets.xcconfig.example"
+content = """
+DOCTOR_PROBE_RC_KEY = appl_xxxxxxxxxxxxxxxx
+DOCTOR_PROBE_SEEDED_KEY = your-probe-key
+"""
+argv = ["bash", "-c", "DOCTOR_PROBE_RC_KEY=appl_real exec bash {root}/scripts/write-release-config.sh {dir}/Secrets.xcconfig DOCTOR_PROBE_RC_KEY=appl_*"]
+expect = "fail"
+# Names the seeded key and ONLY that key: a writer that rejected the real,
+# declared one instead would match a looser pattern.
+expect_output = '::error::write-release-config: \S*Secrets\.xcconfig still holds a placeholder for: DOCTOR_PROBE_SEEDED_KEY\n'
+
+[[probe]]
 name = "the release escapes a URL secret so xcconfig cannot truncate it"
 why = """
 xcconfig treats `//` as the start of a comment, so a bare `https://host` value

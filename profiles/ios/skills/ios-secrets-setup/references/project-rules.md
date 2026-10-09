@@ -50,7 +50,7 @@ archives with the committed placeholders** — declare them.
 
 `release.yml` then runs `scripts/write-release-config.sh`, which seeds the
 committed `<secrets_file>.example` and substitutes the declared keys into it.
-Four things it does that a hand-written `sed` step does not:
+Five things it does that a hand-written `sed` step does not:
 
 - **Fails closed on an unset OR empty secret.** An unset GitHub secret expands
   to the empty string, and an empty xcconfig value is not an error to
@@ -58,6 +58,15 @@ Four things it does that a hand-written `sed` step does not:
 - **Fails closed on a wrong-shaped value**, per `secret_formats`. The two ways
   these go wrong in practice — pasting the other app's key, and leaving Google's
   public test AdMob id in place — both produce perfectly non-empty values.
+- **Fails closed on a value still holding its template placeholder.** A
+  declared secret equal to the `.example`'s value for that key, or any key
+  (declared or only seeded) whose value is an obvious placeholder (`your-…`,
+  `your_…`, `CHANGE-ME`, `changeme`, `<…>`, in any case) stops the release,
+  naming the key. A key added to the `.example` later and never declared is
+  the usual cause: declare it, or, if it is not a secret, put the real value
+  in the `.example`. A real non-secret default (`A-DEV-0000000000`) or an empty
+  value is not a placeholder and passes. A product that declares no secrets
+  only seeds the file for its sibling and is not checked.
 - **Escapes `//` as `/$()/`**, because xcconfig treats `//` as the start of a
   comment. A bare `https://host` truncates to `https:`, which is non-empty, so
   every accessor that only tests for blank passes it through and the service is
