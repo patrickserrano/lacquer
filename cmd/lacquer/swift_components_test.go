@@ -195,3 +195,48 @@ func TestAuditSaysStraySwiftWasNotCheckedOutsideGit(t *testing.T) {
 		t.Errorf("audit does not say the stray check did not run:\n%s", out)
 	}
 }
+
+// #522 U4b: `swift-components` shows what a component's `packages` list adds to
+// the build, separately from the packages under package components, and the
+// check still finds nothing stray: the app lints the listed package's files.
+func TestSwiftComponentsListsPackagesAComponentDeclares(t *testing.T) {
+	dir := fixtureCopy(t, "multiswift")
+	p := filepath.Join(dir, ".lacquer.toml")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's app component gains the package that lives under it.
+	edited := strings.Replace(string(b), "path = \"ios\"\nprofiles = [\"ios\"]\nstack = \"ios\"\n",
+		"path = \"ios\"\nprofiles = [\"ios\"]\nstack = \"ios\"\npackages = [\"Packages/MultiswiftCore\"]\n", 1)
+	if edited == string(b) {
+		t.Fatal("the fixture's ios component did not take the packages line")
+	}
+	if err := os.WriteFile(p, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out := swiftComponents(t, dir, nil)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	_, after, found := strings.Cut(out, "listed in a component's packages")
+	if !found || !strings.Contains(after, "ios/Packages/MultiswiftCore") {
+		t.Errorf("the listed package is not shown in its own section:\n%s", out)
+	}
+	before, _, _ := strings.Cut(out, "listed in a component's packages")
+	if strings.Contains(before, "ios/Packages/MultiswiftCore") {
+		t.Errorf("a listed package is shown under 'package components':\n%s", out)
+	}
+
+	// The same fixture without the list prints no such section.
+	_, out = swiftComponents(t, fixtureCopy(t, "multiswift"), nil)
+	if strings.Contains(out, "listed in a component's packages") {
+		t.Errorf("a project listing nothing prints the section:\n%s", out)
+	}
+
+	// Still no stray: the listed package's files are the app's.
+	_, out = swiftComponents(t, dir, map[string]string{"GITHUB_ACTIONS": "true"}, "--check")
+	if strings.Contains(out, "MultiswiftCore") {
+		t.Errorf("--check reports the listed package's files:\n%s", out)
+	}
+}

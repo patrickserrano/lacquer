@@ -189,12 +189,20 @@ type Package struct {
 	// for the host, macOS, so the Lint job cannot build it and says so instead
 	// (building it for iOS is a follow-up to #522).
 	IOSOnly bool
+	// Listed is true when a Swift component's `packages` names it (#522 U4b),
+	// whether or not Packages would also have found it by depth.
+	Listed bool
 }
 
-// Packages lists the SwiftPM packages under package components: every directory
+// Packages lists the SwiftPM packages the Lint job builds: every directory
 // holding a Package.swift directly inside a package component, or one level
-// below it. Packages under the app component are not listed: the Xcode project
-// builds them in the Test job.
+// below it, plus every package a Swift component lists in its `packages`
+// (#522 U4b). A package found both ways is returned once, marked Listed.
+//
+// Packages under the app component are built only when listed: otherwise the
+// Xcode project builds them in the Test job, which compiles the package but not
+// its tests. A listed package is not a component, so nothing here changes what
+// is linted: the declaring component still lints its files.
 func Packages(root string, cfg *config.Config) ([]Package, error) {
 	var comps []Component
 	for _, c := range Components(cfg) {
@@ -202,33 +210,77 @@ func Packages(root string, cfg *config.Config) ([]Package, error) {
 			comps = append(comps, c)
 		}
 	}
-	if len(comps) == 0 {
+	listed := listedDirs(cfg)
+	if len(comps) == 0 && len(listed) == 0 {
 		return nil, nil
 	}
-	manifests, err := files(root, "*Package.swift")
-	if err != nil {
-		return nil, err
-	}
-	var pkgs []Package
-	for _, m := range manifests {
-		if path.Base(m) != "Package.swift" {
-			continue
+	byDir := map[string]*Package{}
+	read := func(rel string) (Package, error) {
+		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel), "Package.swift"))
+		if err != nil {
+			return Package{}, err
 		}
-		dir := path.Dir(m)
-		for _, c := range comps {
-			if dir == c.Path || path.Dir(dir) == c.Path {
-				src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(m)))
-				if err != nil {
-					return nil, err
+		return Package{Dir: rel, IOSOnly: !BuildsOnMacOS(string(src))}, nil
+	}
+	if len(comps) > 0 {
+		manifests, err := files(root, "*Package.swift")
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range manifests {
+			if path.Base(m) != "Package.swift" {
+				continue
+			}
+			dir := path.Dir(m)
+			for _, c := range comps {
+				if dir == c.Path || path.Dir(dir) == c.Path {
+					p, err := read(dir)
+					if err != nil {
+						return nil, err
+					}
+					byDir[dir] = &p
+					break
 				}
-				pkgs = append(pkgs, Package{Dir: dir, IOSOnly: !BuildsOnMacOS(string(src))})
-				break
 			}
 		}
+	}
+	for _, dir := range listed {
+		p, ok := byDir[dir]
+		if !ok {
+			q, err := read(dir)
+			if err != nil {
+				return nil, fmt.Errorf("package %s listed in a component's packages: %w", dir, err)
+			}
+			p = &q
+			byDir[dir] = p
+		}
+		p.Listed = true
+	}
+	pkgs := make([]Package, 0, len(byDir))
+	for _, p := range byDir {
+		pkgs = append(pkgs, *p)
 	}
 	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Dir < pkgs[j].Dir })
 	return pkgs, nil
 }
+
+// listedDirs is every `packages` entry of every Swift component as a
+// slash-separated path from the repository root, in manifest order.
+func listedDirs(cfg *config.Config) []string {
+	var dirs []string
+	for _, c := range cfg.Components {
+		if !isSwift(c) {
+			continue
+		}
+		base := path.Clean(strings.TrimSuffix(c.Path, "/"))
+		for _, e := range c.Packages {
+			dirs = append(dirs, path.Join(base, path.Clean(e)))
+		}
+	}
+	return dirs
+}
+
+func isSwift(c config.Component) bool { return c.Stack == "ios" || hasIOSProfile(c) }
 
 // PackageDirs is the directories of Packages, built or not.
 func PackageDirs(root string, cfg *config.Config) ([]string, error) {
