@@ -134,9 +134,9 @@ func TestSwiftLintRenderAddsRulesAndKeepsTheProfile(t *testing.T) {
 		"sentry_import_confined": {
 			Name:     "import Sentry confined",
 			Regex:    `^\s*import\s+Sentry\s*$`,
-			Message:  `Only "DiagnosticReporter" may import Sentry`,
+			Message:  `Only "ErrorReporter" may import Sentry`,
 			Severity: "error",
-			Excluded: []string{`.*Core/Diagnostics/DiagnosticReporter\.swift$`, `.*Tests/.*\.swift$`},
+			Excluded: []string{`.*Core/Reporting/ErrorReporter\.swift$`, `.*Tests/.*\.swift$`},
 		},
 		"no_repository_in_viewmodel": {
 			Regex:    `(any|some)\s+\w+Repository`,
@@ -178,9 +178,9 @@ func TestSwiftLintRenderAddsRulesAndKeepsTheProfile(t *testing.T) {
 	want := map[string]any{
 		"name":     "import Sentry confined",
 		"regex":    `^\s*import\s+Sentry\s*$`,
-		"message":  `Only "DiagnosticReporter" may import Sentry`,
+		"message":  `Only "ErrorReporter" may import Sentry`,
 		"severity": "error",
-		"excluded": []any{`.*Core/Diagnostics/DiagnosticReporter\.swift$`, `.*Tests/.*\.swift$`},
+		"excluded": []any{`.*Core/Reporting/ErrorReporter\.swift$`, `.*Tests/.*\.swift$`},
 	}
 	if !reflect.DeepEqual(ac["sentry_import_confined"], want) {
 		t.Errorf("sentry_import_confined rendered as %#v, want %#v", ac["sentry_import_confined"], want)

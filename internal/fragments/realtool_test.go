@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
 // The appended JSON has to be what `biome format` would write, because a synced
@@ -19,9 +21,7 @@ func TestRenderedJSONIsBiomeFormatted(t *testing.T) {
 		t.Skip("biome not installed")
 	}
 	dir := t.TempDir()
-	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
+	gittest.Init(t, dir, "-q")
 	profile := strings.ReplaceAll(string(shipped(t, "profiles/web/config/biome.json")), "{{COMPONENT_TO_ROOT}}", ".")
 	biome, err := RenderBiomeOverrides([]byte(profile), probedWeb(t), override(t, restrictImports+
 		"\n[[web.biome_overrides]]\nincludes=['**']\nlinter.rules.correctness.noUnusedFunctionParameters='error'\n"))
