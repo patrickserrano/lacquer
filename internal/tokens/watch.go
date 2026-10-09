@@ -130,9 +130,43 @@ func CIWatchTestJob(cfg *config.Config, prefix string) string {
 		"@@COMPONENT_PREFIX@@", prefix,
 		"@@XCODEPROJ@@", cfg.Project.Xcodeproj,
 		"@@WATCH_RUNTIME_OVERRIDE@@", watchRuntimeOverride(cfg),
+		"@@SECRETS_SEED@@", watchSecretsSeed(cfg.Products(), prefix),
 	).Replace(watchJobBody)
 	b.WriteString(body)
 	return b.String()
+}
+
+// watchSecretsSeed seeds each declared secrets_file whose product names its
+// template with secrets_example, through the release's own writer with no keys
+// — so the watch job resolves the template exactly as the release does, and
+// refuses exactly as it does when the declared template is missing.
+//
+// Only declared templates. Without one the release reads the file beside the
+// destination, and the find below already seeds every such file, so a line here
+// would change the rendered job of every project that never declares one for no
+// difference in what it does. It runs BEFORE the find for the same reason the
+// release ignores the adjacent file when a template is declared: the declared
+// template is the answer, and seeding the adjacent one first would win by order.
+func watchSecretsSeed(products []config.Product, prefix string) string {
+	var b strings.Builder
+	seen := map[string]bool{}
+	for _, p := range products {
+		if len(p.Secrets) == 0 || p.SecretsExample == "" {
+			continue
+		}
+		d := prefix + p.SecretsPath()
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		fmt.Fprintf(&b, "\n          [ -f %q ] || scripts/write-release-config.sh %s%q", d, exampleFlag(p, prefix), d)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n          #\n          # Declared templates first: a secrets_file whose template is named by\n" +
+		"          # secrets_example is seeded from it, by the release's own writer, so a\n" +
+		"          # base configuration outside the template's folder still exists." + b.String()
 }
 
 // watchJobHeader is everything up to the matrix legs.
@@ -230,7 +264,7 @@ const watchJobBody = `
           # repeated here: it resolves against the iOS scheme's directory, and a
           # watch scheme's folder is somewhere else -- so copying it would put a
           # file where nothing reads it and exit 0, which is worse than not
-          # trying.
+          # trying.@@SECRETS_SEED@@
           find @@COMPONENT_PREFIX@@. -name 'Secrets.xcconfig.example' \
             -not -path '*/DerivedData*' -not -path '*/build/*' -not -path '*/.build/*' \
             -print0 2>/dev/null | while IFS= read -r -d '' ex; do

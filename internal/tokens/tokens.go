@@ -1081,6 +1081,17 @@ func ProductChoices(products []config.Product) string {
 	return b.String()
 }
 
+// exampleFlag is the writer's --example argument for a product that declares
+// secrets_example, with a trailing space, or "" for one that does not. Empty
+// rather than an explicit default, so every project that never declares one
+// renders the step it always has, byte for byte.
+func exampleFlag(p config.Product, prefix string) string {
+	if p.SecretsExample == "" {
+		return ""
+	}
+	return fmt.Sprintf("--example=%q ", prefix+p.SecretsExample)
+}
+
 // ProductSecrets renders the release-time configuration steps: for each product
 // declaring secrets, a step gated on that product's matrix leg which hands the
 // real values to scripts/write-release-config.sh.
@@ -1116,14 +1127,17 @@ func ProductSecrets(products []config.Product, prefix string) string {
 	// file, and `xcodebuild archive` fails before compiling when that file does
 	// not exist — so it gets a seed-only step rather than nothing.
 	var dests []string
-	seen := map[string]bool{}
+	// The template flag each destination is written with, taken from the
+	// product that declares it. config.Load refuses two products naming one
+	// destination with different templates, so the first is the only one.
+	flags := map[string]string{}
 	for _, p := range products {
 		if len(p.Secrets) == 0 {
 			continue
 		}
 		d := prefix + p.SecretsPath()
-		if !seen[d] {
-			seen[d] = true
+		if _, ok := flags[d]; !ok {
+			flags[d] = exampleFlag(p, prefix)
 			dests = append(dests, d)
 		}
 	}
@@ -1154,7 +1168,7 @@ func ProductSecrets(products []config.Product, prefix string) string {
 			fmt.Fprintf(&b, "        if: matrix.product.name == '%s'\n", gate)
 			b.WriteString("        run: |\n")
 			for _, d := range dests {
-				fmt.Fprintf(&b, "          scripts/write-release-config.sh %q\n", d)
+				fmt.Fprintf(&b, "          scripts/write-release-config.sh %s%q\n", flags[d], d)
 			}
 			continue
 		}
@@ -1180,7 +1194,7 @@ func ProductSecrets(products []config.Product, prefix string) string {
 		// The values reach the script through the environment, never as
 		// arguments: a command line is readable by every process on the runner,
 		// and this one runs on shared, long-lived hardware.
-		fmt.Fprintf(&b, "          scripts/write-release-config.sh %q \\\n", prefix+p.SecretsPath())
+		fmt.Fprintf(&b, "          scripts/write-release-config.sh %s%q \\\n", exampleFlag(p, prefix), prefix+p.SecretsPath())
 		for i, k := range keys {
 			arg := k
 			if pattern, ok := p.SecretFormats[k]; ok {

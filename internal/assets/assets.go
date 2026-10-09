@@ -198,7 +198,7 @@ type claim struct {
 // Dest, so the output (and the winning Src on any same-named profile collision)
 // is deterministic.
 func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
-	out, _, err := plan(lacquerRoot, cfg)
+	out, _, _, err := plan(lacquerRoot, cfg)
 	return out, err
 }
 
@@ -211,8 +211,16 @@ func Plan(lacquerRoot string, cfg *config.Config) ([]Asset, error) {
 // Nothing could see that before, because Plan drops excluded destinations on the
 // floor and every consumer only ever saw the survivors.
 func Suppressed(lacquerRoot string, cfg *config.Config) ([]string, error) {
-	_, sup, err := plan(lacquerRoot, cfg)
+	_, sup, _, err := plan(lacquerRoot, cfg)
 	return sup, err
+}
+
+// SeedOnce returns the destinations [project].seed_once matched in the lacquer's
+// plan, whether or not the project has them yet. An entry matching none of them
+// names a file the lacquer does not ship, which audit reports as stale.
+func SeedOnce(lacquerRoot string, cfg *config.Config) ([]string, error) {
+	_, _, seeded, err := plan(lacquerRoot, cfg)
+	return seeded, err
 }
 
 // Shipped returns every destination the lacquer would write into this project if
@@ -240,7 +248,11 @@ func Shipped(lacquerRoot string, cfg *config.Config) ([]string, error) {
 	open := *cfg
 	open.Project.Exclude = nil
 	open.Project.Retired = nil
-	out, _, err := plan(lacquerRoot, &open)
+	// And seed-once, for the same reason: a seeded file is still shipped, the
+	// project merely owns its content. Without this, a lock written before the
+	// file was declared seed-once would report it as an orphan to delete.
+	open.Project.SeedOnce = nil
+	out, _, _, err := plan(lacquerRoot, &open)
 	if err != nil {
 		return nil, err
 	}
@@ -253,9 +265,12 @@ func Shipped(lacquerRoot string, cfg *config.Config) ([]string, error) {
 
 // plan builds the asset list, returning both the assets to copy and the
 // destinations [project].exclude suppressed.
-func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
+func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, []string, error) {
 	var out []Asset
 	var suppressed []string
+	// seeded is every destination [project].seed_once matched, present or not:
+	// the set that tells a live seed_once entry from one naming nothing.
+	var seeded []string
 	// seen records, per destination, which profile claimed it and where the
 	// resulting Asset sits in `out` (-1 when the destination was dropped by an
 	// exclusion or by retirement, so a later claimant has nothing to merge into).
@@ -335,6 +350,18 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 				return
 			}
 		}
+		// Seed-once: the project owns this file's content. Planned like any
+		// asset while it is absent, so a fresh project still receives the
+		// lacquer's copy; dropped once it exists, so neither sync (which writes
+		// the plan) nor audit and the lock (which hash the plan) ever compare it
+		// against the lacquer again. Deciding it here, in the one function all
+		// three read, is what keeps them from disagreeing about the file.
+		if cfg.Project.SeedsOnce(dest) {
+			seeded = append(seeded, dest)
+			if present(cfg.Root, dest) {
+				return
+			}
+		}
 		out = append(out, Asset{Src: src, Dest: dest, Prefix: prefix})
 		seen[dest] = placed{idx: len(out) - 1, profile: profile}
 	}
@@ -347,7 +374,7 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 		if tool == "codex" {
 			if err := walkInto(filepath.Join(lacquerRoot, "core", "codex"),
 				func(src, rel string) { add(src, filepath.Join(".codex", rel), "", "") }); err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 		}
 	}
@@ -360,24 +387,24 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 			// Defense in depth: config.Load allowlists tool names, and every known
 			// tool has a dir here. Fail loud rather than write skills to the project
 			// root if the two ever drift.
-			return nil, nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
+			return nil, nil, nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
 		}
 		if err := walkInto(filepath.Join(lacquerRoot, "core", "skills"),
 			func(src, rel string) { add(src, filepath.Join(dir, rel), "", "") }); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "commands"),
 		func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), "", "") }); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "agents"),
 		func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), "", "") }); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "root"),
 		func(src, rel string) { add(src, rel, "", "") }); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// profile -> owning component path (config guarantees one component per profile).
@@ -399,27 +426,27 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 		for _, tool := range tools {
 			dir, ok := ToolSkillsDir[tool]
 			if !ok {
-				return nil, nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
+				return nil, nil, nil, fmt.Errorf("no skills directory mapped for tool %q", tool)
 			}
 			if err := walkInto(filepath.Join(base, "skills"),
 				func(src, rel string) { add(src, filepath.Join(dir, rel), prefix, p) }); err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 		}
 		if err := walkInto(filepath.Join(base, "commands"),
 			func(src, rel string) { add(src, filepath.Join(".claude", "commands", rel), prefix, p) }); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if err := walkInto(filepath.Join(base, "agents"),
 			func(src, rel string) { add(src, filepath.Join(".claude", "agents", rel), prefix, p) }); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		// workflows -> .github/workflows/<p>-<file> (stack-prefixed; flat)
 		if err := walkInto(filepath.Join(base, "workflows"),
 			func(src, rel string) {
 				add(src, filepath.Join(".github", "workflows", p+"-"+filepath.Base(rel)), prefix, p)
 			}); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		// workflows the lacquer ships but does NOT install unless asked, same
 		// destination shape as above. Opt in with [project].optional_workflows.
@@ -433,7 +460,7 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 			if _, err := os.Stat(src); err != nil {
 				// A typo here would silently install nothing, which is the
 				// failure this whole mechanism is meant to avoid.
-				return nil, nil, fmt.Errorf("[project].optional_workflows: %s has no optional workflow %q", p, want)
+				return nil, nil, nil, fmt.Errorf("[project].optional_workflows: %s has no optional workflow %q", p, want)
 			}
 			add(src, filepath.Join(".github", "workflows", p+"-"+want+".yml"), prefix, p)
 		}
@@ -441,7 +468,7 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 		// profile root tree -> project root (verbatim relative paths)
 		if err := walkInto(filepath.Join(base, "root"),
 			func(src, rel string) { add(src, rel, prefix, p) }); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 
@@ -451,16 +478,16 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 		for _, p := range c.Profiles {
 			if err := walkInto(filepath.Join(lacquerRoot, "profiles", p, "config"),
 				func(src, rel string) { add(src, filepath.Join(c.Path, rel), prefix, p) }); err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 		}
 	}
 
 	if retireErr != nil {
-		return nil, nil, retireErr
+		return nil, nil, nil, retireErr
 	}
 	if collideErr != nil {
-		return nil, nil, collideErr
+		return nil, nil, nil, collideErr
 	}
 	// A merged destination's fragment order decides which profile's file header
 	// and hook comments lead the composed file, so it is pinned to sorted profile
@@ -476,7 +503,18 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 		out[i].Prefix = out[i].Merged[0].prefix
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Dest < out[j].Dest })
-	return out, suppressed, nil
+	return out, suppressed, seeded, nil
+}
+
+// present reports whether dest already exists in the project at root. Lstat, so
+// a symlink counts as present and is never written through. A config built in
+// memory has no root, and nothing in it is present.
+func present(root, dest string) bool {
+	if root == "" {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(root, filepath.FromSlash(dest)))
+	return err == nil
 }
 
 // Copy distributes assets into projectRoot. It first requires projectRoot to be

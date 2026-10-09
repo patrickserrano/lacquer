@@ -382,6 +382,26 @@ expect = "fail"
 expect_output = '::error::write-release-config: \S*Secrets\.xcconfig still holds a placeholder for: DOCTOR_PROBE_SEEDED_KEY\n'
 
 [[probe]]
+name = "the release refuses declared keys with no template to seed from"
+why = """
+The writer seeds the file from the committed template and then sets the
+declared keys. With keys declared and no template found it used to write the
+declared keys alone: every other key the project reads was left undefined, and
+the placeholder check had nothing to compare a secret against. That release
+builds, signs and uploads. It is what a project got for keeping its template
+anywhere but beside the destination.
+
+This probe supplies a real value for a declared key, commits no template, and
+requires the release to stop and say where it looked.
+"""
+requires = ["bash", "{root}/scripts/write-release-config.sh"]
+argv = ["bash", "-c", "DOCTOR_PROBE_RC_KEY=appl_real exec bash {root}/scripts/write-release-config.sh {dir}/Secrets.xcconfig DOCTOR_PROBE_RC_KEY=appl_*"]
+expect = "fail"
+# Names the path it looked in, so a refusal for any other reason (a missing
+# bash, a syntax error, the presence check) cannot read as this one working.
+expect_output = '::error::write-release-config: release keys are declared for \S*Secrets\.xcconfig but no template was found: looked beside it at \S*Secrets\.xcconfig\.example'
+
+[[probe]]
 name = "the release escapes a URL secret so xcconfig cannot truncate it"
 why = """
 xcconfig treats `//` as the start of a comment, so a bare `https://host` value
@@ -396,9 +416,14 @@ code path that wrote REAL values did not apply it — so the file a human filled
 in by hand was safe and the one CI generated was not.
 
 This probe writes a URL-valued secret and requires BOTH that the escape was
-applied and that no bare `//` survived in the file.
+applied and that no bare `//` survived in the file. It seeds from a committed
+template, because a release with declared keys and no template is refused.
 """
 requires = ["bash", "{root}/scripts/write-release-config.sh"]
+file = "Secrets.xcconfig.example"
+content = """
+DOCTOR_PROBE_DSN = https:/$()/example.invalid/0
+"""
 argv = ["bash", "-c", '''
 set -e
 export DOCTOR_PROBE_DSN='https://abc@o0.ingest.sentry.io/1'

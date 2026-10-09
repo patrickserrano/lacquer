@@ -3,10 +3,12 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -38,6 +40,26 @@ type Project struct {
 	Stack   string      `toml:"stack"`
 	Tools   []string    `toml:"tools"`
 	Exclude []Exclusion `toml:"exclude"`
+	// SeedOnce names files the lacquer ships whose CONTENT belongs to the
+	// project: sync writes one when it is absent and never touches it again, and
+	// audit does not compare it against the lacquer.
+	//
+	//	seed_once = ["ios/Secrets.xcconfig.example"]
+	//
+	// The case it exists for is the ios profile's Secrets.xcconfig.example. The
+	// lacquer's copy is a generic template; a project's copy names that app's own
+	// keys, which is the whole reason it is committed. The only way to say "this
+	// is ours now" was [project].exclude, and an exclusion is the wrong
+	// statement: it stops the lacquer seeding the file at all, so a fresh clone
+	// of the profile gets no template, and it reads as an opt-out from oversight
+	// when nothing about the file is being opted out of.
+	//
+	// Exact paths only, never a directory prefix. A prefix would freeze every
+	// file under it, including ones the lacquer adds later, out of every future
+	// improvement with nobody having named them. No reason or expiry either:
+	// unlike an exclusion this is not debt with a term, it is a statement about
+	// who owns the file's content, and it does not stop being true on a date.
+	SeedOnce []string `toml:"seed_once"`
 	// RetiredSecrets names GitHub Actions secrets this project has deliberately
 	// stopped using. The secret-drop guard subtracts them, so a genuine
 	// retirement is a one-line reviewable statement rather than a reason to
@@ -197,8 +219,9 @@ type Project struct {
 	// for the same reason as extra_test_targets: which product the watch bundle
 	// belongs to would have to be guessed.
 	WatchTests *WatchTests `toml:"watch_tests"`
-	// Secrets, SecretsFile and SecretFormats are the single-product spelling of
-	// [[product]].secrets, .secrets_file and .secret_formats, folded into the
+	// Secrets, SecretsFile, SecretsExample and SecretFormats are the
+	// single-product spelling of [[product]].secrets, .secrets_file,
+	// .secrets_example and .secret_formats, folded into the
 	// product Products() synthesises when a manifest declares no [[product]]
 	// block — exactly as ExtraTestTargets and WatchTests are. See Product.Secrets
 	// for what each one means; nothing about them differs here.
@@ -215,9 +238,10 @@ type Project struct {
 	// merged: which product the keys belong to would have to be guessed, and a
 	// paid app's key written into the free app's build is a bad release, not a
 	// failed one.
-	Secrets       map[string]string `toml:"secrets"`
-	SecretsFile   string            `toml:"secrets_file"`
-	SecretFormats map[string]string `toml:"secret_formats"`
+	Secrets        map[string]string `toml:"secrets"`
+	SecretsFile    string            `toml:"secrets_file"`
+	SecretsExample string            `toml:"secrets_example"`
+	SecretFormats  map[string]string `toml:"secret_formats"`
 }
 
 // Retirement is the [project].retired entry: a project the fleet keeps but stops
@@ -545,6 +569,13 @@ func (p Project) Excludes(dest string) bool {
 	return false
 }
 
+// SeedsOnce reports whether dest (a project-relative asset path) is declared in
+// [project].seed_once. Exact match only — see Project.SeedOnce for why there is
+// no prefix form.
+func (p Project) SeedsOnce(dest string) bool {
+	return slices.Contains(p.SeedOnce, filepath.ToSlash(dest))
+}
+
 // Matches reports whether dest falls under this exclusion's path.
 func (e Exclusion) Matches(dest string) bool {
 	pat := strings.TrimSuffix(e.Path, "/")
@@ -712,6 +743,30 @@ func validateProject(p Project) error {
 			if !e.Attributed() {
 				return fmt.Errorf("[project].exclude %q has an until but no reason (an expiry no one can interpret cannot be reviewed)", e.Path)
 			}
+		}
+	}
+	seenSeed := map[string]bool{}
+	for _, s := range p.SeedOnce {
+		// The same path rules as an exclusion: relative, inside the project, no
+		// traversal. A trailing slash is refused rather than trimmed, because it
+		// is the spelling of the directory prefix this key deliberately lacks.
+		if strings.HasSuffix(s, "/") {
+			return fmt.Errorf("[project].seed_once %q names a directory; seed_once takes exact file paths only", s)
+		}
+		// And in clean form, because the match is exact: "./ios/x" or "ios//x"
+		// would name a file and then match nothing the planner produces.
+		if err := validateComponentPath(s); err != nil || s == "." || filepath.ToSlash(filepath.Clean(s)) != s {
+			return fmt.Errorf("invalid [project].seed_once entry %q: must be a clean relative file path inside the project", s)
+		}
+		if seenSeed[s] {
+			return fmt.Errorf("[project].seed_once names %q twice", s)
+		}
+		seenSeed[s] = true
+		// Excluded AND seed-once is two opposite answers to "does the lacquer
+		// write this file". Exclusion wins in the planner, so the seed_once entry
+		// would be dead text that reads as a live decision.
+		if p.Excludes(s) {
+			return fmt.Errorf("[project].seed_once %q is also under [project].exclude; an excluded file is never seeded. Keep one: seed_once if the project should get the lacquer's copy once and own it after", s)
 		}
 	}
 	// Retirement turns off every scheduled asset the lacquer ships. A half-written
@@ -1101,6 +1156,19 @@ type Product struct {
 	// root. Defaults to Secrets.xcconfig, which is what the profile's example
 	// file and .gitignore already assume.
 	SecretsFile string `toml:"secrets_file"`
+	// SecretsExample is the committed template the release seeds SecretsFile
+	// from, relative to the component root like SecretsFile. Optional: it
+	// defaults to SecretsFile + ".example", beside the destination.
+	//
+	// It exists because "beside the destination" is not where every project
+	// keeps it. A project whose base configuration lives in the app's own folder
+	// and whose one template sits at the component root had the template
+	// silently skipped: the release wrote the declared keys and nothing else,
+	// and the check that a secret is not still the template's placeholder had
+	// nothing to compare against. The writer now refuses outright when keys are
+	// declared and no template is found, so a project in that layout must name
+	// its template here rather than keep a second copy in step by hand.
+	SecretsExample string `toml:"secrets_example"`
 	// SecretFormats optionally constrains the SHAPE of a secret's value, as a
 	// shell glob checked at release time: "appl_*", "ca-app-pub-*~*", or
 	// "https://*@*/*" for a Sentry DSN.
@@ -1513,6 +1581,15 @@ func (p Product) SecretsPath() string {
 	return "Secrets.xcconfig"
 }
 
+// SecretsTemplate is the committed template the release seeds SecretsPath
+// from: the declared secrets_example, or the file beside the destination.
+func (p Product) SecretsTemplate() string {
+	if p.SecretsExample != "" {
+		return p.SecretsExample
+	}
+	return p.SecretsPath() + ".example"
+}
+
 // knownStacks are the stacks `lacquer` can detect, and StackEcosystem maps each
 // to the Dependabot ecosystem that watches it. A stack with no entry in
 // StackEcosystem is detectable but has no dependency manifest Dependabot
@@ -1855,9 +1932,10 @@ func (c *Config) Products() []Product {
 		// And the release secrets, for the same reason. Validated in Load
 		// against the synthesised product by the same validateSecrets a declared
 		// product goes through, so the [project] route skips none of its guards.
-		Secrets:       c.Project.Secrets,
-		SecretsFile:   c.Project.SecretsFile,
-		SecretFormats: c.Project.SecretFormats,
+		Secrets:        c.Project.Secrets,
+		SecretsFile:    c.Project.SecretsFile,
+		SecretsExample: c.Project.SecretsExample,
+		SecretFormats:  c.Project.SecretFormats,
 	}}
 }
 
@@ -2244,6 +2322,7 @@ func Load(path string) (*Config, error) {
 	}{
 		{"secrets", len(cfg.Project.Secrets) > 0},
 		{"secrets_file", cfg.Project.SecretsFile != ""},
+		{"secrets_example", cfg.Project.SecretsExample != ""},
 		{"secret_formats", len(cfg.Project.SecretFormats) > 0},
 	} {
 		if f.set && len(cfg.Product) > 0 {
@@ -2254,6 +2333,22 @@ func Load(path string) (*Config, error) {
 		if err := validateSecrets("[project]", cfg.Products()[0]); err != nil {
 			return nil, err
 		}
+	}
+
+	// Two products writing one file must agree on its template: the release
+	// seeds a shared file once per leg, and a sibling's seed-only step would
+	// otherwise take whichever template the renderer met first.
+	templateFor := map[string]Product{}
+	for _, p := range cfg.Products() {
+		if len(p.Secrets) == 0 {
+			continue
+		}
+		d := filepath.Clean(p.SecretsPath())
+		if prev, ok := templateFor[d]; ok && filepath.Clean(prev.SecretsTemplate()) != filepath.Clean(p.SecretsTemplate()) {
+			return nil, fmt.Errorf("[[product]] %q and %q both write %s but name different templates (%s, %s); a shared file has one template",
+				prev.Name, p.Name, p.SecretsPath(), prev.SecretsTemplate(), p.SecretsTemplate())
+		}
+		templateFor[d] = p
 	}
 
 	seenProfile := map[string]string{} // profile -> first component path that declared it
@@ -2296,6 +2391,14 @@ func Load(path string) (*Config, error) {
 			}
 			seenDep[d.Dependency] = true
 		}
+	}
+	if err := validateSecretsPrefixes(cfg.Root, cfg.Components, cfg.Products(), func(p Product) string {
+		if len(cfg.Product) == 0 {
+			return "[project]"
+		}
+		return fmt.Sprintf("[[product]] %q", p.Name)
+	}); err != nil {
+		return nil, err
 	}
 	if err := validateSwiftNesting(cfg.Components); err != nil {
 		return nil, err
@@ -2413,6 +2516,67 @@ func validateSecrets(label string, p Product) error {
 		}
 		if len(p.Secrets) == 0 {
 			return fmt.Errorf("%s: secrets_file set but no secrets declared", label)
+		}
+	}
+	if p.SecretsExample != "" {
+		if filepath.IsAbs(p.SecretsExample) || !filepath.IsLocal(p.SecretsExample) {
+			return fmt.Errorf("%s: secrets_example %q must be a relative path inside the project", label, p.SecretsExample)
+		}
+		// Only a product that writes a file has a template to seed it from. A
+		// sibling sharing that file seeds it from the template its OWNER names.
+		if len(p.Secrets) == 0 {
+			return fmt.Errorf("%s: secrets_example set but no secrets declared", label)
+		}
+		if filepath.Clean(p.SecretsExample) == filepath.Clean(p.SecretsPath()) {
+			return fmt.Errorf("%s: secrets_example %q is the secrets_file itself; the template is the committed file the release copies before writing real values into secrets_file", label, p.SecretsExample)
+		}
+	}
+	return nil
+}
+
+// validateSecretsPrefixes rejects a secrets_file or secrets_example that repeats
+// the iOS component's own path. Both are relative to the COMPONENT, so under
+// component ios/ the value "ios/App/Secrets.xcconfig" names
+// ios/ios/App/Secrets.xcconfig: the writer creates that directory, writes the
+// real keys into it, and the archive reads the file it always read — which still
+// holds placeholders. Nothing fails until the app does.
+//
+// The prefix alone is not evidence. Xcode's default layout puts an app's sources
+// in a folder named like the project, so under component App/ the value
+// "App/Secrets.xcconfig" is correct and starts with the component's name. The
+// tree decides: a value is refused only when its folder exists from the
+// REPOSITORY root and not from the component root. A tree that has neither (a
+// project with no code yet, or a manifest loaded away from its checkout) says
+// nothing, and loads.
+func validateSecretsPrefixes(root string, components []Component, products []Product, labelFor func(Product) string) error {
+	var comp string
+	for _, c := range components {
+		if slices.Contains(c.Profiles, "ios") {
+			comp = filepath.ToSlash(filepath.Clean(c.Path))
+		}
+	}
+	if comp == "" || comp == "." || root == "" {
+		return nil
+	}
+	isDir := func(rel string) bool {
+		fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+		return err == nil && fi.IsDir()
+	}
+	for _, p := range products {
+		for _, f := range []struct{ key, value string }{
+			{"secrets_file", p.SecretsFile},
+			{"secrets_example", p.SecretsExample},
+		} {
+			v := filepath.ToSlash(filepath.Clean(f.value))
+			if f.value == "" || !strings.HasPrefix(v, comp+"/") {
+				continue
+			}
+			dir := path.Dir(v)
+			if isDir(comp+"/"+dir) || !isDir(dir) {
+				continue
+			}
+			return fmt.Errorf("%s: %s %q is relative to the component %s/, so it names %s/%s, which nothing reads; write %s = %q",
+				labelFor(p), f.key, f.value, comp, comp, v, f.key, strings.TrimPrefix(v, comp+"/"))
 		}
 	}
 	return nil

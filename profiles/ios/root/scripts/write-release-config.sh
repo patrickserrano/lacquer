@@ -31,14 +31,26 @@
 #
 # Usage:
 #
-#   scripts/write-release-config.sh <dest.xcconfig> [KEY[=GLOB] ...]
+#   scripts/write-release-config.sh [--example=<template>] <dest.xcconfig> [KEY[=GLOB] ...]
+#
+# The template is <dest.xcconfig>.example unless --example names one, which is
+# how a manifest's secrets_example reaches here. A declared template is the only
+# one consulted: falling back to the file beside the destination would turn a
+# typo in the manifest into a release seeded from some other file.
 #
 # Values are read from the environment variable of the same name as KEY; the
 # caller puts them there via the step's `env:` block, so they never appear on a
 # command line (which is world-readable in /proc on a shared runner). GLOB is an
 # optional shell glob the value must match.
 #
-# With no keys the script only seeds <dest.xcconfig> from <dest.xcconfig>.example.
+# With keys and no template the script REFUSES. It used to write a keys-only
+# file: every key the project reads but does not hold in secrets was left
+# undefined, and the placeholder check below had no template to compare against.
+# That is a release that builds, signs and uploads — the failure this whole file
+# exists to stop — and it was what a project got for keeping its template
+# anywhere but beside the destination.
+#
+# With no keys the script only seeds <dest.xcconfig> from its template.
 # That is the sibling-product case: a paid variant that reads the same base
 # configuration file as its free sibling but declares no secrets of its own
 # still needs the file to exist, or `xcodebuild archive` fails before compiling.
@@ -52,30 +64,26 @@ fail() {
 	exit 1
 }
 
+example=""
+declared_example=0
+case "${1:-}" in
+--example=*)
+	example=${1#--example=}
+	[ -n "$example" ] || fail "--example= names no template"
+	declared_example=1
+	shift
+	;;
+esac
+
 dest=${1:-}
-[ -n "$dest" ] || fail "no destination xcconfig given (usage: $me <dest.xcconfig> [KEY[=GLOB] ...])"
+[ -n "$dest" ] || fail "no destination xcconfig given (usage: $me [--example=<template>] <dest.xcconfig> [KEY[=GLOB] ...])"
 shift
+[ "$declared_example" -eq 1 ] || example="$dest.example"
 
 # The file holds live credentials on a self-hosted runner whose disk outlives
 # the job, so it is never world- or group-readable, not even for the instant
 # between creation and chmod.
 umask 077
-
-mkdir -p "$(dirname "$dest")"
-
-example="$dest.example"
-if [ -f "$example" ]; then
-	# Seed from the committed template FIRST. The xcconfig is the Xcode target's
-	# base configuration file, so it must carry every key the project references
-	# — not only the ones held in secrets. Writing just the declared keys leaves
-	# the rest undefined, which is the same silent-empty failure one layer down.
-	cp "$example" "$dest"
-elif [ "$#" -eq 0 ]; then
-	fail "$example does not exist and no keys were given — there is nothing to write"
-else
-	: >"$dest"
-fi
-chmod 600 "$dest"
 
 # xcconfig_escape rewrites every `//` as `/$()/`. `$()` is xcconfig's
 # empty-substitution and expands to nothing at build time, so the value the
@@ -124,12 +132,16 @@ for spec in "$@"; do
 	# glob is used UNQUOTED as a `case` pattern, where `(`, `)`, `|` and `&`
 	# change the parse. Both charsets match what internal/config validates a
 	# manifest against, so a manifest cannot inject shell into a release — and
-	# neither can a hand-typed invocation.
+	# neither can a hand-typed invocation. `@` is in both: a Sentry DSN cannot be
+	# shaped without it, and it is inert here (its only meaning is extglob's
+	# `@(...)`, which needs the parentheses refused above). It was missing from
+	# this side once, so every release declaring the DSN shape failed;
+	# TestSecretFormatCharsetMatchesTheWriter compares the two classes now.
 	case "$key" in
 	'' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) fail "invalid key $(printf '%q' "$key")" ;;
 	esac
 	case "$glob" in
-	*[!A-Za-z0-9_~.:/*?-]*) fail "$key: pattern has characters that are unsafe in a shell pattern" ;;
+	*[!A-Za-z0-9_~.:/*?@-]*) fail "$key: pattern has characters that are unsafe in a shell pattern" ;;
 	esac
 	keys+=("$key")
 	globs+=("$glob")
@@ -165,6 +177,36 @@ for key in "${keys[@]+"${keys[@]}"}"; do
 	*) fail "$key does not match its declared shape $glob — releasing with it would ship the wrong key" ;;
 	esac
 done
+
+# Template third, and before anything is written. Every refusal above and here
+# leaves no file behind, so a failed release cannot leave a half-written
+# credentials file on a runner whose disk outlives the job — nor a destination
+# directory that exists only because this script made it.
+if [ ! -f "$example" ]; then
+	if [ "$declared_example" -eq 1 ]; then
+		echo "::error::$me: the template declared by secrets_example, $example, does not exist."
+		echo "$me: the file beside the destination, $dest.example, is deliberately not consulted when a template is declared."
+		echo "$me: correct secrets_example (it is relative to the component root, like secrets_file), or commit the template."
+		exit 1
+	fi
+	if [ "${#keys[@]}" -eq 0 ]; then
+		fail "$example does not exist and no keys were given — there is nothing to write"
+	fi
+	echo "::error::$me: release keys are declared for $dest but no template was found: looked beside it at $example, and the manifest declares no secrets_example."
+	echo "$me: without the template the file would carry the declared keys only — every other key the project reads would be"
+	echo "$me: undefined, and nothing could check a secret against its placeholder. The archive would build, sign and upload."
+	echo "$me: if the template lives elsewhere, set [[product]].secrets_example (or [project].secrets_example) to its path,"
+	echo "$me: relative to the component root like secrets_file. Otherwise commit $example."
+	exit 1
+fi
+
+mkdir -p "$(dirname "$dest")"
+# Seed from the committed template FIRST. The xcconfig is the Xcode target's
+# base configuration file, so it must carry every key the project references —
+# not only the ones held in secrets. Writing just the declared keys leaves the
+# rest undefined, which is the same silent-empty failure one layer down.
+cp "$example" "$dest"
+chmod 600 "$dest"
 
 for key in "${keys[@]+"${keys[@]}"}"; do
 	raw=${!key}

@@ -208,6 +208,7 @@ swift_version = "6.0"
 github_org = "my-org"
 tools = []
 exclude = []
+seed_once = []
 skills = ["dpearson2699/swift-ios-skills@healthkit"]
 
 [[component]]
@@ -218,6 +219,15 @@ profiles = ["ios"]
 `core` applies to every project regardless of `[[component]]` entries. A
 component detected as an unshipped stack (e.g. Rust/Go) is recorded with an
 empty profile list and a notice — it doesn't break `sync`.
+
+`seed_once` lists files the lacquer ships whose **content belongs to the
+project**, by exact repository-relative path: `seed_once =
+["ios/Secrets.xcconfig.example"]` for a template that names this app's own keys.
+Sync writes such a file when it is absent and never overwrites it afterwards,
+even with `--force`; audit and the lock do not track it, so editing it is not
+drift. Use it instead of `exclude` for these files: an exclusion stops the file
+being seeded at all. An entry the lacquer ships nothing at is reported by
+`lacquer audit` as stale. A path both excluded and seed-once is rejected at load.
 
 `optional_workflows` opts into a workflow the lacquer ships but does not install
 by default, named without its `.yml`:
@@ -518,7 +528,21 @@ builds, signs, uploads and passes review, then serves the wrong ads to real
 users. A mismatch fails the release without echoing the value. A pattern may
 use letters, digits and `_ ~ . : / * ? @ -`; anything else (quotes, `|`, `(`,
 `&`, spaces) is rejected at load, because the pattern is used unquoted in a
-shell `case`.
+shell `case`. The release's writer re-checks the same set (it once
+omitted `@`, so a `https://*@*/*` pattern loaded and then failed every release).
+
+`secrets_file` and `secrets_example` are relative to the **component** root. A
+value that repeats the component's own path (`ios/App/Secrets.xcconfig` under an
+`ios/` component, which names `ios/ios/App/…`) is rejected at load with the
+corrected value, when the tree shows it: the folder exists from the repository
+root and not from the component root.
+
+`secrets_example` names the committed template the release seeds the file from;
+it defaults to `<secrets_file>.example`. With keys declared and **no template
+found, the release fails** and names where it looked: a keys-only file leaves
+every other key undefined and gives the placeholder check nothing to compare
+against. A declared `secrets_example` is the only template consulted, and the
+watch-test job seeds the same file from it.
 
 The manifest holds the secret's **name**; the value stays in GitHub. `lacquer`
 rejects a value that looks like a real credential, because this file is
