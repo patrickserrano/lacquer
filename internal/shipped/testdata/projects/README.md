@@ -27,8 +27,18 @@ property broke; four small ones each fail for exactly one reason.
 | `multistack` | `ios/` + `admin/` (web) + `server/` (supabase) | Three profiles in one repo; per-component asset placement; `COMPONENT_PREFIX` = `admin/` and `COMPONENT_TO_ROOT` = `..` (the biome `vcs.root` case); root-level asset collisions between profiles |
 | `duoapp` | One iOS repo, two shipped products | `[[product]]` schemes, test targets, UI test targets, per-product release secrets and tag prefixes; a committed `Package.resolved` inside the `.xcodeproj` bundle **does** produce a `swift` Dependabot entry |
 | `spmpackage` | A bare SwiftPM package, no `.xcodeproj` anywhere | The lacquer's own declared gap: `detect.SwiftProfile` is `"swift"`, no `profiles/swift/` ships, so this reports as *unsupported* drift rather than adoptable — and must never start quietly succeeding |
-| `watchapp` | iOS app + watchOS companion + widget, XcodeGen-only (no committed `project.pbxproj`) | `lacquer audit` finds a watch test bundle nothing runs from `project.yml` alone, and that a widget is not a watch target; not synced by `e2e_test.go` |
-| `multiswift` | iOS app under `ios/` + a `tools/` package component (`stack = "ios"`, two packages, its own `.swiftlint.yml`) + one `Stray.swift` at the root | `lacquer swift-components --check` and `lacquer audit` list the stray and both components; the package under `ios/Packages` is the app's and is not built by Lint; not synced by `e2e_test.go` |
+| `watchapp` | iOS app + watchOS companion + widget, XcodeGen-only (no committed `project.pbxproj`) | `lacquer audit` finds a watch test bundle nothing runs from `project.yml` alone, and that a widget is not a watch target; not synced by `e2e_test.go`, but synced by `generated_inputs_test.go` against its generated project in `../generated/watchapp` |
+| `multiswift` | iOS app under `ios/` + a `tools/` package component (`stack = "ios"`, two packages, its own `.swiftlint.yml`) + one `Stray.swift` at the root | `lacquer swift-components --check` and `lacquer audit` list the stray and both components; the package under `ios/Packages` is the app's and is not built by Lint; not synced by `e2e_test.go`, but synced by `generated_inputs_test.go` |
+
+## Generated projects
+
+`generated_inputs_test.go` syncs every fixture that declares an Xcode project
+twice, without and with its generated project, and requires identical output: a
+rendered file must depend on committed inputs only. A fixture that commits its
+project lends it to that test. One that is XcodeGen-only must have the real
+`xcodegen generate` output of its `project.yml` committed under
+`../generated/<fixture>/`, outside the fixture so the fixture itself stays in
+its pre-generation state. The test fails if it is missing.
 
 ## Reading one
 
