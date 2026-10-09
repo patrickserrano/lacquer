@@ -728,3 +728,26 @@ remedy paths. Wait on each with one background `lacquer wait pr <N>`.
   3. No PR comment; the step summary carries the table.
   4. The floor is 80 %, with the dated relax.
   5. No enrollment deadline.
+
+### Addendum (2026-10-09, during U3): §7.1 reversed
+
+U3's fleet dry-run contradicted the premise behind answer 1. §4.1 D13 assumed
+the uncovered-target report would have zero blocking findings on release day. It
+does not: measured against every iOS consumer before any U3 change, the report
+already lists unit, UI and local-package suites that no selector names in
+half the fleet. Making the whole report exit 4 would turn those repositories red
+at their next sync, which is the retroactive-drift failure D8 avoided for U1.
+The reviewer's ruling, which replaces answer 1:
+
+- **The uncovered-target report stays report-only.** The one row that blocks is
+  a **watchOS unit-test bundle that nothing runs** (no `watch_tests` selector, no
+  verified `covered_elsewhere`, no in-term `not_run_in_ci`).
+- **That row has a dated grace period, like U4's stray Swift:** it warns with the
+  date printed, and blocks (exit 4) from the release that ships it plus 14 days.
+  The date is one constant, `testtargets.WatchGateFrom`.
+- **`[[project.covered_elsewhere]]` cannot become a silent mute.** It requires a
+  `job` (checked against the workflow's `jobs:`) and a `reason` that names both
+  the workflow file and the job, and an entry whose workflow file does not exist
+  fails `lacquer audit` (exit 4).
+- The broader UI and package-suite findings stay report-only and are tracked on
+  the issue.
