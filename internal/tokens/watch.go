@@ -378,6 +378,8 @@ const watchJobBody = `
           # build products have no reason to land in the iOS cache the SPM-cache
           # validation steps inspect.
           EXIT_CODE=0
+          # -collect-test-diagnostics never: see the iOS Run Tests step. The post-run
+          # simctl diagnose child otherwise outlives this step on the iOS 27 runtime.
           xcodebuild test \
             -project "@@XCODEPROJ@@" \
             -scheme "$WATCH_SCHEME" \
@@ -386,6 +388,7 @@ const watchJobBody = `
             -onlyUsePackageVersionsFromResolvedFile \
             "-only-testing:$WATCH_TEST_TARGET" \
             -parallel-testing-enabled NO \
+            -collect-test-diagnostics never \
             -resultBundlePath WatchTestResults.xcresult \
             CODE_SIGNING_REQUIRED=NO \
           2>&1 | tee watch-xcodebuild.log | xcbeautify --renderer github-actions || EXIT_CODE=$?
