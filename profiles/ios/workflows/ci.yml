@@ -1887,6 +1887,13 @@ jobs:
 
           # Run tests and capture exit code, also save output for fallback parsing
           EXIT_CODE=0
+          # -collect-test-diagnostics never: after the session xcodebuild otherwise
+          # starts its own `simctl diagnose --timeout=600` child to fill the xcresult,
+          # which on the iOS 27 runtime outlives this step (the suite is long done)
+          # and is orphaned when the step is killed. Test failures, logs, coverage
+          # and host crash reports (.ips, attached to the failing test) stay in the
+          # xcresult; only the simulator sysdiagnose is dropped. `on-failure` does
+          # not help: a failing run collects.
           xcodebuild test \
             -project "{{XCODEPROJ}}" \
             -scheme "{{IOS_CI_SCHEME}}" \
@@ -1896,6 +1903,7 @@ jobs:
             {{IOS_CI_ONLY_TESTING}} \
             -parallel-testing-enabled NO \
             -enableCodeCoverage YES \
+            -collect-test-diagnostics never \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_REQUIRED=NO \
           2>&1 | tee xcodebuild.log | xcbeautify --renderer github-actions || EXIT_CODE=$?
