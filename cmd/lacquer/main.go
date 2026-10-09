@@ -1368,7 +1368,15 @@ func baselineReports(lacquerRoot, projectRoot string) ([]baseline.Report, error)
 	if err != nil {
 		return nil, fmt.Errorf("load manifest: %w", err)
 	}
-	return baseline.Run(lacquerRoot, projectRoot, cfg.BaselineTargets(), cfg.Baseline.Relax, time.Now())
+	now := time.Now()
+	reports, err := baseline.Run(lacquerRoot, projectRoot, cfg.BaselineTargets(), cfg.Baseline.Relax, now)
+	if err != nil {
+		return nil, err
+	}
+	if rep, ok := cfg.RuntimeReport(now); ok {
+		reports = append(reports, rep)
+	}
+	return reports, nil
 }
 
 // listStacks prints every archetype the lacquer ships, for `init --list-stacks`.

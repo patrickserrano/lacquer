@@ -119,7 +119,7 @@ func Run(lacquerRoot, projectRoot string, targets []Target, relax map[string]Rel
 		}
 		if unchecked != "" {
 			for _, key := range keys {
-				if key == "documentation" || key == "pgtap" || key == "coverage" {
+				if key == "documentation" || key == "pgtap" || key == "coverage" || key == SimulatorRuntimeKey {
 					continue
 				}
 				r := relax[key]
@@ -129,7 +129,9 @@ func Run(lacquerRoot, projectRoot string, targets []Target, relax map[string]Rel
 		}
 	}
 	for _, key := range keys {
-		if !seen[key] {
+		// Evaluated by RuntimeFinding, which the caller adds: it needs the
+		// fleet pin, which lives in config, which imports this package.
+		if !seen[key] && key != SimulatorRuntimeKey {
 			r := relax[key]
 			reports = append(reports, Report{Profile: "relaxations", Findings: []Finding{{Key: key, Status: StatusUnknown, Got: "no evaluable baseline for this key; run its owning CI check without the relaxation", Relax: &r}}})
 		}

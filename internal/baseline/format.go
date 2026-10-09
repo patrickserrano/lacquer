@@ -56,6 +56,12 @@ func Format(profile string, fs []Finding) string {
 		case StatusRelaxed:
 			fmt.Fprintf(&b, "  ~ %-19s RELAXED until %s — %s\n", f.Key, f.Relax.Until, f.Relax.Reason)
 		case StatusExpired:
+			if f.Total == 0 {
+				// Not a build setting: there are no configurations to count.
+				fmt.Fprintf(&b, "  ! %-19s EXPIRED %s — %s (%s want %s, got %s)\n",
+					f.Key, f.Relax.Until, f.Relax.Reason, f.Setting, f.Want, f.Got)
+				break
+			}
 			fmt.Fprintf(&b, "  ! %-19s EXPIRED %s — %s (%s want %s, %s configs compliant)\n",
 				f.Key, f.Relax.Until, f.Relax.Reason, f.Setting, f.Want, f.Ratio())
 		case StatusUnknown:

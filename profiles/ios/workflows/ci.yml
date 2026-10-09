@@ -699,7 +699,7 @@ jobs:
           set -euo pipefail
           # coverage is read here for the same expiry rule; the Test job's
           # coverage gate reads the entry itself and applies it to the floor.
-          for key in swift_version warnings_as_errors strict_concurrency coverage; do
+          for key in swift_version warnings_as_errors strict_concurrency coverage{{IOS_CI_RELAX_KEYS}}; do
             line=$(awk -v k="$key" '
               /^\[baseline\.relax\][[:space:]]*$/ { inblock = 1; next }
               /^\[/                                 { inblock = 0 }
@@ -1615,7 +1615,7 @@ jobs:
 
           # Pin to a specific iOS runtime so every repository tests against the
           # same one. Update this when the host Xcode moves.
-          PINNED_RUNTIME="{{IOS_CI_SIM_RUNTIME}}"
+          PINNED_RUNTIME="{{IOS_CI_SIM_RUNTIME}}"{{IOS_CI_SIM_RUNTIME_OVERRIDE}}
 
           if ! xcrun simctl list runtimes | grep -q "$PINNED_RUNTIME"; then
             FALLBACK=$(xcrun simctl list runtimes | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS[0-9-]*' | sort -V | tail -1)

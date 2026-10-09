@@ -387,6 +387,9 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 		r.Error = fmt.Sprintf("baseline: %v", err)
 		return r
 	}
+	if rep, ok := cfg.RuntimeReport(now); ok {
+		reports = append(reports, rep)
+	}
 	for _, b := range reports {
 		br := BaselineReport{Profile: b.Profile, Component: b.Component, Unchecked: b.Unchecked}
 		for _, f := range baseline.Violations(b.Findings) {

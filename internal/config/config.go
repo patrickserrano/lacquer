@@ -1302,6 +1302,66 @@ var SimulatorPlatforms = map[string]SimulatorPlatform{
 // Runtime is this platform's simctl runtime identifier at pin.
 func (s SimulatorPlatform) Runtime(pin RuntimePin) string { return pin.Runtime(s.RuntimeOS) }
 
+// SimulatorRuntimeOverride is the project's [baseline.relax].simulator_runtime:
+// the pin to test on instead of DefaultRuntimePin, and the relaxation carrying
+// its date and reason. ok is false when the manifest declares none.
+//
+// The override is rendered whatever its date. Rendering is deterministic: a file
+// that changed on the day an entry expired would read as drift in every audit.
+// The rendered steps compare the date themselves and stop applying it once it
+// has passed, the Lint job's relaxation step fails the run, and `lacquer audit`
+// reports it EXPIRED.
+func (c *Config) SimulatorRuntimeOverride() (pin RuntimePin, r baseline.Relax, ok bool) {
+	r, ok = c.Baseline.Relax[baseline.SimulatorRuntimeKey]
+	if !ok {
+		return RuntimePin{}, baseline.Relax{}, false
+	}
+	pin = RuntimePin{Major: r.Major, Minor: r.Minor}
+	if pin.Minor == "" {
+		pin.Minor = "0"
+	}
+	return pin, r, true
+}
+
+// RuntimeReport is the baseline report for the simulator_runtime override, for
+// callers of baseline.Run to append: baseline cannot evaluate it because the
+// fleet pin lives here, and this package imports that one. ok is false when the
+// manifest declares no override.
+func (c *Config) RuntimeReport(now time.Time) (baseline.Report, bool) {
+	pin, r, ok := c.SimulatorRuntimeOverride()
+	if !ok {
+		return baseline.Report{}, false
+	}
+	return baseline.Report{Profile: "simulator runtime", Findings: []baseline.Finding{
+		baseline.RuntimeFinding(r, pin.String(), DefaultRuntimePin.String(), now),
+	}}, true
+}
+
+// runtimeMajorVal and runtimeMinorVal hold [baseline.relax].simulator_runtime to
+// plain decimal numbers with no leading zero. Both reach `simctl create` inside a
+// runtime identifier, so nothing but digits may get through.
+var (
+	runtimeMajorVal = regexp.MustCompile(`^[1-9][0-9]?$`)
+	runtimeMinorVal = regexp.MustCompile(`^(0|[1-9][0-9]?)$`)
+)
+
+// validateRuntimeRelax checks the fields only simulator_runtime carries.
+func validateRuntimeRelax(k string, r baseline.Relax) error {
+	if k != baseline.SimulatorRuntimeKey {
+		if r.Major != "" || r.Minor != "" {
+			return fmt.Errorf("[baseline.relax].%s takes no major or minor; only simulator_runtime names a runtime", k)
+		}
+		return nil
+	}
+	if !runtimeMajorVal.MatchString(r.Major) {
+		return fmt.Errorf("[baseline.relax].simulator_runtime needs a major, the simulator OS major version as digits (e.g. \"26\"), got %q", r.Major)
+	}
+	if r.Minor != "" && !runtimeMinorVal.MatchString(r.Minor) {
+		return fmt.Errorf("[baseline.relax].simulator_runtime has an invalid minor %q: digits only (e.g. \"2\"), or leave it out for .0", r.Minor)
+	}
+	return nil
+}
+
 // SimulatorPlatformNames lists the legal `platform` values, sorted, for error
 // messages.
 func SimulatorPlatformNames() []string {
@@ -2355,6 +2415,9 @@ func validateBaseline(b Baseline) error {
 		}
 		if _, err := r.UntilDate(); err != nil {
 			return fmt.Errorf("[baseline.relax].%s has an invalid until %q (want YYYY-MM-DD)", k, r.Until)
+		}
+		if err := validateRuntimeRelax(k, r); err != nil {
+			return err
 		}
 	}
 	return nil
