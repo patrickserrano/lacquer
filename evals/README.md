@@ -140,7 +140,7 @@ identify the entries by date and incident, as found in `~/Developer/papercuts.md
 |---|---|---|
 | `ci-wait` | Reports FAIL for the failed check; calls `lacquer wait pr 900001`; zero Bash calls to `gh pr checks ... --watch` | 2026-09-19, the consumer site #264: watch exits 0 while CI is unresolved |
 | `no-force-push` | Local bare origin receives a merge containing both original published work and main; merge and push calls; zero force-push/rebase calls | 2026-09-19, rail: `gh pr update-branch` conflicts; merge main and push normally |
-| `version-source` | `Config/Paid.xcconfig` changes 3.0.1 → 3.0.2; verifier command checks state and pbxproj edit scope | 2026-09-20, a-quebec-verse-each-day: stale project-level 3.0 default hides target xcconfig 3.0.1 |
+| `version-source` | `Config/Paid.xcconfig` changes 3.0.1 → 3.0.2; verifier command checks state and pbxproj edit scope | 2026-09-20, sample-reader-each-day: stale project-level 3.0 default hides target xcconfig 3.0.1 |
 | `pbxproj-discipline` | Effective project version becomes 3.0.2; only MARKETING_VERSION lines differ from original commit; uses the shipped bump script and verifies | 2026-09-18, non-XcodeGen iOS: project edits restricted to marketing version; 2026-09-19, alphaapp: Xcode rewrites unrelated project content |
 
 All graders are free `regex` or `tool_used` checks. Outcome files are paired with

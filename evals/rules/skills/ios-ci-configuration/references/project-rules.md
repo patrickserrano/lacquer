@@ -45,8 +45,8 @@ Target defaults use `name` only when `scheme` is empty. Explicit
 `test_target` and `app_target` values override these defaults.
 
 `app_target` must be declared when a scheme and its built
-product differ — one app in this fleet builds `A Quebec Verse
-Daily.app` from a scheme named `A Quebec Verse Each Day Free`. A derived value
+product differ — one app in this fleet builds `Sample Reader
+Daily.app` from a scheme named `Sample Reader Each Day Free`. A derived value
 would select no coverage row, and `jq` selecting nothing reports 0.0%, not an
 error.
 
@@ -61,7 +61,7 @@ workaround was copying an assertion into the app's test target via `@testable
 import` purely so something would execute it.
 
 ```toml
-extra_test_targets = ["CoreKitTests", "Feature KitTests"]
+extra_test_targets = ["CoreKitTests", "Feature EchoTests"]
 ```
 
 Per-product, for the same reason `test_target` is: a package linked into one
