@@ -408,6 +408,9 @@ jobs:
           # build, and the audit exits 8 instead of reporting it as routine.
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" audit --ci
           code=$?
+          # Printed before the verdict so the log names the exit code ci-ok's
+          # `drift=fail` came from, in the same words.
+          echo "lacquer audit exit=$code"
 
           case "$code" in
             0) echo "No drift."; result=pass ;;
@@ -694,7 +697,9 @@ jobs:
         if: steps.xcodeproj.outputs.present == 'true'
         run: |
           set -euo pipefail
-          for key in swift_version warnings_as_errors strict_concurrency; do
+          # coverage is read here for the same expiry rule; the Test job's
+          # coverage gate reads the entry itself and applies it to the floor.
+          for key in swift_version warnings_as_errors strict_concurrency coverage; do
             line=$(awk -v k="$key" '
               /^\[baseline\.relax\][[:space:]]*$/ { inblock = 1; next }
               /^\[/                                 { inblock = 0 }
@@ -743,7 +748,14 @@ jobs:
             -destination 'generic/platform=iOS' \
             -onlyUsePackageVersionsFromResolvedFile \
             2>"$settings_err") || {
-            echo "::error::xcodebuild -showBuildSettings failed; cannot verify the baseline."
+            # -onlyUsePackageVersionsFromResolvedFile refuses a Package.resolved
+            # that no longer matches the package manifests. That is a commit to
+            # make, not a broken baseline, so it gets its own message.
+            if grep -q 'an out-of-date resolved file was detected' "$settings_err"; then
+              echo "::error::Package.resolved is out of date: xcodebuild refused -onlyUsePackageVersionsFromResolvedFile. Resolve packages locally and commit {{XCODEPROJ}}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved."
+            else
+              echo "::error::xcodebuild -showBuildSettings failed; cannot verify the baseline."
+            fi
             cat "$settings_err" >&2
             rm -f "$settings_err"
             exit 1
@@ -1974,6 +1986,77 @@ jobs:
             echo "Test result unknown - check logs" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # The coverage gate's verdict is computed by the lacquer binary at THIS
+      # PROJECT'S locked version (`lacquer ratchet --coverage-report`), the same
+      # Go code behind `lacquer audit` and `lacquer ratchet` locally, so a shell
+      # twin of the comparison cannot drift from it. The three steps below are
+      # plumbing: resolve the locked tag, check out the one lacquer file the gate
+      # reads (the fleet's coverage floor, profiles/ios/baseline.toml; the release
+      # tarball carries only the binary), and download and verify the binary.
+      # Each fails LOUDLY: a gate that silently did not run would read exactly
+      # like a gate that passed. Same release pair, tag rule and checksum as the
+      # drift audit in the `changes` job; see there for why.
+      - name: Resolve the lacquer version for the coverage gate
+        id: covrel
+        if: always() && steps.tests.outputs.test_result == 'passed' && hashFiles('TestResults.xcresult') != ''
+        working-directory: "."
+        run: |
+          set -euo pipefail
+          if [ ! -f .lacquer.lock ]; then
+            echo "::error::.lacquer.lock is missing, so there is no synced lacquer version to run the coverage gate with. Run \`lacquer sync\` to establish the baseline."
+            exit 1
+          fi
+          version=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' .lacquer.lock \
+            | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Could not read a lacquer version from .lacquer.lock (got '$version'), so the coverage gate cannot run."; exit 1 ;;
+          esac
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+      - name: Fetch the coverage floor
+        if: always() && steps.covrel.outputs.tag != ''
+        uses: actions/checkout@v7
+        with:
+          repository: patrickserrano/lacquer
+          path: .lacquer-checkout
+          ref: ${{ steps.covrel.outputs.tag }}
+          sparse-checkout: profiles/ios/baseline.toml
+          sparse-checkout-cone-mode: false
+      - name: Fetch the lacquer for the coverage gate
+        if: always() && steps.covrel.outputs.tag != ''
+        working-directory: "."
+        env:
+          LACQUER_TAG: ${{ steps.covrel.outputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "::error::Unsupported runner architecture $(uname -m); the coverage gate cannot run."; exit 1 ;;
+          esac
+          case "$(uname -s)" in
+            Linux) os=linux ;;
+            Darwin) os=darwin ;;
+            *) echo "::error::Unsupported runner OS $(uname -s); the coverage gate cannot run."; exit 1 ;;
+          esac
+          version="${LACQUER_TAG#v}"
+          asset="lacquer_${version}_${os}_${arch}.tar.gz"
+          base="https://github.com/patrickserrano/lacquer/releases/download/${LACQUER_TAG}"
+          if ! curl -fsSL --retry 3 -o "$RUNNER_TEMP/$asset" "$base/$asset" ||
+             ! curl -fsSL --retry 3 -o "$RUNNER_TEMP/checksums.txt" "$base/checksums.txt"; then
+            echo "::error::Downloading the lacquer ${LACQUER_TAG} release failed, so the coverage gate cannot run."
+            exit 1
+          fi
+          if ! (cd "$RUNNER_TEMP" && grep -E "[[:space:]]\*?${asset}\$" checksums.txt > lacquer.sha256 && [ -s lacquer.sha256 ] &&
+                if command -v sha256sum >/dev/null 2>&1; then sha256sum -c lacquer.sha256; else shasum -a 256 -c lacquer.sha256; fi); then
+            echo "::error::Checksum verification failed for ${asset}; the coverage gate will not run a binary it cannot verify."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/lacquer-bin"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/lacquer-bin" lacquer
+          chmod +x "$RUNNER_TEMP/lacquer-bin/lacquer"
+          echo "$RUNNER_TEMP/lacquer-bin" >> "$GITHUB_PATH"
+
       - name: Check Coverage
         # Gated on the tests having PASSED, not merely on the bundle existing.
         #
@@ -1995,6 +2078,9 @@ jobs:
         # `always()` is kept so coverage still reports when the suite passes but
         # a LATER step fails.
         if: always() && steps.tests.outputs.test_result == 'passed' && hashFiles('TestResults.xcresult') != ''
+        working-directory: "."
+        env:
+          TEST_RESULT: ${{ steps.tests.outputs.test_result }}
         run: |
           # Calculate coverage for {{IOS_CI_APP_TARGET}} only (excludes third-party dependencies)
           #
@@ -2023,14 +2109,21 @@ jobs:
             echo "### Coverage by Target"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          xcrun xccov view --report --json TestResults.xcresult | \
+          printf '%s' "$COV_JSON" | \
             jq -r '.targets[] | "\(.lineCoverage * 100 | floor)% \(.name)"' | \
             sort -rn >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-          if (( $(echo "$APP_COVERAGE < 80" | bc -l) )); then
-            echo "::warning::App coverage ${APP_COVERAGE}% is below 80% threshold"
-          fi
+          # The verdict: the ratchet band and the floor, decided by the lacquer
+          # binary the step above verified, and reported by its exit code alone.
+          # Not enrolled warns and passes; see `lacquer ratchet --help`.
+          printf '%s' "$COV_JSON" > coverage-report.json
+          LACQUER_ROOT="$PWD/.lacquer-checkout" lacquer ratchet \
+            --coverage-report coverage-report.json \
+            --product "{{IOS_CI_COVERAGE_PRODUCT}}" \
+            --ci-event "$GITHUB_EVENT_NAME" \
+            --test-result "$TEST_RESULT" \
+            --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Test Results
         uses: actions/upload-artifact@v7
@@ -2141,7 +2234,7 @@ jobs:
           # lacquer-managed path — which is a pass. Anything that is not exactly
           # "pass", including a value this job does not recognise, fails.
           drift="${{ needs.changes.outputs.drift }}"
-          echo "drift=${drift:-<not run>}"
+          echo "drift=${drift:-<not run>} (the Detect changed paths job prints the audit's exit code)"
           if [ -n "$drift" ] && [ "$drift" != "pass" ]; then
             echo "::error::lacquer drift was detected — see the \"Detect changed paths\" job log for what to fix."
             exit 1

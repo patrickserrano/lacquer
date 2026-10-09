@@ -22,7 +22,7 @@ every project regardless.
 | `lacquer sync [--force] [--fix]` | Render core + per-profile content into the project (managed regions + whole-file assets); `--fix` then runs the autofixers. |
 | `lacquer fix` | Run each profile's autofixers (formatter, `lint --fix`) over the project source. |
 | `lacquer settings [--project P] [--target T] [--configuration C] [--json] [SETTING...]` | Inspect static build settings with provenance; `--xcode` queries Xcode, `--xcode --compare` compares both. |
-| `lacquer ratchet [--write]` | Measure project ceilings; `--write` enrolls or tightens the committed baseline. |
+| `lacquer ratchet [--write]` | Measure project ceilings; `--write` enrolls or tightens the committed baseline. `--coverage-report` runs the iOS coverage gate. |
 | `lacquer doctor` | Prove each check can fail: feed known-bad input and assert it's rejected (exit 5 if one can't). |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
@@ -332,6 +332,51 @@ Metric definitions:
   separators. Empty punctuation is not a reason. Enable/end directives and
   quoted examples are excluded. Git symlink entries and submodules are not source
   blobs; tracked regular targets are counted once. Untracked files are excluded.
+
+### iOS coverage: a ratchet measured in CI
+
+`ios_uncovered_lines` is the app target's executable minus covered lines, read
+from `xcrun xccov view --report --json`. It is an *external* metric: the Test
+job's Check Coverage step measures it, and `audit`, `sync` and plain `ratchet`
+never do. They print `ratchet: ios_uncovered_lines is measured in CI (not
+checked here)` for an enrolled project, and leave the recorded value alone. A
+project with several `[[product]]`s records one `ios_uncovered_lines_<slug>`
+per product.
+
+Enroll from a report (a local test run's xcresult, or CI's `coverage-report.json`):
+
+```sh
+xcrun xccov view --report --json TestResults.xcresult > coverage-report.json
+lacquer ratchet --write --coverage-report coverage-report.json --product -   # or the product slug
+```
+
+Until a project enrolls, the step prints
+`::warning::coverage gate not enrolled: …` and passes. Once enrolled, with recorded
+value B and slack S = max(20, 0.5 % of the app target's executable lines):
+
+| Measured M | Verdict |
+|---|---|
+| M > B + S | fails, printing `lacquer ratchet --loosen ios_uncovered_lines --to M --reason "…"` |
+| within B ± S | passes and prints the band |
+| M < B − S on a pull request | fails, printing `lacquer ratchet --accept ios_uncovered_lines=M`: run it and commit |
+| M < B − S on push | warns with the same command |
+
+`--accept` only lowers the value; `--loosen … --to N` only raises it, needs a
+reason, and records it in `[reasons]`. Deleting tested code moves both counts
+equally, so it does not move the metric.
+
+An enrolled project's app target must also reach `coverage_floor` (80 %) from
+`profiles/ios/baseline.toml`. A project below it adds a dated relaxation:
+
+```toml
+[baseline.relax]
+coverage = { until = "2027-01-31", reason = "enrolled at 31%; tracking issue in the project" }
+```
+
+A relaxed floor warns; an expired relaxation fails, like every other one. The
+gate also fails, before comparing anything, on a report that is not JSON, one
+without the app target, or one with zero executable lines. `lacquer fleet` shows
+each iOS project's enrollment.
 
 Lacquer owns a separate CI ceiling in
 `internal/shipped/claude_ratchet_test.go`: the existing rootapp, multistack,

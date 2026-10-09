@@ -246,3 +246,88 @@ func TestMeasureProjectLinesOutsideManagedRegions(t *testing.T) {
 		})
 	}
 }
+
+// The coverage metric is measured in CI, never from the working tree, so a local
+// Measure never produces it. A baseline that records it must survive every
+// local tighten unchanged: Compare reads a missing value as 0, and writing that 0
+// would hand the next PR a ceiling no project can meet.
+func TestTightenNeverWritesAnUnmeasuredMetric(t *testing.T) {
+	root, cfg := fixture(t)
+	put(t, root, Name, "[ratchet]\nclaude_md_project_lines = 2\nunjustified_suppressions = 1\nios_uncovered_lines = 4312\n")
+	findings, err := Tighten(root, cfg, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Metric == Coverage {
+			t.Errorf("local tighten reported the unmeasured coverage metric: %+v", f)
+		}
+	}
+	b, err := Read(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Ratchet[Coverage] != 4312 {
+		t.Fatalf("local tighten rewrote %s to %d", Coverage, b.Ratchet[Coverage])
+	}
+	if got, err := Check(root, cfg); err != nil || len(got) != 0 {
+		t.Fatalf("check on an unchanged tree: %v %v", got, err)
+	}
+}
+
+func TestReadAcceptsABaselineWithoutTheCoverageKey(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, Name, "[ratchet]\nclaude_md_project_lines = 1\nunjustified_suppressions = 0\n")
+	b, err := Read(root)
+	if err != nil || b == nil {
+		t.Fatalf("a #457 baseline no longer parses: %v", err)
+	}
+	if _, ok := b.Ratchet[Coverage]; ok {
+		t.Fatal("absent coverage key read as present")
+	}
+	for _, body := range []string{
+		"[ratchet]\nclaude_md_project_lines = 1\nunjustified_suppressions = 0\nios_uncovered_lines = 10\n",
+		"[ratchet]\nclaude_md_project_lines = 1\nunjustified_suppressions = 0\nios_uncovered_lines_free = 10\nios_uncovered_lines_paid = 20\n",
+	} {
+		put(t, root, Name, body)
+		if _, err := Read(root); err != nil {
+			t.Errorf("rejected %q: %v", body, err)
+		}
+	}
+	for _, body := range []string{
+		"[ratchet]\nclaude_md_project_lines = 1\nunjustified_suppressions = 0\nios_uncovered_lines = -1\n",
+		"[ratchet]\nclaude_md_project_lines = 1\nunjustified_suppressions = 0\nios_uncovered_lines_ = 1\n",
+		"[ratchet]\nclaude_md_project_lines = 1\nunjustified_suppressions = 0\nios_uncovered_linesx = 1\n",
+	} {
+		put(t, root, Name, body)
+		if _, err := Read(root); err == nil {
+			t.Errorf("accepted %q", body)
+		}
+	}
+}
+
+func TestCoverageNotesSaysCoverageIsMeasuredInCI(t *testing.T) {
+	ios := &config.Config{Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}}}
+	b := &Baseline{Ratchet: map[string]int{ClaudeProjectLines: 0, Suppressions: 0, Coverage: 10}}
+	if got := CoverageNotes(b, ios); got != "ratchet: ios_uncovered_lines is measured in CI (not checked here)\n" {
+		t.Errorf("enrolled: %q", got)
+	}
+	delete(b.Ratchet, Coverage)
+	if got := CoverageNotes(b, ios); !strings.Contains(got, "coverage gate not enrolled") {
+		t.Errorf("not enrolled: %q", got)
+	}
+	if got := CoverageNotes(nil, ios); !strings.Contains(got, "coverage gate not enrolled") {
+		t.Errorf("no baseline: %q", got)
+	}
+	if got := CoverageNotes(b, &config.Config{Components: []config.Component{{Path: ".", Profiles: []string{"web"}}}}); got != "" {
+		t.Errorf("a web project was told about iOS coverage: %q", got)
+	}
+}
+
+func TestSlack(t *testing.T) {
+	for _, tt := range []struct{ executable, want int }{{0, 20}, {1000, 20}, {4000, 20}, {8000, 40}, {100000, 500}} {
+		if got := Slack(tt.executable); got != tt.want {
+			t.Errorf("Slack(%d) = %d, want %d", tt.executable, got, tt.want)
+		}
+	}
+}

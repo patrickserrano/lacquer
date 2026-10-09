@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -54,11 +55,24 @@ func Blocking(findings []Finding) int {
 	return n
 }
 
+// Compare reports every metric that is both recorded and measured. A metric
+// missing from values was not measured (the coverage metric outside CI), and
+// reading it as 0 would report a phantom improvement that Tighten then writes.
 func Compare(b *Baseline, values map[string]int) []Finding {
+	keys := append([]string(nil), metrics...)
+	var external []string
+	for key := range b.Ratchet {
+		if IsCoverageKey(key) {
+			external = append(external, key)
+		}
+	}
+	sort.Strings(external)
 	var out []Finding
-	for _, key := range metrics {
-		if values[key] != b.Ratchet[key] {
-			out = append(out, Finding{key, b.Ratchet[key], values[key]})
+	for _, key := range append(keys, external...) {
+		after, measured := values[key]
+		before, recorded := b.Ratchet[key]
+		if measured && recorded && after != before {
+			out = append(out, Finding{key, before, after})
 		}
 	}
 	return out
@@ -94,9 +108,13 @@ func Read(root string) (*Baseline, error) {
 			return nil, fmt.Errorf("%s: %s needs a nonnegative baseline", Name, key)
 		}
 	}
-	for key := range b.Ratchet {
+	// The coverage metric is optional: absent means not enrolled.
+	for key, value := range b.Ratchet {
 		if !known(key) {
 			return nil, fmt.Errorf("%s: unknown metric %q", Name, key)
+		}
+		if value < 0 {
+			return nil, fmt.Errorf("%s: %s needs a nonnegative baseline", Name, key)
 		}
 	}
 	for key, reason := range b.Reasons {
@@ -107,7 +125,9 @@ func Read(root string) (*Baseline, error) {
 	return &b, nil
 }
 
-func known(key string) bool { return key == ClaudeProjectLines || key == Suppressions }
+func known(key string) bool {
+	return key == ClaudeProjectLines || key == Suppressions || IsCoverageKey(key)
+}
 
 func write(root string, b *Baseline) error {
 	// Atomic replacement avoids a truncated baseline after an interrupted write.
@@ -170,7 +190,7 @@ func Tighten(root string, cfg *config.Config, initialize bool) ([]Finding, error
 	findings := Compare(b, values)
 	changed := false
 	for _, f := range findings {
-		if !f.Regressed() {
+		if f.After < f.Before {
 			b.Ratchet[f.Metric] = f.After
 			changed = true
 		}
@@ -183,6 +203,9 @@ func Tighten(root string, cfg *config.Config, initialize bool) ([]Finding, error
 
 // Loosen records exactly the current measurement and the reason for accepting it.
 func Loosen(root string, cfg *config.Config, metric, reason string) error {
+	if IsCoverageKey(metric) {
+		return fmt.Errorf("%s is measured in CI; loosen it with --to <N> --reason", metric)
+	}
 	if !known(metric) {
 		return fmt.Errorf("unknown ratchet metric %q", metric)
 	}

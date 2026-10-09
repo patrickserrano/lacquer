@@ -43,3 +43,11 @@ warnings_as_errors = true
 # load-bearing for a project still below Swift 6 — it is what keeps such a
 # project's data-race diagnostics visible while it migrates.
 strict_concurrency = "complete"
+
+# Line coverage of the app target, in percent, that the Test job's coverage gate
+# holds an ENROLLED project to (`lacquer ratchet --coverage-report`). It is the
+# number the old Check Coverage warning named; it only ever warned, and the
+# projects below it stayed below it. A project not yet there relaxes it with a
+# dated [baseline.relax] coverage entry, exactly as for swift_version. A project
+# that has not enrolled in the coverage ratchet is warned, never failed.
+coverage_floor = 80

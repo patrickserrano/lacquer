@@ -122,6 +122,8 @@ var legacyIOSCITokens = map[string]string{
 	"{{IOS_CI_ONLY_TESTING}}":   `"-only-testing:{{PROJECT_NAME}}Tests"`,
 	"{{IOS_CI_APP_TARGET}}":     "{{PROJECT_NAME}}.app",
 	"{{IOS_CI_COVERAGE_JQ}}":    `'.targets[] | select(.name == "{{PROJECT_NAME}}.app") | .lineCoverage * 100'`,
+	// Added with the coverage gate (#522 U1): the lone product is "-".
+	"{{IOS_CI_COVERAGE_PRODUCT}}": "-",
 }
 
 // iosCITokenRe finds every IOS_CI_* placeholder in the template.
