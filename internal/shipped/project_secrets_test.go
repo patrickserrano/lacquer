@@ -14,7 +14,7 @@ import (
 // from a gitignored Secrets.xcconfig. Before [project].secrets existed this
 // shape could not ask the release to write that file at all, so the archive
 // shipped the placeholders: a dead paywall, no analytics, no crash reports.
-const flareShaped = `
+const deltaShaped = `
 [project]
 name = "Delta"
 project_name = "Delta"
@@ -35,7 +35,7 @@ profiles = ["ios"]
 func loadFlareShaped(t *testing.T) *config.Config {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), ".lacquer.toml")
-	if err := os.WriteFile(p, []byte(flareShaped), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(deltaShaped), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(p)

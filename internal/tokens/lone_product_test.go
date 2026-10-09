@@ -15,10 +15,10 @@ import (
 func TestLoneProductSuppliesProjectTokens(t *testing.T) {
 	cfg := &config.Config{
 		Project: config.Project{ProjectName: "Delta"},
-		Product: []config.Product{{Name: "Delta", Scheme: "FlareScheme", BundleID: "com.x.flare", AscAppID: "123"}},
+		Product: []config.Product{{Name: "Delta", Scheme: "DeltaScheme", BundleID: "com.x.flare", AscAppID: "123"}},
 	}
 	v := Values(cfg, "")
-	for tok, want := range map[string]string{Scheme: "FlareScheme", BundleID: "com.x.flare", AscAppID: "123"} {
+	for tok, want := range map[string]string{Scheme: "DeltaScheme", BundleID: "com.x.flare", AscAppID: "123"} {
 		if v[tok] != want {
 			t.Errorf("%s = %q, want %q from the lone [[product]]", tok, v[tok], want)
 		}
@@ -30,7 +30,7 @@ func TestLoneProductSuppliesProjectTokens(t *testing.T) {
 func TestProjectTokensWinOverALoneProduct(t *testing.T) {
 	cfg := &config.Config{
 		Project: config.Project{ProjectName: "Delta", Scheme: "ProjScheme", BundleID: "com.x.proj", AscAppID: "999"},
-		Product: []config.Product{{Name: "Delta", Scheme: "FlareScheme", BundleID: "com.x.flare", AscAppID: "123"}},
+		Product: []config.Product{{Name: "Delta", Scheme: "DeltaScheme", BundleID: "com.x.flare", AscAppID: "123"}},
 	}
 	v := Values(cfg, "")
 	for tok, want := range map[string]string{Scheme: "ProjScheme", BundleID: "com.x.proj", AscAppID: "999"} {

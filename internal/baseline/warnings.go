@@ -250,7 +250,7 @@ func indexXcconfigs(componentDir string) map[string]string {
 			// Worktrees hold a FULL SECOND COPY of the project, often months
 			// stale, and a lexical walk reaches ".claude/worktrees/..." before
 			// "Config/" -- so an abandoned worktree silently shadows the real
-			// file. Measured on a-quebec-verse-each-day: three Base.xcconfig
+			// file. Measured on sample-reader-each-day: three Base.xcconfig
 			// copies, and the one a walk hits first sets nothing, which reported
 			// 12 violations against a project that is fully compliant. The same
 			// hazard cost two other bad measurements in one day, so it is worth

@@ -52,8 +52,8 @@ type SwiftManifestIndex struct {
 	// ever been OBSERVED to work without a resolved file, and the cost of being
 	// wrong is asymmetric: a missing entry stops watching a dependency quietly,
 	// while a wrong one fails a job every single day until somebody looks. rail
-	// is the case that decides it — RailCore/Package.swift and
-	// RailData/Package.swift are committed, their resolved files are not — and it
+	// is the case that decides it — CharlieCore/Package.swift and
+	// CharlieData/Package.swift are committed, their resolved files are not — and it
 	// gets no entry rather than two guesses.
 	pkgDirs map[string]bool
 	// bundleDirs are the directories that CONTAIN an .xcodeproj/.xcworkspace with

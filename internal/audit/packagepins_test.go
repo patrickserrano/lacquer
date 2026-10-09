@@ -477,8 +477,8 @@ options:
 
 packages:
   # a comment mentioning from: 1.0.0
-  RailCore:
-    path: RailCore
+  CharlieCore:
+    path: CharlieCore
   RevenueCat:
     url: https://github.com/RevenueCat/purchases-ios-spm
     from: 5.0.0
@@ -545,7 +545,7 @@ func TestParseXcodeGenPackages(t *testing.T) {
 			t.Errorf("requirement %d = %+v\nwant %+v", i, spec.Remote[i], want[i])
 		}
 	}
-	if strings.Join(spec.Local, "|") != "RailCore" {
+	if strings.Join(spec.Local, "|") != "CharlieCore" {
 		t.Errorf("local = %q", spec.Local)
 	}
 	if len(spec.Unchecked) != 1 || spec.Unchecked[0].Line != at("Unconstrained") {
@@ -579,7 +579,7 @@ let package = Package(
             url: "https://github.com/example/named.git",
             from: "3.0.0",
         ),
-        .package(path: "../RailCore"),
+        .package(path: "../CharlieCore"),
         .package(name: "Local", path: "Packages/Local"),
         .package(url: "https://github.com/example/variable", from: version),
         .package(url: "https://github.com/example/\(version)", from: "1.0.0"),
@@ -616,7 +616,7 @@ func TestParsePackageSwift(t *testing.T) {
 			t.Errorf("requirement %d = %+v\nwant %+v", i, m.Remote[i], want[i])
 		}
 	}
-	if strings.Join(m.Local, "|") != "../RailCore|Packages/Local" {
+	if strings.Join(m.Local, "|") != "../CharlieCore|Packages/Local" {
 		t.Errorf("local = %q", m.Local)
 	}
 	var lines []int

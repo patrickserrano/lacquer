@@ -1121,11 +1121,11 @@ type Product struct {
 	// pre-existing workflow byte for byte, guard included — that is, absent.
 	ExtraTestTargets []string `toml:"extra_test_targets"`
 	// AppTarget is the built product name coverage is measured against —
-	// `xccov`'s target names, e.g. "A Quebec Verse Daily.app".
+	// `xccov`'s target names, e.g. "Sample Reader Daily.app".
 	//
 	// An explicit value overrides the `<scheme>.app` default (or `<name>.app`
 	// when Scheme is empty) because those two can differ: one project has a
-	// scheme "A Quebec Verse Each Day Free" producing "A Quebec Verse Daily.app". Using
+	// scheme "Sample Reader Each Day Free" producing "Sample Reader Daily.app". Using
 	// the default there would select no target, and `jq` selecting nothing yields
 	// an empty coverage number rather than an error.
 	AppTarget string `toml:"app_target"`
@@ -1955,7 +1955,7 @@ func Load(path string) (*Config, error) {
 		// The CI targets. Substituted into the test job's shell (inside
 		// `-only-testing:"…"`) and into a jq program, so they are held to the same
 		// charset as scheme — which already permits the spaces a real Xcode target
-		// name carries ("A Quebec Verse Each Day FreeTests") and excludes every
+		// name carries ("Sample Reader Each Day FreeTests") and excludes every
 		// quote, backslash and shell metacharacter. Blank is valid for all three
 		// and means "derive it" (test/app) or "there are none" (ui).
 		for _, f := range []struct{ field, val string }{
@@ -2333,7 +2333,7 @@ func validateBaseline(b Baseline) error {
 var componentPathVal = regexp.MustCompile(`^(\.|[A-Za-z0-9._][A-Za-z0-9._-]*(/[A-Za-z0-9._][A-Za-z0-9._-]*)*)$`)
 
 // xcodeprojVal is componentPathVal plus spaces. An Xcode project named after a
-// human-readable app title — "A Quebec Verse Each Day.xcodeproj" — is completely
+// human-readable app title — "Sample Reader Each Day.xcodeproj" — is completely
 // ordinary, and rejecting it locked the oldest app in the fleet out of lacquer
 // entirely. Spaces are safe here and NOT in a component path because every
 // {{XCODEPROJ}} substitution site is quoted (`-project "{{XCODEPROJ}}"`),

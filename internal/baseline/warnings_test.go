@@ -131,7 +131,7 @@ func TestTargetCannotOptOutOfProjectLevel(t *testing.T) {
 	}
 }
 
-// TestXcconfigUnconditionalPasses is rail and a-quebec-verse-each-day: the value
+// TestXcconfigUnconditionalPasses is rail and sample-reader-each-day: the value
 // lives ONLY in an xcconfig. This is the case that was completely invisible
 // until PBXFileReference's single-line form was handled — rail was reported
 // with six violations while being fully compliant.
@@ -279,7 +279,7 @@ func TestRealProjectMissingDebugStillFails(t *testing.T) {
 	}
 }
 
-// TestWorktreeXcconfigCannotShadowTheRealOne pins the a-quebec-verse-each-day
+// TestWorktreeXcconfigCannotShadowTheRealOne pins the sample-reader-each-day
 // failure: that repo keeps three copies of Config/Base.xcconfig, two of them in
 // abandoned .claude/worktrees checkouts, and one of those sets nothing. A
 // lexical walk reaches ".claude/..." before "Config/", so the stale copy won

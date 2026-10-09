@@ -169,25 +169,25 @@ func TestEveryFleetReleaseWriterStillCounts(t *testing.T) {
 		{
 			// Two products, one declaring secrets: the managed release renders a
 			// seed-only call for the sibling and a keyed call for the declarer.
-			name: "steps",
+			name: "mike",
 			manifest: `
 [project]
-name = "Steps"
-project_name = "Steps"
-scheme = "Steps"
+name = "Mike"
+project_name = "Mike"
+scheme = "Mike"
 
 [[product]]
-name = "Steps"
-scheme = "Steps"
-tag_prefix = "steps-v"
-bundle_id = "com.example.Steps"
+name = "Mike"
+scheme = "Mike"
+tag_prefix = "mike-v"
+bundle_id = "com.example.Mike"
 asc_app_id = "1234567890"
 
 [[product]]
-name = "Steps Free"
-scheme = "StepsFree"
-tag_prefix = "steps-free-v"
-bundle_id = "com.example.StepsFree"
+name = "Mike Free"
+scheme = "MikeFree"
+tag_prefix = "mike-free-v"
+bundle_id = "com.example.MikeFree"
 asc_app_id = "1234567890"
 secrets = { REVENUECAT_API_KEY = "STEPS_FREE_REVENUECAT_PUBLIC_API_KEY" }
 secret_formats = { REVENUECAT_API_KEY = "appl_*" }
@@ -200,18 +200,18 @@ secret_formats = { REVENUECAT_API_KEY = "appl_*" }
 			// Managed release EXCLUDED; the project's own release writes the
 			// declared file with a redirect for one leg and seeds it for the
 			// other. Its UI-test workflow also seeds it from the example.
-			name: "a-quebec-verse-each-day",
+			name: "sample-reader-each-day",
 			manifest: `
 [project]
-name = "a-quebec-verse-each-day"
-project_name = "AQuebecVerseEachDay"
-scheme = "AQuebecVerseEachDay"
+name = "sample-reader-each-day"
+project_name = "SampleReaderEachDay"
+scheme = "SampleReaderEachDay"
 exclude = [{ path = ".github/workflows/ios-release.yml", reason = "project-owned release" }]
 
 [[product]]
-name = "A Quebec Verse Each Day"
-scheme = "AQuebecVerseEachDay"
-bundle_id = "com.example.AQuebecVerseEachDay"
+name = "Sample Reader Each Day"
+scheme = "SampleReaderEachDay"
+bundle_id = "com.example.SampleReaderEachDay"
 asc_app_id = "1234567890"
 secrets_file = "Config/Monetization.xcconfig"
 secrets = { REVENUECAT_PUBLIC_SDK_KEY = "REVENUECAT_PUBLIC_SDK_KEY", ADMOB_APPLICATION_ID = "ADMOB_APPLICATION_ID" }
@@ -250,7 +250,7 @@ secrets = { REVENUECAT_PUBLIC_SDK_KEY = "REVENUECAT_PUBLIC_SDK_KEY", ADMOB_APPLI
 			},
 		},
 		{
-			// rail's own ios-release.yml: a multi-line sed over the example,
+			// charlie's own ios-release.yml: a multi-line sed over the example,
 			// redirected into place, then read back by grep.
 			name: "rail",
 			manifest: `

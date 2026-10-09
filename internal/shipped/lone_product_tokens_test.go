@@ -40,7 +40,7 @@ swift_version = "6"
 
 [[product]]
 name = "Delta"
-scheme = "FlareScheme"
+scheme = "DeltaScheme"
 bundle_id = "com.example.flare"
 asc_app_id = "1000000001"
 
@@ -59,7 +59,7 @@ profiles = ["ios"]
 			t.Errorf("%s was not rendered: %v", rel, err)
 			continue
 		}
-		if !strings.Contains(string(b), "FlareScheme") {
+		if !strings.Contains(string(b), "DeltaScheme") {
 			t.Errorf("%s does not carry the lone product's scheme", rel)
 		}
 	}

@@ -1109,8 +1109,8 @@ func assertMultiProduct(t *testing.T, p *project) {
 		if err := yaml.Unmarshal([]byte(release), &rel); err != nil {
 			t.Fatalf("rendered release workflow is not valid YAML: %v", err)
 		}
-		// Both prefixes, and not a fixed "v*". One project tags `steps-v1.2.3`
-		// and `stepsfree-v1.2.3`, neither of which starts with `v` — under a
+		// Both prefixes, and not a fixed "v*". One project tags `mike-v1.2.3`
+		// and `mikefree-v1.2.3`, neither of which starts with `v` — under a
 		// fixed filter no tag would ever start a release. Nothing errors and
 		// nothing runs, which is the worst way for a release pipeline to break.
 		got := strings.Join(rel.On.Push.Tags, ",")

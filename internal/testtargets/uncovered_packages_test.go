@@ -7,12 +7,12 @@ import (
 )
 
 // flare's shape, and the gap lacquer#382 describes. Delta/Delta.xcodeproj
-// references two local packages that sit BESIDE its directory (`../FlareCore`,
-// `../FlareData`), each with one test suite. No selector names either suite, and
+// references two local packages that sit BESIDE its directory (`../DeltaCore`,
+// `../DeltaData`), each with one test suite. No selector names either suite, and
 // since flare #240 retired the workflows that used to run them, nothing else
 // does. The audit said nothing, because its "runs nowhere" direction only looked
 // at native targets.
-const flarePbx = `// !$*UTF8*$!
+const deltaPbx = `// !$*UTF8*$!
 {
 	objects = {
 		A1 /* Delta */ = {
@@ -20,26 +20,26 @@ const flarePbx = `// !$*UTF8*$!
 			name = Delta;
 			productType = "com.apple.product-type.application";
 		};
-		A2 /* FlareTests */ = {
+		A2 /* DeltaTests */ = {
 			isa = PBXNativeTarget;
-			name = FlareTests;
+			name = DeltaTests;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* Begin XCLocalSwiftPackageReference section */
-		F3D1A0052F530004FLARECORE /* XCLocalSwiftPackageReference "FlareCore" */ = {
+		F3D1A0052F530004FLARECORE /* XCLocalSwiftPackageReference "DeltaCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../FlareCore;
+			relativePath = ../DeltaCore;
 		};
-		F3D1A0062F530005FLAREDATA /* XCLocalSwiftPackageReference "FlareData" */ = {
+		F3D1A0062F530005FLAREDATA /* XCLocalSwiftPackageReference "DeltaData" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../FlareData;
+			relativePath = ../DeltaData;
 		};
 /* End XCLocalSwiftPackageReference section */
 	};
 }
 `
 
-func flarePackage(name string, tests ...string) string {
+func deltaPackage(name string, tests ...string) string {
 	var b strings.Builder
 	b.WriteString("// swift-tools-version: 6.0\nimport PackageDescription\n\nlet package = Package(\n")
 	b.WriteString("    name: \"" + name + "\",\n    targets: [\n        .target(name: \"" + name + "\"),\n")
@@ -67,20 +67,20 @@ jobs:
           xcodebuild test \
             -project "Delta/Delta.xcodeproj" \
             -scheme "Delta" \
-            "-only-testing:FlareTests" \
+            "-only-testing:DeltaTests" \
             CODE_SIGNING_REQUIRED=NO
 `
 
-var flareSelectors = []string{"FlareTests"}
+var deltaSelectors = []string{"DeltaTests"}
 
 // flare lays the project out with the given extra files (workflows, schemes)
 // and returns the project root and what Parse read from it.
 func flare(t *testing.T, extra map[string]string) (string, []Target) {
 	t.Helper()
 	files := map[string]string{
-		"Delta/Delta.xcodeproj/project.pbxproj": flarePbx,
-		"FlareCore/Package.swift":               flarePackage("FlareCore", "FlareCoreTests"),
-		"FlareData/Package.swift":               flarePackage("FlareData", "FlareDataTests"),
+		"Delta/Delta.xcodeproj/project.pbxproj": deltaPbx,
+		"DeltaCore/Package.swift":               deltaPackage("DeltaCore", "DeltaCoreTests"),
+		"DeltaData/Package.swift":               deltaPackage("DeltaData", "DeltaDataTests"),
 		".github/workflows/ios-ci.yml":          flareCI,
 	}
 	for k, v := range extra {
@@ -112,9 +112,9 @@ func uncoveredNames(r Report) string {
 // with the package it belongs to and the three ways out.
 func TestPackageSuitesNothingRunsAreUncovered(t *testing.T) {
 	root, targets := flare(t, nil)
-	r := audit(root, targets, flareSelectors, nil)
-	if got := uncoveredNames(r); got != "FlareCoreTests FlareDataTests" {
-		t.Fatalf("uncovered = %q, want %q", got, "FlareCoreTests FlareDataTests")
+	r := audit(root, targets, deltaSelectors, nil)
+	if got := uncoveredNames(r); got != "DeltaCoreTests DeltaDataTests" {
+		t.Fatalf("uncovered = %q, want %q", got, "DeltaCoreTests DeltaDataTests")
 	}
 	for _, u := range r.Uncovered {
 		want := strings.TrimSuffix(u.Name, "Tests")
@@ -124,8 +124,8 @@ func TestPackageSuitesNothingRunsAreUncovered(t *testing.T) {
 	}
 	out := Format(r)
 	for _, want := range []string{
-		"FlareCoreTests  (unit tests, local package FlareCore)",
-		"FlareDataTests  (unit tests, local package FlareData)",
+		"DeltaCoreTests  (unit tests, local package DeltaCore)",
+		"DeltaDataTests  (unit tests, local package DeltaData)",
 		"extra_test_targets",
 		"the scheme's TestAction must list it",
 		"[[project.covered_elsewhere]]",
@@ -137,18 +137,18 @@ func TestPackageSuitesNothingRunsAreUncovered(t *testing.T) {
 	}
 }
 
-// rail's shape: the suites are named by extra_test_targets, so a managed
+// charlie's shape: the suites are named by extra_test_targets, so a managed
 // selector runs them. Nothing to report.
 func TestPackageSuitesNamedByASelectorAreCovered(t *testing.T) {
-	pbx := railProject(t)
+	pbx := charlieProject(t)
 	root := filepath.Dir(filepath.Dir(pbx))
 	targets := parsePath(t, pbx)
-	if r := audit(root, targets, railSelectors, nil); len(r.Uncovered) != 0 {
+	if r := audit(root, targets, charlieSelectors, nil); len(r.Uncovered) != 0 {
 		t.Fatalf("suites named by extra_test_targets were reported uncovered: %+v", r.Uncovered)
 	}
 	// The same project without extra_test_targets is the finding.
-	if got := uncoveredNames(audit(root, targets, []string{"RailTests"}, nil)); got != "RailCoreTests RailDataTests" {
-		t.Fatalf("uncovered = %q, want %q", got, "RailCoreTests RailDataTests")
+	if got := uncoveredNames(audit(root, targets, []string{"CharlieTests"}, nil)); got != "CharlieCoreTests CharlieDataTests" {
+		t.Fatalf("uncovered = %q, want %q", got, "CharlieCoreTests CharlieDataTests")
 	}
 }
 
@@ -169,46 +169,46 @@ func workflow(workflowKeys, jobKeys, stepKeys, run string) string {
 	return b.String()
 }
 
-// Each of these runs FlareCore's tests on a pull request, and nothing else's.
-// FlareDataTests staying reported is half of every case: a rule that covered
+// Each of these runs DeltaCore's tests on a pull request, and nothing else's.
+// DeltaDataTests staying reported is half of every case: a rule that covered
 // every package once it saw any `swift test` would pass the first half.
 func TestAWorkflowThatRunsThePackageCoversIt(t *testing.T) {
 	cases := map[string]string{
-		"--package-path":            workflow("", "", "", "swift test --package-path FlareCore"),
-		"--package-path=":           workflow("", "", "", "swift test --package-path=FlareCore --parallel"),
-		"quoted, ./ and trailing /": workflow("", "", "", `swift test --package-path "./FlareCore/"`),
-		"step working-directory":    workflow("", "", "        working-directory: FlareCore\n", "swift test"),
+		"--package-path":            workflow("", "", "", "swift test --package-path DeltaCore"),
+		"--package-path=":           workflow("", "", "", "swift test --package-path=DeltaCore --parallel"),
+		"quoted, ./ and trailing /": workflow("", "", "", `swift test --package-path "./DeltaCore/"`),
+		"step working-directory":    workflow("", "", "        working-directory: DeltaCore\n", "swift test"),
 		// Foxtrot's kit-test.yml, the one real case in the fleet.
-		"job defaults": workflow("", "    defaults:\n      run:\n        working-directory: FlareCore\n", "",
+		"job defaults": workflow("", "    defaults:\n      run:\n        working-directory: DeltaCore\n", "",
 			"swift test --enable-code-coverage"),
-		"workflow defaults": workflow("defaults:\n  run:\n    working-directory: FlareCore\n", "", "", "swift test"),
-		"step overrides job defaults": workflow("", "    defaults:\n      run:\n        working-directory: FlareData\n",
-			"        working-directory: FlareCore\n", "swift test"),
-		"cd && swift test":    workflow("", "", "", "cd FlareCore && swift test"),
-		"cd; then swift test": workflow("", "", "", "set -euo pipefail\ncd FlareCore\nswift test 2>&1 | xcpretty"),
+		"workflow defaults": workflow("defaults:\n  run:\n    working-directory: DeltaCore\n", "", "", "swift test"),
+		"step overrides job defaults": workflow("", "    defaults:\n      run:\n        working-directory: DeltaData\n",
+			"        working-directory: DeltaCore\n", "swift test"),
+		"cd && swift test":    workflow("", "", "", "cd DeltaCore && swift test"),
+		"cd; then swift test": workflow("", "", "", "set -euo pipefail\ncd DeltaCore\nswift test 2>&1 | xcpretty"),
 		"package path relative to working-directory": workflow("", "", "        working-directory: Delta\n",
-			"swift test --package-path ../FlareCore"),
-		"$GITHUB_WORKSPACE":                workflow("", "", "", `swift test --package-path "$GITHUB_WORKSPACE/FlareCore"`),
-		"xcrun, continuation":              workflow("", "", "", "xcrun swift test \\\n  --package-path FlareCore \\\n  --parallel"),
-		"xcodebuild -only-testing":         workflow("", "", "", "xcodebuild test \\\n  -scheme Delta \\\n  -only-testing:FlareCoreTests"),
-		"xcodebuild -only-testing a class": workflow("", "", "", `xcodebuild test -scheme Delta "-only-testing:FlareCoreTests/ParserTests"`),
-		"workflow_call":                    strings.Replace(workflow("", "", "", "swift test --package-path FlareCore"), "pull_request:", "workflow_call:", 1),
+			"swift test --package-path ../DeltaCore"),
+		"$GITHUB_WORKSPACE":                workflow("", "", "", `swift test --package-path "$GITHUB_WORKSPACE/DeltaCore"`),
+		"xcrun, continuation":              workflow("", "", "", "xcrun swift test \\\n  --package-path DeltaCore \\\n  --parallel"),
+		"xcodebuild -only-testing":         workflow("", "", "", "xcodebuild test \\\n  -scheme Delta \\\n  -only-testing:DeltaCoreTests"),
+		"xcodebuild -only-testing a class": workflow("", "", "", `xcodebuild test -scheme Delta "-only-testing:DeltaCoreTests/ParserTests"`),
+		"workflow_call":                    strings.Replace(workflow("", "", "", "swift test --package-path DeltaCore"), "pull_request:", "workflow_call:", 1),
 	}
 	for name, wf := range cases {
 		t.Run(name, func(t *testing.T) {
 			root, targets := flare(t, map[string]string{".github/workflows/packages.yml": wf})
-			r := audit(root, targets, flareSelectors, nil)
-			if got := uncoveredNames(r); got != "FlareDataTests" {
-				t.Fatalf("uncovered = %q, want just FlareDataTests\n%s", got, wf)
+			r := audit(root, targets, deltaSelectors, nil)
+			if got := uncoveredNames(r); got != "DeltaDataTests" {
+				t.Fatalf("uncovered = %q, want just DeltaDataTests\n%s", got, wf)
 			}
-			if len(r.Ran) != 1 || r.Ran[0].Target != "FlareCoreTests" || r.Ran[0].Workflow != ".github/workflows/packages.yml" {
-				t.Fatalf("ran = %+v, want FlareCoreTests <- .github/workflows/packages.yml", r.Ran)
+			if len(r.Ran) != 1 || r.Ran[0].Target != "DeltaCoreTests" || r.Ran[0].Workflow != ".github/workflows/packages.yml" {
+				t.Fatalf("ran = %+v, want DeltaCoreTests <- .github/workflows/packages.yml", r.Ran)
 			}
 			if len(r.Unchecked) != 0 {
 				t.Errorf("unchecked = %+v, want none", r.Unchecked)
 			}
 			out := Format(r)
-			for _, want := range []string{"FlareCoreTests  <- .github/workflows/packages.yml", "NOT checked"} {
+			for _, want := range []string{"DeltaCoreTests  <- .github/workflows/packages.yml", "NOT checked"} {
 				if !strings.Contains(out, want) {
 					t.Errorf("report does not contain %q:\n%s", want, out)
 				}
@@ -217,34 +217,34 @@ func TestAWorkflowThatRunsThePackageCoversIt(t *testing.T) {
 	}
 }
 
-// Each of these mentions FlareCore, or tests, or both, and runs FlareCore's
+// Each of these mentions DeltaCore, or tests, or both, and runs DeltaCore's
 // suite on no pull request. Every one must leave it reported.
 func TestThingsThatDoNotRunThePackageDoNotCoverIt(t *testing.T) {
 	cases := map[string]string{
 		// bravoapp's shape: compiled, deliberately never run.
-		"swift build --build-tests":    workflow("", "", "", "swift build --package-path FlareCore --build-tests"),
-		"another package":              workflow("", "", "", "swift test --package-path FlareData"),
+		"swift build --build-tests":    workflow("", "", "", "swift build --package-path DeltaCore --build-tests"),
+		"another package":              workflow("", "", "", "swift test --package-path DeltaData"),
 		"repo root, no package path":   workflow("", "", "", "swift test"),
 		"a parent of the package":      workflow("", "", "        working-directory: Delta\n", "swift test"),
-		"commented out":                workflow("", "", "", "# swift test --package-path FlareCore\necho skipped"),
-		"trailing comment":             workflow("", "", "", "true # ; swift test --package-path FlareCore"),
-		"list the tests, run none":     workflow("", "", "", "swift test --package-path FlareCore --list-tests"),
-		"echoed, not run":              workflow("", "", "", `echo "swift test --package-path FlareCore"`),
-		"cd, then back":                workflow("", "", "", "cd FlareCore\ncd ..\nswift test"),
-		"xcodebuild build-for-testing": workflow("", "", "", "xcodebuild build-for-testing -scheme Delta -only-testing:FlareCoreTests"),
-		"xcodebuild a prefix":          workflow("", "", "", "xcodebuild test -scheme Delta -only-testing:FlareCoreTestsExtra"),
-		"xcodebuild -skip-testing":     workflow("", "", "", "xcodebuild test -scheme Delta -only-testing:FlareCoreTests -skip-testing:FlareCoreTests"),
-		"manual trigger only": strings.Replace(workflow("", "", "", "swift test --package-path FlareCore"),
+		"commented out":                workflow("", "", "", "# swift test --package-path DeltaCore\necho skipped"),
+		"trailing comment":             workflow("", "", "", "true # ; swift test --package-path DeltaCore"),
+		"list the tests, run none":     workflow("", "", "", "swift test --package-path DeltaCore --list-tests"),
+		"echoed, not run":              workflow("", "", "", `echo "swift test --package-path DeltaCore"`),
+		"cd, then back":                workflow("", "", "", "cd DeltaCore\ncd ..\nswift test"),
+		"xcodebuild build-for-testing": workflow("", "", "", "xcodebuild build-for-testing -scheme Delta -only-testing:DeltaCoreTests"),
+		"xcodebuild a prefix":          workflow("", "", "", "xcodebuild test -scheme Delta -only-testing:DeltaCoreTestsExtra"),
+		"xcodebuild -skip-testing":     workflow("", "", "", "xcodebuild test -scheme Delta -only-testing:DeltaCoreTests -skip-testing:DeltaCoreTests"),
+		"manual trigger only": strings.Replace(workflow("", "", "", "swift test --package-path DeltaCore"),
 			"  pull_request:\n", "  workflow_dispatch:\n", 1),
-		"schedule only": strings.Replace(workflow("", "", "", "swift test --package-path FlareCore"),
+		"schedule only": strings.Replace(workflow("", "", "", "swift test --package-path DeltaCore"),
 			"  pull_request:\n", "  schedule:\n    - cron: '0 4 * * *'\n", 1),
 	}
 	for name, wf := range cases {
 		t.Run(name, func(t *testing.T) {
 			root, targets := flare(t, map[string]string{".github/workflows/packages.yml": wf})
-			r := audit(root, targets, flareSelectors, nil)
-			if got := uncoveredNames(r); got != "FlareCoreTests FlareDataTests" && !(name == "another package" && got == "FlareCoreTests") {
-				t.Fatalf("uncovered = %q; FlareCoreTests should still be reported\n%s", got, wf)
+			r := audit(root, targets, deltaSelectors, nil)
+			if got := uncoveredNames(r); got != "DeltaCoreTests DeltaDataTests" && !(name == "another package" && got == "DeltaCoreTests") {
+				t.Fatalf("uncovered = %q; DeltaCoreTests should still be reported\n%s", got, wf)
 			}
 			if len(r.Unchecked) != 0 {
 				t.Errorf("unchecked = %+v, want none: this workflow was read and does not run it", r.Unchecked)
@@ -255,21 +255,21 @@ func TestThingsThatDoNotRunThePackageDoNotCoverIt(t *testing.T) {
 
 // A package with two suites, and a `swift test` that runs one of them.
 func TestSwiftTestFilterAndSkipNarrowWhatRuns(t *testing.T) {
-	two := flarePackage("FlareCore", "FlareCoreTests", "FlareCoreSnapshotTests")
+	two := deltaPackage("DeltaCore", "DeltaCoreTests", "DeltaCoreSnapshotTests")
 	cases := map[string]struct{ run, want string }{
-		"no filter runs both":    {"swift test --package-path FlareCore", "FlareDataTests"},
-		"--filter one suite":     {"swift test --package-path FlareCore --filter FlareCoreTests", "FlareCoreSnapshotTests FlareDataTests"},
-		"--filter=suite.class":   {"swift test --package-path FlareCore --filter=FlareCoreTests.ParserTests", "FlareCoreSnapshotTests FlareDataTests"},
-		"--filter is not prefix": {"swift test --package-path FlareCore --filter FlareCoreTestsX", "FlareCoreSnapshotTests FlareCoreTests FlareDataTests"},
-		"--skip one suite":       {"swift test --package-path FlareCore --skip FlareCoreSnapshotTests", "FlareCoreSnapshotTests FlareDataTests"},
+		"no filter runs both":    {"swift test --package-path DeltaCore", "DeltaDataTests"},
+		"--filter one suite":     {"swift test --package-path DeltaCore --filter DeltaCoreTests", "DeltaCoreSnapshotTests DeltaDataTests"},
+		"--filter=suite.class":   {"swift test --package-path DeltaCore --filter=DeltaCoreTests.ParserTests", "DeltaCoreSnapshotTests DeltaDataTests"},
+		"--filter is not prefix": {"swift test --package-path DeltaCore --filter DeltaCoreTestsX", "DeltaCoreSnapshotTests DeltaCoreTests DeltaDataTests"},
+		"--skip one suite":       {"swift test --package-path DeltaCore --skip DeltaCoreSnapshotTests", "DeltaCoreSnapshotTests DeltaDataTests"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			root, targets := flare(t, map[string]string{
-				"FlareCore/Package.swift":        two,
+				"DeltaCore/Package.swift":        two,
 				".github/workflows/packages.yml": workflow("", "", "", c.run),
 			})
-			if got := uncoveredNames(audit(root, targets, flareSelectors, nil)); got != c.want {
+			if got := uncoveredNames(audit(root, targets, deltaSelectors, nil)); got != c.want {
 				t.Fatalf("uncovered = %q, want %q", got, c.want)
 			}
 		})
@@ -290,7 +290,7 @@ func scheme(testables string) string {
 
 func testable(name, skipped string) string {
 	return `         <TestableReference skipped = "` + skipped + `">
-            <BuildableReference BuildableIdentifier = "primary" BlueprintName = "` + name + `" ReferencedContainer = "container:../FlareCore">
+            <BuildableReference BuildableIdentifier = "primary" BlueprintName = "` + name + `" ReferencedContainer = "container:../DeltaCore">
             </BuildableReference>
          </TestableReference>
 `
@@ -306,9 +306,9 @@ func TestXcodebuildSchemeReachesWhatTheSchemeLists(t *testing.T) {
 		scheme, wantUncovered string
 		wantUnchecked         bool
 	}{
-		"listed":               {scheme(testable("FlareTests", "NO") + testable("FlareCoreTests", "NO")), "FlareDataTests", false},
-		"listed, skipped":      {scheme(testable("FlareCoreTests", "YES")), "FlareCoreTests FlareDataTests", false},
-		"not listed":           {scheme(testable("FlareTests", "NO")), "FlareCoreTests FlareDataTests", false},
+		"listed":               {scheme(testable("DeltaTests", "NO") + testable("DeltaCoreTests", "NO")), "DeltaDataTests", false},
+		"listed, skipped":      {scheme(testable("DeltaCoreTests", "YES")), "DeltaCoreTests DeltaDataTests", false},
+		"not listed":           {scheme(testable("DeltaTests", "NO")), "DeltaCoreTests DeltaDataTests", false},
 		"scheme not committed": {"", "", true},
 	}
 	for name, c := range cases {
@@ -318,7 +318,7 @@ func TestXcodebuildSchemeReachesWhatTheSchemeLists(t *testing.T) {
 				extra[schemePath] = c.scheme
 			}
 			root, targets := flare(t, extra)
-			r := audit(root, targets, flareSelectors, nil)
+			r := audit(root, targets, deltaSelectors, nil)
 			if got := uncoveredNames(r); got != c.wantUncovered {
 				t.Fatalf("uncovered = %q, want %q", got, c.wantUncovered)
 			}
@@ -336,22 +336,22 @@ func TestXcodebuildSchemeReachesWhatTheSchemeLists(t *testing.T) {
 // workflow whose shape the audit does not recognise on its own (fastlane). An
 // unverified one does not.
 func TestCoveredElsewhereCoversAPackageSuiteOnlyWhenVerified(t *testing.T) {
-	const fastlane = "bundle exec fastlane scan --scheme FlareCore --only_testing FlareCoreTests"
-	d := []Declaration{{Target: "FlareCoreTests", Workflow: ".github/workflows/packages.yml", Reason: "fastlane runs the package scheme"}}
+	const fastlane = "bundle exec fastlane scan --scheme DeltaCore --only_testing DeltaCoreTests"
+	d := []Declaration{{Target: "DeltaCoreTests", Workflow: ".github/workflows/packages.yml", Reason: "fastlane runs the package scheme"}}
 
 	root, targets := flare(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", fastlane)})
-	r := audit(root, targets, flareSelectors, d)
-	if got := uncoveredNames(r); got != "FlareDataTests" {
-		t.Fatalf("uncovered = %q, want just FlareDataTests", got)
+	r := audit(root, targets, deltaSelectors, d)
+	if got := uncoveredNames(r); got != "DeltaDataTests" {
+		t.Fatalf("uncovered = %q, want just DeltaDataTests", got)
 	}
-	if len(r.Elsewhere) != 1 || r.Elsewhere[0].Target != "FlareCoreTests" {
-		t.Fatalf("elsewhere = %+v, want the FlareCoreTests declaration", r.Elsewhere)
+	if len(r.Elsewhere) != 1 || r.Elsewhere[0].Target != "DeltaCoreTests" {
+		t.Fatalf("elsewhere = %+v, want the DeltaCoreTests declaration", r.Elsewhere)
 	}
 
 	// The same declaration against a workflow that never names the suite.
 	root, targets = flare(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", "bundle exec fastlane scan")})
-	r = audit(root, targets, flareSelectors, d)
-	if got := uncoveredNames(r); got != "FlareCoreTests FlareDataTests" {
+	r = audit(root, targets, deltaSelectors, d)
+	if got := uncoveredNames(r); got != "DeltaCoreTests DeltaDataTests" {
 		t.Fatalf("an unverified declaration removed a finding: uncovered = %q", got)
 	}
 	if out := Format(r); !strings.Contains(out, "NOT CONFIRMED") {
@@ -363,7 +363,7 @@ func TestCoveredElsewhereCoversAPackageSuiteOnlyWhenVerified(t *testing.T) {
 // just because the suite is not a native target (it was, before this change).
 func TestCoveredElsewhereSeesPackageSuites(t *testing.T) {
 	root, targets := flare(t, nil)
-	claims := Verify(root, []Declaration{{Target: "FlareCoreTests", Workflow: ".github/workflows/ios-ci.yml"}}, targets, nil)
+	claims := Verify(root, []Declaration{{Target: "DeltaCoreTests", Workflow: ".github/workflows/ios-ci.yml"}}, targets, nil)
 	var declared []Claim
 	for _, c := range claims {
 		if !c.Detected {
@@ -380,16 +380,16 @@ func TestCoveredElsewhereSeesPackageSuites(t *testing.T) {
 // call them uncovered: it says it did not check, and why. Its readable
 // neighbour is still judged.
 func TestUnreadablePackageIsNotCheckedRatherThanUncovered(t *testing.T) {
-	root, targets := flare(t, map[string]string{"FlareData/Package.swift": ""})
-	r := audit(root, targets, flareSelectors, nil)
-	if got := uncoveredNames(r); got != "FlareCoreTests" {
-		t.Fatalf("uncovered = %q, want just FlareCoreTests", got)
+	root, targets := flare(t, map[string]string{"DeltaData/Package.swift": ""})
+	r := audit(root, targets, deltaSelectors, nil)
+	if got := uncoveredNames(r); got != "DeltaCoreTests" {
+		t.Fatalf("uncovered = %q, want just DeltaCoreTests", got)
 	}
-	if len(r.Unchecked) != 1 || r.Unchecked[0].Suite != "" || !strings.Contains(r.Unchecked[0].Reason, "FlareData/Package.swift does not exist") {
-		t.Fatalf("unchecked = %+v, want FlareData's package, with its reason", r.Unchecked)
+	if len(r.Unchecked) != 1 || r.Unchecked[0].Suite != "" || !strings.Contains(r.Unchecked[0].Reason, "DeltaData/Package.swift does not exist") {
+		t.Fatalf("unchecked = %+v, want DeltaData's package, with its reason", r.Unchecked)
 	}
 	out := Format(r)
-	for _, want := range []string{"could not check whether", "FlareData/Package.swift does not exist"} {
+	for _, want := range []string{"could not check whether", "DeltaData/Package.swift does not exist"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report does not contain %q:\n%s", want, out)
 		}
@@ -402,13 +402,13 @@ func TestUnreadablePackageIsNotCheckedRatherThanUncovered(t *testing.T) {
 func TestSwiftTestInADirectoryTheAuditCannotResolveIsNotChecked(t *testing.T) {
 	cases := map[string]string{
 		"matrix package path": workflow("", "", "", `swift test --package-path "${{ matrix.package }}"`),
-		"shell variable":      workflow("", "", "", `for p in FlareCore FlareData; do swift test --package-path "$p"; done`),
+		"shell variable":      workflow("", "", "", `for p in DeltaCore DeltaData; do swift test --package-path "$p"; done`),
 		"matrix working-dir":  workflow("", "", "        working-directory: ${{ matrix.package }}\n", "swift test"),
 	}
 	for name, wf := range cases {
 		t.Run(name, func(t *testing.T) {
 			root, targets := flare(t, map[string]string{".github/workflows/packages.yml": wf})
-			r := audit(root, targets, flareSelectors, nil)
+			r := audit(root, targets, deltaSelectors, nil)
 			if len(r.Uncovered) != 0 {
 				t.Fatalf("uncovered = %q, want none: this workflow may run them", uncoveredNames(r))
 			}
@@ -422,7 +422,7 @@ func TestSwiftTestInADirectoryTheAuditCannotResolveIsNotChecked(t *testing.T) {
 // A workflow that cannot be parsed is a place the suite may be run, unexamined.
 func TestUnparseableWorkflowIsNotChecked(t *testing.T) {
 	root, targets := flare(t, map[string]string{".github/workflows/packages.yml": "on: [pull_request]\njobs: [unterminated\n"})
-	r := audit(root, targets, flareSelectors, nil)
+	r := audit(root, targets, deltaSelectors, nil)
 	if len(r.Uncovered) != 0 || len(r.Unchecked) != 2 {
 		t.Fatalf("uncovered = %q, unchecked = %+v; want both suites unchecked", uncoveredNames(r), r.Unchecked)
 	}
@@ -432,7 +432,7 @@ func TestUnparseableWorkflowIsNotChecked(t *testing.T) {
 func TestPackageOutsideTheRepositoryIsNotChecked(t *testing.T) {
 	root, targets := flare(t, nil)
 	// The same targets, audited as though the project root were Delta/.
-	r := audit(filepath.Join(root, "Delta"), targets, flareSelectors, nil)
+	r := audit(filepath.Join(root, "Delta"), targets, deltaSelectors, nil)
 	if len(r.Uncovered) != 0 || len(r.Unchecked) != 2 || !strings.Contains(r.Unchecked[0].Reason, "outside") {
 		t.Fatalf("uncovered = %q, unchecked = %+v; want both suites unchecked as outside the repository", uncoveredNames(r), r.Unchecked)
 	}
@@ -442,11 +442,11 @@ func TestPackageOutsideTheRepositoryIsNotChecked(t *testing.T) {
 // the pbxproj spells it, so nothing depends on Apply having run to be seen.
 func TestCompareAloneReportsPackageSuites(t *testing.T) {
 	_, targets := flare(t, nil)
-	r := Compare(targets, flareSelectors)
-	if got := uncoveredNames(r); got != "FlareCoreTests FlareDataTests" {
+	r := Compare(targets, deltaSelectors)
+	if got := uncoveredNames(r); got != "DeltaCoreTests DeltaDataTests" {
 		t.Fatalf("uncovered = %q", got)
 	}
-	if !strings.Contains(Format(r), "FlareCoreTests  (unit tests, local package ../FlareCore)") {
+	if !strings.Contains(Format(r), "DeltaCoreTests  (unit tests, local package ../DeltaCore)") {
 		t.Errorf("report:\n%s", Format(r))
 	}
 }
@@ -466,7 +466,7 @@ workspace=".swiftpm/xcode/package.xcworkspace"
 mkdir -p "$workspace"
 cat > "$workspace/contents.xcworkspacedata" <<'XCWORKSPACE'
 <?xml version="1.0" encoding="UTF-8"?>
-swift test --package-path ../FlareData
+swift test --package-path ../DeltaData
 XCWORKSPACE
 
 for configuration in Debug Release; do
@@ -480,26 +480,26 @@ done
 `
 
 func TestAScriptTheStepRunsIsReadInto(t *testing.T) {
-	step := workflow("", "", "        working-directory: FlareCore\n", "./Scripts/verify.sh")
+	step := workflow("", "", "        working-directory: DeltaCore\n", "./Scripts/verify.sh")
 	cases := map[string]struct {
 		files map[string]string
 		want  string
 	}{
 		"generated scheme named after the package": {map[string]string{
-			"FlareCore/Scripts/verify.sh": strings.ReplaceAll(verifyScript, "SCHEME", "FlareCore")}, "FlareDataTests"},
+			"DeltaCore/Scripts/verify.sh": strings.ReplaceAll(verifyScript, "SCHEME", "DeltaCore")}, "DeltaDataTests"},
 		"the <package>-Package scheme": {map[string]string{
-			"FlareCore/Scripts/verify.sh": strings.ReplaceAll(verifyScript, "SCHEME", "FlareCore-Package")}, "FlareDataTests"},
+			"DeltaCore/Scripts/verify.sh": strings.ReplaceAll(verifyScript, "SCHEME", "DeltaCore-Package")}, "DeltaDataTests"},
 		// A product scheme has no test action; xcodebuild refuses it.
 		"some other generated scheme": {map[string]string{
-			"FlareCore/Scripts/verify.sh": strings.ReplaceAll(verifyScript, "SCHEME", "FlareCoreKit")}, "FlareCoreTests FlareDataTests"},
+			"DeltaCore/Scripts/verify.sh": strings.ReplaceAll(verifyScript, "SCHEME", "DeltaCoreKit")}, "DeltaCoreTests DeltaDataTests"},
 		// The heredoc's `swift test` line is data written to a file.
 		"heredoc is not run": {map[string]string{
-			"FlareCore/Scripts/verify.sh": strings.ReplaceAll(verifyScript, "SCHEME", "FlareCoreKit")}, "FlareCoreTests FlareDataTests"},
+			"DeltaCore/Scripts/verify.sh": strings.ReplaceAll(verifyScript, "SCHEME", "DeltaCoreKit")}, "DeltaCoreTests DeltaDataTests"},
 		"a committed scheme wins over the generated one": {map[string]string{
-			"FlareCore/Scripts/verify.sh":                                        strings.ReplaceAll(verifyScript, "SCHEME", "FlareCore"),
-			"FlareCore/.swiftpm/xcode/xcshareddata/xcschemes/FlareCore.xcscheme": scheme(testable("FlareCoreTests", "YES")),
-		}, "FlareCoreTests FlareDataTests"},
-		"no such script": {map[string]string{}, "FlareCoreTests FlareDataTests"},
+			"DeltaCore/Scripts/verify.sh":                                        strings.ReplaceAll(verifyScript, "SCHEME", "DeltaCore"),
+			"DeltaCore/.swiftpm/xcode/xcshareddata/xcschemes/DeltaCore.xcscheme": scheme(testable("DeltaCoreTests", "YES")),
+		}, "DeltaCoreTests DeltaDataTests"},
+		"no such script": {map[string]string{}, "DeltaCoreTests DeltaDataTests"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -508,14 +508,14 @@ func TestAScriptTheStepRunsIsReadInto(t *testing.T) {
 				extra[k] = v
 			}
 			root, targets := flare(t, extra)
-			r := audit(root, targets, flareSelectors, nil)
+			r := audit(root, targets, deltaSelectors, nil)
 			if got := uncoveredNames(r); got != c.want {
 				t.Fatalf("uncovered = %q, want %q (unchecked %+v)", got, c.want, r.Unchecked)
 			}
 			if len(r.Unchecked) != 0 {
 				t.Fatalf("unchecked = %+v, want none", r.Unchecked)
 			}
-			if c.want == "FlareDataTests" && !strings.Contains(Format(r), "(in FlareCore/Scripts/verify.sh)") {
+			if c.want == "DeltaDataTests" && !strings.Contains(Format(r), "(in DeltaCore/Scripts/verify.sh)") {
 				t.Errorf("the evidence does not name the script it was found in:\n%s", Format(r))
 			}
 		})
@@ -524,31 +524,31 @@ func TestAScriptTheStepRunsIsReadInto(t *testing.T) {
 
 func TestMoreWaysARunIsSpelled(t *testing.T) {
 	cases := map[string]struct{ run, want string }{
-		"bash script.sh": {"bash scripts/test.sh", "FlareDataTests"},
-		"bash -c":        {"bash -c 'cd FlareCore && swift test'", "FlareDataTests"},
-		"a variable":     {"PKG=FlareCore\nswift test --package-path \"$PKG\"", "FlareDataTests"},
-		"${variable}":    {"PKG=FlareCore\nswift test --package-path \"${PKG}\"", "FlareDataTests"},
+		"bash script.sh": {"bash scripts/test.sh", "DeltaDataTests"},
+		"bash -c":        {"bash -c 'cd DeltaCore && swift test'", "DeltaDataTests"},
+		"a variable":     {"PKG=DeltaCore\nswift test --package-path \"$PKG\"", "DeltaDataTests"},
+		"${variable}":    {"PKG=DeltaCore\nswift test --package-path \"${PKG}\"", "DeltaDataTests"},
 		// `X=1 cmd` sets X for cmd only.
 		// $PKG is unset afterwards: not covered, and not "runs nowhere" either.
-		"a prefix assignment does not persist":        {"PKG=FlareCore true\nswift test --package-path \"$PKG\"", ""},
-		"bash -c does not move the caller":            {"bash -c 'cd FlareCore'\nswift test", "FlareCoreTests FlareDataTests"},
-		"a script's cd does not move the caller":      {"./scripts/cd.sh\nswift test", "FlareCoreTests FlareDataTests"},
-		"here-string is not a heredoc":                {"cat <<< \"x\"\nswift test --package-path FlareCore", "FlareDataTests"},
-		"xcodebuild in the package, generated scheme": {"cd FlareCore\nxcodebuild test -scheme FlareCore -destination 'platform=macOS'", "FlareDataTests"},
-		"xcodebuild on the package workspace":         {"xcodebuild test -workspace FlareCore/.swiftpm/xcode/package.xcworkspace -scheme FlareCore", "FlareDataTests"},
-		"flowdeck --only":                             {"flowdeck test -w Delta/Delta.xcodeproj -s Delta --only FlareTests/A FlareCoreTests/B", "FlareDataTests"},
-		"flowdeck --test-targets":                     {"flowdeck test -w Delta/Delta.xcodeproj -s Delta --test-targets FlareTests,FlareDataTests", "FlareCoreTests"},
-		"flowdeck --skip the suite":                   {"flowdeck test -w FlareCore/.swiftpm/xcode/package.xcworkspace -s FlareCore --skip FlareCoreTests", "FlareCoreTests FlareDataTests"},
-		"flowdeck discover runs nothing":              {"flowdeck test discover -w FlareCore/.swiftpm/xcode/package.xcworkspace -s FlareCore", "FlareCoreTests FlareDataTests"},
+		"a prefix assignment does not persist":        {"PKG=DeltaCore true\nswift test --package-path \"$PKG\"", ""},
+		"bash -c does not move the caller":            {"bash -c 'cd DeltaCore'\nswift test", "DeltaCoreTests DeltaDataTests"},
+		"a script's cd does not move the caller":      {"./scripts/cd.sh\nswift test", "DeltaCoreTests DeltaDataTests"},
+		"here-string is not a heredoc":                {"cat <<< \"x\"\nswift test --package-path DeltaCore", "DeltaDataTests"},
+		"xcodebuild in the package, generated scheme": {"cd DeltaCore\nxcodebuild test -scheme DeltaCore -destination 'platform=macOS'", "DeltaDataTests"},
+		"xcodebuild on the package workspace":         {"xcodebuild test -workspace DeltaCore/.swiftpm/xcode/package.xcworkspace -scheme DeltaCore", "DeltaDataTests"},
+		"flowdeck --only":                             {"flowdeck test -w Delta/Delta.xcodeproj -s Delta --only DeltaTests/A DeltaCoreTests/B", "DeltaDataTests"},
+		"flowdeck --test-targets":                     {"flowdeck test -w Delta/Delta.xcodeproj -s Delta --test-targets DeltaTests,DeltaDataTests", "DeltaCoreTests"},
+		"flowdeck --skip the suite":                   {"flowdeck test -w DeltaCore/.swiftpm/xcode/package.xcworkspace -s DeltaCore --skip DeltaCoreTests", "DeltaCoreTests DeltaDataTests"},
+		"flowdeck discover runs nothing":              {"flowdeck test discover -w DeltaCore/.swiftpm/xcode/package.xcworkspace -s DeltaCore", "DeltaCoreTests DeltaDataTests"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			root, targets := flare(t, map[string]string{
 				".github/workflows/packages.yml": workflow("", "", "", c.run),
-				"scripts/test.sh":                "#!/bin/sh\nset -e\nswift test --package-path FlareCore\n",
-				"scripts/cd.sh":                  "#!/bin/sh\ncd FlareCore\n",
+				"scripts/test.sh":                "#!/bin/sh\nset -e\nswift test --package-path DeltaCore\n",
+				"scripts/cd.sh":                  "#!/bin/sh\ncd DeltaCore\n",
 			})
-			r := audit(root, targets, flareSelectors, nil)
+			r := audit(root, targets, deltaSelectors, nil)
 			if got := uncoveredNames(r); got != c.want {
 				t.Fatalf("uncovered = %q, want %q (unchecked %+v)", got, c.want, r.Unchecked)
 			}
@@ -560,7 +560,7 @@ func TestMoreWaysARunIsSpelled(t *testing.T) {
 // in the repository in a form this reads.
 func TestFlowdeckOnItsSavedConfigIsNotChecked(t *testing.T) {
 	root, targets := flare(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", "flowdeck test --headless")})
-	r := audit(root, targets, flareSelectors, nil)
+	r := audit(root, targets, deltaSelectors, nil)
 	if len(r.Uncovered) != 0 || len(r.Unchecked) != 2 || !strings.Contains(r.Unchecked[0].Reason, "flowdeck config") {
 		t.Fatalf("uncovered = %q, unchecked = %+v; want both unchecked", uncoveredNames(r), r.Unchecked)
 	}
@@ -570,14 +570,14 @@ func TestFlowdeckOnItsSavedConfigIsNotChecked(t *testing.T) {
 // answer, and it reads as the reason the suite is covered. Stale, with why.
 func TestDeclarationForASuiteAWorkflowRunsIsStale(t *testing.T) {
 	root, targets := flare(t, map[string]string{
-		".github/workflows/packages.yml": workflow("", "", "", "swift test --package-path FlareCore # FlareCoreTests"),
+		".github/workflows/packages.yml": workflow("", "", "", "swift test --package-path DeltaCore # DeltaCoreTests"),
 	})
-	d := []Declaration{{Target: "FlareCoreTests", Workflow: ".github/workflows/packages.yml", Reason: "r"}}
-	r := audit(root, targets, flareSelectors, d)
+	d := []Declaration{{Target: "DeltaCoreTests", Workflow: ".github/workflows/packages.yml", Reason: "r"}}
+	r := audit(root, targets, deltaSelectors, d)
 	if len(r.Stale) != 1 || !strings.Contains(r.Stale[0].Stale, "already runs") || len(r.Elsewhere) != 0 {
 		t.Fatalf("stale = %+v, elsewhere = %+v; want the declaration stale", r.Stale, r.Elsewhere)
 	}
-	if len(r.Ran) != 1 || uncoveredNames(r) != "FlareDataTests" {
+	if len(r.Ran) != 1 || uncoveredNames(r) != "DeltaDataTests" {
 		t.Fatalf("ran = %+v, uncovered = %q", r.Ran, uncoveredNames(r))
 	}
 }
