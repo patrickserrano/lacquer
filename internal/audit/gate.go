@@ -4,12 +4,20 @@ package audit
 // Audit and fleet share this policy, including exit-code precedence.
 type Gate struct {
 	Clobbered, Baseline, Exclusions, DepIgnores, NotRunInCI, Orphans, Undeclared int
+	// LockMismatch counts Behind rows under `audit --ci`, where the lacquer is
+	// the version the lock names (see ci.go). Always zero outside --ci, so
+	// fleet and local audits are unchanged.
+	LockMismatch int
 }
 
-// ExitCode ranks destructive drift before policy violations, then missing stack
+// ExitCode ranks a lock its own version never wrote first: every other
+// attribution is made against that lock, so none of them can be trusted until
+// it is re-synced. Then destructive drift, policy violations, and missing stack
 // declarations. Informational findings do not block.
 func (g Gate) ExitCode() int {
 	switch {
+	case g.LockMismatch > 0:
+		return 8
 	case g.Clobbered > 0:
 		return 3
 	case g.Baseline > 0 || g.Exclusions > 0 || g.DepIgnores > 0 || g.NotRunInCI > 0 || g.Orphans > 0:

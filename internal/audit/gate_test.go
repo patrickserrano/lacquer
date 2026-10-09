@@ -22,6 +22,10 @@ func TestGateExitCodesAndPrecedence(t *testing.T) {
 		{"undeclared", audit.Gate{Undeclared: 1}, 6},
 		{"clobber first", audit.Gate{Clobbered: 1, Orphans: 1, Undeclared: 1}, 3},
 		{"policy before stack", audit.Gate{Orphans: 1, Undeclared: 1}, 4},
+		// --ci only: the lock vouches for content its own version never
+		// rendered, so every other attribution made against it is suspect too.
+		{"lock mismatch", audit.Gate{LockMismatch: 1}, 8},
+		{"lock mismatch first", audit.Gate{LockMismatch: 1, Clobbered: 1, Orphans: 1, Undeclared: 1}, 8},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.gate.ExitCode(); got != tt.want {

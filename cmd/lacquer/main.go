@@ -411,6 +411,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		flags := flag.NewFlagSet("audit", flag.ContinueOnError)
 		flags.SetOutput(stderr)
 		xcodegenOnly := flags.Bool("xcodegen-only", false, "report XcodeGen build-setting drift only (never gates)")
+		// CI checks the lacquer out at the tag .lacquer.lock names, so there
+		// "behind" cannot mean the lacquer advanced. See internal/audit/ci.go.
+		ci := flags.Bool("ci", false, "audit at the lock's own version: refuse any other, and exit 8 on a unit the lock vouches for that this version does not render")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -430,7 +433,19 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		if err != nil {
 			return fail(stderr, err)
 		}
+		if *ci {
+			// Before any report: under the wrong version every Behind row
+			// below would be misattributed, in either direction.
+			if err := audit.CheckLockVersion(projectRoot, ver); err != nil {
+				return fail(stderr, err)
+			}
+		}
 		fmt.Fprint(stdout, audit.Format(rows, ver))
+		var lockMismatch []audit.Row
+		if *ci {
+			lockMismatch = audit.NotRendered(rows)
+			fmt.Fprint(stdout, audit.FormatNotRendered(lockMismatch, ver))
+		}
 		ratchets, err := ratchet.Check(projectRoot, cfg)
 		if err != nil {
 			return fail(stderr, err)
@@ -629,6 +644,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			Clobbered: len(audit.Clobbered(rows)), Baseline: baseline.Blocking(reports) + ratchet.Blocking(ratchets),
 			Exclusions: exclusion.Blocking(exclusions), DepIgnores: depignore.Blocking(ignores),
 			NotRunInCI: notRunExpired, Orphans: len(orphans), Undeclared: len(detect.Adoptable(findings)),
+			LockMismatch: len(lockMismatch),
 		}).ExitCode()
 
 	case "fleet":
@@ -1207,6 +1223,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               no longer ships still sitting in the project; exit 6 if a stack")
 	fmt.Fprintln(w, "                               on disk is undeclared — see `adopt`)")
 	fmt.Fprintln(w, "    --xcodegen-only            report regeneration setting drift only; no drift/baseline gates")
+	fmt.Fprintln(w, "    --ci                       audit at the lock's own version, as CI does: refuse any other, and")
+	fmt.Fprintln(w, "                               exit 8 on a file that matches the lock but not that version's render")
 	fmt.Fprintln(w, "  fleet --roster F [--json]    audit every project in a roster (exit 4 if any would fail its own")
 	fmt.Fprintln(w, "                               audit); --json emits a snapshot for a later run to diff against")
 	fmt.Fprintln(w, "  fleet diff A.json B.json     what changed between two snapshots (exit 4 on a regression)")
