@@ -125,8 +125,8 @@ Declare the bundle and the lacquer renders a `watch-test` job for it:
 
 ```toml
 [project.watch_tests]                   # the single-product spelling
-scheme      = "DailyBreadWatchApp Watch App"
-test_target = "DailyBreadWatchApp Watch AppTests"
+scheme      = "AlphaAppWatchApp Watch App"
+test_target = "AlphaAppWatchApp Watch AppTests"
 ```
 
 ```toml
@@ -135,8 +135,8 @@ name   = "Paid"
 scheme = "AlphaApp"
 
   [product.watch_tests]
-  scheme      = "DailyBreadWatchApp Watch App"
-  test_target = "DailyBreadWatchApp Watch AppTests"
+  scheme      = "AlphaAppWatchApp Watch App"
+  test_target = "AlphaAppWatchApp Watch AppTests"
   platform    = "watchOS"               # optional; the only value today
 ```
 
