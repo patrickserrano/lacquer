@@ -11,8 +11,10 @@ on:
     branches: [main, develop, 'feat/*', 'fix/*']
   push:
     branches: [main]
+    # One entry per Swift component (#522 U4): the app's, then each package
+    # component's, so a push touching only tools/ still runs CI on main.
     paths:
-      - '{{COMPONENT_PREFIX}}**'
+{{IOS_CI_PUSH_PATHS}}
 
 # No job talks to the GitHub API (caches/artifacts/step summaries use the
 # Actions runtime token, not GITHUB_TOKEN) — checkout is all the token does.
@@ -481,7 +483,7 @@ jobs:
           # below, which matches zero files despite Swift existing elsewhere
           # and exits 0) — so without this gate, Lint always fails outright for
           # a pre-code component regardless of what's actually wrong.
-          has_swift=$(find {{COMPONENT_PREFIX}}. -name '*.swift' \
+          has_swift=$(find {{IOS_CI_LINT_COMPONENTS}} -name '*.swift' \
             -not -path '*/.build/*' -not -path '*/DerivedData*/*' -print -quit)
           if [ -n "$has_swift" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
@@ -490,22 +492,55 @@ jobs:
             echo "::notice::No Swift sources under {{COMPONENT_PREFIX}} yet — nothing for Lint to check."
           fi
 
+      # One SwiftLint run per Swift component the manifest declares (#522 U4):
+      # the app, plus every `[[component]] stack = "ios"` beside it. Each runs
+      # from INSIDE its own directory against its own .swiftlint.yml, the way
+      # the pre-commit hook does, so a component's config decides what its
+      # files are held to. A single run at the app's prefix used to be the whole
+      # of this step, and Swift beside the app was linted by nothing.
+      #
+      # `set +e` because GitHub runs this under `bash -e`: without it a failing
+      # `out=$(swiftlint ...)` ends the script before the output is printed,
+      # and the remaining components are never linted.
       - name: Run SwiftLint
         if: steps.swiftsrc.outputs.present == 'true'
         run: |
-          set -o pipefail
-          out=$(swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}. 2>&1); rc=$?
-          printf '%s\n' "$out"
-          # Guard: a mis-scoped config that matches NO files exits 0 and silently
-          # enforces nothing. Swift sources are known to exist at this point (the
-          # zero-Swift case above already skipped this step) — so "No lintable
-          # files" here always means the config is mis-scoped, never that there's
-          # legitimately nothing to lint.
-          if printf '%s' "$out" | grep -q "No lintable files"; then
-            echo "::error::Swift sources exist but SwiftLint matched none — the .swiftlint.yml is mis-scoped (lint is silently doing nothing)."
-            exit 1
-          fi
-          exit $rc
+          set +e
+          status=0
+          for dir in {{IOS_CI_LINT_COMPONENTS}}; do
+            name="${dir%/.}"
+            echo "::group::SwiftLint: $name"
+            # A package component's config is the project's to write; one
+            # without a config would be linted by nothing, so it fails.
+            if [ ! -f "$dir/.swiftlint.yml" ]; then
+              echo "::endgroup::"
+              echo "::error::component $name declares stack ios but has no .swiftlint.yml"
+              status=1
+              continue
+            fi
+            if [ -z "$(find "$dir" -name '*.swift' -not -path '*/.build/*' -not -path '*/DerivedData*/*' -print -quit)" ]; then
+              echo "::endgroup::"
+              echo "::notice::No Swift sources under $name yet — nothing to lint there."
+              continue
+            fi
+            out=$(cd "$dir" && swiftlint --strict --config .swiftlint.yml . 2>&1)
+            rc=$?
+            printf '%s\n' "$out"
+            echo "::endgroup::"
+            # Guard: a mis-scoped config that matches NO files exits 0 and
+            # silently enforces nothing. Swift sources are known to exist under
+            # this component (checked just above) — so "No lintable files" here
+            # always means the config is mis-scoped, never that there's
+            # legitimately nothing to lint.
+            if printf '%s' "$out" | grep -q "No lintable files"; then
+              echo "::error::Swift sources exist under $name but SwiftLint matched none — its .swiftlint.yml is mis-scoped (lint is silently doing nothing)."
+              status=1
+            elif [ "$rc" -ne 0 ]; then
+              echo "::error::SwiftLint failed in component $name (exit $rc)."
+              status=1
+            fi
+          done
+          exit $status
 
       - name: Check SwiftFormat
         if: steps.swiftsrc.outputs.present == 'true'
@@ -603,6 +638,31 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" lacquer
           chmod +x "$RUNNER_TEMP/lacquer"
           LACQUER_ROOT="$PWD/.lacquer-checkout" "$RUNNER_TEMP/lacquer" doctor --profile ios
+      # Swift that no declared component covers is linted by nothing and built by
+      # nothing (#522 U4). The list is computed by the binary the step above
+      # downloaded and verified, from the manifest's components, so this step,
+      # `lacquer audit` and the fleet sweep cannot disagree about it. It runs
+      # here rather than in the `changes` job's audit because a pull request
+      # that adds a stray directory touches no lacquer path, and that audit
+      # would never wake for it.
+      #
+      # Until the gate date the binary prints the finding as a ::warning::
+      # carrying that date and exits 0; from it, an ::error:: and exit 1.
+      - name: Every Swift file belongs to a declared component
+        working-directory: "."
+        run: |
+          set -euo pipefail
+          if [ ! -f .lacquer.toml ]; then
+            echo "::notice::No .lacquer.toml — this project is not lacquer-managed."
+            exit 0
+          fi
+          # Absent means the step above did not fetch it, and a check that did
+          # not run must not pass.
+          if [ ! -x "$RUNNER_TEMP/lacquer" ]; then
+            echo "::error::The lacquer binary is missing, so Swift files were NOT checked against the declared components."
+            exit 1
+          fi
+          "$RUNNER_TEMP/lacquer" swift-components --check
       # --- Folded in from the former `Baseline` job. It was a second Mac job that
       # repeated checkout and the toolchain check to run a few seconds of work;
       # one job is one runner pickup and one billed slot-minute fewer per run.
@@ -825,6 +885,68 @@ jobs:
             exit 1
           fi
           echo "Project baseline met."
+
+      # Every SwiftPM package directly in (or one level below) a package
+      # component is compiled here, tests included (#522 U4). Nothing else
+      # builds them: the Xcode project builds only the packages under the app
+      # component, in Test, and those are deliberately not listed here.
+      # `--build-tests` because a test target that stopped compiling is a suite
+      # that silently stopped being runnable; `swift test` is the project's call.
+      # `--only-use-versions-from-resolved-file` so a Package.resolved that no
+      # longer satisfies its Package.swift is an error, never a silent
+      # re-resolve; `-warnings-as-errors` so a warning fails here as it would in
+      # the app target.
+      #
+      # `swift build` compiles for the host, macOS. A package whose platforms
+      # list no macOS cannot be built that way, so it is NOT built here and the
+      # step names it in a notice; building iOS-only packages is a follow-up
+      # on #522. A package that declares macOS, or no platforms, is built.
+      #
+      # This step is NOT covered by the stray-Swift grace date: it only has
+      # packages to build once a project declares a package component, and a
+      # package a project declared should build, so it fails from the first
+      # declaration.
+      #
+      # The lists are rendered at sync from the manifest and the tracked
+      # Package.swift files, so a package added without a sync shows up in
+      # `lacquer audit` as drift of this file. It is the last step of the job on
+      # purpose: a broken package fails only this step.
+      - name: Build Swift packages
+        working-directory: "."
+        run: |
+          set -euo pipefail
+          dirs=({{IOS_CI_PACKAGE_DIRS}})
+          skipped=({{IOS_CI_PACKAGE_SKIPS}})
+          if [ "${#skipped[@]}" -gt 0 ]; then
+            for dir in "${skipped[@]}"; do
+              echo "::notice title=Swift package not built::Not built: $dir is an iOS-only package (its platforms list no macOS), and swift build compiles for macOS. Building iOS-only packages is a follow-up on #522."
+            done
+          fi
+          if [ "${#dirs[@]}" -eq 0 ]; then
+            if [ "${#skipped[@]}" -gt 0 ]; then
+              echo "Built 0 Swift packages: every package under a package component is iOS-only (named above)."
+            else
+              echo "No package components declared, so there are no Swift packages for Lint to build. (Packages under the app component are built by the Xcode project in Test.)"
+            fi
+            exit 0
+          fi
+          failed=""
+          for dir in "${dirs[@]}"; do
+            echo "::group::swift build $dir"
+            if swift build --build-tests --package-path "$dir" \
+                --only-use-versions-from-resolved-file -Xswiftc -warnings-as-errors; then
+              echo "::endgroup::"
+            else
+              echo "::endgroup::"
+              echo "::error::Swift package $dir did not build (sources or tests). This step blocks from the first package component a project declares; it has no grace date."
+              failed="$failed $dir"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::Swift packages that did not build:$failed"
+            exit 1
+          fi
+          echo "Built ${#dirs[@]} Swift package(s): ${dirs[*]}"
 
   build-release:
     name: Build (Release){{IOS_CI_PRODUCT_SUFFIX}}

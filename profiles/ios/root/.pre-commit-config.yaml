@@ -48,13 +48,18 @@ repos:
       # and pass locally, then fail the PR — the whole class of "it was fine on
       # my machine". Never add `|| true` here for the same reason: a hook that
       # cannot fail is a hook that is not running.
+      #
+      # No `files:` filter, unlike its neighbours (#522 U4). Every staged .swift
+      # reaches the wrapper, which lints each against the Swift component the
+      # manifest puts it in, from inside that component. A filter here was the
+      # whole of "Swift beside the app is linted by nothing": anything outside
+      # the one prefix never reached the hook at all.
       - id: swiftlint
         name: SwiftLint
         entry: scripts/precommit-swift.sh swiftlint
         verbose: true
         language: system
         types: [swift]
-        files: ^{{COMPONENT_PREFIX}}
 
       # The documentation baseline, and now the whole of it. It used to be the
       # cheap half of a pair, with a CI `Docs` job building the DocC archive;

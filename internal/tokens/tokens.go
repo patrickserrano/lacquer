@@ -13,6 +13,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
+	"github.com/patrickserrano/lacquer/internal/swiftcomponents"
 )
 
 // Token names.
@@ -366,6 +367,17 @@ var registry = []entry{
 	{IOSXcodeExpected, false},
 	{IOSArchiveRoot, false},
 	{IOSCISimMatch, false},
+	// Empty for every project with one Swift component: no package for Lint to
+	// build.
+	{IOSCIPackageDirs, false},
+	{IOSCIPackageSkips, false},
+	// Never empty: the app's own push path is always its first line.
+	{IOSCIPushPaths, true},
+	// Never empty: there is always at least the app component to lint, and an
+	// empty list would render a loop that lints nothing and passes.
+	{IOSCILintComponents, true},
+	{IOSSwiftComponents, true},
+	{IOSSwiftGateFrom, true},
 	{DependabotUpdates, false},
 }
 
@@ -493,6 +505,13 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSXcodeExpected:        cfg.Project.XcodeVersion,
 		IOSArchiveRoot:          archiveRoot(cfg.Project.ArchiveRoot),
 		IOSCISimMatch:           CISimMatch(products),
+
+		IOSCIPushPaths:      CIPushPaths(cfg, prefix),
+		IOSCILintComponents: CILintComponents(cfg, prefix),
+		IOSCIPackageDirs:    CIPackageDirs(cfg, false),
+		IOSCIPackageSkips:   CIPackageDirs(cfg, true),
+		IOSSwiftComponents:  SwiftComponentList(cfg, prefix),
+		IOSSwiftGateFrom:    swiftcomponents.GateDate(),
 
 		DependabotUpdates: dependabotUpdates(cfg),
 	}

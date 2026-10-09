@@ -1,0 +1,30 @@
+# An iOS app beside a tree of SwiftPM tool packages (#522 U4).
+#
+# `ios` carries the ios profile and owns the xcodeproj. `tools` is a PACKAGE
+# component: `stack = "ios"` and no profile, so it gets its own lint run (from
+# inside tools/, with the project-owned tools/.swiftlint.yml) and each package
+# directly under it is built by the Lint job. The local package under
+# ios/Packages is the app's: the Xcode project builds it, and it is not built
+# again.
+#
+# Stray.swift at the root is under neither component. It is the finding.
+
+[project]
+name = "Multiswift"
+project_name = "Multiswift"
+scheme = "Multiswift"
+xcodeproj = "ios/Multiswift.xcodeproj"
+swift_version = "6"
+bundle_id = "com.example.multiswift"
+asc_app_id = "1000000005"
+github_org = "example-org"
+tools = ["claude"]
+
+[[component]]
+path = "ios"
+profiles = ["ios"]
+stack = "ios"
+
+[[component]]
+path = "tools"
+stack = "ios"

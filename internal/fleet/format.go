@@ -194,6 +194,9 @@ func coverageNote(r Report) string {
 	if r.Watch != "" {
 		note += "  watch " + r.Watch
 	}
+	if r.StraySwift > 0 {
+		note += fmt.Sprintf("  stray-swift %d", r.StraySwift)
+	}
 	return note
 }
 

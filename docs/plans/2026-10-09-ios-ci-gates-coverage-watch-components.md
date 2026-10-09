@@ -751,3 +751,53 @@ The reviewer's ruling, which replaces answer 1:
   fails `lacquer audit` (exit 4).
 - The broader UI and package-suite findings stay report-only and are tracked on
   the issue.
+
+### Addendum (2026-10-09, during U4): what the implementation decided
+
+- **One date for both gates.** Stray Swift reads `testtargets.WatchGateFrom`
+  through `swiftcomponents.GateFrom`; the pre-commit hook gets the same value
+  rendered as `{{IOS_SWIFT_GATE_FROM}}`. Moving the date moves the watch gate,
+  the Lint step, `lacquer audit`, the fleet sweep and the hook together.
+- **The pre-commit hook honours the grace period too.** D20 said a staged file
+  under no component fails closed. Before the gate date it now warns with the
+  date and leaves the file unlinted, as CI does; from the date it blocks.
+  Otherwise the consumers the grace period exists for would be blocked at commit
+  time from the day they sync, before CI ever is.
+- **"Could not list" is never "nothing stray".** Outside a git work tree, or
+  without git, `lacquer swift-components --check` (the CI step) fails;
+  `lacquer audit` and the fleet sweep print "NOT checked" and do not gate.
+- **No Swift component may sit inside another,** a root-layout app included:
+  each is linted from its own directory, so a nested one would be linted twice
+  under two configs. No fleet manifest has this shape (measured).
+- **`{{IOS_CI_PUSH_PATHS}}` owns the whole `paths:` list body at column 0,**
+  like `{{IOS_RELEASE_TAGS}}`. A token trailing the quoted list item would make
+  the template's `on:` block unparseable before substitution, and
+  `internal/retire` parses that block.
+- **Measured against §5.7:** the three consumers carry 6, 26 and 106 stray files
+  (the plan said 96 for the last; measured at its main of 2026-10-08). The
+  6-file case is six loose root files with no declarable directory, so its
+  remedy is to move them.
+
+### Addendum (2026-10-09, during U4): D18 narrowed
+
+U4's fleet dry-run contradicted D18's premise. `swift build` compiles for the
+host, macOS, and every package behind the plan's "40 s warm over six packages"
+figure was a macOS tool. The first iOS-only package measured (its `platforms:`
+lists only `.iOS`) cannot be built that way at all, and following the stray
+remedy would have turned that consumer red on a step it could not satisfy. The
+reviewer's ruling, which replaces D18's build list:
+
+- **Build packages that declare macOS, or no platforms; skip iOS-only ones with
+  a visible notice that names each package** ("Not built: <dir> is an iOS-only
+  package …"), never a silent pass. The platform is read from Package.swift at
+  render time, textually and with comments removed, because the drift audit
+  renders on Linux without a Swift toolchain. A `platforms:` value it cannot
+  read (a variable) counts as buildable, so it fails loudly rather than being
+  skipped unseen.
+- **Building iOS-only packages (`xcodebuild build-for-testing` against an iOS
+  Simulator destination) is a follow-up item on #522**, with its cost still to
+  be measured.
+- **The package build is not covered by the stray-Swift grace date.** It only
+  has work once a project declares a package component, and a package a project
+  declared should build, so it blocks from the first declaration. The step's
+  comment and its error text say so.

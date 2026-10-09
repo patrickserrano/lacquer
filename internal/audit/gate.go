@@ -13,6 +13,10 @@ type Gate struct {
 	// [[project.covered_elsewhere]] entries naming a workflow that does not
 	// exist. Both are audit-only.
 	UnrunWatch, MissingWorkflows int
+	// StraySwift counts .swift files under no declared Swift component, once
+	// the same grace date has passed (swiftcomponents.GateFrom). They rank with
+	// Undeclared: Swift nothing declares is a stack the manifest does not cover.
+	StraySwift int
 }
 
 // ExitCode ranks a lock its own version never wrote first: every other
@@ -28,7 +32,7 @@ func (g Gate) ExitCode() int {
 	case g.Baseline > 0 || g.Exclusions > 0 || g.DepIgnores > 0 || g.NotRunInCI > 0 || g.Orphans > 0 ||
 		g.UnrunWatch > 0 || g.MissingWorkflows > 0:
 		return 4
-	case g.Undeclared > 0:
+	case g.Undeclared > 0 || g.StraySwift > 0:
 		return 6
 	default:
 		return 0

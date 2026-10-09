@@ -238,6 +238,12 @@ type Report struct {
 	// it fails `lacquer audit`.
 	Watch         string `json:"watch,omitempty"`
 	WatchBlocking bool   `json:"watch_blocking,omitempty"`
+	// StraySwift is how many .swift files sit under no declared Swift
+	// component (#522 U4); StrayBlocking is set once the shared grace date has
+	// passed, which fails the sweep with exit 6 exactly as it fails
+	// `lacquer audit`.
+	StraySwift    int  `json:"stray_swift,omitempty"`
+	StrayBlocking bool `json:"stray_swift_blocking,omitempty"`
 
 	// Xcodegen reports regeneration differences without changing the fleet gate.
 	Xcodegen []xcodegendrift.Finding `json:"xcodegen,omitempty"`
@@ -326,6 +332,9 @@ func (r Report) ExitCode() int {
 	if r.WatchBlocking {
 		g.UnrunWatch++
 	}
+	if r.StrayBlocking {
+		g.StraySwift = r.StraySwift
+	}
 	return g.ExitCode()
 }
 
@@ -361,6 +370,11 @@ func inspect(lacquerRoot string, e Entry, now time.Time) Report {
 	}
 	r.Coverage = coverageState(e.Path, cfg)
 	r.Watch, r.WatchBlocking = watchState(e.Path, cfg, now)
+	r.StraySwift, r.StrayBlocking, err = strayState(e.Path, cfg, now)
+	if err != nil {
+		r.Error = err.Error()
+		return r
+	}
 	r.Retired = cfg.Project.Retired
 	r.Xcodegen = xcodegendrift.Check(e.Path, cfg.BaselineTargets())
 

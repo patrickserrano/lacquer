@@ -2297,6 +2297,9 @@ func Load(path string) (*Config, error) {
 			seenDep[d.Dependency] = true
 		}
 	}
+	if err := validateSwiftNesting(cfg.Components); err != nil {
+		return nil, err
+	}
 	for _, pattern := range cfg.Web.BiomeIgnores {
 		if !strings.HasPrefix(pattern, "!") || strings.TrimSpace(strings.TrimLeft(pattern, "!")) == "" || strings.ContainsAny(pattern, "\r\n") {
 			return nil, fmt.Errorf("web.biome_ignores entries must be nonempty negated Biome patterns, got %q", pattern)
@@ -2324,6 +2327,34 @@ func (c *Config) BaselineTargets() []baseline.Target {
 		}
 	}
 	return out
+}
+
+// validateSwiftNesting refuses a Swift component (ios profile or stack) inside
+// another. Each is linted from inside its own directory with its own config, so
+// a nested one would be linted twice, and the outer config would decide what
+// the inner one's files are held to. A root-layout app ("." ) therefore takes
+// no package component: everything under it is already the app's.
+func validateSwiftNesting(comps []Component) error {
+	var swift []string
+	for _, c := range comps {
+		isSwift := c.Stack == "ios"
+		for _, p := range c.Profiles {
+			isSwift = isSwift || p == "ios"
+		}
+		if isSwift {
+			swift = append(swift, filepath.ToSlash(filepath.Clean(c.Path)))
+		}
+	}
+	for _, outer := range swift {
+		for _, inner := range swift {
+			if inner != outer && componentOwns(outer, inner) {
+				return fmt.Errorf("component %q is inside Swift component %q; Swift components are linted from their own "+
+					"directories, so a nested one would be linted twice under two configs. Declare side-by-side "+
+					"directories, or drop the inner component and let the outer one lint its files", inner, outer)
+			}
+		}
+	}
+	return nil
 }
 
 // componentOwns reports whether a component path contains the given

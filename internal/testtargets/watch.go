@@ -16,6 +16,9 @@ import (
 // The single switch for the grace period: the release that ships this gate plus
 // fourteen days, so every watch project sees the warning in a fleet sweep before
 // its CI can go red on it. A var only so tests can put "today" on either side.
+//
+// It is also the stray-Swift gate's date (swiftcomponents.GateFrom, #522 U4),
+// by ruling one date for both: moving it moves both.
 var WatchGateFrom = time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)
 
 // WatchGateDate is WatchGateFrom as a manifest-style date.
