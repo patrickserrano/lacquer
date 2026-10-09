@@ -15,7 +15,7 @@ import (
 // Go's flag package stops at the first argument that is not a flag, and every
 // console subcommand is one. So until this was fixed, a flag written after the
 // subcommand was never parsed: `watch --relaunch` printed the status and
-// exited 0 without relaunching anything -- the form fleet-ops' README
+// exited 0 without relaunching anything -- the form fleet-repo' README
 // documents -- and `kill <name> --force` refused an Alive session as if
 // --force had not been passed. Nothing reported either as an error.
 //
@@ -121,7 +121,7 @@ func TestConsoleWatchRelaunchAfterTheSubcommandRelaunches(t *testing.T) {
 		t.Fatalf("--relaunch=false relaunched (exit %d):\n%s%s", code, out, errb)
 	}
 
-	// And for real, as fleet-ops documents it: `./console.sh watch --relaunch`.
+	// And for real, as fleet-repo documents it: `./console.sh watch --relaunch`.
 	out, errb, code = runConsole(t, lq, append(append([]string{}, paths...), "watch", "--relaunch"))
 	if code != 0 {
 		t.Fatalf("watch --relaunch exited %d\n%s%s", code, out, errb)

@@ -9,7 +9,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
-// Every lead dispatches from the fleet-ops directory with a relative roster:
+// Every lead dispatches from the fleet-repo directory with a relative roster:
 //
 //	lacquer console --roster fleet.toml --mode bg dispatch <project> "<task>"
 //
@@ -21,8 +21,8 @@ import (
 // git's absolute toplevel against it. An absolute --roster worked, which is
 // why the relative form -- the one actually in use -- was never exercised.
 //
-// relativeFleet builds that layout: <tmp>/fleet-ops/{fleet.toml,roles.toml}
-// and <tmp>/proj, a real git repository, then makes fleet-ops the process
+// relativeFleet builds that layout: <tmp>/fleet-repo/{fleet.toml,roles.toml}
+// and <tmp>/proj, a real git repository, then makes fleet-repo the process
 // cwd. It returns the tmp directory as the process sees it (possibly through
 // a symlink) and the project's fully resolved root, which is what git
 // reports and so what the worktree plan is rooted at.
@@ -44,7 +44,7 @@ func relativeFleet(t *testing.T, cwdViaSymlink bool) (tmp, projReal string) {
 		tmp = link
 	}
 	proj := filepath.Join(real, "proj")
-	fleetOps := filepath.Join(real, "fleet-ops")
+	fleetOps := filepath.Join(real, "fleet-repo")
 	for _, d := range []string{proj, fleetOps} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -71,9 +71,9 @@ func relativeFleet(t *testing.T, cwdViaSymlink bool) (tmp, projReal string) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	chdir(t, filepath.Join(tmp, "fleet-ops"))
+	chdir(t, filepath.Join(tmp, "fleet-repo"))
 	// os.Getwd trusts $PWD when it names the cwd, as a shell's does.
-	t.Setenv("PWD", filepath.Join(tmp, "fleet-ops"))
+	t.Setenv("PWD", filepath.Join(tmp, "fleet-repo"))
 	return tmp, proj
 }
 
@@ -102,7 +102,7 @@ func TestConsoleDispatchWithARelativeRoster(t *testing.T) {
 		},
 		{
 			name: "bg, absolute roster (control)",
-			args: []string{"--roster", "@/fleet-ops/fleet.toml", "--mode", "bg", "--dry-run", "dispatch", "proj", "do the thing"},
+			args: []string{"--roster", "@/fleet-repo/fleet.toml", "--mode", "bg", "--dry-run", "dispatch", "proj", "do the thing"},
 			want: "worktree add --quiet --no-track -b dispatch/",
 		},
 		{
@@ -157,7 +157,7 @@ func TestConsoleDispatchWithARelativeRoster(t *testing.T) {
 			}
 
 			// The worktree goes under the project's own root, which is where
-			// git says it is: ../proj from fleet-ops, fully resolved.
+			// git says it is: ../proj from fleet-repo, fully resolved.
 			if want := "git -C " + projReal + " " + tt.want; !strings.Contains(out, want) {
 				t.Errorf("want %q in:\n%s", want, out)
 			}

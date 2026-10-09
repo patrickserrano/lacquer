@@ -68,7 +68,7 @@ func TestAuditHonoursNotRunInCI(t *testing.T) {
 		}
 	})
 
-	// A manifest naming an .xcodeproj that does not exist (multimeter's state)
+	// A manifest naming an .xcodeproj that does not exist (golf's state)
 	// skips the whole comparison. The declaration's date must not be skipped with
 	// it, or an expiry silently never fires for as long as the project stays
 	// unreadable.
