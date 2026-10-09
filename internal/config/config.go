@@ -1224,10 +1224,14 @@ type SimulatorPlatform struct {
 	// four literal characters, not as the device. An empty or partial
 	// `-destination` is NOT an error to xcodebuild; it picks something.
 	DestinationPrefix string
-	// Runtime is the pinned simctl runtime identifier, and DownloadPlatform the
-	// name `xcodebuild -downloadPlatform` installs it under. A watch runtime is
-	// NOT preinstalled on a fresh runner.
-	Runtime          string
+	// RuntimeOS is the OS name inside a simctl runtime identifier. The version
+	// is NOT here: it comes from DefaultRuntimePin (or a project's dated
+	// override), so this table cannot hold a second hard-coded runtime. See
+	// Runtime.
+	//
+	// DownloadPlatform is the name `xcodebuild -downloadPlatform` installs the
+	// runtime under. A watch runtime is NOT preinstalled on a fresh runner.
+	RuntimeOS        string
 	DownloadPlatform string
 	// DeviceType is the simctl device type to create. Measured on this fleet's
 	// runner (watchOS 27.0): `simctl create` of this type produces a device that
@@ -1246,6 +1250,36 @@ type SimulatorPlatform struct {
 	SimPrefix string
 }
 
+// RuntimePin is a simulator OS version as simctl spells it inside a runtime
+// identifier: major and minor, both plain digits.
+type RuntimePin struct {
+	Major, Minor string
+}
+
+// DefaultRuntimePin is the fleet's ONE simulator runtime pin. The iOS Test job
+// and the watch-test job both render from it, so they cannot disagree.
+//
+// There used to be two: ci.yml's `PINNED_RUNTIME="…iOS-27-0"` literal and a
+// `watchOS-27-0` string in the platform table below. They agreed, which is the
+// only reason the second one went unnoticed; the next bump would have moved one.
+// Moving a runtime is not a harmless change either: a sync that moved the pin
+// from 26.2 to 27.0 crash-looped two consumers' test hosts.
+//
+// A var rather than a const only so a test can move it to a value nobody would
+// hard-code and prove both jobs follow. Nothing else assigns it. Bump it when the
+// host Xcode moves; a project that cannot follow yet declares a dated
+// [baseline.relax].simulator_runtime instead of excluding ci.yml.
+var DefaultRuntimePin = RuntimePin{Major: "27", Minor: "0"}
+
+// Runtime is the simctl runtime identifier for osName at this pin, e.g.
+// com.apple.CoreSimulator.SimRuntime.watchOS-27-0.
+func (p RuntimePin) Runtime(osName string) string {
+	return "com.apple.CoreSimulator.SimRuntime." + osName + "-" + p.Major + "-" + p.Minor
+}
+
+// String is the pin as a person writes it, "27.0".
+func (p RuntimePin) String() string { return p.Major + "." + p.Minor }
+
 // SimulatorPlatforms is the closed set of non-iOS destinations a watch_tests
 // table may name.
 //
@@ -1257,13 +1291,16 @@ type SimulatorPlatform struct {
 var SimulatorPlatforms = map[string]SimulatorPlatform{
 	DefaultWatchPlatform: {
 		DestinationPrefix: "platform=watchOS Simulator",
-		Runtime:           "com.apple.CoreSimulator.SimRuntime.watchOS-27-0",
+		RuntimeOS:         "watchOS",
 		DownloadPlatform:  "watchOS",
 		DeviceType:        "Apple Watch Series 12 (46mm)",
 		ReadyService:      "com.apple.Carousel",
 		SimPrefix:         "CI-Watch",
 	},
 }
+
+// Runtime is this platform's simctl runtime identifier at pin.
+func (s SimulatorPlatform) Runtime(pin RuntimePin) string { return pin.Runtime(s.RuntimeOS) }
 
 // SimulatorPlatformNames lists the legal `platform` values, sorted, for error
 // messages.

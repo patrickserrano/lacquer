@@ -1615,7 +1615,7 @@ jobs:
 
           # Pin to a specific iOS runtime so every repository tests against the
           # same one. Update this when the host Xcode moves.
-          PINNED_RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
+          PINNED_RUNTIME="{{IOS_CI_SIM_RUNTIME}}"
 
           if ! xcrun simctl list runtimes | grep -q "$PINNED_RUNTIME"; then
             FALLBACK=$(xcrun simctl list runtimes | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS[0-9-]*' | sort -V | tail -1)

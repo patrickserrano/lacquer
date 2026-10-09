@@ -235,6 +235,10 @@ const (
 	// platform costs real CI time, and every project that does not declare a
 	// watch app must render the workflow it already had.
 	IOSWatchSimulatorSetup = "{{IOS_WATCH_SIMULATOR_SETUP}}"
+	// IOSCISimRuntime is the iOS simulator runtime the Test job pins, rendered
+	// from config.DefaultRuntimePin so the watch job's runtime cannot drift from
+	// it. It renders the identical string the template used to carry literally.
+	IOSCISimRuntime = "{{IOS_CI_SIM_RUNTIME}}"
 	// IOSCIAppTarget is the built product coverage is reported for, as it appears
 	// in prose and in the step summary.
 	IOSCIAppTarget = "{{IOS_CI_APP_TARGET}}"
@@ -353,6 +357,7 @@ var registry = []entry{
 	{IOSCIAppTarget, true},
 	{IOSCICoverageJQ, true},
 	{IOSCICoverageProduct, true},
+	{IOSCISimRuntime, true},
 	{IOSCIArtifactSuffix, false},
 	{IOSCISimSuffix, false},
 	{IOSXcodeExpected, false},
@@ -477,6 +482,7 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCIAppTarget:       CIAppTarget(products),
 		IOSCICoverageJQ:      CICoverageJQ(products),
 		IOSCICoverageProduct: CICoverageProduct(products),
+		IOSCISimRuntime:      config.DefaultRuntimePin.Runtime("iOS"),
 		IOSCIArtifactSuffix:  CIArtifactSuffix(products),
 		IOSCISimSuffix:       CISimSuffix(products),
 		IOSXcodeExpected:     cfg.Project.XcodeVersion,

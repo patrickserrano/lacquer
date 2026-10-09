@@ -120,7 +120,7 @@ func CIWatchTestJob(cfg *config.Config, prefix string) string {
 		// the job growing a branch. Every value comes from the platform table,
 		// never from the manifest — see config.SimulatorPlatform.
 		fmt.Fprintf(&b, "\n            device_type: %q", l.sim.DeviceType)
-		fmt.Fprintf(&b, "\n            runtime: %q", l.sim.Runtime)
+		fmt.Fprintf(&b, "\n            runtime: %q", l.sim.Runtime(config.DefaultRuntimePin))
 		fmt.Fprintf(&b, "\n            download_platform: %q", l.sim.DownloadPlatform)
 		fmt.Fprintf(&b, "\n            ready_service: %q", l.sim.ReadyService)
 		fmt.Fprintf(&b, "\n            sim_prefix: %q", l.sim.SimPrefix)
