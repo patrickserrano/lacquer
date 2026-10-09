@@ -256,3 +256,19 @@ func TestReleaseAcceptsTheSentryDSNShapeConfigAccepts(t *testing.T) {
 		})
 	}
 }
+
+// Without a declared template the watch job's find already seeds the file beside
+// each example, which is the release's resolution too. So a project declaring
+// secrets but no secrets_example must get the watch job it had before.
+func TestWatchJobWithoutADeclaredTemplateIsUnchanged(t *testing.T) {
+	cfg := nestedTemplate()
+	cfg.Project.SecretsExample = ""
+	cfg.Project.WatchTests = &config.WatchTests{Scheme: "W", TestTarget: "WTests"}
+	job := tokens.CIWatchTestJob(cfg, "ios/")
+	if job == "" {
+		t.Fatal("no watch job rendered, so this proves nothing")
+	}
+	if strings.Contains(job, "write-release-config.sh") {
+		t.Errorf("a project declaring no secrets_example got a new seed line in its watch job:\n%s", job)
+	}
+}

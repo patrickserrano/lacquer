@@ -6,7 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/exclusion"
 	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/lock"
 )
@@ -164,5 +167,53 @@ func TestSeedOnceAuditSaysAddOnlyWhileAbsent(t *testing.T) {
 	}
 	if row, ok := rowFor(t, lacquer, project, dest); ok {
 		t.Errorf("after seeding the file is still an audited unit (%s)", row.Status)
+	}
+}
+
+// A file managed before the project declared it seed-once is in the lock.
+// Declaring it must not turn it into an orphan — "a file the lacquer stopped
+// shipping, delete it" — because the lacquer still ships it.
+func TestDeclaringSeedOnceDoesNotOrphanAManagedFile(t *testing.T) {
+	lacquer, project, dest := seedOnceFixture(t, false)
+	if _, err := Run(lacquer, project, false); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(project, ".lacquer.toml"),
+		"[project]\nname=\"x\"\nseed_once = [\""+dest+"\"]\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+	orphans, err := audit.Orphans(lacquer, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range orphans {
+		if o.Dest == dest {
+			t.Errorf("declaring %s seed-once reported it as an orphan to delete", dest)
+		}
+	}
+}
+
+// The audit's stale report reads assets.SeedOnce. A live entry is matched
+// whether or not the file exists yet; a typo is matched by nothing.
+func TestSeedOnceStaleEntriesAreOnlyTheUnshipped(t *testing.T) {
+	lacquer, project, dest := seedOnceFixture(t, true)
+	writeFile(t, filepath.Join(project, ".lacquer.toml"),
+		"[project]\nname=\"x\"\nseed_once = [\""+dest+"\", \"ios/Typo.example\"]\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+	for _, phase := range []string{"absent", "seeded"} {
+		if phase == "seeded" {
+			if _, err := Run(lacquer, project, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cfg, err := config.Load(filepath.Join(project, ".lacquer.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		matched, err := assets.SeedOnce(lacquer, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stale := exclusion.StaleSeedOnce(cfg.Project.SeedOnce, matched)
+		if len(stale) != 1 || stale[0] != "ios/Typo.example" {
+			t.Errorf("%s: stale = %v, want only the entry naming nothing shipped", phase, stale)
+		}
 	}
 }
