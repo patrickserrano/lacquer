@@ -714,3 +714,17 @@ remedy paths. Wait on each with one background `lacquer wait pr <N>`.
    `enrolled` column makes the state visible and the operator drives it.
    Alternative: `lacquer audit` exits 4 for an un-enrolled iOS project after a
    date. Operator's call.
+
+---
+
+## 8. Review decisions (2026-10-09), binding on the implementation units
+
+- **Proof session cut to five CI runs:** one clean run at the top of the stack (U1, U3 and U4 together), then four fail legs: U1 regression (§3.5), U3 zero tests (§4.5), U4 stray Swift and U4 broken package (§5.5). The tighten and loosen paths, the strict-lint leg, the pre-commit leg and the no-watch control are proven by unit tests or local runs. Each unit's `## Proven on` says which proof covers which path.
+- **U4 stray Swift ships as a warning until a dated deadline, 14 days after the release that ships it, then blocks.** The warning text prints that date.
+- **U1 fails a PR whose coverage improves beyond the slack**, and its message prints the exact one-line `lacquer ratchet --accept …` command to run.
+- §7 answers:
+  1. The uncovered-target report blocks (exit 4).
+  2. The dated runtime override ships in U3.
+  3. No PR comment; the step summary carries the table.
+  4. The floor is 80 %, with the dated relax.
+  5. No enrollment deadline.
