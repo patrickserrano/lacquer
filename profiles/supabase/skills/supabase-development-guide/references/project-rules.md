@@ -189,7 +189,7 @@ look for the objects (`supabase db dump --linked --schema public`) rather than
 assuming. Marking something applied when it is not leaves production missing
 the objects with nothing left to tell you.
 
-**Watch for this when onboarding an existing project onto the lacquer.** Rail
+**Watch for this when onboarding an existing project onto the lacquer.** Charlie
 had this exact job, hand-rolled inside its own `ci.yml`, and onboarding retired
 that file wholesale — the deploy went with it while its secret stayed
 configured, so nothing looked broken and migrations silently stopped shipping.

@@ -296,7 +296,7 @@ For implementation, see the [tools registry](../../tools/REGISTRY.md). Key email
 | **Nitrosend** | AI-native email (sequences via prompts) | ✓ | [nitrosend.md](../../tools/integrations/nitrosend.md) |
 | **Resend** | Developer-friendly transactional | ✓ | [resend.md](../../tools/integrations/resend.md) |
 | **SendGrid** | Transactional email at scale | - | [sendgrid.md](../../tools/integrations/sendgrid.md) |
-| **Kit** | Creator/newsletter focused | - | [kit.md](../../tools/integrations/kit.md) |
+| **Echo** | Creator/newsletter focused | - | [kit.md](../../tools/integrations/kit.md) |
 
 ---
 

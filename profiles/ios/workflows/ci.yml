@@ -186,8 +186,8 @@ jobs:
       # The trade-off, stated plainly: drift is no longer a separately-named
       # status check. That is safe only while no repo requires it BY NAME in
       # branch protection. Re-measured across all 17 non-archived repos: 14
-      # require exactly "CI OK"; dailybread requires "Build (Release), Lint +
-      # Test"; Windsock and dailybread-image-proxy require NOTHING AT ALL. None
+      # require exactly "CI OK"; alphaapp requires "Build (Release), Lint +
+      # Test"; Foxtrot and alphaapp-image-proxy require NOTHING AT ALL. None
       # requires "No lacquer drift", and there are no rulesets at repo or org
       # level. If a repo ever does require it by name, this has to go back to
       # being its own job.
@@ -195,7 +195,7 @@ jobs:
       # The three exceptions are not a footnote — they are the reason `lacquer
       # protection` exists. GitHub counts a `skipped` conclusion as SATISFYING a
       # required check, so requiring anything but the always-running aggregate
-      # is requiring something a skip can satisfy: on dailybread PR #482 both
+      # is requiring something a skip can satisfy: on alphaapp PR #482 both
       # required checks were skips, and nothing ran. Run `lacquer protection
       # --roster ...` to re-measure rather than trusting this paragraph, which
       # is a snapshot and will age.
@@ -227,7 +227,7 @@ jobs:
       - name: Resolve the lacquer version this project synced with
         id: lacquerrel
         # Pinned to the repo root. .lacquer.lock lives there, and this job may
-        # DEFAULT to a component subdirectory -- momfriend's web component is
+        # DEFAULT to a component subdirectory -- bravoapp's web component is
         # "admin/.", its supabase one "server/". Without this the lookup reads
         # admin/.lacquer.lock, finds nothing, and reports the project as never
         # synced. The "Prove the checks can fail" step below already carried
@@ -532,7 +532,7 @@ jobs:
       - name: Resolve the lacquer version this project synced with
         id: doctorrel
         # Pinned to the repo root. .lacquer.lock lives there, and this job may
-        # DEFAULT to a component subdirectory -- momfriend's web component is
+        # DEFAULT to a component subdirectory -- bravoapp's web component is
         # "admin/.", its supabase one "server/". Without this the lookup reads
         # admin/.lacquer.lock, finds nothing, and reports the project as never
         # synced. The "Prove the checks can fail" step below already carried
@@ -609,10 +609,10 @@ jobs:
           # itself — not just the one at the component root.
           #
           # kit keeps its example at BOTH ./Secrets.xcconfig.example and
-          # Kit/Kit/Secrets.xcconfig.example, and the Xcode project reads the
+          # Echo/Echo/Secrets.xcconfig.example, and the Xcode project reads the
           # nested one. The old single-path copy seeded only the root, "succeeded",
           # and the Release build then died with:
-          #   could not find included file 'Kit/Kit/Secrets.xcconfig'
+          #   could not find included file 'Echo/Echo/Secrets.xcconfig'
           # — an error that points nowhere near the step that caused it. The
           # guard made it worse: a project with no example at the root was a
           # silent no-op rather than a signal.
@@ -680,7 +680,7 @@ jobs:
       # The relaxation mechanism is only as good as the checks that honour it.
       # `lacquer audit` reads [baseline.relax]; THIS job did not — so a project
       # with a valid, unexpired warnings_as_errors relaxation passed audit and
-      # failed CI on the same key. kit and port-of-entry both hit that.
+      # failed CI on the same key. kit and app-lima both hit that.
       #
       # Reads the manifest directly rather than via docs-relaxation.sh, which is
       # hardcoded to the `documentation` key.
@@ -921,10 +921,10 @@ jobs:
           # itself — not just the one at the component root.
           #
           # kit keeps its example at BOTH ./Secrets.xcconfig.example and
-          # Kit/Kit/Secrets.xcconfig.example, and the Xcode project reads the
+          # Echo/Echo/Secrets.xcconfig.example, and the Xcode project reads the
           # nested one. The old single-path copy seeded only the root, "succeeded",
           # and the Release build then died with:
-          #   could not find included file 'Kit/Kit/Secrets.xcconfig'
+          #   could not find included file 'Echo/Echo/Secrets.xcconfig'
           # — an error that points nowhere near the step that caused it. The
           # guard made it worse: a project with no example at the root was a
           # silent no-op rather than a signal.
@@ -1242,10 +1242,10 @@ jobs:
           # itself — not just the one at the component root.
           #
           # kit keeps its example at BOTH ./Secrets.xcconfig.example and
-          # Kit/Kit/Secrets.xcconfig.example, and the Xcode project reads the
+          # Echo/Echo/Secrets.xcconfig.example, and the Xcode project reads the
           # nested one. The old single-path copy seeded only the root, "succeeded",
           # and the Release build then died with:
-          #   could not find included file 'Kit/Kit/Secrets.xcconfig'
+          #   could not find included file 'Echo/Echo/Secrets.xcconfig'
           # — an error that points nowhere near the step that caused it. The
           # guard made it worse: a project with no example at the root was a
           # silent no-op rather than a signal.
@@ -1704,7 +1704,7 @@ jobs:
                 # signal a CI job can emit: enough to block, not enough to act
                 # on, and just enough to make re-running feel reasonable.
                 #
-                # That is not hypothetical. A DailyBread PR failed 1 of 738 on
+                # That is not hypothetical. A AlphaApp PR failed 1 of 738 on
                 # CI after passing locally, and the first instinct was "flake,
                 # re-run it" -- which would have merged a genuinely broken test
                 # into a release branch on a green retry. The name is what

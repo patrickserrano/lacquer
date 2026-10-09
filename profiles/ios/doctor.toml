@@ -126,11 +126,11 @@ as a project suddenly owing documentation on every `@Test` method.
 written under `missing_docs` for `private`/`fileprivate` — DocC never renders
 them, and a doc comment on every declaration buys noise rather than
 understanding — is just as true of test methods, and the path-based exclusion
-list simply did not have them in view. Measured on dailybread before the change:
+list simply did not have them in view. Measured on alphaapp before the change:
 1,321 violations, 718 of them (54%) in test targets, almost all `@Test` methods.
 
 Both layouts are covered because both exist in this fleet: `AppTests/` is the
-Xcode convention, `Packages/<Kit>/Tests/` the SPM one (flare has the latter).
+Xcode convention, `Packages/<Echo>/Tests/` the SPM one (flare has the latter).
 This probe stages the fixture under a `Tests/` directory precisely so a change
 that dropped either pattern is caught here rather than as a surprise wave of
 violations in a project that had none.
@@ -312,7 +312,7 @@ name = "the release refuses to archive without a required app-runtime secret"
 why = """
 This is the check that was not there when it mattered.
 
-Rail's release workflow carried a hand-written step that wrote six app-runtime
+Charlie's release workflow carried a hand-written step that wrote six app-runtime
 keys into an xcconfig. Onboarding replaced that workflow with the shared
 profile's, which had no such step, and nothing failed: the archive built, was
 signed, was uploaded, and reached App Review with every key unset. RevenueCatUI
