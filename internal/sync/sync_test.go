@@ -297,7 +297,7 @@ func TestSyncRootLayoutEmptyPrefix(t *testing.T) {
 // sync writes managed regions and THEN copies assets, and the asset phase can
 // refuse (an uncommitted managed file, a symlink, a confinement violation).
 // That refusal used to happen after the regions were already on disk, leaving a
-// half-synced project from a run that reported failure — Queueify landed in
+// half-synced project from a run that reported failure — Romeo landed in
 // exactly that state, with rewritten CLAUDE.md and AGENTS.md from a sync that
 // errored. Everything that can refuse must refuse before anything is written.
 func TestSyncWritesNoRegionWhenTheAssetPhaseRefuses(t *testing.T) {

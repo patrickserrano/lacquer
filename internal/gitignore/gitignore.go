@@ -70,7 +70,7 @@ const credentials = `# Credentials. Every pattern here matches a file that grant
 *.mobileprovision
 # PEM. The extension does not say what is inside: a .pem holds a certificate, a
 # private key, or both concatenated. Six projects had already hand-written this
-# rule independently (kit, flare, examplestudiostudio.com, rail-web, patrickserrano,
+# rule independently (echo, delta, examplestudio.com, app-tango, patrickserrano,
 # white-whales) and the repository actually holding PEM keys on disk is not one
 # of them, which is the same signal the *.p8 block was built on.
 #

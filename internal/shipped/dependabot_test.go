@@ -241,13 +241,13 @@ func TestDependabotKeepsTheComponentDirWhenTheBundleIsDeeper(t *testing.T) {
 // Dependabot aborts the whole job — "Error during file fetching; aborting: Repo
 // must contain a Package.swift configuration file or an .xcodeproj/.xcworkspace
 // directory with a Package.resolved file" — so the entry also took down the
-// github-actions updates in the same file. Queueify is this shape: an ios
+// github-actions updates in the same file. Romeo is this shape: an ios
 // component at ios/ whose xcodeproj is excluded from the repo by .gitignore.
 func TestDependabotEmitsNoSwiftEntryWithoutAManifest(t *testing.T) {
-	repo := swiftProject(t, []string{"ios/Queueify/Queueify.xcodeproj/project.pbxproj"}, nil)
+	repo := swiftProject(t, []string{"ios/Romeo/Romeo.xcodeproj/project.pbxproj"}, nil)
 	cfg := &config.Config{
 		Root:       repo,
-		Project:    config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "com.x.q", AscAppID: "1", Xcodeproj: "ios/Queueify/Queueify.xcodeproj"},
+		Project:    config.Project{ProjectName: "Q", Scheme: "Q", BundleID: "com.x.q", AscAppID: "1", Xcodeproj: "ios/Romeo/Romeo.xcodeproj"},
 		Components: []config.Component{{Path: "ios", Profiles: []string{"ios"}}},
 	}
 	doc := renderDependabot(t, cfg)

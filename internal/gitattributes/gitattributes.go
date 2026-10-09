@@ -12,7 +12,7 @@
 // GitHub Linguist counts every byte in the working tree toward the language bar
 // unless a path is marked otherwise, so that is exactly what the fleet's repo
 // pages report. Measured before this existed: November read as MORE Python than
-// Swift, and rail, flare, Kilo, bravoapp and alphaapp each carried 570-650KB
+// Swift, and charlie, delta, Kilo, bravoapp and alphaapp each carried 570-650KB
 // of the identical "Python". None of it was written by any of those projects.
 // It is vendored agent tooling that arrived by `lacquer sync`, and the language
 // bar is the first thing anyone sees when they open the repository.

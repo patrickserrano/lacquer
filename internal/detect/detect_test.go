@@ -115,7 +115,7 @@ func TestComponentsIgnoresSuffixedDerivedData(t *testing.T) {
 
 func TestComponentsConfigDirAndXcodeproj(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "ios", "Queueify", "Queueify.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "ios", "Romeo", "Romeo.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "ios", ".swiftlint.yml"))
 	// Unrelated Swift config in a lexically-earlier dir must not win (walk-order
 	// fragility): the ios component must still resolve to "ios".
@@ -128,10 +128,10 @@ func TestComponentsConfigDirAndXcodeproj(t *testing.T) {
 	if len(comps) != 1 || comps[0].Path != "ios" {
 		t.Fatalf("component should be the config dir 'ios', got %+v", comps)
 	}
-	if derived.Xcodeproj != "ios/Queueify/Queueify.xcodeproj" {
-		t.Errorf("xcodeproj = %q, want ios/Queueify/Queueify.xcodeproj", derived.Xcodeproj)
+	if derived.Xcodeproj != "ios/Romeo/Romeo.xcodeproj" {
+		t.Errorf("xcodeproj = %q, want ios/Romeo/Romeo.xcodeproj", derived.Xcodeproj)
 	}
-	if derived.ProjectName != "Queueify" {
+	if derived.ProjectName != "Romeo" {
 		t.Errorf("project_name = %q", derived.ProjectName)
 	}
 }

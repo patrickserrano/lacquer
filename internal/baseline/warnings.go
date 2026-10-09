@@ -14,7 +14,7 @@ import (
 // It is non-negotiable fleet policy: every configuration of every target treats
 // Swift warnings as errors. The reason it needs enforcing at SYNC time rather
 // than in CI is that CI cannot see a project that never runs the job. The
-// measured case: Queueify set it as
+// measured case: Romeo set it as
 //
 //	SWIFT_TREAT_WARNINGS_AS_ERRORS[config=Release] = YES
 //
@@ -286,7 +286,7 @@ func indexXcconfigs(componentDir string) map[string]string {
 // wins. This is not that: a project that does not treat warnings as errors is
 // broken in a way no sync can express an opinion about, and letting a flag
 // past it would make the policy advisory — which is the state it was in when
-// Queueify shipped Debug builds that ignored every warning.
+// Romeo shipped Debug builds that ignored every warning.
 //
 // Scope matches the baseline runner's, so the two agree about what is
 // checkable: a component with no xcodeproj declared is skipped (a pre-code

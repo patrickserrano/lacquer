@@ -498,7 +498,7 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, error) {
 // Split out of Copy so a CALLER can preflight before it starts writing anything
 // of its own. sync writes managed regions (CLAUDE.md, AGENTS.md) and then calls
 // Copy, so an asset-preflight failure used to abort AFTER the regions were on
-// disk — leaving the project half-synced. Queueify landed in exactly that state:
+// disk — leaving the project half-synced. Romeo landed in exactly that state:
 // one uncommitted workflow file made Copy refuse, and it was left with rewritten
 // CLAUDE.md and AGENTS.md from a sync that reported failure.
 func Preflight(projectRoot string, plan []Asset, cfg *config.Config) ([]string, error) {

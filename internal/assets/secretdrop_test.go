@@ -145,7 +145,7 @@ func TestPreflightComparesAgainstTheRenderedVersion(t *testing.T) {
 // two original escapes were both wrong for it: declaring the key in
 // `[[product]].secrets` RESURRECTS the secret you are removing, and excluding
 // the workflow freezes the whole file out of every future improvement to buy
-// one deletion. examplestudiostudio.com hit this migrating off Sanity — five
+// one deletion. examplestudio.com hit this migrating off Sanity — five
 // obsolete SANITY_* names it could neither drop nor honestly excuse.
 func TestPreflightAllowsAnExplicitlyRetiredSecret(t *testing.T) {
 	local := "jobs:\n  b:\n    steps:\n      - env:\n" +

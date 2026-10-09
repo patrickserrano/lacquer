@@ -87,7 +87,7 @@ const (
 	// setup-node to locate the pnpm store, which it does by running pnpm — so
 	// pnpm has to exist first. Reversed, the run fails with "Unable to locate
 	// executable file: pnpm", which reads like a missing dependency rather than
-	// an ordering mistake. That trap is exactly what examplestudiostudio.com's
+	// an ordering mistake. That trap is exactly what examplestudio.com's
 	// hand-carried web-ci.yml had already documented before this profile could
 	// render it at all.
 	//
@@ -1202,7 +1202,7 @@ func ReleaseTags(products []config.Product) string {
 //   - Dependabot does not no-op, it ABORTS THE JOB — "Error during file fetching;
 //     aborting: Repo must contain a Package.swift configuration file or an
 //     .xcodeproj/.xcworkspace directory with a Package.resolved file" — taking the
-//     repo's github-actions updates down with it. Queueify and rail, twice each.
+//     repo's github-actions updates down with it. Romeo and rail, twice each.
 //   - The manifest is not always at the component root. foxtrot has one, at
 //     FoxtrotKit/Package.resolved, while its entry pointed at "/".
 //

@@ -120,7 +120,7 @@ func TestLaterSearchesEveryRosterOwnerAndNeverAllOfGitHub(t *testing.T) {
 	gh := &fakeGH{reply: func([]string) ([]byte, error) { return []byte("[]"), nil }}
 	env := Env{Run: gh.run, Now: func() time.Time { return t0 },
 		Roster:     fleet.Roster{Project: []fleet.Entry{{Name: "a", Repo: "Acme/steps"}, {Name: "b", Repo: "Acme/kit"}, {Name: "local"}}},
-		ExtraRepos: []string{"patrickserrano/lacquer", "Acme/rail-web"}}
+		ExtraRepos: []string{"patrickserrano/lacquer", "Acme/app-tango"}}
 	if ev := env.Exec(Cmd{Kind: CmdLater}).(LaterEvent); ev.Err != "" {
 		t.Fatalf("Err = %q", ev.Err)
 	}

@@ -293,11 +293,11 @@ func TestLoadAllowsNestedAndRootComponentPaths(t *testing.T) {
 }
 
 func TestLoadXcodeproj(t *testing.T) {
-	cfg, err := loadString(t, "[project]\nname=\"q\"\nxcodeproj=\"ios/Queueify/Queueify.xcodeproj\"\n")
+	cfg, err := loadString(t, "[project]\nname=\"q\"\nxcodeproj=\"ios/Romeo/Romeo.xcodeproj\"\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Project.Xcodeproj != "ios/Queueify/Queueify.xcodeproj" {
+	if cfg.Project.Xcodeproj != "ios/Romeo/Romeo.xcodeproj" {
 		t.Errorf("xcodeproj = %q", cfg.Project.Xcodeproj)
 	}
 }
@@ -405,7 +405,7 @@ func loadWith(t *testing.T, body string) (*Config, error) {
 func TestLoadBaselineRelax(t *testing.T) {
 	cfg, err := loadWith(t, `
 [project]
-name = "throughline"
+name = "sierra"
 
 [baseline.relax]
 swift_version = { until = "2026-09-01", reason = "pre-Swift-6 audio engine, #142" }
@@ -428,7 +428,7 @@ swift_version = { until = "2026-09-01", reason = "pre-Swift-6 audio engine, #142
 func TestLoadBaselineRelaxRejectsUnknownKey(t *testing.T) {
 	_, err := loadWith(t, `
 [project]
-name = "throughline"
+name = "sierra"
 
 [baseline.relax]
 swift_verison = { until = "2026-09-01", reason = "typo" }
@@ -444,7 +444,7 @@ swift_verison = { until = "2026-09-01", reason = "typo" }
 func TestLoadBaselineRelaxRequiresReason(t *testing.T) {
 	if _, err := loadWith(t, `
 [project]
-name = "throughline"
+name = "sierra"
 
 [baseline.relax]
 swift_version = { until = "2026-09-01" }
@@ -456,7 +456,7 @@ swift_version = { until = "2026-09-01" }
 func TestLoadBaselineRelaxRequiresUntil(t *testing.T) {
 	if _, err := loadWith(t, `
 [project]
-name = "throughline"
+name = "sierra"
 
 [baseline.relax]
 swift_version = { reason = "no expiry" }
@@ -468,7 +468,7 @@ swift_version = { reason = "no expiry" }
 func TestLoadBaselineRelaxRejectsMalformedDate(t *testing.T) {
 	if _, err := loadWith(t, `
 [project]
-name = "throughline"
+name = "sierra"
 
 [baseline.relax]
 swift_version = { until = "Sept 1st", reason = "r" }
@@ -479,7 +479,7 @@ swift_version = { until = "Sept 1st", reason = "r" }
 
 // No [baseline.relax] block at all is the normal case: the standard applies.
 func TestLoadNoBaselineBlock(t *testing.T) {
-	cfg, err := loadWith(t, "[project]\nname = \"throughline\"\n")
+	cfg, err := loadWith(t, "[project]\nname = \"sierra\"\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -491,8 +491,8 @@ func TestLoadNoBaselineBlock(t *testing.T) {
 func TestBaselineTargets(t *testing.T) {
 	cfg, err := loadWith(t, `
 [project]
-name = "throughline"
-xcodeproj = "ios/Throughline.xcodeproj"
+name = "sierra"
+xcodeproj = "ios/Sierra.xcodeproj"
 
 [[component]]
 path = "ios"
@@ -514,7 +514,7 @@ profiles = ["supabase"]
 	for _, tgt := range got {
 		switch tgt.Component {
 		case "ios":
-			if tgt.Xcodeproj != "ios/Throughline.xcodeproj" {
+			if tgt.Xcodeproj != "ios/Sierra.xcodeproj" {
 				t.Errorf("ios target xcodeproj = %q", tgt.Xcodeproj)
 			}
 		case "server":

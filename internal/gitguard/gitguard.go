@@ -41,7 +41,7 @@ func InWorkTree(dir string) (bool, error) {
 // swiftpm/Package.resolved and `*.resolved` in its .gitignore, so the file is
 // real locally and absent from the repository — and a Dependabot entry rendered
 // from the working tree therefore pointed at a manifest Dependabot could never
-// fetch, failing the job every day. Queueify is the same story via
+// fetch, failing the job every day. Romeo is the same story via
 // `*.xcworkspace`.
 //
 // Pathspecs are passed after `--`, so a pattern that looks like a flag is a

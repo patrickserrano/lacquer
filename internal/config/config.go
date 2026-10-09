@@ -121,7 +121,7 @@ type Project struct {
 	// `NAME: ${{ secrets.NAME }}`.
 	//
 	// This exists because its absence cost a project the entire workflow.
-	// examplestudiostudio.com's `npm run build` statically collects page data, and
+	// examplestudio.com's `npm run build` statically collects page data, and
 	// src/sanity/env.ts throws when NEXT_PUBLIC_SANITY_* are unset — so the
 	// shared job could never build it. With no slot for five secret names, the
 	// only way out was [project].exclude on web-ci.yml, which opted the repo out
@@ -200,7 +200,7 @@ type Project struct {
 	// for what each one means; nothing about them differs here.
 	//
 	// They were the one release-shaped field [project] could not spell, and the
-	// cost was not restatement but silence. flare, kit, app-lima and
+	// cost was not restatement but silence. delta, echo, app-lima and
 	// golf all read build-time keys — a RevenueCat appl_ key, Aptabase, a
 	// Sentry DSN, an API key — from a gitignored Secrets.xcconfig and declare no
 	// [[product]]. With no way to name those keys, the release never wrote the
@@ -331,7 +331,7 @@ func (p Project) CIRoundCap() int {
 // one place this deliberately diverges from [baseline.relax], because the fleet
 // showed two genuinely different things wearing the same spelling:
 //
-//   - Temporary debt. throughline excludes five iOS workflows carrying local
+//   - Temporary debt. sierra excludes five iOS workflows carrying local
 //     fixes "until that upstreaming happens deliberately" — a sentence with no
 //     date attached, in a comment no tool can read. That should expire.
 //   - Permanent divergence. foxtrot is a macOS-only app and excludes the
@@ -415,7 +415,7 @@ func (e Exclusion) UntilDate() (time.Time, error) { return time.Parse("2006-01-0
 // the guard originally had no way to say it. Its two escapes were both wrong
 // for that case: declaring the key in `[[product]].secrets` RESURRECTS a secret
 // you are trying to remove, and excluding the workflow freezes the whole file
-// out of every future improvement to buy one deletion. examplestudiostudio.com hit
+// out of every future improvement to buy one deletion. examplestudio.com hit
 // exactly this migrating off Sanity — five obsolete SANITY_* names it could
 // neither drop nor honestly excuse.
 //

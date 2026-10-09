@@ -162,7 +162,7 @@ func TestDriftIgnoresTheLacquersOwnCheckout(t *testing.T) {
 // project. Walking into it yields a phantom copy of every component in the
 // repo — and since an undeclared stack now makes `sync` refuse and `audit` exit
 // 6, those phantoms would block the repo and `lacquer adopt` would write them
-// into the manifest as real components. Observed on throughline, which reported
+// into the manifest as real components. Observed on sierra, which reported
 // four undeclared stacks where it has two.
 func TestDriftIgnoresAgentWorktrees(t *testing.T) {
 	lq := lacquerShipping(t, "web", "supabase")

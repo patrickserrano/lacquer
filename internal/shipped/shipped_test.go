@@ -555,7 +555,7 @@ func TestRenderedWorkflowsAreValidYAML(t *testing.T) {
 			wantEnv: false,
 		},
 		{
-			name: "build_env set (examplestudiostudio's case)",
+			name: "build_env set (examplestudio's case)",
 			proj: config.Project{ProjectName: "Demo", Scheme: "Demo", BundleID: "com.x.demo",
 				AscAppID: "1", Xcodeproj: "Demo.xcodeproj", SwiftVersion: "6", GithubOrg: "acme",
 				BuildEnv: []string{"NEXT_PUBLIC_SANITY_PROJECT_ID", "SANITY_API_READ_TOKEN"}},
@@ -806,7 +806,7 @@ func TestOperatorPackagesNameNoProject(t *testing.T) {
 	// "steps") would false-positive on ordinary prose like "guardrail" or
 	// "toolkit", and a guard that cries wolf gets deleted.
 	names := []string{
-		"foxtrot", "throughline", "queueify", "examplestudiostudio",
+		"foxtrot", "sierra", "romeo", "examplestudio",
 		"juliet", "hotel", "november", "darndest", "mindmint",
 	}
 	var scanned int
