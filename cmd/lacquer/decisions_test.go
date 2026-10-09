@@ -106,16 +106,33 @@ func TestDecisionsSeparatesNoneRecordedFromAFailure(t *testing.T) {
 	}
 }
 
+// There is no built-in fleet repository: with neither the flag nor the
+// environment, --fleet says so, names both, and asks gh nothing. It must not
+// fall back to this checkout's repository either.
+func TestDecisionsFleetWithNoConfiguredRepositoryIsRefused(t *testing.T) {
+	calls := ghScript(t, nil, nil)
+	code, stdout, stderr := runDecisions(t, nil, "--fleet")
+	if code == 0 || stdout != "" || len(*calls) != 0 {
+		t.Fatalf("code %d stdout %q calls %v", code, stdout, *calls)
+	}
+	if !strings.Contains(stderr, "--fleet-repo") || !strings.Contains(stderr, "LACQUER_FLEET_REPO") {
+		t.Errorf("stderr %q should name both --fleet-repo and LACQUER_FLEET_REPO", stderr)
+	}
+	// An empty variable is the same as an unset one.
+	if code, _, _ := runDecisions(t, map[string]string{"LACQUER_FLEET_REPO": ""}, "--fleet"); code == 0 || len(*calls) != 0 {
+		t.Errorf("empty env: code %d calls %v", code, *calls)
+	}
+}
+
 func TestDecisionsFleetReadsTheConfiguredFleetRepository(t *testing.T) {
 	for name, tc := range map[string]struct {
 		env  map[string]string
 		args []string
 		repo string
 	}{
-		"the default": {nil, []string{"--fleet"}, defaultFleetRepo},
-		"the env":     {map[string]string{"LACQUER_FLEET_REPO": "acme/ops"}, []string{"--fleet"}, "acme/ops"},
-		"the flag":    {map[string]string{"LACQUER_FLEET_REPO": "acme/ops"}, []string{"--fleet", "--fleet-repo", "acme/other"}, "acme/other"},
-		"flag first":  {nil, []string{"--fleet-repo=acme/x", "--fleet"}, "acme/x"},
+		"the env":    {map[string]string{"LACQUER_FLEET_REPO": "acme/ops"}, []string{"--fleet"}, "acme/ops"},
+		"the flag":   {map[string]string{"LACQUER_FLEET_REPO": "acme/ops"}, []string{"--fleet", "--fleet-repo", "acme/other"}, "acme/other"},
+		"flag first": {nil, []string{"--fleet-repo=acme/x", "--fleet"}, "acme/x"},
 	} {
 		calls := ghScript(t, map[string]string{listFor(tc.repo): `[]`, closedFor(tc.repo): `[]`}, nil)
 		want := 2
@@ -186,7 +203,7 @@ func TestPopupCommandCarriesWhatARecordedDecisionNeeds(t *testing.T) {
 	}
 	// Left to default, the list names the default for itself and does not pass it.
 	def := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{}, fleet.Roster{}, envMap(nil))
-	if def.FleetRepo != defaultFleetRepo || strings.Contains(strings.Join(def.PopupArgv("a1"), " "), "fleet-repo") {
+	if def.FleetRepo != "" || strings.Contains(strings.Join(def.PopupArgv("a1"), " "), "fleet-repo") {
 		t.Errorf("default: %q %v", def.FleetRepo, def.PopupArgv("a1"))
 	}
 	// The popup accepts both flags: with no terminal it gets as far as saying so.

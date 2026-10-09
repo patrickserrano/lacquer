@@ -111,7 +111,7 @@ GitHub only.
 A decision is one comment on a repository's one open issue labelled `decisions`.
 This repo means the repository the item's ref names, else its `project` mapped
 through the roster. Fleet-wide means the fleet repository (`$LACQUER_FLEET_REPO`,
-default `patrickserrano/fleet-ops`), so a decision that spans repositories lives in
+or `--fleet-repo`; no built-in default), so a decision that spans repositories lives in
 one issue and not in a copy per project. The first decision in a repository
 creates the `decisions` label and an issue titled `Decisions`; two open
 `decisions` issues are refused by name. Every write goes through the same gate as

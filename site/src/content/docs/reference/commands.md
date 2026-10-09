@@ -53,7 +53,7 @@ posts nothing.
    that is an issue or PR in the roster or `--extra-repo`s, else the item's
    `project` mapped through the roster; if neither resolves it says why and still
    offers fleet. *Fleet-wide* is the fleet repository (`$LACQUER_FLEET_REPO`,
-   default `patrickserrano/fleet-ops`), so a decision that spans repositories lives
+   or `--fleet-repo`; no built-in default), so a decision that spans repositories lives
    in one place instead of a copy in each project's.
 
 The decision is one comment on the repository's one open issue labelled
