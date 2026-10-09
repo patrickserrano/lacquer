@@ -284,6 +284,15 @@ const (
 	// to write to the filesystem root.
 	IOSArchiveRoot = "{{IOS_ARCHIVE_ROOT}}"
 	IOSCISimMatch  = "{{IOS_CI_SIM_MATCH}}"
+	// IOSCIBundleSecretsBuild, IOSCIBundleSecretsTest and
+	// IOSReleaseBundleSecrets are the step that fails when a bundle other than
+	// the app carries a key from the product's secrets template: after the
+	// Release build, after the tests, and after the archive. Each renders one
+	// step per product declaring secrets, or nothing, and sits at the end of the
+	// preceding step's last line so the empty rendering leaves no blank line.
+	IOSCIBundleSecretsBuild = "{{IOS_CI_BUNDLE_SECRETS_BUILD}}"
+	IOSCIBundleSecretsTest  = "{{IOS_CI_BUNDLE_SECRETS_TEST}}"
+	IOSReleaseBundleSecrets = "{{IOS_RELEASE_BUNDLE_SECRETS}}"
 	// DependabotUpdates expands to the `updates:` list of .github/dependabot.yml:
 	// one github-actions entry for the repo, plus one npm entry per web
 	// component, each pointing at that component's directory.
@@ -367,6 +376,10 @@ var registry = []entry{
 	{IOSXcodeExpected, false},
 	{IOSArchiveRoot, false},
 	{IOSCISimMatch, false},
+	// All three empty unless a product declares secrets.
+	{IOSCIBundleSecretsBuild, false},
+	{IOSCIBundleSecretsTest, false},
+	{IOSReleaseBundleSecrets, false},
 	// Empty for every project with one Swift component: no package for Lint to
 	// build.
 	{IOSCIPackageDirs, false},
@@ -505,6 +518,10 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSXcodeExpected:        cfg.Project.XcodeVersion,
 		IOSArchiveRoot:          archiveRoot(cfg.Project.ArchiveRoot),
 		IOSCISimMatch:           CISimMatch(products),
+
+		IOSCIBundleSecretsBuild: CIBundleSecretsBuild(products, prefix),
+		IOSCIBundleSecretsTest:  CIBundleSecretsTest(products, prefix),
+		IOSReleaseBundleSecrets: ReleaseBundleSecrets(products, prefix),
 
 		IOSCIPushPaths:      CIPushPaths(cfg, prefix),
 		IOSCILintComponents: CILintComponents(cfg, prefix),

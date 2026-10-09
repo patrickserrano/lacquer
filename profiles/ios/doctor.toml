@@ -451,3 +451,69 @@ file, this plants exactly that against it and fails if the guard accepts it.
 """
 check = "swiftlint-custom-rules"
 expect = "pass"
+
+[[probe]]
+name = "the bundle-secrets check fails a watch app carrying a secrets key"
+why = """
+An app's service keys reach its Info.plist through a base xcconfig whose
+INFOPLIST_FILE line every target inherits when the config is applied at project
+level. A watch app, an extension or a test bundle that does not override it
+ships a second copy of every key, and nothing fails: it builds, signs, uploads
+and passes review.
+
+This probe builds an app and an embedded watch app that both carry the
+template's key, and requires the shipped check to fail and name the watch app
+and the key. A check that stopped reading embedded bundles, or stopped deriving
+keys from the template, would pass it.
+"""
+requires = ["bash", "plutil", "python3", "{root}/scripts/verify-bundle-secrets.sh"]
+file = "Secrets.xcconfig.example"
+content = """
+DOCTOR_PROBE_KEY = placeholder
+INFOPLIST_FILE = App/Info.plist
+"""
+argv = ["bash", "-c", '''
+set -e
+P={dir}/Products
+bundle() {
+  mkdir -p "$P/$1"
+  plutil -create xml1 "$P/$1/Info.plist"
+  plutil -insert CFBundleIdentifier -string "$2" "$P/$1/Info.plist"
+}
+bundle Probe.app com.example.probe
+plutil -insert DOCTOR_PROBE_KEY -string probe "$P/Probe.app/Info.plist"
+bundle Probe.app/Watch/ProbeWatch.app com.example.probe.watchkitapp
+plutil -insert DOCTOR_PROBE_KEY -string probe "$P/Probe.app/Watch/ProbeWatch.app/Info.plist"
+exec bash {root}/scripts/verify-bundle-secrets.sh {dir}/Secrets.xcconfig.example Probe.app "$P"
+''']
+expect = "fail"
+# The leak line names the bundle and the key; a refusal for any other reason (a
+# fixture that did not build, a control) prints neither.
+expect_output = '::error::Probe\.app/Watch/ProbeWatch\.app carries secrets keys in its Info\.plist: DOCTOR_PROBE_KEY \(only Probe\.app may\)'
+
+[[probe]]
+name = "the bundle-secrets check refuses to pass when the app carries no key"
+why = """
+The app is the positive control. It carries the template's keys by design, so
+an app found without any of them means the key list or the lookup is broken,
+and every other bundle would then read as clean for the same reason. A check
+that stopped requiring this would pass every project whatever its bundles
+carried.
+"""
+requires = ["bash", "plutil", "python3", "{root}/scripts/verify-bundle-secrets.sh"]
+file = "Secrets.xcconfig.example"
+content = """
+DOCTOR_PROBE_KEY = placeholder
+"""
+argv = ["bash", "-c", '''
+set -e
+P={dir}/Products
+for b in Probe.app Probe.app/PlugIns/ProbeWidget.appex; do
+  mkdir -p "$P/$b"
+  plutil -create xml1 "$P/$b/Info.plist"
+  plutil -insert CFBundleIdentifier -string "com.example.${b##*/}" "$P/$b/Info.plist"
+done
+exec bash {root}/scripts/verify-bundle-secrets.sh {dir}/Secrets.xcconfig.example Probe.app "$P"
+''']
+expect = "fail"
+expect_output = '::error::verify-bundle-secrets: Probe\.app carries none of the keys; the key list or the lookup is broken'

@@ -745,7 +745,7 @@ jobs:
             echo "::error::Read no bundle in ${apps[0]}."
             exit 1
           fi
-          echo "All $checked archived bundles carry CFBundleVersion $NEXT."
+          echo "All $checked archived bundles carry CFBundleVersion $NEXT."{{IOS_RELEASE_BUNDLE_SECRETS}}
 
       - name: Export IPA
         run: |

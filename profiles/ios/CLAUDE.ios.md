@@ -13,11 +13,10 @@
   or the same path via `-derivedDataPath` to raw Xcode queries and builds.
   Never share DerivedData across worktrees. Create `.metadata_never_index` before
   any build-output directory is populated; preserve the `DerivedData*` naming.
-- Interactive build/run/test and simulator mutations use FlowDeck; CI's raw
-  Xcode commands are deliberate. Read `ios-build-verification` before selecting
-  tests: partial selection can silently drop parameterized cases. Verify actual
-  results and counts, not merely exit status. Tests over 300 seconds are hung;
-  stop and investigate.
+- Interactive build/run/test and simulator mutations use FlowDeck; CI's raw Xcode
+  commands are deliberate. Read `ios-build-verification` before selecting tests:
+  partial selection can silently drop parameterized cases. Verify actual results and
+  counts, not merely exit status. Tests over 300 seconds are hung; stop and investigate.
 - FlowDeck streams stdout only. `scripts/sim-os-log.sh` is the sanctioned exception
   for read-only `os_log` from the run's own simulator; mutation stays with flowdeck.
   Disclose the command and why stdout was insufficient in the PR body.
@@ -28,6 +27,7 @@
 - App-runtime public keys live in gitignored `Secrets.xcconfig`; examples alone
   must never feed a release. Declare release secret names and formats in the
   manifest. CI/server credentials (including RevenueCat `sk_…`) never enter the app.
+- Only the app's Info.plist may carry those keys (`scripts/verify-bundle-secrets.sh`).
 - Use `ios-secrets-setup` for wiring and `scripts/write-release-config.sh` for
   release config. Release only a SHA with successful completed CI; tags must
   point to a commit reachable from the default branch. Read `ios-release-guide`.
