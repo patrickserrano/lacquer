@@ -371,7 +371,7 @@ func (m *Model) key(k KeyEvent) []Cmd {
 		}
 		m.Active = (m.Active + step + len(m.Cfg.Tabs)) % len(m.Cfg.Tabs)
 		return m.fetches(m.Now)
-	case KeyCtrlC: // not Esc: foxy-inbox's inbox tab ignores it, and a stray one must not close the view
+	case KeyCtrlC: // not Esc: the operator's inbox tool's inbox tab ignores it, and a stray one must not close the view
 		m.quit = true
 	case KeyRune:
 		return m.rune(k.Rune, arm)
@@ -674,7 +674,7 @@ func (m Model) tabHits() []hit {
 func tabLabel(t Tab) string { return string(t.Key) + " " + t.Label }
 
 // Age is "45m", "3h" or "2d" for how long ago created was; "" when it has no
-// time. It counts hours up to two days, as foxy-inbox does.
+// time. It counts hours up to two days, as the operator's inbox tool does.
 func Age(created, now time.Time) string {
 	if created.IsZero() {
 		return ""
@@ -690,7 +690,7 @@ func Age(created, now time.Time) string {
 }
 
 // StaleAfter is when an age turns magenta: exactly when it renders in days.
-// foxy-inbox's docstring and #409 say "a day", but its code colours the age
+// the operator's inbox tool's docstring and #409 say "a day", but its code colours the age
 // magenta only when the label ends in "d", which is from 48h; that is what the
 // operator has looked at every day, so that is what this matches.
 const StaleAfter = 48 * time.Hour
@@ -709,7 +709,7 @@ func (it Item) kindStyle() (mark string, markStyle, titleStyle style) {
 // View implements Program.
 func (m Model) View() Frame {
 	w, h := m.W, m.H
-	cw := max(w-1, 0) // foxy-inbox never writes the last column
+	cw := max(w-1, 0) // the operator's inbox tool never writes the last column
 	lines := make([]string, h)
 	set := func(y int, l line, selected bool) {
 		if y >= 0 && y < h {

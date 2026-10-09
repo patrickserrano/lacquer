@@ -17,7 +17,7 @@ const (
 	KindStuck
 )
 
-// The four tabs of foxy-inbox, in its order and with its keys.
+// The four tabs of the operator's inbox tool, in its order and with its keys.
 var (
 	LaterTab = Tab{Key: '2', Label: "Later", Kind: KindLater}
 	DoneTab  = Tab{Key: '3', Label: "Done", Kind: KindDone}
@@ -27,7 +27,7 @@ var (
 	AllTabs  = []Tab{InboxTab, LaterTab, DoneTab, PRsTab, StuckTab}
 )
 
-// Refresh throttles for the tabs that ask GitHub. Both are foxy-inbox's: `gh`
+// Refresh throttles for the tabs that ask GitHub. Both are the operator's inbox tool's: `gh`
 // search is rate limited, and the PR sweep is one `gh` process per repository.
 const (
 	LaterEvery = 5 * time.Minute
@@ -261,7 +261,7 @@ func (m *Model) cur() *cursor {
 	return nil
 }
 
-// projectHeader is "name  (count)" for a repository, as foxy-inbox draws it.
+// projectHeader is "name  (count)" for a repository, as the operator's inbox tool draws it.
 func projectHeader(repo string, n int) row {
 	short := repo
 	if _, after, ok := strings.Cut(repo, "/"); ok {
@@ -287,7 +287,7 @@ func (m Model) doneRows() []row {
 	return out
 }
 
-// hintFor is the key-hint row of a tab: foxy-inbox's text, with q quit added.
+// hintFor is the key-hint row of a tab: the operator's inbox tool's text, with q quit added.
 func (m Model) hintFor() string {
 	var h string
 	switch m.kind() {

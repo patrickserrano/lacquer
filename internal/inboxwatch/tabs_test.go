@@ -92,7 +92,7 @@ func onTab(t *testing.T, m Model, key string) Program {
 
 // Later groups the parked issues under their repository, the repositories
 // ordered by short name ignoring case and each one's issues by number, as
-// foxy-inbox's later_issues and later_rows do.
+// the operator's inbox tool's later_issues and later_rows do.
 func TestLaterGroupsByProjectSortedByShortNameThenNumber(t *testing.T) {
 	p := onTab(t, tabModel(t, 100, 14), "2")
 	p, _ = send(t, p, LaterEvent{Issues: laterIssues(t), At: t0})
@@ -390,8 +390,8 @@ func TestPRAgeTurnsMagentaFromTwentyFourHours(t *testing.T) {
 
 // Checks are counted with the classifier `lacquer wait pr` uses. A legacy commit
 // status (Vercel's, say) carries `state` and no `status`: read as a check run it
-// is "not completed", so a SUCCESS one sat pending for ever in foxy-prs. Also
-// unlike foxy-prs, a check that is COMPLETED with no conclusion fails closed, as
+// is "not completed", so a SUCCESS one sat pending for ever in the operator's PR tool. Also
+// unlike the operator's PR tool, a check that is COMPLETED with no conclusion fails closed, as
 // it does in `wait pr`, instead of counting as pending.
 func TestPRChecksSummaryClassifiesStatusContextsByState(t *testing.T) {
 	pr := prsFor(t, "o/r", time.Hour, time.Hour)[0]
@@ -709,9 +709,9 @@ func TestFiveTabsFoxyInboxsFourFirstWithTheirKeysThenStuck(t *testing.T) {
 	}
 }
 
-// The strings foxy-inbox's draw_hint draws, key bright and description dim.
+// The strings the operator's inbox tool's draw_hint draws, key bright and description dim.
 // Differences from 18488d1: "q quit" ends every list hint (409a added the key),
-// and the issue popup says "overseer" where foxy-inbox says "foxy".
+// and the issue popup says "overseer" where the operator's inbox tool says "the operator".
 func TestHintRowsMatchFoxyInbox(t *testing.T) {
 	m := tabModel(t, 200, 10, item("a", inbox.Action, time.Hour, "x"))
 	for key, want := range map[string]string{

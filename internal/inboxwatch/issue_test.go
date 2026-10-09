@@ -231,7 +231,7 @@ func TestIssueNoteIsTaggedLaterWithNoTitleAndLogged(t *testing.T) {
 			t.Errorf("the issue's title reached the overseer's input: %q", c)
 		}
 	}
-	// Logged as foxy-inbox logs it: id is the ref, in inbox-replies.jsonl.
+	// Logged as the operator's inbox tool logs it: id is the ref, in inbox-replies.jsonl.
 	r, err := ReadReplies(RepliesPath(path))
 	if err != nil || r[issueRef].Text != "note about it" {
 		t.Errorf("replies = %+v, %v", r, err)

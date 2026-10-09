@@ -14,7 +14,7 @@ import (
 // RepliesFile sits next to the inbox and remembers which entries the operator
 // answered from the popup, which is how "replied" survives a restart.
 //
-// Its format is not ours to change. foxy-inbox writes and reads it, the two run
+// Its format is not ours to change. the operator's inbox tool writes and reads it, the two run
 // side by side while one replaces the other, and the phone mirror may read it.
 // Each line is what Python's json.dumps makes of {"id", "at", "text"}: keys in
 // that order, ", " and ": " separators, every non-ASCII character escaped as
@@ -34,7 +34,7 @@ func RepliesPath(inboxPath string) string {
 }
 
 // ReadReplies returns the latest reply per entry id. A line that is not a
-// reply record is skipped, as foxy-inbox skips it; a missing file is no replies.
+// reply record is skipped, as the operator's inbox tool skips it; a missing file is no replies.
 func ReadReplies(path string) (map[string]Reply, error) {
 	out := map[string]Reply{}
 	f, err := os.Open(path)
@@ -61,13 +61,13 @@ func ReadReplies(path string) (map[string]Reply, error) {
 	return out, sc.Err()
 }
 
-// replyLine is the bytes foxy-inbox's log_reply writes for one reply.
+// replyLine is the bytes the operator's inbox tool's log_reply writes for one reply.
 func replyLine(id string, at time.Time, text string) string {
 	return `{"id": ` + pyString(id) + `, "at": ` + pyString(at.Format("2006-01-02T15:04:05")) +
 		`, "text": ` + pyString(text) + "}\n"
 }
 
-// AppendReply records a reply the way foxy-inbox does. It is one write of one
+// AppendReply records a reply the way the operator's inbox tool does. It is one write of one
 // line to a file opened for append, so a reply from each tool cannot tear the other's.
 func AppendReply(path, id string, at time.Time, text string) error {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

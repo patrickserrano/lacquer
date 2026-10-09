@@ -41,7 +41,7 @@ func laterArgs(owners []string) []string {
 	return args
 }
 
-// parseLater reads the output of laterArgs, sorted as foxy-inbox does: by the
+// parseLater reads the output of laterArgs, sorted as the operator's inbox tool does: by the
 // repository's short name, ignoring case, then by number.
 func parseLater(out []byte) ([]LaterIssue, error) {
 	var data []struct {
@@ -81,7 +81,7 @@ func shortName(repo string) string {
 	return after
 }
 
-// laterRows groups the issues under their repository, as foxy-inbox's later_rows.
+// laterRows groups the issues under their repository, as the operator's inbox tool's later_rows.
 func (m Model) laterRows() []row {
 	counts := map[string]int{}
 	for _, i := range m.Later.Issues {

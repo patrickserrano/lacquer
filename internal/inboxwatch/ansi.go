@@ -6,7 +6,7 @@ import (
 	"unicode"
 )
 
-// The palette is foxy-inbox's, index for index: accents are the terminal's own
+// The palette is the operator's inbox tool's, index for index: accents are the terminal's own
 // palette (0-7 and 8 for dim) so they follow the operator's theme, and the
 // 256-colour indexes are the ones the tmux bar uses (Catppuccin Mocha, roughly).
 const (
@@ -114,7 +114,7 @@ func (l line) width() int {
 // the mouse off and an OSC 52 would write the clipboard, on every redraw. So C0
 // controls (tab and newline included, which would also break the layout) become
 // ^X, DEL becomes ^?, and the C1 range, which some terminals act on, becomes ?.
-// It is what curses did for foxy-inbox, which shows an ESC as "^[".
+// It is what curses did for the operator's inbox tool, which shows an ESC as "^[".
 func clean(s string) string {
 	if !strings.ContainsFunc(s, isControl) {
 		return s
@@ -139,7 +139,7 @@ func isControl(r rune) bool { return r < 0x20 || (r >= 0x7f && r <= 0x9f) }
 
 // render cuts the row to w cells. selected paints every cell's background with
 // the selection colour, foregrounds intact, and fills the tail: the terminal
-// counterpart of foxy-inbox's mirrored colour pairs (reverse video inverted each
+// counterpart of the operator's inbox tool's mirrored colour pairs (reverse video inverted each
 // run separately, which read as several unrelated highlights).
 func (l line) render(w int, selected bool) string {
 	var b strings.Builder

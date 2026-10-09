@@ -916,7 +916,7 @@ func TestAReplyToASessionRefCarriesNoCommentAndClosesAsBefore(t *testing.T) {
 }
 
 // The replies file keeps its format: one line, three keys, and no write-back
-// field. foxy-inbox and the phone mirror read it.
+// field. the operator's inbox tool and the phone mirror read it.
 func TestWriteBackDoesNotChangeTheRepliesLine(t *testing.T) {
 	fc := &fakeCmd{}
 	env, path := replyEnv(t, fc)

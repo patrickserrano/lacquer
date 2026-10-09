@@ -100,7 +100,7 @@ func popupArgv(exe, inboxPath string, o overseerFlags, repos, extra []string, fl
 }
 
 // extraRepoFlags is the repositories the Later and PRs tabs cover besides the
-// roster's: foxy-prs added lacquer, fleet-repo and rail-web this way, since a
+// roster's: the operator's PR tool added lacquer, fleet-repo and rail-web this way, since a
 // roster sweeps projects and these are the tooling around them. Repeat the flag,
 // or comma-separate $LACQUER_EXTRA_REPOS.
 type extraRepoFlags struct {

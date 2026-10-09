@@ -8,11 +8,11 @@ import (
 	"github.com/patrickserrano/lacquer/internal/inbox"
 )
 
-// showWidth is where foxy-inbox wraps a body when it prints one.
+// showWidth is where the operator's inbox tool wraps a body when it prints one.
 const showWidth = 98
 
 // Show is one entry's full detail as text, what `inbox watch --show ID` prints
-// (foxy-inbox's detail_text). The latest record for an id wins. Every string in
+// (the operator's inbox tool's detail_text). The latest record for an id wins. Every string in
 // it is written by an agent, so it goes through the same sanitizer as the
 // screen: this text is written to a terminal too.
 func Show(path, id string) (string, error) {
