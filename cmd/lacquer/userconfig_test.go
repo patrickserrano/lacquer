@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickserrano/lacquer/internal/fleet"
+	"github.com/patrickserrano/lacquer/internal/inboxwatch"
 )
 
 // writeUserConfig makes a config file under a temp dir and returns the env that
@@ -169,5 +172,49 @@ func TestDecisionsWithoutFleetIgnoresTheUserConfig(t *testing.T) {
 	calls := ghScript(t, map[string]string{listFor("o/r"): `[]`, closedFor("o/r"): `[]`}, nil)
 	if code, stdout, stderr := runDecisions(t, env, "o/r"); code != 0 || stdout != "no decisions recorded for o/r\n" {
 		t.Errorf("code %d stdout %q stderr %q calls %v", code, stdout, stderr, *calls)
+	}
+}
+
+// The inbox watcher resolves its fleet repository through the same resolver as
+// `decisions`, so the two cannot disagree. The watcher has no flag of its own:
+// it is flag-less (""), env, then the user config. Its popup does have
+// --fleet-repo, which the watcher fills in with what it resolved.
+func TestWatcherFleetRepoComesFromTheUserConfig(t *testing.T) {
+	cfg, _ := writeUserConfig(t, false, `fleet_repo = "acme/from-config"`)
+	env := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{}, fleet.Roster{}, envMap(cfg))
+	if env.FleetRepo != "acme/from-config" || env.FleetErr != "" {
+		t.Fatalf("FleetRepo %q FleetErr %q", env.FleetRepo, env.FleetErr)
+	}
+	if argv := strings.Join(env.PopupArgv("a1"), " "); !strings.Contains(argv, "--fleet-repo=acme/from-config ") {
+		t.Errorf("the popup is not told the resolved repository: %s", argv)
+	}
+	// The environment still beats the file, as in `decisions`.
+	withEnv := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{}, fleet.Roster{}, envMap(merge(cfg, map[string]string{"LACQUER_FLEET_REPO": "acme/from-env"})))
+	if withEnv.FleetRepo != "acme/from-env" {
+		t.Errorf("env: FleetRepo %q", withEnv.FleetRepo)
+	}
+	// The popup's flag beats both.
+	var viaFlag inboxwatch.Env
+	applyFleetRepo(&viaFlag, "acme/from-flag", envMap(cfg))
+	if viaFlag.FleetRepo != "acme/from-flag" {
+		t.Errorf("flag: FleetRepo %q", viaFlag.FleetRepo)
+	}
+}
+
+// A malformed config must not take the watcher down: it starts with no fleet
+// repository and says why where the operator will read it.
+func TestWatcherSurvivesAMalformedUserConfigAndSaysWhy(t *testing.T) {
+	cfg, path := writeUserConfig(t, false, "fleet_repo = = =")
+	env := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{}, fleet.Roster{}, envMap(cfg))
+	if env.FleetRepo != "" || strings.Contains(strings.Join(env.PopupArgv("a1"), " "), "fleet-repo") {
+		t.Fatalf("FleetRepo %q popup %v", env.FleetRepo, env.PopupArgv("a1"))
+	}
+	if why := env.DecisionTargets("", "").FleetWhy; !strings.Contains(why, path) || !strings.Contains(why, "is not valid") {
+		t.Errorf("FleetWhy %q should carry the config error naming %s", why, path)
+	}
+	// Unset everywhere, not malformed: the reason names the sources.
+	none := newWatchEnv("/state/inbox.jsonl", false, overseerFlags{}, fleet.Roster{}, envMap(nil))
+	if why := none.DecisionTargets("", "").FleetWhy; !strings.Contains(why, "LACQUER_FLEET_REPO") {
+		t.Errorf("unset: FleetWhy %q", why)
 	}
 }

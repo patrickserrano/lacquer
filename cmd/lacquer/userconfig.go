@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/patrickserrano/lacquer/internal/inboxwatch"
 )
 
 // The user config file is lacquer's per-user (not per-project) settings. It
@@ -93,4 +95,17 @@ func resolveFleetRepo(flagVal string, getenv func(string) string) (string, error
 		where = "$XDG_CONFIG_HOME/" + userConfigRel + " or $HOME/.config/" + userConfigRel + " (neither is set)"
 	}
 	return "", fmt.Errorf("no fleet repository is configured; pass --fleet-repo owner/name, set $%s, or set %s = \"owner/name\" in %s", envFleetRepo, userConfigFleetKey, where)
+}
+
+// applyFleetRepo sets the inbox watcher's (and its popup's) fleet repository from
+// the SAME resolver `lacquer decisions` uses, so the two cannot disagree. A
+// resolver error must not stop the watcher: the repository stays empty and the
+// error becomes the reason the fleet-wide choice is unavailable (FleetErr).
+func applyFleetRepo(env *inboxwatch.Env, flagVal string, getenv func(string) string) {
+	r, err := resolveFleetRepo(flagVal, getenv)
+	env.FleetRepo = r
+	env.FleetErr = ""
+	if err != nil {
+		env.FleetErr = err.Error()
+	}
 }
