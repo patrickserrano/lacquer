@@ -20,7 +20,7 @@ This skill exists to put that question before the document instead of after it.
 
 ## The case this was written from
 
-Needledrop (NFC tap-to-stream for record collectors) had an unusually good PRD
+Juliet (NFC tap-to-stream for record collectors) had an unusually good PRD
 and PCD — real non-goals, numeric kill criteria, a named Phase 0 with exit
 criteria. It still shipped four false premises into its architecture, and the
 Phase 0 spike had to correct all four:
@@ -47,10 +47,10 @@ They were wrong anyway, and the cost was concrete:
   because the document had already decided the identifier ladder.
 
 And the name: the PRD listed "run the trademark pass" as an open question,
-*after* the docs were titled Needledrop and the repo was created as
-`needledrop`. The check ran later, "Needledrop is not viable" came back, and
-the project renamed to Sleevetap — while the repo, its remote, and its clone
-path still say needledrop today.
+*after* the docs were titled Juliet and the repo was created as
+`juliet`. The check ran later, "Juliet is not viable" came back, and
+the project renamed to Hotel — while the repo, its remote, and its clone
+path still say juliet today.
 
 The lesson is not "write better documents." It is that **a design doc is the
 wrong instrument for discovering whether something is true.**
@@ -71,7 +71,7 @@ ones:
 Then ask of each: **if this is wrong, does the design change?** A claim that is
 `documented` or `assumed` *and* load-bearing is not a claim. It is a task.
 
-For Needledrop that filter alone catches all four: "Spotify is closed" was
+For Juliet that filter alone catches all four: "Spotify is closed" was
 documented and load-bearing; "UPC is the strongest identifier" was assumed and
 load-bearing.
 
@@ -80,7 +80,7 @@ load-bearing.
 A probe is a script that answers one question with a number, not a prototype.
 Hours, not days; throwaway, not the first commit of the product.
 
-The Needledrop probes would have been: one `curl` with Spotify client
+The Juliet probes would have been: one `curl` with Spotify client
 credentials (kills premise 1 in ten minutes); twenty barcodes from a real
 collection run against three catalogues (kills premise 2 in an hour).
 
@@ -89,7 +89,7 @@ name each probe, say what number would settle it, and hand them over as the
 first work item. A doc that ships with "unprobed" next to a load-bearing claim
 is honest; one that reads as settled is not.
 
-**Probe on real data, not a sample you constructed.** Needledrop's collection
+**Probe on real data, not a sample you constructed.** Juliet's collection
 turned out to be 28% 7-inch singles, which resolve at 0% because a single has
 no album-level streaming entity. A flat rate across that collection answers the
 wrong question — and only real data reveals it.
@@ -107,7 +107,7 @@ that keep it honest:
   a real collection → revisit"* is a kill criterion. "Validate feasibility" is
   not.
 - When a probe contradicts the document, **amend the document in place** and
-  say what was wrong. Needledrop did this well: the PCD was corrected rather
+  say what was wrong. Juliet did this well: the PCD was corrected rather
   than left asserting things known to be false. A doc nobody trusts is worse
   than no doc.
 
@@ -123,9 +123,9 @@ titled:
 - **Stack**: name it in the doc, as an archetype
   (`lacquer init --list-stacks`), then pass it to `lacquer init --stack <name>`.
 
-Needledrop got the order backwards and still carries the wrong repo name.
+Juliet got the order backwards and still carries the wrong repo name.
 
-The stack one is subtler than it looks. Needledrop's PCD said "iOS app with a
+The stack one is subtler than it looks. Juliet's PCD said "iOS app with a
 web backend" and was right — but the repo was bootstrapped during the
 TypeScript-only Phase 0 spike, so detection recorded `profiles = ["web"]`,
 correctly, and nothing ever looked again. Swift landed the next day with no
@@ -157,7 +157,7 @@ You are ready to leave exploration when:
 - **Abstraction as insurance.** A pluggable layer against a dependency risk
   nobody measured. Measure the risk; then decide if the seam is worth it.
 - **Phase 0 as ceremony.** A phase whose exit criteria are activities
-  ("outreach", "investigate") rather than numbers. Needledrop's Phase 0 was
+  ("outreach", "investigate") rather than numbers. Juliet's Phase 0 was
   real precisely because criterion #2 demanded a measured percentage.
 - **Naming last.** The one decision that gets more expensive every commit.
 - **Onboarding the spike.** Running `lacquer init` inside a Phase 0 throwaway

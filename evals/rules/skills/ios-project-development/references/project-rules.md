@@ -19,7 +19,7 @@ identity lives in its root `CLAUDE.md`, not here. Replace `<YourApp>` /
 
   Check the generator FIRST, because the two are not mutually exclusive and the synchronized-groups test answers the wrong question for a generated project: an XcodeGen project reports no synchronized groups, so testing for those alone routes you to step 3 — and adding a file through Xcode is the one action guaranteed not to survive `xcodegen generate`. Most of this fleet is XcodeGen.
 - **NEVER modify `.xcworkspace` contents.**
-- **NEVER add Swift Package Manager dependencies** without explicit user permission. To *bump* existing deps (no new deps added), use `flowdeck project packages update` — it re-resolves `Package.resolved` to the latest versions allowed by the existing `upToNextMajorVersion` constraints **without touching the `.pbxproj`**; build + test afterward.
+- **NEVER add Swift Package Manager dependencies** without explicit user permission. To *bump* existing deps (no new deps added), use `flowdeck project packages update` — it re-resolves `Package.resolved` to the latest versions allowed by the existing `upToNextMajorVersion` constraints **without touching the `.pbxproj`**; build + test afterward. Commit the `Package.resolved` it writes: CI and the release resolve strictly from it (`-onlyUsePackageVersionsFromResolvedFile`) and fail when it is missing or no longer satisfies the project's package requirements.
 - **NEVER change the deployment target** without explicit user request.
 - **NEVER modify `.entitlements` files** without explicit user request.
 - **Model observable state with `@Observable`**, held in `@State` — not `ObservableObject`, `@StateObject`, or `@Published`; `@Observable` properties publish automatically.

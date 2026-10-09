@@ -118,20 +118,20 @@ func TestPrefix(t *testing.T) {
 }
 
 func TestSubstituteValues(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.me.rail", AscAppID: "9"}, "ios/")
+	vals := Values(config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "com.me.rail", AscAppID: "9"}, "ios/")
 	in := "p: {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj\nf: '{{COMPONENT_PREFIX}}**'\nga: ${{ github.ref }}\n"
 	out, missing := Substitute(in, vals)
 	if len(missing) != 0 {
 		t.Fatalf("missing: %v", missing)
 	}
-	want := "p: ios/Rail.xcodeproj\nf: 'ios/**'\nga: ${{ github.ref }}\n"
+	want := "p: ios/Charlie.xcodeproj\nf: 'ios/**'\nga: ${{ github.ref }}\n"
 	if out != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
 	}
 }
 
 func TestSubstituteEmptyPrefixIsValid(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "b", AscAppID: "9"}, "") // root layout
+	vals := Values(config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "b", AscAppID: "9"}, "") // root layout
 	out, missing := Substitute("f: '{{COMPONENT_PREFIX}}**'\nd: {{COMPONENT_PREFIX}}DerivedData\n", vals)
 	if len(missing) != 0 {
 		t.Fatalf("empty prefix must not be 'missing': %v", missing)
@@ -142,7 +142,7 @@ func TestSubstituteEmptyPrefixIsValid(t *testing.T) {
 }
 
 func TestSubstituteReportsMissingProjectValue(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Rail"}, "ios/") // scheme blank
+	vals := Values(config.Project{ProjectName: "Charlie"}, "ios/") // scheme blank
 	_, missing := Substitute("{{SCHEME}} {{PROJECT_NAME}}", vals)
 	if len(missing) != 1 || missing[0] != "{{SCHEME}}" {
 		t.Fatalf("missing = %v", missing)
@@ -304,7 +304,7 @@ func TestSyncRootLayoutEmptyPrefix(t *testing.T) {
 	}
 	// component at root (".") and all 4 project values present
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"x\"\nproject_name=\"Rail\"\nscheme=\"Rail\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"x\"\nproject_name=\"Charlie\"\nscheme=\"Charlie\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
 
 	if _, err := Run(harness, project); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -369,7 +369,7 @@ env -u GOROOT /opt/homebrew/bin/go build -o "$H/bin/harness" ./cmd/harness
 probe() { # $1 = component path
   tmp=$(mktemp -d); ( cd "$tmp" && git init -q )
   if [ "$1" = "." ]; then proj="."; else proj="$1"; fi
-  printf '[project]\nname="p"\nproject_name="Rail"\nscheme="Rail"\nbundle_id="com.me.rail"\nasc_app_id="9"\n\n[[component]]\npath="%s"\nprofiles=["ios"]\n' "$proj" > "$tmp/.harness.toml"
+  printf '[project]\nname="p"\nproject_name="Charlie"\nscheme="Charlie"\nbundle_id="com.me.rail"\nasc_app_id="9"\n\n[[component]]\npath="%s"\nprofiles=["ios"]\n' "$proj" > "$tmp/.harness.toml"
   ( cd "$tmp" && HARNESS_ROOT="$H" "$H/bin/harness" sync >/dev/null )
   echo "--- component=$1: ios-ci.yml lint line + path filter ---"
   grep -nE 'swiftlint --strict|COMPONENT_PREFIX|^\s+- |DerivedData' "$tmp/.github/workflows/ios-ci.yml" | grep -iE 'swiftlint|\*\*|DerivedData' | head -4

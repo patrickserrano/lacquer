@@ -45,8 +45,8 @@ Target defaults use `name` only when `scheme` is empty. Explicit
 `test_target` and `app_target` values override these defaults.
 
 `app_target` must be declared when a scheme and its built
-product differ — one app in this fleet builds `A Bible Verse
-Daily.app` from a scheme named `A Bible Verse Each Day Free`. A derived value
+product differ — one app in this fleet builds `A Quebec Verse
+Daily.app` from a scheme named `A Quebec Verse Each Day Free`. A derived value
 would select no coverage row, and `jq` selecting nothing reports 0.0%, not an
 error.
 
@@ -125,18 +125,18 @@ Declare the bundle and the lacquer renders a `watch-test` job for it:
 
 ```toml
 [project.watch_tests]                   # the single-product spelling
-scheme      = "DailyBreadWatchApp Watch App"
-test_target = "DailyBreadWatchApp Watch AppTests"
+scheme      = "AlphaAppWatchApp Watch App"
+test_target = "AlphaAppWatchApp Watch AppTests"
 ```
 
 ```toml
 [[product]]                             # or per product, when there are several
 name   = "Paid"
-scheme = "DailyBread"
+scheme = "AlphaApp"
 
   [product.watch_tests]
-  scheme      = "DailyBreadWatchApp Watch App"
-  test_target = "DailyBreadWatchApp Watch AppTests"
+  scheme      = "AlphaAppWatchApp Watch App"
+  test_target = "AlphaAppWatchApp Watch AppTests"
   platform    = "watchOS"               # optional; the only value today
 ```
 

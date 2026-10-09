@@ -15,7 +15,7 @@
 | Project | component (config dir) | xcodeproj |
 |---|---|---|
 | template | `ios` | `ios/MyApp.xcodeproj` |
-| rail | `.` | `Rail.xcodeproj` |
+| rail | `.` | `Charlie.xcodeproj` |
 | Queueify | `ios` | `ios/Queueify/Queueify.xcodeproj` |
 
 `{{XCODEPROJ}}` = the xcodeproj column verbatim; `{{COMPONENT_PREFIX}}` = `Prefix(component)`.

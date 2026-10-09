@@ -433,6 +433,73 @@ jobs:
             (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
           fi
 
+      # Fail closed on Package.resolved drift. xcodebuild resolves Swift packages
+      # against the project's REQUIREMENTS, not the committed lockfile: when a
+      # pin does not satisfy one (a lockfile-only dependency bump, or an
+      # exactVersion pin the lockfile has moved past), it re-resolves, rewrites
+      # Package.resolved in this checkout, and stays green. The build then ships
+      # the requirement while the committed lockfile states a version that never
+      # ships. `lacquer audit` reports such pins; this step is what refuses them.
+      #
+      # -onlyUsePackageVersionsFromResolvedFile makes xcodebuild fail instead of
+      # re-resolving, and every later xcodebuild call in this job carries it too
+      # (the -showBuildSettings read and the archive), so none can quietly
+      # resolve again. The step runs before any of them: one
+      # run after a free resolution would be checking a lockfile that call had
+      # already rewritten. The digest comparison is the second check, and does
+      # not rely on xcodebuild honouring the flag.
+      #
+      # No Package.resolved: a project with no Swift packages passes (nothing to
+      # resolve, and nothing to pin). A project whose pbxproj declares REMOTE
+      # packages fails, because it has lost the lockfile and would otherwise
+      # build whatever resolves today. Local-only packages are resolved strictly
+      # and fail if that writes a lockfile.
+      - name: Resolve Swift packages from Package.resolved
+        run: |
+          set -o pipefail
+          PROJECT="{{XCODEPROJ}}"
+          RESOLVED="$PROJECT/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          PBXPROJ="$PROJECT/project.pbxproj"
+          if [ ! -f "$PBXPROJ" ]; then
+            echo "::error::$PBXPROJ does not exist, so this step cannot tell whether the project declares Swift packages."
+            exit 1
+          fi
+          if [ ! -f "$RESOLVED" ]; then
+            if grep -q 'isa = XCRemoteSwiftPackageReference;' "$PBXPROJ"; then
+              echo "::error::$PBXPROJ declares remote Swift packages, but there is no $RESOLVED. Without it every build resolves whatever versions are newest today. Resolve the packages in Xcode and commit the Package.resolved it writes."
+              exit 1
+            fi
+            if ! grep -q 'isa = XCLocalSwiftPackageReference;' "$PBXPROJ"; then
+              echo "No Swift packages are declared in $PBXPROJ and there is no Package.resolved: nothing to resolve."
+              exit 0
+            fi
+          fi
+          digest() {
+            if [ -f "$RESOLVED" ]; then shasum -a 256 "$RESOLVED" | cut -d' ' -f1; else echo absent; fi
+          }
+          before_copy=$(mktemp)
+          if [ -f "$RESOLVED" ]; then cp "$RESOLVED" "$before_copy"; fi
+          before=$(digest)
+          log=$(mktemp)
+          if ! xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT" \
+            -scheme "$PRODUCT_SCHEME" \
+            -derivedDataPath DerivedData \
+            -onlyUsePackageVersionsFromResolvedFile \
+            >"$log" 2>&1; then
+            echo "::error::Swift packages do not resolve from the committed $RESOLVED. Either it is out of date with the project's package requirements (a requirement moved, a pin no requirement allows, or a package with no pin), or a pinned package could not be fetched. Resolve in Xcode and commit the Package.resolved it writes, or restore the pin. xcodebuild's output follows."
+            tail -60 "$log"
+            exit 1
+          fi
+          after=$(digest)
+          if [ "$before" != "$after" ]; then
+            echo "::error::Resolving Swift packages changed $RESOLVED ($before -> $after), so the committed lockfile is not what this build would use. Commit the resolved file, or restore the pin."
+            if [ -f "$RESOLVED" ]; then diff -u "$before_copy" "$RESOLVED" || true; fi
+            exit 1
+          fi
+          tail -40 "$log"
+          echo "Swift packages resolved from $RESOLVED, which is unchanged."
+
       - name: Set Xcode project code signing
         run: |
           # Remove stale automatic "iOS Team Provisioning Profile" entries from the
@@ -481,7 +548,8 @@ jobs:
           # the selected app still resolves another number.
           SETTINGS=$(xcodebuild -showBuildSettings -json \
             -project "{{XCODEPROJ}}" -scheme "$PRODUCT_SCHEME" \
-            -configuration Release -derivedDataPath DerivedData)
+            -configuration Release -derivedDataPath DerivedData \
+            -onlyUsePackageVersionsFromResolvedFile)
           if ! echo "$SETTINGS" | jq -e --arg next "$NEXT" \
             --arg app "$PRODUCT_BUNDLE_ID" '
               [.[].buildSettings | select(.PRODUCT_BUNDLE_IDENTIFIER == $app)] |
@@ -544,6 +612,7 @@ jobs:
             -configuration Release \
             -archivePath "$ARCHIVE_DIR/$PRODUCT_NAME.xcarchive" \
             -allowProvisioningUpdates \
+            -onlyUsePackageVersionsFromResolvedFile \
             2>&1 | xcbeautify --renderer github-actions || EXIT_CODE=$?
           # Exit code 65 is a known spurious xcodebuild failure. Treat as success
           # ONLY if the .xcarchive was actually produced; otherwise fail. (pipefail
@@ -650,7 +719,7 @@ jobs:
           # exist by then. `publish` exits non-zero and THE STEP FAILS A RELEASE
           # THAT WORKED.
           #
-          # Measured across three consecutive DailyBread releases, all from a
+          # Measured across three consecutive AlphaApp releases, all from a
           # single `publish` call, two altool invocations 48-80s apart:
           #   314  attempt 1 uploaded, attempt 2 409  -> step PASSED + an
           #                                              ITMS-90189 "Redundant
@@ -684,7 +753,7 @@ jobs:
           # Apple's indexing latency, with --max-find-build-wait sitting at its
           # 10-minute default.
           #
-          # Measured on DailyBread build 317: the IPA uploaded fine, ASC took
+          # Measured on AlphaApp build 317: the IPA uploaded fine, ASC took
           # over ten minutes to surface it, and the step exited 1. The tool says
           # so plainly -- "the build was successfully uploaded ... but processing
           # took longer than expected" -- while the job conclusion reads
