@@ -5,13 +5,12 @@
 #
 # WHY THIS EXISTS, in one incident.
 #
-# Rail's release workflow carried a hand-written "Setup Secrets" step. Lacquer's
-# onboarding replaced that workflow with the shared profile's, which had no such
-# step, and nothing said so. Every archive after that shipped with its
-# app-runtime keys unset: `Purchases.configure` never ran, and RevenueCatUI's
-# paywall calls `fatalError("Purchases has not been configured.")` in any
-# non-DEBUG build. That shipped as 1.1.0 (200) and was rejected under App Store
-# Review Guideline 2.1(a). The build was green the whole way.
+# A consumer's release workflow carried a hand-written step that wrote its
+# secrets file. Adopting the shared profile replaced that workflow with one that
+# had no such step, and nothing said so. Every archive after that shipped with
+# its app-runtime keys unset: the purchases SDK was never configured, and its
+# paywall traps in any non-DEBUG build. The build reached App Review and was
+# rejected as non-functional. CI was green the whole way.
 #
 # So the contract here is fail-closed at every step, and the failure is loud:
 #
@@ -19,6 +18,11 @@
 #   * a value that does not match its declared shape stops it too — pasting the
 #     paid app's RevenueCat key into the free app produces a perfectly non-empty
 #     value that builds, signs, uploads and passes review
+#   * a value still holding the `.example` template's placeholder stops it: a
+#     declared secret equal to the template's value, or any key (declared or
+#     only seeded) whose value is an obvious placeholder such as `your-...`,
+#     `CHANGE-ME` or `<...>`. A placeholder is non-empty and can be made to
+#     match its shape, so nothing above catches it
 #   * `//` in a value is escaped, because xcconfig treats it as the start of a
 #     comment: a bare `https://host` truncates to `https:`, which is non-empty,
 #     so nothing downstream notices and the service is silently misconfigured
@@ -184,6 +188,85 @@ if bad=$(grep -nE '^[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*[A-Za-z][A-Za-z0-9+.-]*:/
 	echo "$me: affected — $bad"
 	echo "$me: use the /\$()/ escape (https:/\$()/host) in $example, or declare the key in [[product]].secrets so this script escapes it."
 	exit 1
+fi
+
+# And the one that catches a value nobody replaced. A placeholder is non-empty,
+# and a template written to look like the real thing matches its declared shape
+# too, so the presence and shape checks above both pass it. Two tests:
+#
+#   * any key whose value is an OBVIOUS placeholder — `your-`/`your_`,
+#     `change-me`/`changeme`, or `<...>`, in any case. That covers a key added to
+#     the template after the manifest was written, which is never declared and so
+#     ships as seeded.
+#   * a DECLARED key whose value equals the template's value for it: the secret
+#     was set by copying the template. For an undeclared key that equality is
+#     always true, so it says nothing, and the template's real non-secret
+#     defaults pass.
+#
+# Both sides are compared with the `/$()/` escape undone, so escaping a declared
+# URL secret cannot make it differ from the template it was copied from. The
+# work happens in awk on the files, with the declared keys passed through the
+# environment, so a value never becomes a shell word. Only KEY names are printed.
+#
+# With no keys this leg only seeds a file its sibling product declares, so the
+# placeholders in it are the sibling's, and checking them here would block the
+# leg that declares nothing whenever its sibling's keys are still templated.
+if [ "${#keys[@]}" -gt 0 ]; then
+	# awk prints the offending keys and exits 0; anything else is the check
+	# itself failing, which must stop the release rather than read as "none".
+	placeholders=$(XCCONFIG_DECLARED="${keys[*]}" XCCONFIG_TEMPLATE="$example" awk '
+		# value is what xcconfig reads: cut at the `//` comment marker, trimmed,
+		# with the `/$()/` escape undone. whole skips the cut, because a template
+		# that wrote a URL placeholder unescaped holds the placeholder a human
+		# copies, not the `https:` xcconfig would read.
+		function whole(line) {
+			sub(/^[^=]*=/, "", line)
+			sub(/^[ \t]+/, "", line)
+			sub(/[ \t\r]+$/, "", line)
+			gsub(/\/\$\(\)\//, "//", line)
+			return line
+		}
+		function value(line) {
+			sub(/^[^=]*=/, "", line)
+			sub(/\/\/.*/, "", line)
+			return whole("=" line)
+		}
+		function key(line) {
+			sub(/[ \t]*=.*/, "", line)
+			return line
+		}
+		function assignment(line) {
+			return line ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=/
+		}
+		BEGIN {
+			n = split(ENVIRON["XCCONFIG_DECLARED"], d, " ")
+			for (i = 1; i <= n; i++) declared[d[i]] = 1
+			# A missing template makes getline return -1: no template values.
+			tf = ENVIRON["XCCONFIG_TEMPLATE"]
+			while ((getline line < tf) > 0)
+				if (assignment(line)) {
+					template[key(line)] = value(line)
+					template_whole[key(line)] = whole(line)
+				}
+		}
+		!assignment($0) { next }
+		{
+			k = key($0); v = value($0)
+			if (tolower(v) ~ /your[-_]|change[-_]?me|<[^>]*>/ ||
+			    (k in declared && k in template && (v == template[k] || v == template_whole[k]))) {
+				if (!(k in seen)) { seen[k] = 1; out = out (out == "" ? "" : " ") k }
+			}
+		}
+		END { print out }
+	' "$dest") || fail "could not read $dest to check it for placeholder values"
+	if [ -n "$placeholders" ]; then
+		echo "::error::$me: $dest still holds a placeholder for: $placeholders"
+		echo "$me: a placeholder is non-empty, so the release would build, sign and upload with that service unconfigured."
+		echo "$me: a declared key means its secret is still the template's text: set the real value with gh secret set."
+		echo "$me: an undeclared key was seeded from $example: declare it in the manifest's secrets so it is written from a secret,"
+		echo "$me: or, if it is not a secret, replace the placeholder in $example with the real value."
+		exit 1
+	fi
 fi
 
 echo "$me: wrote $dest"
