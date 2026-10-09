@@ -37,7 +37,9 @@ reality. Three rules follow, in yield order.
 
 Run it against every managed repository, and paste the output into the PR
 under a `## Fleet dry-run` heading. CI rejects a pull request that changes a
-detector package without one.
+detector package without one. Render each repository the way CI sees it: a fresh clone with
+xcodegen (and any other generator lacquer invokes) hidden from `PATH`, because `sync` regenerates
+the project otherwise and both sides of the comparison then carry a file CI never has.
 
 The warnings-as-errors gate had a green suite and two defects. Both surfaced the
 moment it ran against all fifteen iOS projects instead of against fixtures —
