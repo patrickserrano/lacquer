@@ -202,17 +202,17 @@ func TestDependabotWatchesSwiftForIOS(t *testing.T) {
 }
 
 // `directory` is per-manifest and Dependabot has no glob for it, so a component
-// in a subdirectory must be named. kit keeps its project at Kit/Kit.xcodeproj,
+// in a subdirectory must be named. kit keeps its project at Echo/Echo.xcodeproj,
 // where "/" finds nothing at all.
 func TestDependabotFollowsComponentDirectories(t *testing.T) {
-	repo := swiftProject(t, []string{"Kit/Kit.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
+	repo := swiftProject(t, []string{"Echo/Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
 	cfg := &config.Config{
 		Root:       repo,
-		Project:    config.Project{ProjectName: "Kit", Scheme: "Kit", BundleID: "com.x.k", AscAppID: "1", Xcodeproj: "Kit/Kit.xcodeproj"},
-		Components: []config.Component{{Path: "Kit", Profiles: []string{"ios"}}},
+		Project:    config.Project{ProjectName: "Echo", Scheme: "Echo", BundleID: "com.x.k", AscAppID: "1", Xcodeproj: "Echo/Echo.xcodeproj"},
+		Components: []config.Component{{Path: "Echo", Profiles: []string{"ios"}}},
 	}
-	if dir := ecosystemsAt(renderDependabot(t, cfg))["swift"]; dir != "/Kit" {
-		t.Errorf("swift directory = %q, want \"/Kit\"", dir)
+	if dir := ecosystemsAt(renderDependabot(t, cfg))["swift"]; dir != "/Echo" {
+		t.Errorf("swift directory = %q, want \"/Echo\"", dir)
 	}
 }
 
@@ -220,14 +220,14 @@ func TestDependabotFollowsComponentDirectories(t *testing.T) {
 // at the component, because Dependabot's search for one is recursive.
 //
 // kit is the proof and it is the reason this rule is a rule rather than a guess:
-// its component is ".", its resolved file is at Kit/Kit.xcodeproj/…, and its
+// its component is ".", its resolved file is at Echo/Echo.xcodeproj/…, and its
 // swift PRs (purchases-ios-spm, sentry-cocoa) open. Naming the deeper directory
 // instead would be a change with nothing wrong to fix.
 func TestDependabotKeepsTheComponentDirWhenTheBundleIsDeeper(t *testing.T) {
-	repo := swiftProject(t, []string{"Kit/Kit.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
+	repo := swiftProject(t, []string{"Echo/Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
 	cfg := &config.Config{
 		Root:       repo,
-		Project:    config.Project{ProjectName: "Kit", Scheme: "Kit", BundleID: "com.x.k", AscAppID: "1", Xcodeproj: "Kit/Kit.xcodeproj"},
+		Project:    config.Project{ProjectName: "Echo", Scheme: "Echo", BundleID: "com.x.k", AscAppID: "1", Xcodeproj: "Echo/Echo.xcodeproj"},
 		Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
 	}
 	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 1 || got[0] != "/" {
@@ -264,7 +264,7 @@ func TestDependabotEmitsNoSwiftEntryWithoutAManifest(t *testing.T) {
 
 // A manifest that exists on disk but NOT in the repository does not count.
 //
-// This is rail, exactly: Rail.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+// This is rail, exactly: Charlie.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
 // Package.resolved is right there in the working tree, and `*.resolved` in
 // .gitignore keeps it out of the repo — so Dependabot fetches nothing and aborts.
 // RailCore/Package.swift and RailData/Package.swift ARE committed and still do not
@@ -274,10 +274,10 @@ func TestDependabotEmitsNoSwiftEntryWithoutAManifest(t *testing.T) {
 func TestDependabotIgnoresManifestsTheRepoDoesNotContain(t *testing.T) {
 	repo := swiftProject(t,
 		[]string{"RailCore/Package.swift", "RailData/Package.swift"},
-		[]string{"Rail.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"})
+		[]string{"Charlie.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"})
 	cfg := &config.Config{
 		Root:       repo,
-		Project:    config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.x.r", AscAppID: "1", Xcodeproj: "Rail.xcodeproj"},
+		Project:    config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "com.x.r", AscAppID: "1", Xcodeproj: "Charlie.xcodeproj"},
 		Components: []config.Component{{Path: ".", Profiles: []string{"ios", "supabase"}}},
 	}
 	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 0 {
@@ -288,24 +288,24 @@ func TestDependabotIgnoresManifestsTheRepoDoesNotContain(t *testing.T) {
 // A nested SwiftPM package is named exactly, because Dependabot does not find one
 // from above.
 //
-// windsock is the case: WindsockKit/Package.swift and WindsockKit/Package.resolved
+// foxtrot is the case: FoxtrotKit/Package.swift and FoxtrotKit/Package.resolved
 // are committed one level below the root, its entry pointed at "/", and it has
 // never opened a swift PR — only the actions ones. The asymmetry with the test
 // above (bundles found recursively, bare packages not) is empirical, not
 // documented, which is why both directions have a test.
 func TestDependabotPointsSwiftAtANestedPackage(t *testing.T) {
 	repo := swiftProject(t, []string{
-		"Windsock.xcodeproj/project.pbxproj", // an app project with no resolved file of its own
-		"WindsockKit/Package.swift",
-		"WindsockKit/Package.resolved",
+		"Foxtrot.xcodeproj/project.pbxproj", // an app project with no resolved file of its own
+		"FoxtrotKit/Package.swift",
+		"FoxtrotKit/Package.resolved",
 	}, nil)
 	cfg := &config.Config{
 		Root:       repo,
-		Project:    config.Project{ProjectName: "Windsock", Scheme: "Windsock", BundleID: "com.x.w", AscAppID: "1", Xcodeproj: "Windsock.xcodeproj"},
+		Project:    config.Project{ProjectName: "Foxtrot", Scheme: "Foxtrot", BundleID: "com.x.w", AscAppID: "1", Xcodeproj: "Foxtrot.xcodeproj"},
 		Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}},
 	}
-	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 1 || got[0] != "/WindsockKit" {
-		t.Errorf("swift directories = %v, want [/WindsockKit]", got)
+	if got := dirsFor(renderDependabot(t, cfg), "swift"); len(got) != 1 || got[0] != "/FoxtrotKit" {
+		t.Errorf("swift directories = %v, want [/FoxtrotKit]", got)
 	}
 }
 
@@ -335,12 +335,12 @@ func TestDependabotDoesNotAcceptASiblingDirectory(t *testing.T) {
 // shape that a single hand-written file gets wrong.
 func TestDependabotCoversEveryComponent(t *testing.T) {
 	repo := swiftProject(t, []string{
-		"ios/Rail.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+		"ios/Charlie.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
 		"web/package.json",
 	}, nil)
 	cfg := &config.Config{
 		Root:    repo,
-		Project: config.Project{ProjectName: "Rail", Scheme: "Rail", BundleID: "com.x.r", AscAppID: "1", Xcodeproj: "ios/Rail.xcodeproj"},
+		Project: config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "com.x.r", AscAppID: "1", Xcodeproj: "ios/Charlie.xcodeproj"},
 		Components: []config.Component{
 			{Path: "ios", Profiles: []string{"ios"}},
 			{Path: "web", Profiles: []string{"web"}},

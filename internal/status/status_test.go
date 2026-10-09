@@ -105,7 +105,7 @@ func TestRowsReadTheHashStampedRegions(t *testing.T) {
 	writeFile(t, filepath.Join(project, ".lacquer.toml"), "[project]\nname=\"acme\"\n")
 	writeFile(t, filepath.Join(project, ".gitignore"),
 		"DerivedData/\n\n# lacquer:gitignore:start v5\n*.p8\n# lacquer:gitignore:end\n")
-	// Preexisting LFS filters above the markers, as dailybread's file has: the
+	// Preexisting LFS filters above the markers, as alphaapp's file has: the
 	// reader must find the region without caring what surrounds it.
 	writeFile(t, filepath.Join(project, ".gitattributes"),
 		"*.png filter=lfs diff=lfs merge=lfs -text\n\n# lacquer:gitattributes:start v5\n.claude/skills/** linguist-vendored=true\n# lacquer:gitattributes:end\n")

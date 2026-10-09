@@ -273,13 +273,13 @@ func TestAFailedRefreshKeepsTheLastRowsAndSaysTheyAreOld(t *testing.T) {
 func TestARowSaysWhatWhyHowLongAndWhere(t *testing.T) {
 	m := stuckModel(t, 0,
 		[]PR{prAt(t, "acme/widgets", 12, 30*time.Hour, 3*time.Hour+20*time.Minute)},
-		[]LaterIssue{laterAt(t, "acme/kit", 7, 15*24*time.Hour)})
+		[]LaterIssue{laterAt(t, "acme/echo", 7, 15*24*time.Hour)})
 	s := screen(m)
 	for _, want := range []string{
 		"acme/widgets#12  PR 12",
 		"3h20m", "1 check failing (test)", "https://github.com/acme/widgets/pull/12",
-		"acme/kit#7  Issue 7",
-		"15d0h", "parked with no activity since", "https://github.com/acme/kit/issues/7",
+		"acme/echo#7  Issue 7",
+		"15d0h", "parked with no activity since", "https://github.com/acme/echo/issues/7",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("screen lacks %q:\n%s", want, s)
@@ -916,7 +916,7 @@ func TestAReplyToASessionRefCarriesNoCommentAndClosesAsBefore(t *testing.T) {
 }
 
 // The replies file keeps its format: one line, three keys, and no write-back
-// field. foxy-inbox and the phone mirror read it.
+// field. the operator's inbox tool and the phone mirror read it.
 func TestWriteBackDoesNotChangeTheRepliesLine(t *testing.T) {
 	fc := &fakeCmd{}
 	env, path := replyEnv(t, fc)

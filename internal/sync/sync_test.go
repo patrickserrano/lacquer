@@ -352,7 +352,7 @@ func TestSyncWritesNoRegionWhenTheAssetPhaseRefuses(t *testing.T) {
 	}
 }
 
-// The needledrop failure, at the gate that should have caught it: a manifest
+// The juliet failure, at the gate that should have caught it: a manifest
 // that declares one stack, a repo that has grown a second, and a sync that used
 // to print "sync complete" while writing nothing for the second.
 func TestSyncRefusesAnUndeclaredStack(t *testing.T) {
@@ -392,7 +392,7 @@ func TestSyncProceedsPastAStackNoProfileCovers(t *testing.T) {
 	writeFile(t, filepath.Join(lacquer, "profiles", "web", "CLAUDE.web.md"), "WEB")
 
 	writeFile(t, filepath.Join(project, "package.json"), "{}")
-	writeFile(t, filepath.Join(project, "ios", "Kit", "Package.swift"), "x")
+	writeFile(t, filepath.Join(project, "ios", "Echo", "Package.swift"), "x")
 	writeFile(t, filepath.Join(project, ".lacquer.toml"),
 		"[project]\nname=\"x\"\n\n[[component]]\npath=\".\"\nprofiles=[\"web\"]\n")
 
@@ -487,7 +487,7 @@ func TestMissingAgentsSourceFailsBeforeWriting(t *testing.T) {
 	}
 }
 
-// dailybread #554's shape: the .xcodeproj directory is committed (for its
+// alphaapp #554's shape: the .xcodeproj directory is committed (for its
 // Package.resolved) but the XcodeGen-generated project.pbxproj is gitignored.
 // The warnings gate cannot read it here, which is not a refusal, but the sync
 // must SAY it did not check: Result carries it for the CLI to print.

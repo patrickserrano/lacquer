@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-// dailybread's real shape, which is what this package was written for: a
+// alphaapp's real shape, which is what this package was written for: a
 // project-owned ios-ci.yml posting `Lint` and `Test` as separate contexts, and a
 // merge-gate.yml whose conditional jobs post the two names branch protection
 // actually requires.
-func dailybreadWorkflows() Workflows {
+func alphaappWorkflows() Workflows {
 	return Workflows{Jobs: []Job{
 		// A job plainly named "CI". It is here so that a loose match — anything
 		// short of exact equality with Gate — reports this checkout as already
@@ -45,12 +45,12 @@ func TestRequiringTheAggregateGateIsTheOnlyPass(t *testing.T) {
 	}
 }
 
-// dailybread, live. Both required contexts were satisfied purely by skips on PR
+// alphaapp, live. Both required contexts were satisfied purely by skips on PR
 // #482 and `CI OK` was not required at all, so "verified and passing" and
 // "nothing ran" were the same green tick.
 func TestRequiringOnlySkippableContextsIsAFinding(t *testing.T) {
 	req := Requirements{Protected: true, Contexts: []string{"Build (Release)", "Lint + Test"}}
-	r := Compare("PixelFoxStudio/dailybread", "main", req, nil, dailybreadWorkflows())
+	r := Compare("ExampleStudioStudio/alphaapp", "main", req, nil, alphaappWorkflows())
 	if r.Verdict != AllRequiredSkippable {
 		t.Fatalf("protection requiring neither %q nor anything unskippable passed: %s", Gate, r.Verdict)
 	}
@@ -102,10 +102,10 @@ func TestARequiredCheckThatCannotSkipIsNotAFinding(t *testing.T) {
 	}
 }
 
-// Windsock and dailybread-image-proxy. "Nothing required" is the same defect at
+// Foxtrot and alphaapp-image-proxy. "Nothing required" is the same defect at
 // zero, and must never read as a pass.
 func TestABranchWithNoProtectionIsAFinding(t *testing.T) {
-	r := Compare("org/windsock", "main", Requirements{}, nil, managedWorkflows())
+	r := Compare("org/foxtrot", "main", Requirements{}, nil, managedWorkflows())
 	if r.Verdict != Unprotected {
 		t.Fatalf("an unprotected branch was not reported: %s", r.Verdict)
 	}
@@ -160,7 +160,7 @@ func TestTheRemedyDependsOnWhetherTheGateExistsLocally(t *testing.T) {
 	if !strings.Contains(withGate, "ci.yml posts "+Gate) {
 		t.Errorf("a checkout that HAS the gate was not told to point protection at it:\n%s", withGate)
 	}
-	without := Format([]Report{Compare("org/app", "main", Requirements{}, nil, dailybreadWorkflows())})
+	without := Format([]Report{Compare("org/app", "main", Requirements{}, nil, alphaappWorkflows())})
 	if !strings.Contains(without, "No job named "+Gate) {
 		t.Errorf("a checkout with NO gate job was not told to re-adopt the workflow first:\n%s", without)
 	}

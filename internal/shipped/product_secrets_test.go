@@ -236,7 +236,7 @@ func TestSecretsStepSeedsFromTheCommittedExample(t *testing.T) {
 
 // A sibling that declares no secrets still reads the same base configuration
 // file, and a clean checkout does not have it — `xcodebuild archive` fails
-// before compiling. This is a-bible-verse-each-day's
+// before compiling. This is a-quebec-verse-each-day's
 // `cp Config/Monetization.xcconfig.example …` branch, which is part of why that
 // project had to keep its own release workflow.
 func TestSiblingProductWithoutSecretsStillGetsItsConfig(t *testing.T) {

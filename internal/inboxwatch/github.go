@@ -21,7 +21,7 @@ const ghTimeout = 45 * time.Second
 // sixteen, each a separate gh process.
 const prWorkers = 8
 
-// doneLimit is how many resolved entries the Done tab keeps, as foxy-inbox does.
+// doneLimit is how many resolved entries the Done tab keeps, as the operator's inbox tool does.
 const doneLimit = 300
 
 // noReposWhy is why a tab with no repository to look at says so.
@@ -191,7 +191,7 @@ func (e Env) popupIssue(ref string) Event {
 }
 
 // done is every resolved entry, newest resolution first, at most doneLimit: what
-// foxy-inbox's completed_items shows. Its own tab because the popups carry the
+// the operator's inbox tool's completed_items shows. Its own tab because the popups carry the
 // operator's own words, and the Inbox shows only what is still live.
 func (e Env) done(replies map[string]Reply) []DoneItem {
 	all, _, err := inbox.ReadAll(e.InboxPath)

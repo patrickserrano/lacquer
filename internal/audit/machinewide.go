@@ -18,7 +18,7 @@ import (
 //	Test crashed with signal trap before establishing connection
 //
 // which reads as a flaky test in the victim rather than as a neighbour's
-// cleanup. That is how it went unnoticed. momfriend's EXCLUDED ios-ci.yml still
+// cleanup. That is how it went unnoticed. bravoapp's EXCLUDED ios-ci.yml still
 // carried the kills the lacquer's own template had dropped long before (an
 // exclusion freezes a file), and on 2026-09-17 its runs matched all four
 // CoreSimulatorService restarts to the minute. The lacquer's own cleanup-ci.yml

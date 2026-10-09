@@ -18,7 +18,7 @@ import (
 // web or supabase component the script was "not found" — and
 // `2>/dev/null || echo none` turned that into "no relaxation". A correctly
 // dated [baseline.relax] documentation entry was silently ignored, TypeDoc ran,
-// and momfriend could not push.
+// and bravoapp could not push.
 //
 // Nothing asserted on it because every existing check looked at the TEXT of the
 // rendered command, and the text was fine. What was wrong was the directory it
@@ -135,7 +135,7 @@ var docsCases = []docsCase{
 	},
 }
 
-// TestDocsRelaxationHonouredInNestedComponent is the momfriend defect: a web
+// TestDocsRelaxationHonouredInNestedComponent is the bravoapp defect: a web
 // component under admin/ and a supabase one under server/, each with a dated
 // relaxation at the repository root.
 func TestDocsRelaxationHonouredInNestedComponent(t *testing.T) {

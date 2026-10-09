@@ -11,8 +11,8 @@
 //
 // GitHub Linguist counts every byte in the working tree toward the language bar
 // unless a path is marked otherwise, so that is exactly what the fleet's repo
-// pages report. Measured before this existed: ShelfLife read as MORE Python than
-// Swift, and rail, flare, Skein, momfriend and dailybread each carried 570-650KB
+// pages report. Measured before this existed: November read as MORE Python than
+// Swift, and rail, flare, Kilo, bravoapp and alphaapp each carried 570-650KB
 // of the identical "Python". None of it was written by any of those projects.
 // It is vendored agent tooling that arrived by `lacquer sync`, and the language
 // bar is the first thing anyone sees when they open the repository.
@@ -23,7 +23,7 @@
 // stay tracked, so `lacquer audit` can still see drift in a synced skill.
 //
 // This is a REGION, not a whole-file asset, because a .gitattributes is
-// genuinely co-owned and three fleet repositories prove it: dailybread's is
+// genuinely co-owned and three fleet repositories prove it: alphaapp's is
 // twelve Git LFS filter lines (`*.png filter=lfs diff=lfs merge=lfs -text` and
 // friends) — replacing that file would break LFS outright and silently commit
 // pointer-less binaries; kit's carries line-ending and binary rules plus its own

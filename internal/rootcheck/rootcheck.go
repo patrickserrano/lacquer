@@ -188,7 +188,7 @@ func (s State) Describe() string {
 		// A detached, correctly pinned checkout renders as the literal string
 		// "HEAD" if left alone — which carries no information and is exactly the
 		// SAFE configuration a reader most needs to identify at a glance. The tag
-		// is the useful thing to print here instead (issue #350): the pixelfox
+		// is the useful thing to print here instead (issue #350): the examplestudio
 		// session read "from HEAD @ sha" as naming nothing and read a working
 		// checkout's branch name as though it were more informative.
 		ref = s.Tag

@@ -8,12 +8,12 @@ import (
 // watchBase is the shape the project this was built for is in: one app, no
 // [[product]] block, and a watch test bundle that no [[product]] field could
 // reach before this.
-const watchBase = "[project]\nname = \"dailybread\"\nproject_name = \"DailyBread\"\nscheme = \"DailyBread\"\nbundle_id = \"com.x.db\"\nasc_app_id = \"1\"\n"
+const watchBase = "[project]\nname = \"alphaapp\"\nproject_name = \"AlphaApp\"\nscheme = \"AlphaApp\"\nbundle_id = \"com.x.db\"\nasc_app_id = \"1\"\n"
 
 const goodProjectWatch = watchBase + `
 [project.watch_tests]
-scheme = "DailyBreadWatchApp Watch App"
-test_target = "DailyBreadWatchApp Watch AppTests"
+scheme = "AlphaAppWatchApp Watch App"
+test_target = "AlphaAppWatchApp Watch AppTests"
 `
 
 func TestProjectWatchTestsLoadAndFoldIntoTheSynthesisedProduct(t *testing.T) {
@@ -28,17 +28,17 @@ func TestProjectWatchTestsLoadAndFoldIntoTheSynthesisedProduct(t *testing.T) {
 	if p.WatchTests == nil {
 		t.Fatal("[project].watch_tests did not fold into the synthesised product")
 	}
-	if p.WatchTests.Scheme != "DailyBreadWatchApp Watch App" {
+	if p.WatchTests.Scheme != "AlphaAppWatchApp Watch App" {
 		t.Errorf("scheme = %q; a quoted name with spaces is the normal case for a watch scheme", p.WatchTests.Scheme)
 	}
-	if got := p.WatchTestSelectors(); len(got) != 1 || got[0] != "DailyBreadWatchApp Watch AppTests" {
+	if got := p.WatchTestSelectors(); len(got) != 1 || got[0] != "AlphaAppWatchApp Watch AppTests" {
 		t.Errorf("WatchTestSelectors() = %v, want the one watch selector", got)
 	}
 	// Kept OUT of TestSelectors: that list feeds the iOS leg's -only-testing:
 	// arguments and its "Verify Test Selectors Matched" step, where a watch
 	// bundle fails the job outright.
 	for _, s := range p.TestSelectors() {
-		if s == "DailyBreadWatchApp Watch AppTests" {
+		if s == "AlphaAppWatchApp Watch AppTests" {
 			t.Error("the watch target leaked into TestSelectors(); the iOS leg would pass it to -only-testing: and fail with \"isn't a member of the specified test plan or scheme\"")
 		}
 	}
@@ -48,20 +48,20 @@ func TestProductWatchTestsLoad(t *testing.T) {
 	cfg, err := loadString(t, watchBase+`
 [[product]]
 name = "Paid"
-scheme = "DailyBread"
+scheme = "AlphaApp"
 bundle_id = "com.x.paid"
 asc_app_id = "111"
 
 [product.watch_tests]
-scheme = "DailyBreadWatchApp Watch App"
-test_target = "DailyBreadWatchApp Watch AppTests"
+scheme = "AlphaAppWatchApp Watch App"
+test_target = "AlphaAppWatchApp Watch AppTests"
 platform = "watchOS"
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := cfg.Products()[0]
-	if p.WatchTests == nil || p.WatchTests.TestTarget != "DailyBreadWatchApp Watch AppTests" {
+	if p.WatchTests == nil || p.WatchTests.TestTarget != "AlphaAppWatchApp Watch AppTests" {
 		t.Fatalf("[product.watch_tests] did not decode: %+v", p.WatchTests)
 	}
 	sim, ok := p.WatchTests.Simulator()
@@ -113,7 +113,7 @@ func TestWatchTestsRequiresBothHalvesOfTheTriple(t *testing.T) {
 		},
 		{
 			// And blank is not "<scheme>Tests" either: the real pair is
-			// ("DailyBreadWatchApp Watch App", "DailyBreadWatchApp Watch
+			// ("AlphaAppWatchApp Watch App", "AlphaAppWatchApp Watch
 			// AppTests"), so a derivation would produce a selector matching
 			// nothing — which xcodebuild reports as a pass.
 			"no test_target",
@@ -148,11 +148,11 @@ func TestWatchTestsRequiresBothHalvesOfTheTriple(t *testing.T) {
 // believes one of the two runs it.
 func TestWatchTargetCannotAlsoBeAnIOSSelector(t *testing.T) {
 	_, err := loadString(t, watchBase+`
-extra_test_targets = ["DailyBreadWatchApp Watch AppTests"]
+extra_test_targets = ["AlphaAppWatchApp Watch AppTests"]
 
 [project.watch_tests]
-scheme = "DailyBreadWatchApp Watch App"
-test_target = "DailyBreadWatchApp Watch AppTests"
+scheme = "AlphaAppWatchApp Watch App"
+test_target = "AlphaAppWatchApp Watch AppTests"
 `)
 	if err == nil {
 		t.Fatal("the watch target was accepted as an iOS -only-testing: selector as well; that selector fails the Test job with \"isn't a member of the specified test plan or scheme\"")
@@ -172,14 +172,14 @@ test_target = "W AppTests"
 
 [[product]]
 name = "Paid"
-scheme = "DailyBread"
+scheme = "AlphaApp"
 bundle_id = "com.x.paid"
 asc_app_id = "111"
 tag_prefix = "paid"
 
 [[product]]
 name = "Free"
-scheme = "DailyBread Free"
+scheme = "AlphaApp Free"
 bundle_id = "com.x.free"
 asc_app_id = "222"
 tag_prefix = "free"

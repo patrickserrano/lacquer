@@ -22,8 +22,8 @@ type fakeSessions struct {
 func (f fakeSessions) List(context.Context) ([]Session, error) { return f.sessions, f.err }
 
 const agentsFixture = `[
- {"pid":10945,"cwd":"/work/fleet-ops","kind":"interactive","startedAt":1790115781657,"sessionId":"12648fa9-1","name":"Foxy","status":"idle"},
- {"pid":6053,"cwd":"/work/fleet-ops","kind":"interactive","startedAt":1790301580556,"sessionId":"6c2331e7-2","name":"pm-lacquer","status":"busy"},
+ {"pid":10945,"cwd":"/work/fleet-repo","kind":"interactive","startedAt":1790115781657,"sessionId":"12648fa9-1","name":"the operator","status":"idle"},
+ {"pid":6053,"cwd":"/work/fleet-repo","kind":"interactive","startedAt":1790301580556,"sessionId":"6c2331e7-2","name":"pm-lacquer","status":"busy"},
  {"pid":15085,"id":"2a92a0cb","cwd":"/work/lacquer/.claude/worktrees/x","kind":"background","startedAt":1790301695140,"sessionId":"2a92a0cb-3","name":"ic-1","status":"busy","state":"working"}
 ]`
 
@@ -36,7 +36,7 @@ func TestParseSessionsReadsClaudeAgentsJSON(t *testing.T) {
 		t.Fatalf("got %d sessions, want 3", len(got))
 	}
 	pm := got[1]
-	if pm.Name != "pm-lacquer" || pm.Kind != "interactive" || pm.Status != "busy" || pm.CWD != "/work/fleet-ops" || pm.PID != 6053 || pm.StartedAt != 1790301580556 {
+	if pm.Name != "pm-lacquer" || pm.Kind != "interactive" || pm.Status != "busy" || pm.CWD != "/work/fleet-repo" || pm.PID != 6053 || pm.StartedAt != 1790301580556 {
 		t.Errorf("fields not parsed: %+v", pm)
 	}
 }
@@ -115,13 +115,13 @@ func TestSessionsListShowsNameKindStatusProjectCwdAge(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.UnixMilli(1790301580556).Add(3*time.Hour + 5*time.Minute)
-	roster := fleet.Roster{Project: []fleet.Entry{{Name: "fleet", Path: "/work/fleet-ops"}}}
+	roster := fleet.Roster{Project: []fleet.Entry{{Name: "fleet", Path: "/work/fleet-repo"}}}
 	res := Gather(Options{Roster: roster, Now: now, Sessions: fakeSessions{sessions: sessions}})
 
 	var buf bytes.Buffer
 	Text(&buf, res)
 	out := buf.String()
-	for _, want := range []string{"SESSIONS", "pm-lacquer", "interactive", "busy", "background", "/work/fleet-ops", "3h05m", "ic-1"} {
+	for _, want := range []string{"SESSIONS", "pm-lacquer", "interactive", "busy", "background", "/work/fleet-repo", "3h05m", "ic-1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

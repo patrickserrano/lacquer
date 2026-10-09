@@ -87,7 +87,7 @@ const (
 	// setup-node to locate the pnpm store, which it does by running pnpm — so
 	// pnpm has to exist first. Reversed, the run fails with "Unable to locate
 	// executable file: pnpm", which reads like a missing dependency rather than
-	// an ordering mistake. That trap is exactly what pixelfoxstudio.com's
+	// an ordering mistake. That trap is exactly what examplestudiostudio.com's
 	// hand-carried web-ci.yml had already documented before this profile could
 	// render it at all.
 	//
@@ -130,7 +130,7 @@ const (
 	// A dropdown rather than free text because this is where an operator picks
 	// by hand, and a typo would otherwise reach the fail-closed branch and waste
 	// a run. Like WebBuildEnv it stands alone at column 0 and owns its own
-	// indentation, because product names contain spaces ("A Bible Verse Each Day
+	// indentation, because product names contain spaces ("A Quebec Verse Each Day
 	// Paid") and each option has to be quoted on its own line.
 	IOSProductChoices = "{{IOS_PRODUCT_CHOICES}}"
 	// IOSProductSecrets expands to one release-time configuration step per
@@ -199,7 +199,7 @@ const (
 	// leg's extra_test_targets, as a bash array, before xcodebuild is invoked.
 	//
 	// An array rather than a bare string because an Xcode target name may contain
-	// spaces ("A Bible Verse Each Day FreeTests" is a real one), so word-splitting
+	// spaces ("A Quebec Verse Each Day FreeTests" is a real one), so word-splitting
 	// a joined value would pass two selectors that each match nothing — and
 	// matching nothing exits 0. The legs' lists are carried through the matrix
 	// newline-separated for the same reason: the target charset admits spaces and
@@ -1047,7 +1047,7 @@ func ProductChoices(products []config.Product) string {
 // and nothing would look wrong until the revenue did not arrive.
 //
 // The step is a CALL, not an inlined program, and the reason is the incident
-// this whole path exists for. Rail's release carried a hand-written secret step,
+// this whole path exists for. Charlie's release carried a hand-written secret step,
 // onboarding replaced the workflow with one that had none, and the archive
 // shipped with every app-runtime key unset — App Review rejected 1.1.0 under
 // Guideline 2.1(a) and CI was green throughout. A script can be RUN against
@@ -1203,8 +1203,8 @@ func ReleaseTags(products []config.Product) string {
 //     aborting: Repo must contain a Package.swift configuration file or an
 //     .xcodeproj/.xcworkspace directory with a Package.resolved file" — taking the
 //     repo's github-actions updates down with it. Queueify and rail, twice each.
-//   - The manifest is not always at the component root. windsock has one, at
-//     WindsockKit/Package.resolved, while its entry pointed at "/".
+//   - The manifest is not always at the component root. foxtrot has one, at
+//     FoxtrotKit/Package.resolved, while its entry pointed at "/".
 //
 // So the directory is resolved against the repository (see
 // detect.IndexSwiftManifests) instead of assumed, and a component with nothing
@@ -1288,7 +1288,7 @@ func dependabotUpdates(cfg *config.Config) string {
 
 	// One entry per component, at that component's directory: Dependabot has no
 	// glob for `directory`, so a manifest outside a listed path is simply never
-	// looked at. kit keeps its project at Kit/Kit.xcodeproj, so "/" would find
+	// looked at. kit keeps its project at Echo/Echo.xcodeproj, so "/" would find
 	// nothing.
 	//
 	// Keyed on the component's STACK, falling back to its profiles. Those are

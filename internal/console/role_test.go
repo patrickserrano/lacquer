@@ -161,12 +161,12 @@ func TestDispatchRoleWarnsAboutExistingSessionButProceeds(t *testing.T) {
 }
 
 func TestDispatchRoleTmuxTargetsTheRolesDirNotAProjectPath(t *testing.T) {
-	outLaunch, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "t", Dir: "/fleet-ops"}), nil, "lead", "", true)
+	outLaunch, err := DispatchRole(roleRosterOf(Role{Name: "lead", Mode: Tmux, Task: "t", Dir: "/fleet-repo"}), nil, "lead", "", true)
 	out := outLaunch.Output
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "tmux new-session -d -s lead -c /fleet-ops") {
+	if !strings.Contains(out, "tmux new-session -d -s lead -c /fleet-repo") {
 		t.Errorf("a role's tmux session must run from its declared dir, not any single project's worktree:\n%s", out)
 	}
 }

@@ -37,7 +37,7 @@ func InWorkTree(dir string) (bool, error) {
 // This exists because "the project contains this file" and "the repository
 // contains this file" are different questions, and only the second one is what a
 // service reading the repo on github.com can see. rail has a
-// Package.resolved on disk at Rail.xcodeproj/project.xcworkspace/xcshareddata/
+// Package.resolved on disk at Charlie.xcodeproj/project.xcworkspace/xcshareddata/
 // swiftpm/Package.resolved and `*.resolved` in its .gitignore, so the file is
 // real locally and absent from the repository — and a Dependabot entry rendered
 // from the working tree therefore pointed at a manifest Dependabot could never

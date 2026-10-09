@@ -42,7 +42,7 @@ func manifest(t *testing.T, root string) string {
 func TestAdoptAddsAProfileToAnExistingComponent(t *testing.T) {
 	lq := lacquerShipping(t, "ios", "supabase")
 	root := t.TempDir()
-	write(t, filepath.Join(root, "Rail.xcodeproj", "project.pbxproj"), "x")
+	write(t, filepath.Join(root, "Charlie.xcodeproj", "project.pbxproj"), "x")
 	write(t, filepath.Join(root, "supabase", "config.toml"), "x")
 	write(t, filepath.Join(root, ".lacquer.toml"), `[project]
 name = "rail"
@@ -110,7 +110,7 @@ func TestAdoptReportsButSkipsUnsupportedStacks(t *testing.T) {
 	lq := lacquerShipping(t, "web")
 	root := t.TempDir()
 	write(t, filepath.Join(root, "package.json"), "{}")
-	write(t, filepath.Join(root, "ios", "Kit", "Package.swift"), "x")
+	write(t, filepath.Join(root, "ios", "Echo", "Package.swift"), "x")
 	write(t, filepath.Join(root, ".lacquer.toml"), `[project]
 name = "x"
 
@@ -126,7 +126,7 @@ profiles = ["web"]
 	if changed {
 		t.Error("nothing adoptable, so the manifest must not be rewritten")
 	}
-	if !strings.Contains(summary, "skipped: ios/Kit -> swift") {
+	if !strings.Contains(summary, "skipped: ios/Echo -> swift") {
 		t.Errorf("summary must name the unsupported stack, got %q", summary)
 	}
 }

@@ -20,7 +20,7 @@ import (
 // not satisfy one they quietly re-resolve and rewrite Package.resolved in the
 // build's own checkout. So CI builds what the requirement says, stays green, and
 // the committed lockfile goes on stating a version that never ships. That is how
-// momfriend's sentry-cocoa sat at "9.28.0" in the lockfile while its pbxproj
+// bravoapp's sentry-cocoa sat at "9.28.0" in the lockfile while its pbxproj
 // pins exactVersion 9.26.0 for privacy verification: Dependabot bumps only
 // Package.resolved (9.26 → 9.27 → 9.28), each bump merged green, and each was a
 // no-op.

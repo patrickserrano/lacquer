@@ -29,11 +29,11 @@ func xcodeprojDir(path string) string {
 // project while still committing project.xcworkspace/xcshareddata/swiftpm/
 // Package.resolved inside it (Dependabot needs that file), so a clean checkout
 // has the directory and not the file. Guarding on the directory passed exactly
-// that shape and then failed inside ReadXcodeproj: dailybread #554's `lacquer
+// that shape and then failed inside ReadXcodeproj: alphaapp #554's `lacquer
 // audit` exited 1 with "read xcodeproj: open .../project.pbxproj: no such file
 // or directory" on a project with nothing wrong.
 //
-// A gitignored XcodeGen project was first met live on sleevetap, whose own
+// A gitignored XcodeGen project was first met live on hotel, whose own
 // `lacquer audit` failed identically to the CI Baseline job it had already been
 // fixed in (see ios profile's ci.yml "Generate Xcode project" step). A sibling
 // project.yml is the signal that this is that case, not a renamed or mistyped

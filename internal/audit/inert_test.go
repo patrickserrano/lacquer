@@ -39,7 +39,7 @@ func cfgWithSecrets(exclude bool) *config.Config {
 	return c
 }
 
-// a-bible-verse-each-day, live. It declares three keys WITH secret_formats shape
+// a-quebec-verse-each-day, live. It declares three keys WITH secret_formats shape
 // checks and excludes ios-release.yml, so nothing renders the step that writes
 // them and every release archives with all three undefined. The declaration is
 // the strongest evidence available that somebody meant them to be written, which
@@ -95,7 +95,7 @@ func TestAReleaseThatNeverWritesTheFileIsReported(t *testing.T) {
 	}
 }
 
-// a-bible-verse-each-day, and the false positive this check shipped with for
+// a-quebec-verse-each-day, and the false positive this check shipped with for
 // about an hour. It declares secrets_file = "Config/Monetization.xcconfig",
 // EXCLUDES ios-release.yml, and carries a project-owned release with a
 // hand-rolled step — "Create protected runtime configuration" — that reads every
@@ -220,7 +220,7 @@ func TestWritesPath(t *testing.T) {
 		{
 			// Byte-for-byte the managed ci.yml seed, with a component prefix.
 			name: "ci_placeholder_seed",
-			body: "            cp \"Flare/Secrets.xcconfig.example\" \"$scheme_dir/Secrets.xcconfig\"\n",
+			body: "            cp \"Delta/Secrets.xcconfig.example\" \"$scheme_dir/Secrets.xcconfig\"\n",
 			want: false,
 		},
 		{
@@ -314,7 +314,7 @@ func TestWritesPath(t *testing.T) {
 			// The declared path is relative to the component; the workflow runs
 			// from the repository root, so the writer names it with a prefix.
 			name: "component_prefixed_script_argument_write",
-			body: "          scripts/write-release-config.sh \"Flare/Secrets.xcconfig\" \\\n" +
+			body: "          scripts/write-release-config.sh \"Delta/Secrets.xcconfig\" \\\n" +
 				"            \"REVENUECAT_PUBLIC_SDK_KEY=appl_*\"\n",
 			want: true,
 		},
@@ -356,14 +356,14 @@ func TestWritesPath(t *testing.T) {
 			want: true,
 		},
 		{
-			// momfriend: seed, rewrite into a .tmp, mv the .tmp into place.
+			// bravoapp: seed, rewrite into a .tmp, mv the .tmp into place.
 			name: "seed_then_rewrite_then_mv",
-			body: "          cp \"ios/Secrets.xcconfig.example\" \"ios/MomFriend/Secrets.xcconfig\"\n" +
+			body: "          cp \"ios/Secrets.xcconfig.example\" \"ios/BravoApp/Secrets.xcconfig\"\n" +
 				"          awk -v k=\"$KEY\" '\n" +
 				"            /^KEY = / { print \"KEY = \" k; next }\n" +
 				"            { print }\n" +
-				"          ' \"ios/MomFriend/Secrets.xcconfig\" > \"ios/MomFriend/Secrets.xcconfig.tmp\"\n" +
-				"          mv \"ios/MomFriend/Secrets.xcconfig.tmp\" \"ios/MomFriend/Secrets.xcconfig\"\n",
+				"          ' \"ios/BravoApp/Secrets.xcconfig\" > \"ios/BravoApp/Secrets.xcconfig.tmp\"\n" +
+				"          mv \"ios/BravoApp/Secrets.xcconfig.tmp\" \"ios/BravoApp/Secrets.xcconfig\"\n",
 			want: true,
 		},
 		{

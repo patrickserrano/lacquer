@@ -22,7 +22,7 @@ import (
 // the CURRENT DIRECTORY as the top of the working tree, and `root: "admin/"`
 // has already cd'd into the component. So `--show-toplevel` answered
 // <worktree>/admin, the command looked for the relaxation script there, and
-// failed "missing from the repository root (.../admin)" — blocking momfriend's
+// failed "missing from the repository root (.../admin)" — blocking bravoapp's
 // sync push while the same command passed every test and `lefthook run`.
 //
 // These tests therefore go through git itself: a real `git push` (or `git
@@ -182,7 +182,7 @@ var docsUnderGitCases = []docsUnderGit{
 	},
 }
 
-// TestDocsRelaxationHonouredUnderRealGit is the momfriend defect as git
+// TestDocsRelaxationHonouredUnderRealGit is the bravoapp defect as git
 // produces it: the docs command, run by git's own push or commit from a nested
 // component, with a dated relaxation at the repository root. From a linked
 // worktree it failed before the fix; from a main checkout it is the control

@@ -17,7 +17,7 @@ import (
 //
 // FlowDeck's log stream carries stdout only, so SwiftUI and CoreData diagnostics,
 // which land in os_log, are invisible to it. The machine-wide flowdeck skill says
-// never to reach for simctl, and an IC diagnosing dailybread#539 had to break that
+// never to reach for simctl, and an IC diagnosing alphaapp#539 had to break that
 // rule once, disclosed, to see them. The script makes the safe form the easy one.
 //
 // These tests stand a FAKE `xcrun` in front of the real one and record every call
@@ -360,7 +360,7 @@ var simLogPhrases = []struct{ phrase, why string }{
 	{"read-only", "the exception is a read, nothing more"},
 	{"own simulator", "scoped to the device the run owns, never `booted`"},
 	{"sanctioned exception", "how a session following the global flowdeck skill should treat it"},
-	{"PR body", "the read is disclosed, as the dailybread IC did"},
+	{"PR body", "the read is disclosed, as the alphaapp IC did"},
 	{"stays with flowdeck", "everything mutating is unchanged"},
 }
 

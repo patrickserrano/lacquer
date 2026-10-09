@@ -765,18 +765,18 @@ func TestPlanRefusals(t *testing.T) {
 
 func TestPlanAllowsOnlyThePlanRootsAndTheFleetsOwnDotDirectories(t *testing.T) {
 	e, home := planEnv(t)
-	write(t, filepath.Join(home, "Developer", "fleet-ops", "briefs", "b.md"), "brief")
+	write(t, filepath.Join(home, "Developer", "fleet-repo", "briefs", "b.md"), "brief")
 	write(t, filepath.Join(home, "Developer", "harness", ".worktrees", "u.brief.md"), "wt brief")
 	write(t, filepath.Join(home, "Developer", "r", ".claude", "worktrees", "w", "plan.md"), "wt plan")
 	write(t, filepath.Join(home, ".claude", "plans", "p.md"), "plan")
 	write(t, filepath.Join(home, "Developer", "r", ".claude", "settings.local.json"), "no")
 	for ref, want := range map[string]string{
-		"file:~/Developer/fleet-ops/briefs/b.md":            "brief",
-		"file:" + home + "/Developer/fleet-ops/briefs/b.md": "brief",
-		"file:~/Developer/harness/.worktrees/u.brief.md":    "wt brief",
-		"file:~/Developer/r/.claude/worktrees/w/plan.md":    "wt plan",
-		"file:~/.claude/plans/p.md":                         "plan",
-		"file:~/Developer/fleet-ops/briefs/../briefs/b.md":  "brief",
+		"file:~/Developer/fleet-repo/briefs/b.md":            "brief",
+		"file:" + home + "/Developer/fleet-repo/briefs/b.md": "brief",
+		"file:~/Developer/harness/.worktrees/u.brief.md":     "wt brief",
+		"file:~/Developer/r/.claude/worktrees/w/plan.md":     "wt plan",
+		"file:~/.claude/plans/p.md":                          "plan",
+		"file:~/Developer/fleet-repo/briefs/../briefs/b.md":  "brief",
 	} {
 		if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: ref}).(PlanEvent); ev.Err != "" || ev.Text != want {
 			t.Errorf("%s: %+v", ref, ev)
@@ -799,11 +799,11 @@ func TestPlanAllowsOnlyThePlanRootsAndTheFleetsOwnDotDirectories(t *testing.T) {
 // sensitive there is no such spelling to test.
 func TestPlanRootsAreMatchedByIdentityNotSpelling(t *testing.T) {
 	e, home := planEnv(t)
-	write(t, filepath.Join(home, "Developer", "fleet-ops", "briefs", "b.md"), "brief")
-	if _, err := os.Stat(filepath.Join(home, "developer", "fleet-ops")); err != nil {
+	write(t, filepath.Join(home, "Developer", "fleet-repo", "briefs", "b.md"), "brief")
+	if _, err := os.Stat(filepath.Join(home, "developer", "fleet-repo")); err != nil {
 		t.Skip("this file system is case sensitive")
 	}
-	for _, ref := range []string{"file:~/developer/fleet-ops/briefs/b.md", "file:~/DEVELOPER/fleet-ops/briefs/b.md"} {
+	for _, ref := range []string{"file:~/developer/fleet-repo/briefs/b.md", "file:~/DEVELOPER/fleet-repo/briefs/b.md"} {
 		if ev := e.Exec(Cmd{Kind: CmdPlan, Ref: ref}).(PlanEvent); ev.Err != "" || ev.Text != "brief" {
 			t.Errorf("%s: %+v", ref, ev)
 		}

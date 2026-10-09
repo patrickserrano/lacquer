@@ -12,7 +12,7 @@ import (
 )
 
 // The fleet's PM decides each IC's branch and worktree, creates them, and
-// names them in the brief (fleet-ops personas/pm.md). Before --worktree and
+// names them in the brief (fleet-repo personas/pm.md). Before --worktree and
 // --branch, `console --mode bg dispatch` ignored that and always made a
 // dispatch-<id> worktree of its own: the session ran somewhere other than
 // where the brief said, and the PM's worktree sat unused beside an extra one

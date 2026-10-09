@@ -128,7 +128,7 @@ func TestEveryReleaseJobWaitsOnProvenance(t *testing.T) {
 // ("v1.2.3"), which is why this survived; a workflow_dispatch against
 // "feat/three-tab-restructure" carries the slash straight through and fails BOTH
 // upload steps at the END of a forty-five-minute job, with the archive already
-// built and signed. Confirmed failure, momfriend run 30157346812 — a project
+// built and signed. Confirmed failure, bravoapp run 30157346812 — a project
 // that fixed it locally and had to keep its own release workflow to do so.
 func TestReleaseArtifactNamesSurviveABranchWithASlash(t *testing.T) {
 	rendered := renderRelease(t, soloProject())

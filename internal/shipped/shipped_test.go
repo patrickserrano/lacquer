@@ -145,7 +145,7 @@ var bans = []banned{
 		re: regexp.MustCompile(`(?:\bnpx\b|\bpnpm\b[\s,"']*(?:exec|dlx)\b)[^\n]*?\b(?:biome|typedoc|vitest|tsc|turbo)\b`),
 		why: "npx and `pnpm exec` both fall through to PATH, and npx additionally downloads a missing " +
 			"tool, so a project without the dependency gets a green check run by an unpinned version. " +
-			"sleevetap had biome.json synced, @biomejs/biome in no package.json, and a PASSING Biome " +
+			"hotel had biome.json synced, @biomejs/biome in no package.json, and a PASSING Biome " +
 			"step — only `lacquer doctor` noticed the check could not be running at all. Call " +
 			"./node_modules/.bin/<tool> (or {component}/node_modules/.bin/<tool> in a doctor probe) so " +
 			"a missing dependency fails loudly.",
@@ -555,7 +555,7 @@ func TestRenderedWorkflowsAreValidYAML(t *testing.T) {
 			wantEnv: false,
 		},
 		{
-			name: "build_env set (pixelfoxstudio's case)",
+			name: "build_env set (examplestudiostudio's case)",
 			proj: config.Project{ProjectName: "Demo", Scheme: "Demo", BundleID: "com.x.demo",
 				AscAppID: "1", Xcodeproj: "Demo.xcodeproj", SwiftVersion: "6", GithubOrg: "acme",
 				BuildEnv: []string{"NEXT_PUBLIC_SANITY_PROJECT_ID", "SANITY_API_READ_TOKEN"}},
@@ -806,8 +806,8 @@ func TestOperatorPackagesNameNoProject(t *testing.T) {
 	// "steps") would false-positive on ordinary prose like "guardrail" or
 	// "toolkit", and a guard that cries wolf gets deleted.
 	names := []string{
-		"windsock", "throughline", "queueify", "pixelfoxstudio",
-		"needledrop", "sleevetap", "shelflife", "darndest", "mindmint",
+		"foxtrot", "throughline", "queueify", "examplestudiostudio",
+		"juliet", "hotel", "november", "darndest", "mindmint",
 	}
 	var scanned int
 	for _, pkg := range []string{"fleet", "console", "inbox", "inboxwatch"} {

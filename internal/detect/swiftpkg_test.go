@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-// needledrop/Sleevetap's shape: Swift that lives in a SwiftPM package with no
+// juliet/Hotel's shape: Swift that lives in a SwiftPM package with no
 // Xcode project anywhere. Detection had no marker for it, so a repo whose
 // manifest was written during a TypeScript-only spike kept declaring
 // `profiles = ["web"]` after the Swift arrived — 191 tests run by nothing.
 func TestComponentsDetectsBarePackageSwift(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "ios", "SleevetapNFC", "Package.swift"))
+	mk(t, filepath.Join(root, "ios", "HotelNFC", "Package.swift"))
 	mk(t, filepath.Join(root, "spike", "package.json"))
 
 	comps, _, err := Components(root)
@@ -23,8 +23,8 @@ func TestComponentsDetectsBarePackageSwift(t *testing.T) {
 	for _, c := range comps {
 		got[c.Path] = c.Profiles
 	}
-	if len(got["ios/SleevetapNFC"]) != 1 || got["ios/SleevetapNFC"][0] != SwiftProfile {
-		t.Errorf("expected ios/SleevetapNFC -> %s, got %+v", SwiftProfile, comps)
+	if len(got["ios/HotelNFC"]) != 1 || got["ios/HotelNFC"][0] != SwiftProfile {
+		t.Errorf("expected ios/HotelNFC -> %s, got %+v", SwiftProfile, comps)
 	}
 	if len(got["spike"]) != 1 || got["spike"][0] != "web" {
 		t.Errorf("web component lost: %+v", comps)
@@ -37,7 +37,7 @@ func TestComponentsDetectsBarePackageSwift(t *testing.T) {
 // second Swift component in every one of them.
 func TestComponentsIgnoresPackageSwiftBesideAnXcodeproj(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "Flare.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Delta.xcodeproj", "project.pbxproj"))
 	mk(t, filepath.Join(root, "Packages", "FlareKit", "Package.swift"))
 
 	comps, _, err := Components(root)
@@ -75,15 +75,15 @@ func TestComponentsCollapsesSeveralSwiftPackages(t *testing.T) {
 // component of its own.
 func TestComponentsCollapsesNestedSwiftPackages(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "Kit", "Package.swift"))
-	mk(t, filepath.Join(root, "Kit", "Vendor", "Dep", "Package.swift"))
+	mk(t, filepath.Join(root, "Echo", "Package.swift"))
+	mk(t, filepath.Join(root, "Echo", "Vendor", "Dep", "Package.swift"))
 
 	comps, _, err := Components(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(comps) != 1 || comps[0].Path != "Kit" {
-		t.Fatalf("expected one component at 'Kit', got %+v", comps)
+	if len(comps) != 1 || comps[0].Path != "Echo" {
+		t.Fatalf("expected one component at 'Echo', got %+v", comps)
 	}
 }
 

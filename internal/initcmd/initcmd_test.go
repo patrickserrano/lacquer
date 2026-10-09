@@ -124,7 +124,7 @@ func TestInitRefusesExistingManifest(t *testing.T) {
 
 func TestInitScaffoldsBriefStub(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "Skein.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Kilo.xcodeproj", "project.pbxproj"))
 	if _, err := Run(lacquerWith(t, "ios"), root, ""); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -132,14 +132,14 @@ func TestInitScaffoldsBriefStub(t *testing.T) {
 	if err != nil {
 		t.Fatalf("brief stub not written: %v", err)
 	}
-	if !strings.Contains(string(data), "# Skein — Product Brief") {
+	if !strings.Contains(string(data), "# Kilo — Product Brief") {
 		t.Errorf("brief stub missing project name heading:\n%s", data)
 	}
 }
 
 func TestInitPreservesExistingBrief(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "Skein.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Kilo.xcodeproj", "project.pbxproj"))
 	brief := filepath.Join(root, "docs", "brief.md")
 	if err := os.MkdirAll(filepath.Dir(brief), 0o755); err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestInitRefusesManifestSymlinkToExistingFile(t *testing.T) {
 func TestInitRefusesSymlinkedDocsDir(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
-	mk(t, filepath.Join(root, "Skein.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Kilo.xcodeproj", "project.pbxproj"))
 
 	// docs is a symlink pointing outside the project root — the brief stub
 	// must not land in the escape target.
@@ -406,7 +406,7 @@ func TestInitStackDeclaresComponentsThatDoNotExistYet(t *testing.T) {
 // config.Load rejects a profile declared twice.
 func TestInitStackDefersToDetectedComponents(t *testing.T) {
 	root := t.TempDir()
-	mk(t, filepath.Join(root, "Rail.xcodeproj", "project.pbxproj"))
+	mk(t, filepath.Join(root, "Charlie.xcodeproj", "project.pbxproj"))
 
 	if _, err := Run(stackLacquer(t, "ios", "supabase"), root, "ios-supabase"); err != nil {
 		t.Fatalf("Run: %v", err)

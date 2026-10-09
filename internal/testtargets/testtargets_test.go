@@ -12,27 +12,27 @@ const pbx = `// !$*UTF8*$!
 	objects = {
 		AAA /* App */ = {
 			isa = PBXNativeTarget;
-			name = DailyBread;
+			name = AlphaApp;
 			productType = "com.apple.product-type.application";
 		};
 		BBB /* Tests */ = {
 			isa = PBXNativeTarget;
-			name = DailyBreadTests;
+			name = AlphaAppTests;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		CCC /* Widgets */ = {
 			isa = PBXNativeTarget;
-			name = DailyBreadWidgetsTests;
+			name = AlphaAppWidgetsTests;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		DDD /* Watch */ = {
 			isa = PBXNativeTarget;
-			name = "DailyBreadWatchApp Watch AppTests";
+			name = "AlphaAppWatchApp Watch AppTests";
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		EEE /* WatchUI */ = {
 			isa = PBXNativeTarget;
-			name = "DailyBreadWatchApp Watch AppUITests";
+			name = "AlphaAppWatchApp Watch AppUITests";
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 	};
@@ -54,14 +54,14 @@ func parseFixture(t *testing.T) []Target {
 }
 
 // Only test bundles, and the app target is not one. A quoted name with spaces is
-// not exotic — "DailyBreadWatchApp Watch AppTests" is real.
+// not exotic — "AlphaAppWatchApp Watch AppTests" is real.
 func TestParseFindsTestBundlesOnly(t *testing.T) {
 	got := parseFixture(t)
 	if len(got) != 4 {
 		t.Fatalf("got %d targets, want 4: %+v", len(got), got)
 	}
 	for _, x := range got {
-		if x.Name == "DailyBread" {
+		if x.Name == "AlphaApp" {
 			t.Error("the application target was reported as a test bundle")
 		}
 	}
@@ -78,7 +78,7 @@ func TestParseFindsTestBundlesOnly(t *testing.T) {
 	// under test. The property is that a QUOTED name with spaces survives at all.
 	var quoted bool
 	for _, x := range got {
-		if x.Name == "DailyBreadWatchApp Watch AppTests" {
+		if x.Name == "AlphaAppWatchApp Watch AppTests" {
 			quoted = true
 		}
 	}
@@ -87,11 +87,11 @@ func TestParseFindsTestBundlesOnly(t *testing.T) {
 	}
 }
 
-// dailybread's real shape: three suites the manifest never named. Each ran
+// alphaapp's real shape: three suites the manifest never named. Each ran
 // nowhere while CI stayed green, because xcodebuild says nothing about a target
 // it was not asked to run.
 func TestUncoveredTargetsAreReported(t *testing.T) {
-	r := Compare(parseFixture(t), []string{"DailyBreadTests"})
+	r := Compare(parseFixture(t), []string{"AlphaAppTests"})
 	if len(r.Uncovered) != 3 {
 		t.Fatalf("got %d uncovered, want 3: %+v", len(r.Uncovered), r.Uncovered)
 	}
@@ -109,12 +109,12 @@ func TestUncoveredTargetsAreReported(t *testing.T) {
 }
 
 // steps' real shape: `test_target` derived from the product's DISPLAY name
-// ("Steps Lite") produced `Steps LiteTests`, which exists nowhere. 91 unit tests
+// ("Mike Lite") produced `Mike LiteTests`, which exists nowhere. 91 unit tests
 // were selected by a name matching nothing, and xcodebuild exited 0.
 func TestSelectorsNamingNothingAreReported(t *testing.T) {
-	r := Compare(parseFixture(t), []string{"DailyBreadTests", "Steps LiteTests"})
-	if len(r.Missing) != 1 || r.Missing[0] != "Steps LiteTests" {
-		t.Fatalf("missing = %+v, want [Steps LiteTests]", r.Missing)
+	r := Compare(parseFixture(t), []string{"AlphaAppTests", "Mike LiteTests"})
+	if len(r.Missing) != 1 || r.Missing[0] != "Mike LiteTests" {
+		t.Fatalf("missing = %+v, want [Mike LiteTests]", r.Missing)
 	}
 	out := Format(r)
 	if !strings.Contains(out, "EXITS 0") {
@@ -162,13 +162,13 @@ func TestMissingProjectIsNotAnError(t *testing.T) {
 // Matching is exact, because that is how -only-testing: matches. A near-miss is
 // a miss, and reporting it as covered would recreate the silence.
 func TestMatchingIsExact(t *testing.T) {
-	r := Compare(parseFixture(t), []string{"dailybreadtests"})
+	r := Compare(parseFixture(t), []string{"alphaapptests"})
 	if len(r.Missing) != 1 {
 		t.Error("a case-differing selector was treated as matching")
 	}
 	var found bool
 	for _, u := range r.Uncovered {
-		if u.Name == "DailyBreadTests" {
+		if u.Name == "AlphaAppTests" {
 			found = true
 		}
 	}

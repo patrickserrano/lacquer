@@ -13,7 +13,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/inbox"
 )
 
-// Lines written by foxy-inbox's log_reply, which is json.dumps of the record:
+// Lines written by the operator's inbox tool's log_reply, which is json.dumps of the record:
 //
 //	python3 -c 'import json;print(json.dumps({"id":"a1b2c3d4e5","at":"2026-09-24T14:02:11","text":T}))'
 //
@@ -38,7 +38,7 @@ func TestReplyLineIsByteIdenticalToFoxyInboxs(t *testing.T) {
 
 func TestAppendReplyAppendsToTheFileFoxyInboxWrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), RepliesFile)
-	// A line foxy-inbox wrote earlier is kept, and read back.
+	// A line the operator's inbox tool wrote earlier is kept, and read back.
 	if err := os.WriteFile(path, []byte(pyPlain), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestAppendReplyAppendsToTheFileFoxyInboxWrites(t *testing.T) {
 	}
 }
 
-// foxy-inbox skips a line that is not a reply record, and the latest reply for
+// the operator's inbox tool skips a line that is not a reply record, and the latest reply for
 // an id wins.
 func TestReadRepliesSkipsBadLinesAndTheLatestWins(t *testing.T) {
 	path := filepath.Join(t.TempDir(), RepliesFile)

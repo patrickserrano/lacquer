@@ -814,7 +814,7 @@ func TestBackgroundDispatchWithARelativeDir(t *testing.T) {
 			calls := fakeClaude(t)
 			parent := realPath(t, t.TempDir())
 			repo := filepath.Join(parent, "proj")
-			fleetOps := filepath.Join(parent, "fleet-ops")
+			fleetOps := filepath.Join(parent, "fleet-repo")
 			for _, d := range []string{repo, fleetOps} {
 				if err := os.MkdirAll(d, 0o755); err != nil {
 					t.Fatal(err)

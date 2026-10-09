@@ -134,9 +134,9 @@ func runPrecommit(t *testing.T, tool string, files []string, env stubEnv) (out s
 // (a) every staged path excluded: the wrapper must turn SwiftLint's exit 1 +
 // "No lintable files found" into a successful hook run.
 func TestPrecommitSwiftAllExcludedSucceeds(t *testing.T) {
-	out, code, _ := runPrecommit(t, "swiftlint-docs", []string{"MultimeterTests/FooTests.swift"}, stubEnv{
+	out, code, _ := runPrecommit(t, "swiftlint-docs", []string{"GolfTests/FooTests.swift"}, stubEnv{
 		exit:   "1",
-		stderr: "Error: No lintable files found at paths: 'MultimeterTests/FooTests.swift'",
+		stderr: "Error: No lintable files found at paths: 'GolfTests/FooTests.swift'",
 	})
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 when every staged path is excluded by the config:\n%s", code, out)
@@ -197,7 +197,7 @@ func TestPrecommitSwiftEmptyArgvRefused(t *testing.T) {
 // succeed here without claims about how many files were excluded.
 func TestPrecommitSwiftMixedExcludeSucceeds(t *testing.T) {
 	out, code, _ := runPrecommit(t, "swiftlint-docs",
-		[]string{"MultimeterTests/FooTests.swift", "App/Config.swift"},
+		[]string{"GolfTests/FooTests.swift", "App/Config.swift"},
 		stubEnv{exit: "0", stdout: "Done linting! Found 0 violations, 0 serious in 1 file."})
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 — SwiftLint silently excluded the test file and passed on the rest:\n%s", code, out)
@@ -215,7 +215,7 @@ func TestPrecommitSwiftMixedExcludeSucceeds(t *testing.T) {
 // become a blanket pass.
 func TestPrecommitSwiftMixedExcludeWithViolationFails(t *testing.T) {
 	out, code, _ := runPrecommit(t, "swiftlint-docs",
-		[]string{"MultimeterTests/FooTests.swift", "App/Config.swift"},
+		[]string{"GolfTests/FooTests.swift", "App/Config.swift"},
 		stubEnv{exit: "2", stderr: "App/Config.swift:3:8: error: Missing Docs Violation: public declarations should be documented (missing_docs)"})
 	if code == 0 {
 		t.Fatalf("exit = 0, want nonzero — the surviving file has a real violation:\n%s", out)

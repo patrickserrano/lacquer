@@ -16,7 +16,7 @@ import (
 //
 // #109 was the first. kit keeps an example at both the component root and a
 // nested source directory, the step copied only the root one, and the Release
-// build failed on `Kit/Kit/Secrets.xcconfig`. The fix — seed every example
+// build failed on `Echo/Echo/Secrets.xcconfig`. The fix — seed every example
 // beside itself — then broke the OTHER shape: a project whose only example is at
 // the component root while its project reads {{COMPONENT_PREFIX}}<Scheme>/. That
 // one ran red every night for a week on a scheduled Docs job that never runs on
@@ -140,11 +140,11 @@ func TestSecretsSeedReachesTheFileTheProjectReads(t *testing.T) {
 			// nothing reads.
 			name:     "examples at two depths are each seeded beside themselves",
 			prefix:   "",
-			scheme:   "Kit",
-			examples: []string{"Secrets.xcconfig.example", "Kit/Kit/Secrets.xcconfig.example"},
-			dirs:     []string{"Kit/Kit"},
-			want:     []string{"Secrets.xcconfig", "Kit/Kit/Secrets.xcconfig"},
-			notWant:  []string{"Kit/Secrets.xcconfig"},
+			scheme:   "Echo",
+			examples: []string{"Secrets.xcconfig.example", "Echo/Echo/Secrets.xcconfig.example"},
+			dirs:     []string{"Echo/Echo"},
+			want:     []string{"Secrets.xcconfig", "Echo/Echo/Secrets.xcconfig"},
+			notWant:  []string{"Echo/Secrets.xcconfig"},
 		},
 		{
 			// A project with no runtime keys must stay a no-op, not an error.

@@ -21,7 +21,7 @@ func showFixture(t *testing.T, entries ...inbox.Entry) string {
 	return path
 }
 
-// What `--show` prints is foxy-inbox's detail_text: a header, the title, the
+// What `--show` prints is the operator's inbox tool's detail_text: a header, the title, the
 // project/createdAt/ref fields right-aligned to nine columns, then the body
 // wrapped to 98.
 func TestShowPrintsFoxyInboxDetailText(t *testing.T) {
