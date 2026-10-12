@@ -986,7 +986,13 @@ jobs:
     # committed and no project.yml to regenerate it) has nothing to build yet —
     # see the `changes` job's `xcodeproj` output for the full reasoning.
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
-    timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
+    timeout-minutes: 25
+    env:
+      # Homebrew is shared by every runner user on this Mac, and cleanup after an
+      # install fails on files another user owns (Permission denied @ apply2files),
+      # so turn off the auto-update and cleanup that `brew install` runs.
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'{{IOS_CI_BUILD_STRATEGY}}
     steps:
       # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
       # host arrives with no PR and no warning, and its first symptom is a red
@@ -1374,7 +1380,13 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
     # Per-step fail-fast timeouts below catch silent hangs; this is the generous
     # backstop with headroom for a cold, cache-cold build.
-    timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
+    timeout-minutes: 20
+    env:
+      # Homebrew is shared by every runner user on this Mac, and cleanup after an
+      # install fails on files another user owns (Permission denied @ apply2files),
+      # so turn off the auto-update and cleanup that `brew install` runs.
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'{{IOS_CI_TEST_STRATEGY}}
     steps:
       # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
       # host arrives with no PR and no warning, and its first symptom is a red

@@ -555,6 +555,15 @@ func CIBuildStrategy(products []config.Product) string {
 		return ""
 	}
 	var b strings.Builder
+	// The job's env: key lives in the template, which carries the Homebrew
+	// switches every project needs; the entries below continue that block. That
+	// is why they come BEFORE the strategy and why this renders no env: key of
+	// its own (a second one is a duplicate mapping key).
+	//
+	// Hoisted once, exactly as the release workflow does it: shell steps read
+	// $PRODUCT_*, and `with:` / `name:` blocks read ${{ matrix.product.* }}
+	// directly because job env is not in scope there.
+	b.WriteString("\n      PRODUCT_SCHEME: ${{ matrix.product.scheme }}")
 	b.WriteString("\n    # One leg per shippable app. This block is GENERATED from the manifest's")
 	b.WriteString("\n    # [[product]] entries and is absent entirely for a project that declares")
 	b.WriteString("\n    # none — which is what lets one workflow serve both without a second code")
@@ -564,11 +573,6 @@ func CIBuildStrategy(products []config.Product) string {
 		fmt.Fprintf(&b, "\n          - name: %q", p.Name)
 		fmt.Fprintf(&b, "\n            scheme: %q", p.Scheme)
 	}
-	b.WriteString("\n    env:")
-	// Hoisted once, exactly as the release workflow does it: shell steps read
-	// $PRODUCT_*, and `with:` / `name:` blocks read ${{ matrix.product.* }}
-	// directly because job env is not in scope there.
-	b.WriteString("\n      PRODUCT_SCHEME: ${{ matrix.product.scheme }}")
 	return b.String()
 }
 
@@ -586,6 +590,15 @@ func CITestStrategy(products []config.Product) string {
 	}
 	hasExtras := anyExtra(products)
 	var b strings.Builder
+	// Continues the template's env: block; see CIBuildStrategy.
+	b.WriteString("\n      PRODUCT_SCHEME: ${{ matrix.product.scheme }}")
+	b.WriteString("\n      PRODUCT_SLUG: ${{ matrix.product.artifact }}")
+	b.WriteString("\n      TEST_TARGET: ${{ matrix.product.test_target }}")
+	b.WriteString("\n      UI_TEST_TARGET: ${{ matrix.product.ui_test_target }}")
+	if hasExtras {
+		b.WriteString("\n      EXTRA_TEST_TARGETS: ${{ matrix.product.extra_test_targets }}")
+	}
+	b.WriteString("\n      APP_TARGET: ${{ matrix.product.app_target }}")
 	b.WriteString("\n    # One leg per shippable app, GENERATED from [[product]]. A paid and a free")
 	b.WriteString("\n    # variant compile DIFFERENT test bundles, so testing one target is not a")
 	b.WriteString("\n    # partial result — it is a green run over a suite that never covered the")
@@ -620,15 +633,6 @@ func CITestStrategy(products []config.Product) string {
 		fmt.Fprintf(&b, "\n            app_target: %q", p.AppTargetName())
 		fmt.Fprintf(&b, "\n            artifact: %q", p.Slug())
 	}
-	b.WriteString("\n    env:")
-	b.WriteString("\n      PRODUCT_SCHEME: ${{ matrix.product.scheme }}")
-	b.WriteString("\n      PRODUCT_SLUG: ${{ matrix.product.artifact }}")
-	b.WriteString("\n      TEST_TARGET: ${{ matrix.product.test_target }}")
-	b.WriteString("\n      UI_TEST_TARGET: ${{ matrix.product.ui_test_target }}")
-	if hasExtras {
-		b.WriteString("\n      EXTRA_TEST_TARGETS: ${{ matrix.product.extra_test_targets }}")
-	}
-	b.WriteString("\n      APP_TARGET: ${{ matrix.product.app_target }}")
 	return b.String()
 }
 

@@ -257,6 +257,11 @@ jobs:
       contents: write
 
     env:
+      # Homebrew is shared by every runner user on this Mac, and cleanup after an
+      # install fails on files another user owns (Permission denied @ apply2files),
+      # so turn off the auto-update and cleanup that `brew install` runs.
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
       # The matrix product's identity, hoisted once. Shell steps read $PRODUCT_*;
       # `with:`/`name:` blocks read ${{ matrix.product.* }} directly, since env
       # is not in scope there.
