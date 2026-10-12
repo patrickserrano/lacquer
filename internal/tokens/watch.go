@@ -212,6 +212,11 @@ const watchJobHeader = `
 // map order, so a token introduced BY a substitution may or may not be replaced.
 const watchJobBody = `
     env:
+      # Homebrew is shared by every runner user on this Mac, and cleanup after an
+      # install fails on files another user owns (Permission denied @ apply2files),
+      # so turn off the auto-update and cleanup that 'brew install' runs.
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
       WATCH_PRODUCT: ${{ matrix.watch.product }}
       WATCH_SLUG: ${{ matrix.watch.slug }}
       WATCH_SCHEME: ${{ matrix.watch.scheme }}
