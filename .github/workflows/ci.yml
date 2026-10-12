@@ -483,6 +483,54 @@ jobs:
             fi
           done
 
+  # This repository is public and its profiles ship into every consumer, so no
+  # tracked file may name a private one (CLAUDE.md rule 3). The list of names is
+  # itself private, so it lives in a repository secret and is checked here.
+  #
+  # A job of its own rather than a step in `test`: that job is the long pole
+  # (race detector, e2e suite) and this check needs only a checkout and a Go
+  # toolchain, so it reports in seconds and a red here is attributed to this
+  # check alone instead of to "the tests".
+  #
+  # The secret reaches the shell only through step `env:`, never interpolated
+  # into `run:` text. The test prints file:line and nothing else, so the log
+  # does not depend on GitHub's secret masking; masking is the second guard.
+  # With no secret (a fork, Dependabot) the step says so and passes; a run that
+  # HAS the secret must see the test pass, so a skip or a zero-test match
+  # cannot read as green.
+  public-names:
+    name: Public names (private denylist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Check tracked files against the private denylist
+        env:
+          DENYLIST: ${{ secrets.LACQUER_PUBLIC_DENYLIST }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DENYLIST" ]; then
+            echo "skipped: no denylist secret"
+            echo "::notice::skipped: no denylist secret"
+            exit 0
+          fi
+          umask 077
+          list="$RUNNER_TEMP/denylist.txt"
+          printf '%s\n' "$DENYLIST" > "$list"
+          chmod 600 "$list"
+          out="$RUNNER_TEMP/denylist-test.log"
+          LACQUER_PUBLIC_DENYLIST="$list" LACQUER_PUBLIC_DENYLIST_REQUIRED=1 \
+            go test ./internal/shipped -run '^TestShippedContentNamesNoPrivateConsumer$' -count=1 -v | tee "$out"
+          if ! grep -q -- '--- PASS: TestShippedContentNamesNoPrivateConsumer' "$out"; then
+            echo "::error::The denylist test did not report PASS (skipped, or matched no test). A run that holds the secret must run the check."
+            exit 1
+          fi
+      - name: Remove the denylist file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/denylist.txt" "$RUNNER_TEMP/denylist-test.log"
+
   # Behaviour eval suite: does an agent following core/CLAUDE.core.md and this
   # repo's own CLAUDE.md reach the right VERDICT on a real repo state, not just
   # "does the Go compile." See internal/eval's package doc for the full

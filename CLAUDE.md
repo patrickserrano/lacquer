@@ -80,7 +80,14 @@ This repository is public, so shipped content must not name a managed repository
 or app either. `TestShippedContentNamesNoPrivateConsumer` checks every tracked
 file against a private denylist kept outside this repo; run it with
 `LACQUER_PUBLIC_DENYLIST=<file> go test ./internal/shipped -run NamesNoPrivate`.
-It skips when the variable is unset.
+It skips when the variable is unset, unless `LACQUER_PUBLIC_DENYLIST_REQUIRED=1`
+turns that skip into a failure.
+
+CI runs it too, as the `public-names` job, against the list held in a repository
+secret. It reports `file:line` only, never the matched text or the pattern, so
+the log does not rely on secret masking. Where the secret is absent (forks,
+Dependabot) the job prints `skipped: no denylist secret` and passes; a run that
+has the secret must see the test pass, so a skip cannot read as green.
 
 `blacksmith-2vcpu-ubuntu-2404-arm` shipped fleet-wide having been proven on zero
 repositories. No runner is ever assigned to it on the account that mattered, and
