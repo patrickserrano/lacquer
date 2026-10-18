@@ -146,18 +146,18 @@ func files(root string, pathspec string) ([]string, error) {
 			// as itself so no caller reads it as the soft ErrCannotList.
 			return nil, fmt.Errorf("list %s files in %s: %w", pathspec, root, err)
 		}
-		return nil, fmt.Errorf("%w: git is unavailable: %v", ErrCannotList, err)
+		return nil, fmt.Errorf("%w: git is unavailable: %w", ErrCannotList, err)
 	}
 	if !inTree {
 		return nil, fmt.Errorf("%w: %s is not a git work tree", ErrCannotList, root)
 	}
-	cmd := procgroup.New(procgroup.LocalGit, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", pathspec)
+	cmd := procgroup.New(gitguard.Limit, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", pathspec)
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("list %s files in %s: %v: %s", pathspec, root, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("list %s files in %s: %w: %s", pathspec, root, err, strings.TrimSpace(stderr.String()))
 	}
 	seen := map[string]bool{}
 	var list []string

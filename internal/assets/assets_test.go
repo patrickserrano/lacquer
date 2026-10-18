@@ -586,3 +586,41 @@ func TestPlanFailsWhenGitTimesOutDuringTheRenderIndex(t *testing.T) {
 		}
 	}
 }
+
+// Only the listing that includes untracked files hangs here, the way one
+// slow filesystem walk does while every other git call answers. The Swift
+// package list is read through it, for a package component (not an app
+// component, whose profile Packages excludes), and a timeout in it must stop
+// the plan too, not just one in the manifest index.
+func TestPlanFailsWhenOnlyTheUntrackedListingTimesOut(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "core", "skills", "git.md"), "x")
+	root := t.TempDir()
+	write(t, filepath.Join(root, "Pkg", "Package.swift"), "let package = Package(name: \"X\", platforms: [.iOS(.v26), .macOS(.v26)])\n")
+	gittest.Init(t, root, "-q")
+	bin := t.TempDir()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(bin, "git"), "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = --others ] && sleep 60; done\nexec "+real+" \"$@\"\n")
+	if err := os.Chmod(filepath.Join(bin, "git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	saved := gitguard.Limit
+	t.Cleanup(func() { gitguard.Limit = saved })
+	gitguard.Limit = 500 * time.Millisecond
+
+	cfg := &config.Config{Root: root, Components: []config.Component{{Path: "Pkg", Stack: "ios"}}}
+	done := make(chan struct{})
+	go func() { _, err = Plan(h, cfg); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Plan still running after 20s: the git call is not bounded")
+	}
+	if !procgroup.IsTimeout(err) {
+		t.Fatalf("Plan returned %v, want a procgroup timeout", err)
+	}
+}

@@ -102,7 +102,7 @@ func ParseCoverage(data []byte, target string) (CoverageReport, error) {
 		} `json:"targets"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return CoverageReport{}, fmt.Errorf("not a JSON coverage report (%v); xccov probably failed, see the step above", err)
+		return CoverageReport{}, fmt.Errorf("not a JSON coverage report (%w); xccov probably failed, see the step above", err)
 	}
 	var names []string
 	for _, t := range doc.Targets {

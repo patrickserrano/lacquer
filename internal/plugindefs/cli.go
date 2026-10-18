@@ -123,7 +123,11 @@ func ValidateWithCLI(claude, root string) (CLIResult, error) {
 		} `json:"contents"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &rep); err != nil {
-		return res, fmt.Errorf("claude plugin validate produced no JSON report (%v): %s", runErr, firstLine(stderr.String(), stdout.String()))
+		// runErr is nil when claude exited 0 without a report, and %w would print
+		// that as a bad verb. The command is not a procgroup.New one, so it never
+		// carries a TimeoutError either.
+		return res, fmt.Errorf("claude plugin validate produced no JSON report (%v): %s",
+			runErr, firstLine(stderr.String(), stdout.String())) //nolint:errorlint // runErr is nil on exit 0; %w would print a bad verb
 	}
 	for _, c := range rep.Contents {
 		orig, ok := m[c.File]
