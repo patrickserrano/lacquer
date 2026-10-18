@@ -31,12 +31,12 @@ A blank value is allowed in the manifest (init stubs them), but if the correspon
 
 ```go
 func TestLoadProjectValues(t *testing.T) {
-	cfg, err := loadString(t, "[project]\nname=\"rail\"\nproject_name=\"Charlie\"\nscheme=\"Charlie\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"6451234567\"\n")
+	cfg, err := loadString(t, "[project]\nname=\"charlie\"\nproject_name=\"Charlie\"\nscheme=\"Charlie\"\nbundle_id=\"com.me.charlie\"\nasc_app_id=\"6451234567\"\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	p := cfg.Project
-	if p.ProjectName != "Charlie" || p.Scheme != "Charlie" || p.BundleID != "com.me.rail" || p.AscAppID != "6451234567" {
+	if p.ProjectName != "Charlie" || p.Scheme != "Charlie" || p.BundleID != "com.me.charlie" || p.AscAppID != "6451234567" {
 		t.Errorf("project = %+v", p)
 	}
 }
@@ -136,13 +136,13 @@ import (
 )
 
 func TestSubstitute(t *testing.T) {
-	p := config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "com.me.rail", AscAppID: "999"}
+	p := config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "com.me.charlie", AscAppID: "999"}
 	in := "scheme: {{SCHEME}}\nid: {{BUNDLE_ID}}\nasc: {{ASC_APP_ID}}\nname: {{PROJECT_NAME}}\nga: ${{ github.ref }}\n"
 	out, missing := Substitute(in, p)
 	if len(missing) != 0 {
 		t.Fatalf("unexpected missing: %v", missing)
 	}
-	want := "scheme: Charlie\nid: com.me.rail\nasc: 999\nname: Charlie\nga: ${{ github.ref }}\n"
+	want := "scheme: Charlie\nid: com.me.charlie\nasc: 999\nname: Charlie\nga: ${{ github.ref }}\n"
 	if out != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
 	}
@@ -439,7 +439,7 @@ echo "--- sync with blank values should FAIL closed ---"
 python3 - "$tmp/.harness.toml" <<'PY'
 import sys,re
 p=sys.argv[1]; s=open(p).read()
-s=s.replace('bundle_id = ""','bundle_id = "com.me.rail"').replace('asc_app_id = ""','asc_app_id = "6451234567"')
+s=s.replace('bundle_id = ""','bundle_id = "com.me.charlie"').replace('asc_app_id = ""','asc_app_id = "6451234567"')
 open(p,'w').write(s)
 PY
 echo "--- sync after filling should succeed ---"
@@ -485,5 +485,5 @@ A real project can be onboarded: `harness init` writes a `.harness.toml` from de
 
 ## Next plans
 
-1. Onboard a real project (e.g. `rail`) end-to-end; retire `ios-template`.
+1. Onboard a real project (e.g. `charlie`) end-to-end; retire `ios-template`.
 2. `scaffold`/`new`, then `harvest` (the learn-from-each-other loop), then Renovate.

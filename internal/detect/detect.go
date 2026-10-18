@@ -111,7 +111,7 @@ func Components(root string) ([]config.Component, config.Project, error) {
 	// single profile per path meant the ios assignment below silently
 	// OVERWROTE the supabase one — the component kept `profiles = ["ios"]` and
 	// the whole supabase profile (deno config, lefthook, CI, RLS rules) was
-	// never synced. rail is exactly that shape and had been missing it.
+	// never synced. charlie is exactly that shape and had been missing it.
 	byPath := map[string][]string{}
 	for p, prof := range nonIos {
 		byPath[p] = append(byPath[p], prof)

@@ -705,7 +705,7 @@ jobs:
           # Seed EVERY Secrets.xcconfig.example under the component, each beside
           # itself — not just the one at the component root.
           #
-          # kit keeps its example at BOTH ./Secrets.xcconfig.example and
+          # echo keeps its example at BOTH ./Secrets.xcconfig.example and
           # Echo/Echo/Secrets.xcconfig.example, and the Xcode project reads the
           # nested one. The old single-path copy seeded only the root, "succeeded",
           # and the Release build then died with:
@@ -777,7 +777,7 @@ jobs:
       # The relaxation mechanism is only as good as the checks that honour it.
       # `lacquer audit` reads [baseline.relax]; THIS job did not — so a project
       # with a valid, unexpired warnings_as_errors relaxation passed audit and
-      # failed CI on the same key. kit and app-lima both hit that.
+      # failed CI on the same key. echo and app-lima both hit that.
       #
       # Reads the manifest directly rather than via docs-relaxation.sh, which is
       # hardcoded to the `documentation` key.
@@ -1095,7 +1095,7 @@ jobs:
           # Seed EVERY Secrets.xcconfig.example under the component, each beside
           # itself — not just the one at the component root.
           #
-          # kit keeps its example at BOTH ./Secrets.xcconfig.example and
+          # echo keeps its example at BOTH ./Secrets.xcconfig.example and
           # Echo/Echo/Secrets.xcconfig.example, and the Xcode project reads the
           # nested one. The old single-path copy seeded only the root, "succeeded",
           # and the Release build then died with:
@@ -1121,7 +1121,7 @@ jobs:
           # seconds later on a path no step had mentioned:
           #   ios/App.xcodeproj:1:1: error: Unable to open base configuration
           #   reference file '.../ios/App/Secrets.xcconfig'
-          # That is #109's silent success arriving from the other direction. kit's
+          # That is #109's silent success arriving from the other direction. echo's
           # example was nested and its ROOT copy was the useless one; here the root
           # copy is the only one and the NESTED path is what the project reads. One
           # project's Docs job was red every night for a week on exactly this, and
@@ -1489,7 +1489,7 @@ jobs:
           # Seed EVERY Secrets.xcconfig.example under the component, each beside
           # itself — not just the one at the component root.
           #
-          # kit keeps its example at BOTH ./Secrets.xcconfig.example and
+          # echo keeps its example at BOTH ./Secrets.xcconfig.example and
           # Echo/Echo/Secrets.xcconfig.example, and the Xcode project reads the
           # nested one. The old single-path copy seeded only the root, "succeeded",
           # and the Release build then died with:

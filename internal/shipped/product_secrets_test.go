@@ -139,7 +139,7 @@ func secretsRun(t *testing.T, cfg *config.Config) string {
 
 // An unset secret expands to the empty string, and an empty xcconfig value is
 // not an error to xcodebuild — it would build, sign, upload, and be wrong. This
-// is the exact shape of the rail incident: a release that produced a perfectly
+// is the exact shape of the charlie incident: a release that produced a perfectly
 // valid IPA with its runtime keys unset, rejected under Guideline 2.1(a), with
 // every check green.
 func TestSecretsStepFailsOnAMissingSecret(t *testing.T) {

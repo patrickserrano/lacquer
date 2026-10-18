@@ -584,7 +584,7 @@ func TestShippedCoreProbesAreValid(t *testing.T) {
 }
 
 // A project can declare several profiles on one component, and its CI jobs run
-// on different runners. rail declares ["ios", "supabase"] and its supabase job
+// on different runners. charlie declares ["ios", "supabase"] and its supabase job
 // runs on ubuntu, where doctor ran the iOS probes, found no swiftlint, and
 // failed six checks — correctly (a missing tool IS a finding) but uselessly,
 // because that runner was never going to have Xcode.

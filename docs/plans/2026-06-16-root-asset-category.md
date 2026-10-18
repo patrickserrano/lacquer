@@ -243,4 +243,4 @@ Expected: Brewfile/.pre-commit/.mcp.json present at root; both scripts `-rwxr-xr
 ## Next plans
 
 1. **`harness init`** — detect components, write `.harness.toml`, first sync, token substitution for the 4 real placeholders; replaces `FIRST_RUN.md`.
-2. Onboard a real project (e.g. `rail`) from the harness; then `scaffold`/`new`, `harvest`, Renovate.
+2. Onboard a real project (e.g. `charlie`) from the harness; then `scaffold`/`new`, `harvest`, Renovate.

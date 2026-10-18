@@ -225,7 +225,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// skill in [project].skills and never actually get it: gitignored by name
 		// (internal/gitignore's skills() rule), absent on disk, no skills-lock.json,
 		// and sync's own output never mentioned it — there was nothing here to
-		// notice the gap. Measured on Steps: exactly that state, for `healthkit`.
+		// notice the gap. Measured on Mike: exactly that state, for `healthkit`.
 		if syncManifest, err := config.Load(filepath.Join(projectRoot, ".lacquer.toml")); err != nil {
 			fmt.Fprintf(stderr, "warning: could not re-read manifest for [project].skills: %v\n", err)
 		} else if entries, err := syncManifest.Project.ParsedSkills(); err != nil {

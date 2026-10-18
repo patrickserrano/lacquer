@@ -163,7 +163,7 @@ func TestLocalPackageTestTargetsAreNotMissing(t *testing.T) {
 		t.Errorf("both packages were readable, yet selectors were reported unverified: %v", r.Unverified)
 	}
 	if out := Format(r); out != "" {
-		t.Errorf("a fully wired rail produced a report:\n%s", out)
+		t.Errorf("a fully wired charlie produced a report:\n%s", out)
 	}
 }
 
@@ -208,7 +208,7 @@ func TestUnreferencedPackageDoesNotCount(t *testing.T) {
 }
 
 // relativePath is relative to the directory holding the .xcodeproj, not to the
-// repository root. flare's real shape: Delta/Delta.xcodeproj references
+// repository root. delta's real shape: Delta/Delta.xcodeproj references
 // `../DeltaCore`.
 func TestRelativePathResolvesFromTheXcodeprojDirectory(t *testing.T) {
 	pbx := writeProject(t, "App/App.xcodeproj", map[string]string{

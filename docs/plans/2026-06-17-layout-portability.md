@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Make the iOS profile work regardless of where the component lives (repo root like `rail`, or under `ios/` like the template) by replacing hardcoded `ios/` paths with a derived, per-profile `{{COMPONENT_PREFIX}}` token.
+**Goal:** Make the iOS profile work regardless of where the component lives (repo root like `charlie`, or under `ios/` like the template) by replacing hardcoded `ios/` paths with a derived, per-profile `{{COMPONENT_PREFIX}}` token.
 
 **Architecture:** `{{COMPONENT_PREFIX}}` is a derived token resolved per-asset/region from the path of the component that owns the asset's profile: `Prefix("ios") == "ios/"`, `Prefix(".") == ""`. The empty prefix collapses paths/filters/greps to whole-repo, which is correct for a root-layout project. Profile content uses the token in path contexts only; literal `ios` labels stay. v1 supports at most one component per profile (multi-stack like iOS+web is fine; two iOS apps errors clearly).
 
@@ -118,7 +118,7 @@ func TestPrefix(t *testing.T) {
 }
 
 func TestSubstituteValues(t *testing.T) {
-	vals := Values(config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "com.me.rail", AscAppID: "9"}, "ios/")
+	vals := Values(config.Project{ProjectName: "Charlie", Scheme: "Charlie", BundleID: "com.me.charlie", AscAppID: "9"}, "ios/")
 	in := "p: {{COMPONENT_PREFIX}}{{PROJECT_NAME}}.xcodeproj\nf: '{{COMPONENT_PREFIX}}**'\nga: ${{ github.ref }}\n"
 	out, missing := Substitute(in, vals)
 	if len(missing) != 0 {
@@ -304,7 +304,7 @@ func TestSyncRootLayoutEmptyPrefix(t *testing.T) {
 	}
 	// component at root (".") and all 4 project values present
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"x\"\nproject_name=\"Charlie\"\nscheme=\"Charlie\"\nbundle_id=\"com.me.rail\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"x\"\nproject_name=\"Charlie\"\nscheme=\"Charlie\"\nbundle_id=\"com.me.charlie\"\nasc_app_id=\"9\"\n\n[[component]]\npath=\".\"\nprofiles=[\"ios\"]\n")
 
 	if _, err := Run(harness, project); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -369,7 +369,7 @@ env -u GOROOT /opt/homebrew/bin/go build -o "$H/bin/harness" ./cmd/harness
 probe() { # $1 = component path
   tmp=$(mktemp -d); ( cd "$tmp" && git init -q )
   if [ "$1" = "." ]; then proj="."; else proj="$1"; fi
-  printf '[project]\nname="p"\nproject_name="Charlie"\nscheme="Charlie"\nbundle_id="com.me.rail"\nasc_app_id="9"\n\n[[component]]\npath="%s"\nprofiles=["ios"]\n' "$proj" > "$tmp/.harness.toml"
+  printf '[project]\nname="p"\nproject_name="Charlie"\nscheme="Charlie"\nbundle_id="com.me.charlie"\nasc_app_id="9"\n\n[[component]]\npath="%s"\nprofiles=["ios"]\n' "$proj" > "$tmp/.harness.toml"
   ( cd "$tmp" && HARNESS_ROOT="$H" "$H/bin/harness" sync >/dev/null )
   echo "--- component=$1: ios-ci.yml lint line + path filter ---"
   grep -nE 'swiftlint --strict|COMPONENT_PREFIX|^\s+- |DerivedData' "$tmp/.github/workflows/ios-ci.yml" | grep -iE 'swiftlint|\*\*|DerivedData' | head -4
@@ -415,7 +415,7 @@ rm -rf "$tmp"
 
 ## Done — what this milestone delivers
 
-The iOS profile is layout-agnostic: a root-layout project (rail) and a template-layout project both get correct, fully-substituted CI/config, and multi-stack repos (iOS + web admin) resolve each profile's paths independently. Unblocks onboarding rail.
+The iOS profile is layout-agnostic: a root-layout project (charlie) and a template-layout project both get correct, fully-substituted CI/config, and multi-stack repos (iOS + web admin) resolve each profile's paths independently. Unblocks onboarding charlie.
 
 ## Known limitations (PR)
 
@@ -424,4 +424,4 @@ The iOS profile is layout-agnostic: a root-layout project (rail) and a template-
 
 ## Next
 
-Re-attempt **rail onboarding** end-to-end on a branch (now unblocked); then retire `ios-template`; then `scaffold`/`new`, `harvest`, Renovate.
+Re-attempt **charlie onboarding** end-to-end on a branch (now unblocked); then retire `ios-template`; then `scaffold`/`new`, `harvest`, Renovate.

@@ -14,7 +14,7 @@ import (
 // ever had looked identical from the outside: the step ran, exited 0, seeded
 // something, and the build died later on a path the step never touched.
 //
-// #109 was the first. kit keeps an example at both the component root and a
+// #109 was the first. echo keeps an example at both the component root and a
 // nested source directory, the step copied only the root one, and the Release
 // build failed on `Echo/Echo/Secrets.xcconfig`. The fix — seed every example
 // beside itself — then broke the OTHER shape: a project whose only example is at

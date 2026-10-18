@@ -26,21 +26,21 @@ import (
 //	Package.resolved file.
 //
 // That aborted the whole Dependabot job — github-actions updates included — daily
-// in three repositories (Romeo, rail, foxtrot), while the file it was
+// in three repositories (Romeo, charlie, foxtrot), while the file it was
 // rendered from looked completely correct.
 //
 // The rules below are not read off Dependabot's documentation; they are what this
 // fleet's runs empirically do and do not find:
 //
-//   - Steps: swift PRs open, entry at "/", Package.resolved committed inside
-//     Steps.xcodeproj at the root.
-//   - kit: swift PRs open, entry at "/", Package.resolved committed inside
+//   - Mike: swift PRs open, entry at "/", Package.resolved committed inside
+//     Mike.xcodeproj at the root.
+//   - echo: swift PRs open, entry at "/", Package.resolved committed inside
 //     Echo/Echo.xcodeproj — a directory LEVEL BELOW the entry. So the search for a
 //     bundled Package.resolved is recursive beneath `directory`.
 //   - foxtrot: no swift PRs, entry at "/", with FoxtrotKit/Package.swift and
 //     FoxtrotKit/Package.resolved committed one level below. So a bare SwiftPM
 //     package is NOT found recursively — it has to be named exactly.
-//   - Romeo, rail: no swift PRs; nothing at all is committed for it to read
+//   - Romeo, charlie: no swift PRs; nothing at all is committed for it to read
 //     (both keep the xcodeproj's Package.resolved out of the repo via
 //     .gitignore), and both fail with the error above.
 type SwiftManifestIndex struct {
@@ -51,7 +51,7 @@ type SwiftManifestIndex struct {
 	// Package.swift alone satisfies file fetching, but no entry in this fleet has
 	// ever been OBSERVED to work without a resolved file, and the cost of being
 	// wrong is asymmetric: a missing entry stops watching a dependency quietly,
-	// while a wrong one fails a job every single day until somebody looks. rail
+	// while a wrong one fails a job every single day until somebody looks. charlie
 	// is the case that decides it — CharlieCore/Package.swift and
 	// CharlieData/Package.swift are committed, their resolved files are not — and it
 	// gets no entry rather than two guesses.
@@ -59,7 +59,7 @@ type SwiftManifestIndex struct {
 	// bundleDirs are the directories that CONTAIN an .xcodeproj/.xcworkspace with
 	// a tracked Package.resolved inside it. Any ancestor of one of these
 	// qualifies, because Dependabot's search for a bundled resolved file is
-	// recursive (kit, above).
+	// recursive (echo, above).
 	bundleDirs []string
 }
 
@@ -71,7 +71,7 @@ type SwiftManifestIndex struct {
 // tree contains. Both repos whose entries fail today have the file on disk and
 // excluded by .gitignore, so a walk would have confirmed the broken entry as
 // correct. git also excludes DerivedData/, .build/ and worktree copies for free —
-// which matters more here than in Components, since a checkout of Steps carries
+// which matters more here than in Components, since a checkout of Mike carries
 // nine Package.resolved files belonging to RevenueCat's own test fixtures.
 //
 // A root that is not a git repository (or a machine with no git) yields an empty
@@ -130,7 +130,7 @@ func (ix SwiftManifestIndex) DependabotDirs(comp string) []string {
 	}
 	// A bundled Package.resolved anywhere beneath comp is found from comp itself.
 	// This is the shape of every working entry in the fleet, and keeping it as the
-	// first rule is what makes steps and kit render exactly what they render now.
+	// first rule is what makes mike and echo render exactly what they render now.
 	for _, d := range ix.bundleDirs {
 		if within(comp, d) {
 			return []string{comp}

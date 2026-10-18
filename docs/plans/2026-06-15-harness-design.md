@@ -29,7 +29,7 @@ runs `FIRST_RUN.md`, and immediately begins to drift. Hard-won lessons are scatt
 across three places — the template's `CLAUDE.md`, the global `~/.claude/CLAUDE.md`,
 and the auto-memory `MEMORY.md` — and a lesson learned in one project (e.g. an
 AVAudioEngine teardown fix in `india`) never reaches the template, let alone
-`rail` or `frequency`. There is no bidirectional loop. Dependency and tooling
+`charlie` or `frequency`. There is no bidirectional loop. Dependency and tooling
 upgrades are handled by hand, per project.
 
 The harness closes that loop: **learn locally → harvest up → sync down everywhere.**
@@ -187,7 +187,7 @@ harness upgrade [--all]              # on-demand dep bump fallback (build+test+P
    config files into `profiles/ios/`; convert `FIRST_RUN.md` into `harness init`.
 3. Implement the CLI: `init`, `sync`, `status` first (the read/apply loop), then
    `harvest`, then `scaffold`/`new`, then `upgrade`.
-4. Onboard one existing iOS project (e.g. `rail`) end-to-end as the proof.
+4. Onboard one existing iOS project (e.g. `charlie`) end-to-end as the proof.
 5. Seed `web`/`rust`/`go` profiles as real components demand them (YAGNI).
 6. Retire the standalone `ios-template` repo once `profiles/ios` is authoritative.
 

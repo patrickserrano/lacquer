@@ -960,6 +960,7 @@ jobs:
           fi
 
       - name: Upload IPA artifact
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
         uses: actions/upload-artifact@v7
         with:
           name: '${{ matrix.product.name }}-${{ steps.safe_ref.outputs.value }}.ipa'
@@ -974,6 +975,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload dSYM artifact
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
         uses: actions/upload-artifact@v7
         with:
           name: '${{ matrix.product.name }}-${{ steps.safe_ref.outputs.value }}.dSYM'

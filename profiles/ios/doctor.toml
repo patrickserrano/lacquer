@@ -130,7 +130,7 @@ list simply did not have them in view. Measured on alphaapp before the change:
 1,321 violations, 718 of them (54%) in test targets, almost all `@Test` methods.
 
 Both layouts are covered because both exist in this fleet: `AppTests/` is the
-Xcode convention, `Packages/<Echo>/Tests/` the SPM one (flare has the latter).
+Xcode convention, `Packages/<Echo>/Tests/` the SPM one (delta has the latter).
 This probe stages the fixture under a `Tests/` directory precisely so a change
 that dropped either pattern is caught here rather than as a surprise wave of
 violations in a project that had none.

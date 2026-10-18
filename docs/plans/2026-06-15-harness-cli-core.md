@@ -311,12 +311,12 @@ Append to `internal/region/region_test.go`:
 
 ```go
 func TestMergeAppendsWhenAbsent(t *testing.T) {
-	content := "# CLAUDE.md\n\nProject Identity: rail\n"
+	content := "# CLAUDE.md\n\nProject Identity: charlie\n"
 	got, err := Merge(content, "ios", 2, "iOS shared rules")
 	if err != nil {
 		t.Fatalf("Merge returned error: %v", err)
 	}
-	want := "# CLAUDE.md\n\nProject Identity: rail\n\n" +
+	want := "# CLAUDE.md\n\nProject Identity: charlie\n\n" +
 		"<!-- harness:ios:start v2 -->\niOS shared rules\n<!-- harness:ios:end -->\n"
 	if got != want {
 		t.Fatalf("Merge append mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
@@ -697,8 +697,8 @@ func TestSyncMergesCoreAndProfile(t *testing.T) {
 
 	// Project fixtures.
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
-	writeFile(t, filepath.Join(project, "CLAUDE.md"), "# rail\n\nlocal note\n")
+		"[project]\nname=\"charlie\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+	writeFile(t, filepath.Join(project, "CLAUDE.md"), "# charlie\n\nlocal note\n")
 
 	if err := Run(harness, project); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -864,7 +864,7 @@ func TestRowsReportBehindAndUpToDate(t *testing.T) {
 	writeFile(t, filepath.Join(harness, "VERSION"), "5\n")
 
 	writeFile(t, filepath.Join(project, ".harness.toml"),
-		"[project]\nname=\"rail\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
+		"[project]\nname=\"charlie\"\n\n[[component]]\npath=\"ios\"\nprofiles=[\"ios\"]\n")
 	// core stamped at v5 (current), ios stamped at v3 (behind).
 	writeFile(t, filepath.Join(project, "CLAUDE.md"),
 		"<!-- harness:core:start v5 -->\nx\n<!-- harness:core:end -->\n")

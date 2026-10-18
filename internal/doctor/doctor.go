@@ -211,7 +211,7 @@ func LoadProbes(lacquerRoot, profile string) ([]Probe, error) {
 //
 // `only` restricts which profiles are proved. Empty means all of them, which is
 // right when a human runs `lacquer doctor` on a machine with every toolchain.
-// It is wrong in CI, and rail showed why: it declares one component with
+// It is wrong in CI, and charlie showed why: it declares one component with
 // profiles ["ios", "supabase"], and the supabase CI job runs on ubuntu-latest.
 // Doctor dutifully ran the iOS probes there, found no swiftlint or swiftformat,
 // and failed six checks — correctly, since a missing tool IS a real finding, but

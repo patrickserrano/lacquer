@@ -22,7 +22,7 @@ const singleAppWithSecrets = `
 name = "Delta"
 project_name = "Delta"
 scheme = "Delta"
-bundle_id = "com.example.flare"
+bundle_id = "com.example.delta"
 asc_app_id = "1000000001"
 secrets_file = "Config/Secrets.xcconfig"
 secrets = { REVENUECAT_API_KEY = "FLARE_REVENUECAT_API_KEY", SENTRY_DSN = "FLARE_SENTRY_DSN" }

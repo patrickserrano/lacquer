@@ -87,7 +87,7 @@ func TestRunsInTheComponentDirectory(t *testing.T) {
 
 // swiftformat with organizeDeclarations is not idempotent in one pass:
 // reordering members changes their nesting, and the indent rule only sees the
-// new layout on the next run. A single pass left kit with 6 files its own
+// new layout on the next run. A single pass left echo with 6 files its own
 // pre-push hook rejected, AFTER `lacquer fix` reported success. So the runner
 // re-runs a fixer until the tree stops moving.
 func TestFixerRunsToAFixedPoint(t *testing.T) {

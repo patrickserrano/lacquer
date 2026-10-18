@@ -149,9 +149,9 @@ func TestGitattributesRegionCoversTheRealAssetPlan(t *testing.T) {
 //
 //   - alphaapp: twelve Git LFS filter lines. Clobbering those breaks LFS
 //     outright — binaries start committing as raw bytes with no pointer.
-//   - kit: line-ending and binary rules plus its OWN linguist overrides
+//   - echo: line-ending and binary rules plus its OWN linguist overrides
 //     (Pods/** vendored, *.xcodeproj/** generated, docs/** documentation).
-//   - flare: line-ending normalization and `*.swift text diff=swift`.
+//   - delta: line-ending normalization and `*.swift text diff=swift`.
 //
 // The fixture below is those three files' content merged, and the assertions ask
 // git whether each rule is still IN FORCE — not whether its text survived.
@@ -168,7 +168,7 @@ func TestGitattributesRegionKeepsProjectOwnedContent(t *testing.T) {
 *.swift text diff=swift linguist-language=Swift
 *.pbxproj binary
 
-# This project's own linguist overrides (kit)
+# This project's own linguist overrides (echo)
 Pods/** linguist-vendored
 *.xcodeproj/** linguist-generated
 docs/** linguist-documentation
@@ -192,12 +192,12 @@ docs/** linguist-documentation
 		{"ios/Demo/ContentView.swift", "diff", "swift"},
 		{"ios/Demo/ContentView.swift", "linguist-language", "Swift"},
 		{"ios/Demo.xcodeproj/project.pbxproj", "binary", "set"},
-		// kit's own linguist rules, including one spelled in the bare boolean
+		// echo's own linguist rules, including one spelled in the bare boolean
 		// form. Ours uses `=true`; both must keep working side by side.
 		{"Pods/Alamofire/Source.swift", "linguist-vendored", "set"},
 		// Root-level, deliberately. A .gitattributes pattern containing a slash
 		// is anchored to the file's own directory and `*` does not cross one, so
-		// kit's `*.xcodeproj/**` matches Demo.xcodeproj/… and NOT
+		// echo's `*.xcodeproj/**` matches Demo.xcodeproj/… and NOT
 		// ios/Demo.xcodeproj/… . That is a property of the project's own rule
 		// rather than anything the lacquer does — and it is the same anchoring
 		// the managed patterns rely on, which is why it is pinned here.

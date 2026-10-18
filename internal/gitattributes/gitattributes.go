@@ -26,9 +26,9 @@
 // genuinely co-owned and three fleet repositories prove it: alphaapp's is
 // twelve Git LFS filter lines (`*.png filter=lfs diff=lfs merge=lfs -text` and
 // friends) — replacing that file would break LFS outright and silently commit
-// pointer-less binaries; kit's carries line-ending and binary rules plus its own
+// pointer-less binaries; echo's carries line-ending and binary rules plus its own
 // linguist overrides (`Pods/** linguist-vendored`, `*.xcodeproj/**
-// linguist-generated`, `docs/** linguist-documentation`); flare's normalizes
+// linguist-generated`, `docs/** linguist-documentation`); delta's normalizes
 // line endings and declares `*.swift text diff=swift linguist-language=Swift`.
 // A whole-file asset would clobber all three and show as permanent conflict in
 // every audit. The region merges in and leaves everything outside the markers
@@ -104,7 +104,7 @@ func Body(cfg *config.Config) string {
 		//
 		// `=true` spelled out rather than the bare boolean form. Both work, but
 		// the bare form sits one `-` away from `-linguist-vendored`, which means
-		// the opposite, and kit's own file already mixes styles.
+		// the opposite, and echo's own file already mixes styles.
 		b.WriteString("\n" + dir + "/** linguist-vendored=true")
 	}
 	return b.String()

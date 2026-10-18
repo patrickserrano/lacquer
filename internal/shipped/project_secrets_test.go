@@ -10,7 +10,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/config"
 )
 
-// A flare-shaped manifest: one app, no [[product]] block, build-time keys read
+// A delta-shaped manifest: one app, no [[product]] block, build-time keys read
 // from a gitignored Secrets.xcconfig. Before [project].secrets existed this
 // shape could not ask the release to write that file at all, so the archive
 // shipped the placeholders: a dead paywall, no analytics, no crash reports.
@@ -19,7 +19,7 @@ const deltaShaped = `
 name = "Delta"
 project_name = "Delta"
 scheme = "Delta"
-bundle_id = "com.example.flare"
+bundle_id = "com.example.delta"
 asc_app_id = "1000000001"
 xcodeproj = "Delta.xcodeproj"
 secrets = { REVENUECAT_API_KEY = "FLARE_REVENUECAT_API_KEY", APTABASE_APP_KEY = "FLARE_APTABASE_APP_KEY" }
@@ -30,9 +30,9 @@ path = "."
 profiles = ["ios"]
 `
 
-// loadFlareShaped goes through config.Load, not a Config built by hand, so the
+// loadDeltaShaped goes through config.Load, not a Config built by hand, so the
 // render below is proven from the manifest text a project actually commits.
-func loadFlareShaped(t *testing.T) *config.Config {
+func loadDeltaShaped(t *testing.T) *config.Config {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), ".lacquer.toml")
 	if err := os.WriteFile(p, []byte(deltaShaped), 0o644); err != nil {
@@ -49,7 +49,7 @@ func loadFlareShaped(t *testing.T) *config.Config {
 // same step a declared product's secrets do, with no change to the renderer.
 func TestProjectSecretsRenderTheReleaseConfigStep(t *testing.T) {
 	var step map[string]any
-	for _, st := range steps(t, renderRelease(t, loadFlareShaped(t))) {
+	for _, st := range steps(t, renderRelease(t, loadDeltaShaped(t))) {
 		if name, _ := st["name"].(string); strings.Contains(name, "Write release configuration") {
 			if step != nil {
 				t.Fatalf("more than one config step rendered for a single-app project")
@@ -94,7 +94,7 @@ func TestProjectSecretsRenderTheReleaseConfigStep(t *testing.T) {
 // writer: a real key is written, and a wrong-shaped or missing one stops the
 // release, which is the whole reason secret_formats has to reach it.
 func TestProjectSecretsStepWritesAndGuards(t *testing.T) {
-	run := secretsRun(t, loadFlareShaped(t))
+	run := secretsRun(t, loadDeltaShaped(t))
 	for _, tc := range []struct {
 		name       string
 		env        []string

@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// flare's shape, and the gap lacquer#382 describes. Delta/Delta.xcodeproj
+// delta's shape, and the gap lacquer#382 describes. Delta/Delta.xcodeproj
 // references two local packages that sit BESIDE its directory (`../DeltaCore`,
 // `../DeltaData`), each with one test suite. No selector names either suite, and
-// since flare #240 retired the workflows that used to run them, nothing else
+// since delta #240 retired the workflows that used to run them, nothing else
 // does. The audit said nothing, because its "runs nowhere" direction only looked
 // at native targets.
 const deltaPbx = `// !$*UTF8*$!
@@ -50,9 +50,9 @@ func deltaPackage(name string, tests ...string) string {
 	return b.String()
 }
 
-// flareCI is the managed ios-ci.yml's test step as flare has it: the one
+// deltaCI is the managed ios-ci.yml's test step as delta has it: the one
 // selector the manifest derives, nothing for the packages.
-const flareCI = `name: iOS CI
+const deltaCI = `name: iOS CI
 on:
   pull_request:
   push:
@@ -73,15 +73,15 @@ jobs:
 
 var deltaSelectors = []string{"DeltaTests"}
 
-// flare lays the project out with the given extra files (workflows, schemes)
+// delta lays the project out with the given extra files (workflows, schemes)
 // and returns the project root and what Parse read from it.
-func flare(t *testing.T, extra map[string]string) (string, []Target) {
+func delta(t *testing.T, extra map[string]string) (string, []Target) {
 	t.Helper()
 	files := map[string]string{
 		"Delta/Delta.xcodeproj/project.pbxproj": deltaPbx,
 		"DeltaCore/Package.swift":               deltaPackage("DeltaCore", "DeltaCoreTests"),
 		"DeltaData/Package.swift":               deltaPackage("DeltaData", "DeltaDataTests"),
-		".github/workflows/ios-ci.yml":          flareCI,
+		".github/workflows/ios-ci.yml":          deltaCI,
 	}
 	for k, v := range extra {
 		if v == "" {
@@ -108,10 +108,10 @@ func uncoveredNames(r Report) string {
 	return strings.Join(names, " ")
 }
 
-// lacquer#382, measured on flare: package suites nothing runs are reported, each
+// lacquer#382, measured on delta: package suites nothing runs are reported, each
 // with the package it belongs to and the three ways out.
 func TestPackageSuitesNothingRunsAreUncovered(t *testing.T) {
-	root, targets := flare(t, nil)
+	root, targets := delta(t, nil)
 	r := audit(root, targets, deltaSelectors, nil)
 	if got := uncoveredNames(r); got != "DeltaCoreTests DeltaDataTests" {
 		t.Fatalf("uncovered = %q, want %q", got, "DeltaCoreTests DeltaDataTests")
@@ -178,7 +178,7 @@ func TestAWorkflowThatRunsThePackageCoversIt(t *testing.T) {
 		"--package-path=":           workflow("", "", "", "swift test --package-path=DeltaCore --parallel"),
 		"quoted, ./ and trailing /": workflow("", "", "", `swift test --package-path "./DeltaCore/"`),
 		"step working-directory":    workflow("", "", "        working-directory: DeltaCore\n", "swift test"),
-		// Foxtrot's kit-test.yml, the one real case in the fleet.
+		// Foxtrot's echo-test.yml, the one real case in the fleet.
 		"job defaults": workflow("", "    defaults:\n      run:\n        working-directory: DeltaCore\n", "",
 			"swift test --enable-code-coverage"),
 		"workflow defaults": workflow("defaults:\n  run:\n    working-directory: DeltaCore\n", "", "", "swift test"),
@@ -196,7 +196,7 @@ func TestAWorkflowThatRunsThePackageCoversIt(t *testing.T) {
 	}
 	for name, wf := range cases {
 		t.Run(name, func(t *testing.T) {
-			root, targets := flare(t, map[string]string{".github/workflows/packages.yml": wf})
+			root, targets := delta(t, map[string]string{".github/workflows/packages.yml": wf})
 			r := audit(root, targets, deltaSelectors, nil)
 			if got := uncoveredNames(r); got != "DeltaDataTests" {
 				t.Fatalf("uncovered = %q, want just DeltaDataTests\n%s", got, wf)
@@ -241,7 +241,7 @@ func TestThingsThatDoNotRunThePackageDoNotCoverIt(t *testing.T) {
 	}
 	for name, wf := range cases {
 		t.Run(name, func(t *testing.T) {
-			root, targets := flare(t, map[string]string{".github/workflows/packages.yml": wf})
+			root, targets := delta(t, map[string]string{".github/workflows/packages.yml": wf})
 			r := audit(root, targets, deltaSelectors, nil)
 			if got := uncoveredNames(r); got != "DeltaCoreTests DeltaDataTests" && !(name == "another package" && got == "DeltaCoreTests") {
 				t.Fatalf("uncovered = %q; DeltaCoreTests should still be reported\n%s", got, wf)
@@ -265,7 +265,7 @@ func TestSwiftTestFilterAndSkipNarrowWhatRuns(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			root, targets := flare(t, map[string]string{
+			root, targets := delta(t, map[string]string{
 				"DeltaCore/Package.swift":        two,
 				".github/workflows/packages.yml": workflow("", "", "", c.run),
 			})
@@ -317,7 +317,7 @@ func TestXcodebuildSchemeReachesWhatTheSchemeLists(t *testing.T) {
 			if c.scheme != "" {
 				extra[schemePath] = c.scheme
 			}
-			root, targets := flare(t, extra)
+			root, targets := delta(t, extra)
 			r := audit(root, targets, deltaSelectors, nil)
 			if got := uncoveredNames(r); got != c.wantUncovered {
 				t.Fatalf("uncovered = %q, want %q", got, c.wantUncovered)
@@ -339,7 +339,7 @@ func TestCoveredElsewhereCoversAPackageSuiteOnlyWhenVerified(t *testing.T) {
 	const fastlane = "bundle exec fastlane scan --scheme DeltaCore --only_testing DeltaCoreTests"
 	d := []Declaration{{Target: "DeltaCoreTests", Workflow: ".github/workflows/packages.yml", Reason: "fastlane runs the package scheme"}}
 
-	root, targets := flare(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", fastlane)})
+	root, targets := delta(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", fastlane)})
 	r := audit(root, targets, deltaSelectors, d)
 	if got := uncoveredNames(r); got != "DeltaDataTests" {
 		t.Fatalf("uncovered = %q, want just DeltaDataTests", got)
@@ -349,7 +349,7 @@ func TestCoveredElsewhereCoversAPackageSuiteOnlyWhenVerified(t *testing.T) {
 	}
 
 	// The same declaration against a workflow that never names the suite.
-	root, targets = flare(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", "bundle exec fastlane scan")})
+	root, targets = delta(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", "bundle exec fastlane scan")})
 	r = audit(root, targets, deltaSelectors, d)
 	if got := uncoveredNames(r); got != "DeltaCoreTests DeltaDataTests" {
 		t.Fatalf("an unverified declaration removed a finding: uncovered = %q", got)
@@ -362,7 +362,7 @@ func TestCoveredElsewhereCoversAPackageSuiteOnlyWhenVerified(t *testing.T) {
 // A declaration for a package suite is checked like any other: it is not stale
 // just because the suite is not a native target (it was, before this change).
 func TestCoveredElsewhereSeesPackageSuites(t *testing.T) {
-	root, targets := flare(t, nil)
+	root, targets := delta(t, nil)
 	claims := Verify(root, []Declaration{{Target: "DeltaCoreTests", Workflow: ".github/workflows/ios-ci.yml"}}, targets, nil)
 	var declared []Claim
 	for _, c := range claims {
@@ -380,7 +380,7 @@ func TestCoveredElsewhereSeesPackageSuites(t *testing.T) {
 // call them uncovered: it says it did not check, and why. Its readable
 // neighbour is still judged.
 func TestUnreadablePackageIsNotCheckedRatherThanUncovered(t *testing.T) {
-	root, targets := flare(t, map[string]string{"DeltaData/Package.swift": ""})
+	root, targets := delta(t, map[string]string{"DeltaData/Package.swift": ""})
 	r := audit(root, targets, deltaSelectors, nil)
 	if got := uncoveredNames(r); got != "DeltaCoreTests" {
 		t.Fatalf("uncovered = %q, want just DeltaCoreTests", got)
@@ -407,7 +407,7 @@ func TestSwiftTestInADirectoryTheAuditCannotResolveIsNotChecked(t *testing.T) {
 	}
 	for name, wf := range cases {
 		t.Run(name, func(t *testing.T) {
-			root, targets := flare(t, map[string]string{".github/workflows/packages.yml": wf})
+			root, targets := delta(t, map[string]string{".github/workflows/packages.yml": wf})
 			r := audit(root, targets, deltaSelectors, nil)
 			if len(r.Uncovered) != 0 {
 				t.Fatalf("uncovered = %q, want none: this workflow may run them", uncoveredNames(r))
@@ -421,7 +421,7 @@ func TestSwiftTestInADirectoryTheAuditCannotResolveIsNotChecked(t *testing.T) {
 
 // A workflow that cannot be parsed is a place the suite may be run, unexamined.
 func TestUnparseableWorkflowIsNotChecked(t *testing.T) {
-	root, targets := flare(t, map[string]string{".github/workflows/packages.yml": "on: [pull_request]\njobs: [unterminated\n"})
+	root, targets := delta(t, map[string]string{".github/workflows/packages.yml": "on: [pull_request]\njobs: [unterminated\n"})
 	r := audit(root, targets, deltaSelectors, nil)
 	if len(r.Uncovered) != 0 || len(r.Unchecked) != 2 {
 		t.Fatalf("uncovered = %q, unchecked = %+v; want both suites unchecked", uncoveredNames(r), r.Unchecked)
@@ -430,7 +430,7 @@ func TestUnparseableWorkflowIsNotChecked(t *testing.T) {
 
 // A package outside the repository is not this repository's to run.
 func TestPackageOutsideTheRepositoryIsNotChecked(t *testing.T) {
-	root, targets := flare(t, nil)
+	root, targets := delta(t, nil)
 	// The same targets, audited as though the project root were Delta/.
 	r := audit(filepath.Join(root, "Delta"), targets, deltaSelectors, nil)
 	if len(r.Uncovered) != 0 || len(r.Unchecked) != 2 || !strings.Contains(r.Unchecked[0].Reason, "outside") {
@@ -441,7 +441,7 @@ func TestPackageOutsideTheRepositoryIsNotChecked(t *testing.T) {
 // Compare alone (no Verify) still reports package suites, with the package as
 // the pbxproj spells it, so nothing depends on Apply having run to be seen.
 func TestCompareAloneReportsPackageSuites(t *testing.T) {
-	_, targets := flare(t, nil)
+	_, targets := delta(t, nil)
 	r := Compare(targets, deltaSelectors)
 	if got := uncoveredNames(r); got != "DeltaCoreTests DeltaDataTests" {
 		t.Fatalf("uncovered = %q", got)
@@ -507,7 +507,7 @@ func TestAScriptTheStepRunsIsReadInto(t *testing.T) {
 			for k, v := range c.files {
 				extra[k] = v
 			}
-			root, targets := flare(t, extra)
+			root, targets := delta(t, extra)
 			r := audit(root, targets, deltaSelectors, nil)
 			if got := uncoveredNames(r); got != c.want {
 				t.Fatalf("uncovered = %q, want %q (unchecked %+v)", got, c.want, r.Unchecked)
@@ -543,7 +543,7 @@ func TestMoreWaysARunIsSpelled(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			root, targets := flare(t, map[string]string{
+			root, targets := delta(t, map[string]string{
 				".github/workflows/packages.yml": workflow("", "", "", c.run),
 				"scripts/test.sh":                "#!/bin/sh\nset -e\nswift test --package-path DeltaCore\n",
 				"scripts/cd.sh":                  "#!/bin/sh\ncd DeltaCore\n",
@@ -559,7 +559,7 @@ func TestMoreWaysARunIsSpelled(t *testing.T) {
 // flowdeck with no -w/-s runs whatever `flowdeck config set` saved, which is not
 // in the repository in a form this reads.
 func TestFlowdeckOnItsSavedConfigIsNotChecked(t *testing.T) {
-	root, targets := flare(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", "flowdeck test --headless")})
+	root, targets := delta(t, map[string]string{".github/workflows/packages.yml": workflow("", "", "", "flowdeck test --headless")})
 	r := audit(root, targets, deltaSelectors, nil)
 	if len(r.Uncovered) != 0 || len(r.Unchecked) != 2 || !strings.Contains(r.Unchecked[0].Reason, "flowdeck config") {
 		t.Fatalf("uncovered = %q, unchecked = %+v; want both unchecked", uncoveredNames(r), r.Unchecked)
@@ -569,7 +569,7 @@ func TestFlowdeckOnItsSavedConfigIsNotChecked(t *testing.T) {
 // A declaration for a suite the workflows are already seen running is a second
 // answer, and it reads as the reason the suite is covered. Stale, with why.
 func TestDeclarationForASuiteAWorkflowRunsIsStale(t *testing.T) {
-	root, targets := flare(t, map[string]string{
+	root, targets := delta(t, map[string]string{
 		".github/workflows/packages.yml": workflow("", "", "", "swift test --package-path DeltaCore # DeltaCoreTests"),
 	})
 	d := []Declaration{{Target: "DeltaCoreTests", Workflow: ".github/workflows/packages.yml", Reason: "r"}}

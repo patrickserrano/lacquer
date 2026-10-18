@@ -516,12 +516,12 @@ func TestAProducerErrorIsAProblemRowAndTheOtherAppsAreStillChecked(t *testing.T)
 	s := ascSnap(10*time.Minute, alphaApp(
 		[]obj{ascVer("v1", "IOS", "1.9", "REJECTED", 4*time.Hour, "firstSeen", nil)}, []obj{}))
 	s["errors"] = []obj{
-		{"bundleId": "com.example.flare", "message": "HTTP 401 from /v1/apps"},
+		{"bundleId": "com.example.delta", "message": "HTTP 401 from /v1/apps"},
 		{"message": "token expired"},
 	}
 	m := ascModel(t, 0, mustJSON(t, s))
 	wantKeys(t, m, rejKey)
-	wantProblem(t, m, "com.example.flare: HTTP 401 from /v1/apps")
+	wantProblem(t, m, "com.example.delta: HTTP 401 from /v1/apps")
 	wantProblem(t, m, "token expired")
 	if n := len(problemsOf(m)); n != 2 {
 		t.Errorf("%d problems, want one per error entry: %q", n, problemsOf(m))

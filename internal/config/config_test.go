@@ -775,12 +775,12 @@ func singleProductBase() string {
 func TestExtraTestTargetsLoad(t *testing.T) {
 	cfg, err := loadString(t, extraTargetsBase+
 		"test_target = \"Lite AppTests\"\nui_test_target = \"Lite UITests\"\n"+
-		"extra_test_targets = [\"CoreKitTests\", \"Feature EchoTests\"]\n")
+		"extra_test_targets = [\"CoreKitTests\", \"Feature ModuleTests\"]\n")
 	if err != nil {
 		t.Fatalf("a valid extra_test_targets list must load: %v", err)
 	}
 	p := cfg.Product[0]
-	want := []string{"CoreKitTests", "Feature EchoTests"}
+	want := []string{"CoreKitTests", "Feature ModuleTests"}
 	if len(p.ExtraTestTargets) != len(want) {
 		t.Fatalf("ExtraTestTargets = %v, want %v", p.ExtraTestTargets, want)
 	}
@@ -792,7 +792,7 @@ func TestExtraTestTargetsLoad(t *testing.T) {
 	// Order is the order the arguments are passed, and the order the CI
 	// verification step checks them back in.
 	gotSel := strings.Join(p.TestSelectors(), "|")
-	wantSel := "Lite AppTests|Lite UITests|CoreKitTests|Feature EchoTests"
+	wantSel := "Lite AppTests|Lite UITests|CoreKitTests|Feature ModuleTests"
 	if gotSel != wantSel {
 		t.Errorf("TestSelectors = %q, want %q", gotSel, wantSel)
 	}
@@ -834,7 +834,7 @@ func TestLoadRejectsUnrunnableExtraTestTargets(t *testing.T) {
 			"injection", "extra_test_targets = [\"$(whoami)\"]\n", "invalid extra_test_targets",
 		},
 		{
-			"quote", "extra_test_targets = [\"Core\\\"EchoTests\"]\n", "invalid extra_test_targets",
+			"quote", "extra_test_targets = [\"Core\\\"ModuleTests\"]\n", "invalid extra_test_targets",
 		},
 		{
 			// Passing the same selector twice runs nothing extra, so it is only
@@ -869,7 +869,7 @@ func TestLoadRejectsUnrunnableExtraTestTargets(t *testing.T) {
 	}
 	// A real-world list must still load: spaces are ordinary in a package's test
 	// target name.
-	if _, err := loadString(t, extraTargetsBase+"extra_test_targets = [\"CoreKitTests\", \"Feature EchoTests\"]\n"); err != nil {
+	if _, err := loadString(t, extraTargetsBase+"extra_test_targets = [\"CoreKitTests\", \"Feature ModuleTests\"]\n"); err != nil {
 		t.Errorf("a valid list must load: %v", err)
 	}
 }

@@ -76,8 +76,8 @@ func dirsFor(doc dependabotFile, eco string) []string {
 // root to put in Config.Root.
 //
 // Real repositories rather than plain directories, because what makes a Swift
-// manifest real to Dependabot is that the REPOSITORY contains it. rail has a
-// Package.resolved on disk at exactly the path Steps has one; the difference
+// manifest real to Dependabot is that the REPOSITORY contains it. charlie has a
+// Package.resolved on disk at exactly the path Mike has one; the difference
 // between the repo whose swift updates work and the repo whose Dependabot job
 // aborts daily is a single `*.resolved` line in .gitignore. A fixture that only
 // wrote files would call those two cases identical.
@@ -188,7 +188,7 @@ func TestDependabotKeepsWatchingActionsInAFullyManagedProject(t *testing.T) {
 // is the layout every iOS project here uses. Dropping this entry would leave
 // twelve repos' SPM dependencies unwatched.
 //
-// This is the Steps shape, and Steps' swift updates work: the entry is at "/" and
+// This is the Mike shape, and Mike' swift updates work: the entry is at "/" and
 // the resolved file is committed inside the .xcodeproj at the component root.
 func TestDependabotWatchesSwiftForIOS(t *testing.T) {
 	repo := swiftProject(t, []string{"P.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
@@ -203,7 +203,7 @@ func TestDependabotWatchesSwiftForIOS(t *testing.T) {
 }
 
 // `directory` is per-manifest and Dependabot has no glob for it, so a component
-// in a subdirectory must be named. kit keeps its project at Echo/Echo.xcodeproj,
+// in a subdirectory must be named. echo keeps its project at Echo/Echo.xcodeproj,
 // where "/" finds nothing at all.
 func TestDependabotFollowsComponentDirectories(t *testing.T) {
 	repo := swiftProject(t, []string{"Echo/Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"}, nil)
@@ -220,7 +220,7 @@ func TestDependabotFollowsComponentDirectories(t *testing.T) {
 // A bundled Package.resolved BELOW the component's own directory keeps the entry
 // at the component, because Dependabot's search for one is recursive.
 //
-// kit is the proof and it is the reason this rule is a rule rather than a guess:
+// echo is the proof and it is the reason this rule is a rule rather than a guess:
 // its component is ".", its resolved file is at Echo/Echo.xcodeproj/…, and its
 // swift PRs (purchases-ios-spm, sentry-cocoa) open. Naming the deeper directory
 // instead would be a change with nothing wrong to fix.
@@ -265,7 +265,7 @@ func TestDependabotEmitsNoSwiftEntryWithoutAManifest(t *testing.T) {
 
 // A manifest that exists on disk but NOT in the repository does not count.
 //
-// This is rail, exactly: Charlie.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+// This is charlie, exactly: Charlie.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
 // Package.resolved is right there in the working tree, and `*.resolved` in
 // .gitignore keeps it out of the repo — so Dependabot fetches nothing and aborts.
 // CharlieCore/Package.swift and CharlieData/Package.swift ARE committed and still do not

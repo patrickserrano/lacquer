@@ -366,7 +366,7 @@ func withExtras() *config.Config {
 	cfg := soloConfig()
 	cfg.Product = []config.Product{{
 		Name: "Demo", Scheme: "Demo", BundleID: "com.x.demo", AscAppID: "1",
-		ExtraTestTargets: []string{"CoreKitTests", "Feature EchoTests"},
+		ExtraTestTargets: []string{"CoreKitTests", "Feature ModuleTests"},
 	}}
 	return cfg
 }
@@ -379,18 +379,18 @@ func TestIOSCIRunsEveryDeclaredTestTarget(t *testing.T) {
 	for _, want := range []string{
 		`"-only-testing:DemoTests"`,
 		`"-only-testing:CoreKitTests"`,
-		`"-only-testing:Feature EchoTests"`,
+		`"-only-testing:Feature ModuleTests"`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the test run does not pass %s, so that suite does not execute and the job "+
 				"still goes green:\n%s", want, script)
 		}
 	}
-	// Quoted as ONE argument. Unquoted, "Feature EchoTests" splits into
-	// `-only-testing:Feature` and `EchoTests` — the first matches nothing (exit 0)
+	// Quoted as ONE argument. Unquoted, "Feature ModuleTests" splits into
+	// `-only-testing:Feature` and `ModuleTests` — the first matches nothing (exit 0)
 	// and the second is read as a build setting.
-	if strings.Contains(script, `-only-testing:Feature EchoTests `) &&
-		!strings.Contains(script, `"-only-testing:Feature EchoTests"`) {
+	if strings.Contains(script, `-only-testing:Feature ModuleTests `) &&
+		!strings.Contains(script, `"-only-testing:Feature ModuleTests"`) {
 		t.Errorf("a target name containing a space is not quoted as a single argument:\n%s", script)
 	}
 }
@@ -505,7 +505,7 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 	// form alone would go unnoticed, which is the same silent-pass shape one
 	// level up.
 	twoWithExtras := twoIOSProducts()
-	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature EchoTests"}
+	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature ModuleTests"}
 	for _, mode := range []struct {
 		name string
 		cfg  *config.Config
@@ -517,18 +517,18 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 	}{
 		{
 			name: "single product", cfg: withExtras(),
-			selectors: []string{"DemoTests", "CoreKitTests", "Feature EchoTests"},
+			selectors: []string{"DemoTests", "CoreKitTests", "Feature ModuleTests"},
 		},
 		{
 			name: "matrix leg", cfg: twoWithExtras,
 			env: []string{
 				"TEST_TARGET=Sample Reader Each DayTests",
 				"UI_TEST_TARGET=Sample Reader Each DayUITests",
-				"EXTRA_TEST_TARGETS=CoreKitTests\nFeature EchoTests",
+				"EXTRA_TEST_TARGETS=CoreKitTests\nFeature ModuleTests",
 			},
 			selectors: []string{
 				"Sample Reader Each DayTests", "Sample Reader Each DayUITests",
-				"CoreKitTests", "Feature EchoTests",
+				"CoreKitTests", "Feature ModuleTests",
 			},
 		},
 	} {
@@ -583,13 +583,13 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 			}
 
 			t.Run("a target name with a space is compared whole", func(t *testing.T) {
-				// "Feature EchoTests" absent, "Feature" and "EchoTests" present. A
+				// "Feature ModuleTests" absent, "Feature" and "ModuleTests" present. A
 				// comparison that word-split the selector would find both halves
 				// and report success over a suite that never ran.
 				var ran []string
 				for _, s := range mode.selectors {
-					if s == "Feature EchoTests" {
-						ran = append(ran, "Feature", "EchoTests")
+					if s == "Feature ModuleTests" {
+						ran = append(ran, "Feature", "ModuleTests")
 						continue
 					}
 					ran = append(ran, s)
@@ -644,7 +644,7 @@ func TestIOSCIVerifiesEverySelectorMatched(t *testing.T) {
 // each: absent, literal, and hoisted-from-env.
 func TestIOSCITestJobShellParses(t *testing.T) {
 	twoWithExtras := twoIOSProducts()
-	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature EchoTests"}
+	twoWithExtras.Product[0].ExtraTestTargets = []string{"CoreKitTests", "Feature ModuleTests"}
 	for _, tc := range []struct {
 		name string
 		cfg  *config.Config

@@ -241,8 +241,8 @@ custom_rules:
 
 # REMOVED: no_repository_in_viewmodel. It was harvested from one app and applied
 # fleet-wide as a --strict (blocking) rule, and NOT ONE of the five apps audited
-# during onboarding followed it: flare had 30 violations, kit 50. Satisfying it
-# in flare alone meant a Service layer across 7 ViewModels, 3 protocols, 11
+# during onboarding followed it: delta had 30 violations, echo 50. Satisfying it
+# in delta alone meant a Service layer across 7 ViewModels, 3 protocols, 11
 # methods and 42 construction sites — an architecture migration, arriving as a
 # lint error, on a branch whose job was to install shared config.
 #

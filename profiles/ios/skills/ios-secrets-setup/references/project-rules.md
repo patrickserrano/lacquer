@@ -174,7 +174,7 @@ done
 | `KEYCHAIN_PASSWORD` | release (signing) | the dedicated runner's **login**-keychain password — set this as an **org-level** secret so every repo's release can unlock the system keychain (release never creates its own, and its final `always()` step restores the keychain's prior settings and re-locks it, so neither the unlocked window nor the timeout change outlives the run) |
 | `SENTRY_AUTH_TOKEN` | release (dSYM upload) | Sentry → Settings → Auth Tokens, scoped to `project:releases` |
 | `SENTRY_ORG` | release (dSYM upload) | the Sentry org slug (e.g. `pixel-fox-studio`) |
-| `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug (e.g. `rail`) — differs per repo, so this one is never org-level |
+| `SENTRY_PROJECT` | release (dSYM upload) | the Sentry project slug (e.g. `charlie`) — differs per repo, so this one is never org-level |
 | `REVENUECAT_REST_API_KEY` | server/REST API calls | RevenueCat → API keys → **secret** key (`sk_…`) — full account access |
 
 Three identical workarounds in three repos is a lacquer defect, not a project
