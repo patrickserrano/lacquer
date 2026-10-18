@@ -16,6 +16,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/fragments"
+	"github.com/patrickserrano/lacquer/internal/swiftformatpin"
 )
 
 // profileNameRe restricts profile names to a strict allowlist. Profile names are
@@ -108,6 +109,16 @@ type Project struct {
 	// is echoed into every Mac job, so a change is visible in the log rather
 	// than inferred, and an unaccepted licence is reported AS a licence problem.
 	XcodeVersion string `toml:"xcode_version"`
+	// SwiftFormatVersion is the SwiftFormat release this project's CI and hooks
+	// run. OPTIONAL: blank means swiftformatpin.Default.
+	//
+	// It is a pin, not an assertion like XcodeVersion. Homebrew has no versioned
+	// swiftformat formula, so the lacquer installs the release asset itself and
+	// verifies it against a checksum table it ships. A version missing from that
+	// table is refused at load: an install step with nothing to verify against
+	// would render green and protect nothing. Moving a project means a lacquer
+	// release that adds the row, then this setting changed in a PR that runs CI.
+	SwiftFormatVersion string `toml:"swiftformat_version"`
 	// ArchiveRoot is the directory the iOS release workflow writes .xcarchive
 	// bundles into. OPTIONAL; defaults to the fleet's dedicated archive volume.
 	//
@@ -693,6 +704,14 @@ func validateProject(p Project) error {
 	}
 	if err := check("stack", p.Stack, stackVal); err != nil {
 		return err
+	}
+	if v := p.SwiftFormatVersion; v != "" {
+		if !swiftformatpin.ValidFormat(v) {
+			return fmt.Errorf("invalid [project].swiftformat_version %q (want MAJOR.MINOR.PATCH, e.g. %q)", v, swiftformatpin.Default)
+		}
+		if _, err := swiftformatpin.Checksum(v); err != nil {
+			return fmt.Errorf("[project].%w", err)
+		}
 	}
 	if c := p.CIRoundCapSetting; c != nil && (*c < 1 || *c > maxCIRoundCap) {
 		return fmt.Errorf("invalid [project].ci_round_cap %d (want 1-%d; below 1 would refuse the push that opens a PR, and a large cap is no cap)", *c, maxCIRoundCap)
@@ -1924,6 +1943,18 @@ type Config struct {
 	// Empty for a Config built in memory (tests). Consumers must treat that as
 	// "unknown", not as the current directory.
 	Root string `toml:"-"`
+	// ManagedWorkflows is every .github/workflows file the lacquer renders for
+	// this project, sorted: the plan's workflow destinations, less anything the
+	// project excluded, seeded or retired away. Set by assets.Plan, never read
+	// from the file (`toml:"-"`).
+	//
+	// It is here for the same reason Root is: the Dependabot entry for GitHub
+	// Actions has to name these files in `exclude-paths`, the list is a fact
+	// about the PLAN, and tokens.Values sees only the Config. Plan runs before
+	// anything is rendered in sync and in audit, so both write and hash the same
+	// list. A Config that was never planned (a unit test calling tokens.Values
+	// directly) has none, and the entry then renders without `exclude-paths`.
+	ManagedWorkflows []string `toml:"-"`
 }
 
 // Products returns every shippable app, synthesising one from [project] when

@@ -12,7 +12,7 @@
 
 [[command]]
 name = "swiftformat"
-argv = ["swiftformat", ".", "--config", ".swiftformat"]
+argv = ["{root}/scripts/swiftformat-pinned.sh", ".", "--config", ".swiftformat"]
 
 [[command]]
 name = "swiftlint --fix"

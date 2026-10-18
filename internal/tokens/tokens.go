@@ -14,6 +14,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
 	"github.com/patrickserrano/lacquer/internal/swiftcomponents"
+	"github.com/patrickserrano/lacquer/internal/swiftformatpin"
 )
 
 // Token names.
@@ -278,6 +279,16 @@ const (
 	// state most of the fleet is in and must keep working in.
 	IOSXcodeExpected = "{{IOS_XCODE_EXPECTED}}"
 
+	// IOSSwiftFormatVersion and IOSSwiftFormatSHA256 are the SwiftFormat release
+	// the project is pinned to and the sha256 of its swiftformat.zip. The first is
+	// the project's swiftformat_version or swiftformatpin.Default, so it is never
+	// empty. The second is empty only for a version the checksum table does not
+	// carry, which config.Load already refuses; it is registered as required so a
+	// config built without Load fails the sync instead of rendering an install
+	// step with nothing to verify the download against.
+	IOSSwiftFormatVersion = "{{IOS_SWIFTFORMAT_VERSION}}"
+	IOSSwiftFormatSHA256  = "{{IOS_SWIFTFORMAT_SHA256}}"
+
 	// IOSArchiveRoot is the directory the release workflow writes .xcarchive
 	// bundles into. Never empty: it falls back to DefaultArchiveRoot, because an
 	// empty value would render `-archivePath "/$PRODUCT_NAME.xcarchive"` and try
@@ -374,6 +385,8 @@ var registry = []entry{
 	{IOSCIArtifactSuffix, false},
 	{IOSCISimSuffix, false},
 	{IOSXcodeExpected, false},
+	{IOSSwiftFormatVersion, true},
+	{IOSSwiftFormatSHA256, true},
 	{IOSArchiveRoot, false},
 	{IOSCISimMatch, false},
 	// All three empty unless a product declares secrets.
@@ -516,6 +529,8 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCIArtifactSuffix:     CIArtifactSuffix(products),
 		IOSCISimSuffix:          CISimSuffix(products),
 		IOSXcodeExpected:        cfg.Project.XcodeVersion,
+		IOSSwiftFormatVersion:   swiftformatpin.Resolve(cfg.Project.SwiftFormatVersion),
+		IOSSwiftFormatSHA256:    swiftFormatSum(cfg.Project.SwiftFormatVersion),
 		IOSArchiveRoot:          archiveRoot(cfg.Project.ArchiveRoot),
 		IOSCISimMatch:           CISimMatch(products),
 
@@ -1295,13 +1310,13 @@ func dependabotUpdates(cfg *config.Config) string {
 	// below is otherwise byte-for-byte what it was before ignores existed. That
 	// is a requirement, not tidiness: every project in the fleet declares no
 	// ignores, so a stray newline here is a diff in every repository at once.
-	entry := func(ecosystem, dir, ignore string) string {
+	entry := func(ecosystem, dir, ignore, exclude string) string {
 		return fmt.Sprintf(`  - package-ecosystem: %s
     directory: %q
     schedule:
       interval: daily
     open-pull-requests-limit: 20
-%s    groups:
+%s%s    groups:
       # Minor and patch updates arrive as ONE pull request per ecosystem.
       #
       # Nothing is hidden: grouping changes how many PRs carry the updates, not
@@ -1325,7 +1340,7 @@ func dependabotUpdates(cfg *config.Config) string {
         update-types:
           - minor
           - patch
-`, ecosystem, dir, ignore, lockstep(ecosystem))
+`, ecosystem, dir, exclude, ignore, lockstep(ecosystem))
 	}
 
 	var b strings.Builder
@@ -1338,32 +1353,34 @@ func dependabotUpdates(cfg *config.Config) string {
 	// the workflow, where the fix is a version bump somebody makes, not a
 	// third-party peer-dependency conflict nobody in the repo can resolve.
 	//
-	// This entry bumps LACQUER-MANAGED workflows too, and that is not fixable
-	// here. Recorded because it looks fixable and is the first thing anyone
-	// reading issue #331 will reach for:
+	// LACQUER-MANAGED workflows are listed in `exclude-paths` (#522 U10). This
+	// entry used to bump them too, which was recorded here as not fixable:
+	// `directory` must be "/", `directories` has no negation, and `ignore` names
+	// dependencies rather than files. `exclude-paths` is the lever that was
+	// missing. It takes file globs relative to `directory`, so the ownership
+	// boundary — PER FILE — is now expressible: the plan's workflow destinations
+	// (cfg.ManagedWorkflows) are excluded, and a workflow the project owns still
+	// gets its updates.
 	//
-	//   - Dependabot's github-actions ecosystem has no path scope. `directory`
-	//     must be "/" (it then reads all of .github/workflows plus a root
-	//     action.yml), `directories` supports globs but no negation, and `ignore`
-	//     names dependencies rather than files. The ownership boundary here is
-	//     PER FILE and Dependabot's unit of work is PER REPO, so no rendering of
-	//     this file can express it.
-	//   - Dropping the entry for a fully-managed project does not work either.
-	//     Dependabot cannot see profiles/ — that path is not .github/workflows in
-	//     any repository, including this one — so the refs these workflows ship
-	//     (actions/upload-artifact, actions/cache, supabase/setup-cli,
-	//     softprops/action-gh-release, denoland/setup-deno,
-	//     actions/dependency-review-action) are watched by NOTHING except the
-	//     project repos that receive them. Removing this entry would trade a
-	//     stream of revertible pull requests for silence, and a stale action pin
-	//     never fails — it just stops being current.
+	// Why they are excluded: a managed workflow's action refs are the lacquer's
+	// to bump. Dependabot turns a floating tag the template uses on purpose
+	// (`@v3`) into a pinned patch (`@v3.0.1`), the drift check then fails, and
+	// that pull request can never pass.
 	//
-	// The bumps that do land on managed workflows are handled on the read side
-	// instead: `lacquer audit` recognises a divergence that is only action
-	// versions and reports it as promotable, naming the action and both refs, so
-	// the project can merge the security bump now and the one-line upstream edit
-	// is spelled out rather than rediscovered. See internal/audit/promote.go.
-	b.WriteString(entry("github-actions", "/", ""))
+	// The cost is real and is the lacquer's to carry: Dependabot cannot see
+	// profiles/ — that path is not .github/workflows in any repository, including
+	// this one — so the refs these workflows ship (actions/upload-artifact,
+	// actions/cache, supabase/setup-cli, softprops/action-gh-release,
+	// denoland/setup-deno, actions/dependency-review-action) are now bumped by
+	// NOTHING except a lacquer release. A stale action pin never fails; it just
+	// stops being current. That is why the entry itself stays rather than being
+	// dropped for a fully-managed project: project-owned workflows still need it.
+	//
+	// A divergence that is only action versions, from a bump made before this
+	// change or by hand, is still handled on the read side: `lacquer audit`
+	// reports it as promotable, naming the action and both refs. See
+	// internal/audit/promote.go.
+	b.WriteString(entry("github-actions", "/", "", excludePaths(cfg.ManagedWorkflows)))
 
 	// One entry per component, at that component's directory: Dependabot has no
 	// glob for `directory`, so a manifest outside a listed path is simply never
@@ -1400,11 +1417,11 @@ func dependabotUpdates(cfg *config.Config) string {
 			// directories means zero entries.
 			if eco == "swift" {
 				for _, d := range swift.DependabotDirs(c.Path) {
-					b.WriteString(entry(eco, dependabotDir(d), ignore))
+					b.WriteString(entry(eco, dependabotDir(d), ignore, ""))
 				}
 				return
 			}
-			b.WriteString(entry(eco, dependabotDir(c.Path), ignore))
+			b.WriteString(entry(eco, dependabotDir(c.Path), ignore, ""))
 		}
 		if c.Stack != "" {
 			emit(c.Stack)
@@ -1414,6 +1431,22 @@ func dependabotUpdates(cfg *config.Config) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// excludePaths renders a Dependabot `exclude-paths` list, or "" for none.
+// Paths are relative to the entry's `directory` ("/"), so a workflow's
+// repo-relative path is used as is. Quoted, as `directory` is, so a name can
+// never be read as YAML syntax.
+func excludePaths(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("    exclude-paths:\n")
+	for _, p := range paths {
+		fmt.Fprintf(&b, "      - %q\n", p)
+	}
+	return b.String()
 }
 
 // lockstep renders group entries for dependency families that MUST move
@@ -1567,4 +1600,16 @@ func archiveRoot(configured string) string {
 		return DefaultArchiveRoot
 	}
 	return strings.TrimSpace(configured)
+}
+
+// swiftFormatSum is the checksum for the project's pinned SwiftFormat, or "" for
+// a version the table does not carry. Blank is deliberate: IOSSwiftFormatSHA256
+// is a required token, so the sync refuses it by name instead of installing an
+// unverified binary.
+func swiftFormatSum(configured string) string {
+	sum, err := swiftformatpin.Checksum(swiftformatpin.Resolve(configured))
+	if err != nil {
+		return ""
+	}
+	return sum
 }
