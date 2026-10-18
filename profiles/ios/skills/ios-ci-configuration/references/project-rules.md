@@ -269,7 +269,7 @@ table).
 |---|---|
 | `Lint` → SwiftLint `--strict`, once per declared Swift component, from inside it | pre-commit `swiftlint` (**`--strict`**, staged files grouped by component) |
 | `Lint` → Every Swift file belongs to a declared component | pre-commit `swiftlint` refuses a staged file under no component (from the date the warning prints); `lacquer swift-components --check` any time |
-| `Lint` → SwiftFormat `--lint` | pre-commit `swiftformat` (writes; a changed file fails the commit) |
+| `Lint` → SwiftFormat `--lint` (the pinned release, `scripts/swiftformat-pinned.sh`) | pre-commit `swiftformat` (same pinned binary; writes; a changed file fails the commit) |
 | `missing_docs` | pre-commit `swiftlint-docs` (**`--strict`**, staged files) |
 | `Test` | CI-only — see below |
 | `Baseline` | `lacquer audit` (exit 4) — CI-only, it reads the pbxproj |

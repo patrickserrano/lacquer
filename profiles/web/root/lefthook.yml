@@ -84,8 +84,18 @@ pre-commit:
         fi
         pre-commit run --hook-stage pre-commit --files {staged_files}
 
+# Not parallel: `docs` (TypeDoc) reads the .next/types that `build` (next build)
+# rewrites while it runs, and a push failed intermittently when the two overlapped
+# (#520). lefthook can only order a whole hook (`parallel: false` runs the commands
+# one at a time, sorted by name unless a `priority:` says otherwise, and stops at
+# the first failure); the merged file is built from `commands:` maps, so a `jobs:`
+# group ordering just those two would not survive the merge. `build` sorts before
+# `docs`, as web-ci.yml runs its `Docs (TypeDoc)` step after Build; do not rename
+# either, or give one a `priority:`, without re-checking that. The price is that
+# `test` and `audit` no longer overlap them. profiles/supabase/root/lefthook.yml
+# says the same, since the merge refuses two profiles that disagree on `parallel`.
 pre-push:
-  parallel: true
+  parallel: false
   commands:
     test:
       root: "{{COMPONENT_PREFIX}}"
@@ -103,8 +113,10 @@ pre-push:
         else
           {{WEB_RUN}} build
         fi
-    # The documentation baseline, and now the whole of it: this used to mirror a
-    # `Docs` job in web-ci.yml, and that job is gone. Not at pre-commit: TypeDoc
+    # The documentation baseline. The separate `Docs` job in web-ci.yml is gone
+    # (#234); its `Docs (TypeDoc)` step in the `check` job runs the same
+    # invocation after Build, and this hook runs after `build` for the same reason.
+    # Not at pre-commit: TypeDoc
     # reads the whole entry-point graph, so running it per staged file would be
     # both slow and wrong (an export documented in a file you didn't stage still
     # counts).

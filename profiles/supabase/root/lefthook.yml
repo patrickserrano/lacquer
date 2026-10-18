@@ -94,8 +94,11 @@ pre-commit:
           exit 1
         fi
         pre-commit run --hook-stage pre-commit --files {staged_files}
+# Not parallel, to agree with profiles/web/root/lefthook.yml: the merge refuses
+# two profiles that disagree on `parallel`, and the web hook needs `docs` to run
+# after `build` (#520). Two quick commands, so the cost here is small.
 pre-push:
-  parallel: true
+  parallel: false
   commands:
     typecheck:
       root: "{{COMPONENT_PREFIX}}"

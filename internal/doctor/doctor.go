@@ -25,6 +25,7 @@ package doctor
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -136,8 +137,18 @@ type Result struct {
 	Profile   string
 	Name      string
 	OK        bool
-	Detail    string
+	// Skipped marks a probe that did not run its comparison and says why in
+	// Detail. It is OK, so it does not fail doctor, and it is printed as a skip
+	// so it cannot be read as a pass.
+	Skipped bool
+	Detail  string
 }
+
+// skipped is returned by a configuration check that has nothing to compare and
+// says so. runProbe turns it into a Skipped result rather than a failure.
+type skipped string
+
+func (s skipped) Error() string { return string(s) }
 
 // CoreLayer is the pseudo-profile name for core's own self-tests. core ships
 // checks every project gets — the secrets scanner, the commit-message check —
@@ -267,8 +278,13 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, only []string, out
 				mark := "ok  "
 				if !r.OK {
 					mark = "FAIL"
+				} else if r.Skipped {
+					mark = "skip"
 				}
 				fmt.Fprintf(out, "  %s  %s\n", mark, r.Name)
+				if r.Skipped {
+					fmt.Fprintf(out, "        %s\n", r.Detail)
+				}
 				if !r.OK {
 					fmt.Fprintf(out, "        %s\n", r.Detail)
 					if pr.Why != "" {
@@ -288,8 +304,13 @@ func report(out io.Writer, p Probe, r Result) {
 	mark := "ok  "
 	if !r.OK {
 		mark = "FAIL"
+	} else if r.Skipped {
+		mark = "skip"
 	}
 	fmt.Fprintf(out, "  %s  %s\n", mark, r.Name)
+	if r.Skipped {
+		fmt.Fprintf(out, "        %s\n", r.Detail)
+	}
 	if !r.OK {
 		fmt.Fprintf(out, "        %s\n", r.Detail)
 		if p.Why != "" {
@@ -302,6 +323,11 @@ func runProbe(p Probe, compPath, profile, compDir, projectRoot string) Result {
 	r := Result{Component: compPath, Profile: profile, Name: p.Name}
 	if p.Check != "" {
 		err := checkConfig(p.Check, projectRoot, compDir)
+		var sk skipped
+		if errors.As(err, &sk) {
+			r.OK, r.Skipped, r.Detail = true, true, sk.Error()
+			return r
+		}
 		r.OK = err == nil
 		if err != nil {
 			r.Detail = err.Error()

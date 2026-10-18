@@ -610,6 +610,49 @@ jobs:
             {{WEB_RUN}} build
           fi
 
+      # Every export documented, on the component's real code (#522 U8
+      # follow-up). Until this step only lefthook's pre-push `docs` hook ran
+      # TypeDoc, so an undocumented export merged green whenever the hook did
+      # not run: a push with --no-verify, an edit made on github.com, a clone
+      # that never ran `lefthook install`. The old `Docs` job went in #234
+      # because it queued behind the one shared Mac runner; this is a step in
+      # a job that is already running, on Blacksmith, so it adds no pickup.
+      #
+      # The SAME invocation as the hook, kept textually in step with it by
+      # internal/shipped/web_docs_step_test.go: the repository's
+      # [baseline.relax] documentation decides, and only `relaxed` skips (an
+      # expired or malformed entry runs TypeDoc, because a time-boxed exemption
+      # whose time ran out is no exemption). Then the component's own TypeDoc,
+      # with no flags, so typedoc.json (entry points, strategy, exclude) is
+      # the whole of what it checks, exactly as on a developer's machine.
+      #
+      # After Build, not before: a developer's checkout has the build's
+      # generated types on disk when the hook runs, so this reads the same tree.
+      - name: Docs (TypeDoc)
+        # The repository root, where the relaxation script and .lacquer.toml
+        # live; TypeDoc itself runs in the component, below.
+        working-directory: "."
+        run: |
+          for f in scripts/docs-relaxation.sh .lacquer.toml; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f is missing from the repository root, so [baseline.relax] cannot be read. lacquer sync writes the script."
+              exit 1
+            fi
+          done
+          if ! state=$(scripts/docs-relaxation.sh .lacquer.toml); then
+            echo "::error::scripts/docs-relaxation.sh failed, so [baseline.relax] cannot be read."
+            exit 1
+          fi
+          if [ "$state" = "relaxed" ]; then
+            echo "::notice::Documentation is relaxed by [baseline.relax] in .lacquer.toml; TypeDoc skipped, as the pre-push hook skips it."
+            exit 0
+          fi
+          cd "{{COMPONENT_PREFIX}}."
+          if ! ./node_modules/.bin/typedoc; then
+            echo "::error::TypeDoc failed: an export has no TSDoc comment, a link in one does not resolve, or the build itself failed (read the log above). This is the pre-push docs hook's check."
+            exit 1
+          fi
+
       # Block only on CRITICAL advisories by default — transitive highs are often
       # unfixable; tighten to `high` per project.
       - name: Dependency audit

@@ -73,8 +73,9 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, dedicated]
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: swiftformat --lint
-        run: swiftformat --lint {{COMPONENT_PREFIX}}.
+      # The project's pinned SwiftFormat, not the runner's Homebrew copy.
+      - name: SwiftFormat lint
+        run: scripts/swiftformat-pinned.sh --lint {{COMPONENT_PREFIX}}.
       - name: swiftlint --strict
         run: swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}.
 

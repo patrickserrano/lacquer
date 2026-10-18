@@ -343,12 +343,12 @@ func TestTypeDocEntryPointsRefuseValuesThatDoNotMeanWhatTheySay(t *testing.T) {
 
 func TestTypeDocRender(t *testing.T) {
 	profile := shipped(t, "profiles/web/config/typedoc.json")
-	got, err := RenderTypeDoc(profile, nil)
+	got, err := RenderTypeDoc(profile, nil, "")
 	if err != nil || string(got) != string(profile) {
 		t.Fatalf("rendering with no entry points changed typedoc.json (err %v)", err)
 	}
 
-	got, err = RenderTypeDoc(profile, []string{"src/cli.ts", "src/index.ts"})
+	got, err = RenderTypeDoc(profile, []string{"src/cli.ts", "src/index.ts"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestTypeDocRender(t *testing.T) {
 	}
 
 	long := []string{"core/src/index.ts", "api/src/index.ts", "redirect/src/index.ts", "proxy/src/index.ts", "extra/src/index.ts"}
-	got, err = RenderTypeDoc(profile, long)
+	got, err = RenderTypeDoc(profile, long, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,73 @@ func TestTypeDocRender(t *testing.T) {
 
 	// The profile line moved: refuse rather than leave the value unused.
 	edited := []byte(strings.Replace(string(profile), typeDocDefault, `  "entryPoints": ["src/main.ts"],`, 1))
-	if _, err := RenderTypeDoc(edited, []string{"src/cli.ts"}); err == nil {
+	if _, err := RenderTypeDoc(edited, []string{"src/cli.ts"}, ""); err == nil {
 		t.Error("rendered entry points into a typedoc.json that no longer carries the default line")
+	}
+}
+
+func TestTypeDocStrategyRefusesWhatWouldNotGate(t *testing.T) {
+	for name, tc := range map[string]struct {
+		entries  []string
+		strategy string
+		want     string
+	}{
+		// Measured: packages mode skips the root validation per package.
+		"packages":                    {[]string{"core", "api"}, "packages", "undocumented exports pass silently"},
+		"resolve spelled out":         {nil, "resolve", `the only value is "expand"`},
+		"case matters":                {nil, "Expand", `the only value is "expand"`},
+		"directory without strategy":  {[]string{"src/lib"}, "", "a directory"},
+		"directory beside a file":     {[]string{"src/index.ts", "src"}, "", "a directory"},
+		"strategy keeps entry checks": {[]string{"../out"}, "expand", "leaves the component"},
+	} {
+		err := ValidateTypeDoc(tc.entries, tc.strategy)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want an error containing %q", name, err, tc.want)
+		}
+	}
+	for name, tc := range map[string]struct {
+		entries  []string
+		strategy string
+	}{
+		"absent":                 {nil, ""},
+		"files":                  {[]string{"src/index.ts"}, ""},
+		"glob without strategy":  {[]string{"src/**/*.ts"}, ""},
+		"directory under expand": {[]string{"src/lib", "src/types"}, "expand"},
+		"strategy alone":         {nil, "expand"},
+	} {
+		if err := ValidateTypeDoc(tc.entries, tc.strategy); err != nil {
+			t.Errorf("%s: refused: %v", name, err)
+		}
+	}
+}
+
+// A strategy, or a glob, makes the entry list grow on its own, so the render
+// adds the test exclude; a plain file list does not, so it stays exactly as
+// U8 rendered it (TestTypeDocRender pins that whole file).
+func TestTypeDocRenderWithStrategyOrGlob(t *testing.T) {
+	profile := shipped(t, "profiles/web/config/typedoc.json")
+	exclude := `  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "**/__tests__/**"],`
+	for name, tc := range map[string]struct {
+		entries  []string
+		strategy string
+		want     string
+	}{
+		"expand": {[]string{"src/lib", "src/types"}, "expand",
+			"  \"entryPoints\": [\"src/lib\", \"src/types\"],\n  \"entryPointStrategy\": \"expand\",\n" + exclude},
+		"glob": {[]string{"src/**/*.ts"}, "",
+			"  \"entryPoints\": [\"src/**/*.ts\"],\n" + exclude},
+		"strategy alone": {nil, "expand",
+			typeDocDefault + "\n  \"entryPointStrategy\": \"expand\",\n" + exclude},
+	} {
+		got, err := RenderTypeDoc(profile, tc.entries, tc.strategy)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if want := strings.Replace(string(profile), typeDocDefault, tc.want, 1); string(got) != want {
+			t.Errorf("%s rendered as:\n%s", name, got)
+		}
+	}
+	if _, err := RenderTypeDoc(profile, []string{"src"}, "packages"); err == nil {
+		t.Error("rendered the packages strategy")
 	}
 }

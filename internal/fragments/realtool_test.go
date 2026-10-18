@@ -29,11 +29,11 @@ func TestRenderedJSONIsBiomeFormatted(t *testing.T) {
 		t.Fatal(err)
 	}
 	typedoc, err := RenderTypeDoc(shipped(t, "profiles/web/config/typedoc.json"),
-		[]string{"core/src/index.ts", "api/src/index.ts", "redirect/src/index.ts", "proxy/src/index.ts", "extra/src/index.ts"})
+		[]string{"core/src/index.ts", "api/src/index.ts", "redirect/src/index.ts", "proxy/src/index.ts", "extra/src/index.ts"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	short, err := RenderTypeDoc(shipped(t, "profiles/web/config/typedoc.json"), []string{"src/cli.ts", "src/index.ts"})
+	short, err := RenderTypeDoc(shipped(t, "profiles/web/config/typedoc.json"), []string{"src/cli.ts", "src/index.ts"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

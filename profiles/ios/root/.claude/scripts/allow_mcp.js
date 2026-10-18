@@ -1,5 +1,9 @@
 #!/usr/bin/env osascript -l JavaScript
 
+// osascript calls run() itself, as the script's entry point; nothing here does.
+// The web profile's biome.json lints this file wherever a web component sits at
+// the repository root beside an iOS one, so it is kept clean under that config.
+// biome-ignore lint/correctness/noUnusedVariables: osascript's entry point
 function run() {
   const xcode = Application('Xcode')
   if (!xcode.running()) {
@@ -17,9 +21,9 @@ function run() {
         const val = text.value()
         // This is a consent dialog — never blanket-approve. Only click Allow
         // when the dialog names the expected requesting app (Claude).
-        if (val && val.includes('to access Xcode?') && /Claude/i.test(val)) {
+        if (val?.includes('to access Xcode?') && /Claude/i.test(val)) {
           const allowButton = window.buttons.whose({ name: 'Allow' })[0]
-          if (allowButton && allowButton.exists()) {
+          if (allowButton?.exists()) {
             allowButton.click()
             approvedCount++
             break
@@ -28,7 +32,7 @@ function run() {
       }
     }
   } catch (e) {
-    return 'Error: ' + e.message
+    return `Error: ${e.message}`
   }
 
   return approvedCount > 0

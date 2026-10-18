@@ -542,9 +542,38 @@ jobs:
           done
           exit $status
 
+      # Lint with the SwiftFormat this project PINS, never the runner's Homebrew.
+      # A routine `brew upgrade` moved a shared runner to a release with new
+      # default rules, and Lint failed on unchanged main branches in every iOS
+      # project, with Build and Test skipped behind it. Homebrew has no versioned
+      # formula, so scripts/swiftformat-pinned.sh installs the release asset into
+      # a per-version cache, checks its sha256 against the pin below, and fails
+      # with "runner binary reports X, repo pins Y" if the binary is anything
+      # else. Bump the pin with `swiftformat_version` in .lacquer.toml, in a PR
+      # that also carries the reformat.
+      - name: Install pinned SwiftFormat
+        id: swiftformat
+        if: steps.swiftsrc.outputs.present == 'true'
+        env:
+          SWIFTFORMAT_PIN_VERSION: "{{IOS_SWIFTFORMAT_VERSION}}"
+          SWIFTFORMAT_PIN_SHA256: "{{IOS_SWIFTFORMAT_SHA256}}"
+        run: |
+          set -euo pipefail
+          bin="$(scripts/swiftformat-pinned.sh --path)"
+          have="$("$bin" --version)"
+          if [ "$have" != "$SWIFTFORMAT_PIN_VERSION" ]; then
+            echo "::error::SwiftFormat: runner binary reports $have, repo pins $SWIFTFORMAT_PIN_VERSION"
+            exit 1
+          fi
+          echo "SwiftFormat $have (sha256 $SWIFTFORMAT_PIN_SHA256) at $bin" >> "$GITHUB_STEP_SUMMARY"
+          echo "bin=$bin" >> "$GITHUB_OUTPUT"
+
       - name: Check SwiftFormat
         if: steps.swiftsrc.outputs.present == 'true'
-        run: swiftformat --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.
+        env:
+          SWIFTFORMAT_BIN: ${{ steps.swiftformat.outputs.bin }}
+        run: |
+          "$SWIFTFORMAT_BIN" --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.
 
       # Prove the checks above can actually FAIL. Everything else in this job
       # asks "does this project pass?"; doctor asks "would these checks notice
@@ -986,7 +1015,13 @@ jobs:
     # committed and no project.yml to regenerate it) has nothing to build yet —
     # see the `changes` job's `xcodeproj` output for the full reasoning.
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
-    timeout-minutes: 25{{IOS_CI_BUILD_STRATEGY}}
+    timeout-minutes: 25
+    env:
+      # Homebrew is shared by every runner user on this Mac, and cleanup after an
+      # install fails on files another user owns (Permission denied @ apply2files),
+      # so turn off the auto-update and cleanup that `brew install` runs.
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'{{IOS_CI_BUILD_STRATEGY}}
     steps:
       # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
       # host arrives with no PR and no warning, and its first symptom is a red
@@ -1374,7 +1409,13 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
     # Per-step fail-fast timeouts below catch silent hangs; this is the generous
     # backstop with headroom for a cold, cache-cold build.
-    timeout-minutes: 20{{IOS_CI_TEST_STRATEGY}}
+    timeout-minutes: 20
+    env:
+      # Homebrew is shared by every runner user on this Mac, and cleanup after an
+      # install fails on files another user owns (Permission denied @ apply2files),
+      # so turn off the auto-update and cleanup that `brew install` runs.
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'{{IOS_CI_TEST_STRATEGY}}
     steps:
       # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
       # host arrives with no PR and no warning, and its first symptom is a red

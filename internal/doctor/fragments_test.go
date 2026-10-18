@@ -79,7 +79,7 @@ func TestFragmentChecksPassWhenRenderedAndFailWhenStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderedTypeDoc, err := fragments.RenderTypeDoc(typedoc, cfg.Web.TypeDocEntryPoints)
+	renderedTypeDoc, err := fragments.RenderTypeDoc(typedoc, cfg.Web.TypeDocEntryPoints, cfg.Web.TypeDocEntryPointStrategy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestFragmentChecksPassOnAnUndeclaredProject(t *testing.T) {
 	if err := checkBiomeOverrides(shippedFile(t, "profiles/web/config/biome.json"), nil); err != nil {
 		t.Errorf("biome: %v", err)
 	}
-	if err := checkTypeDocEntryPoints(shippedFile(t, "profiles/web/config/typedoc.json"), nil); err != nil {
+	if err := checkTypeDocEntryPoints(shippedFile(t, "profiles/web/config/typedoc.json"), nil, ""); err != nil {
 		t.Errorf("typedoc: %v", err)
 	}
 }
@@ -184,4 +184,91 @@ func TestTypeDocProbesPinTheirOwnEntryPoint(t *testing.T) {
 	if n == 0 {
 		t.Fatal("found no TypeDoc probe; the guarantee above is about nothing")
 	}
+}
+
+// The entry-point check also holds the strategy and the test exclude to the
+// manifest, in both directions: a declared strategy missing from the synced
+// file, a synced strategy the manifest no longer declares, and an exclude that
+// was edited (a wider one would hide real exports from the gate).
+func TestTypeDocCheckHoldsStrategyAndExcludeToTheManifest(t *testing.T) {
+	shipped := shippedFile(t, "profiles/web/config/typedoc.json")
+	entries := []string{"src/lib", "src/types"}
+	expanded, err := fragments.RenderTypeDoc(shipped, entries, "expand")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkTypeDocEntryPoints(expanded, entries, "expand"); err != nil {
+		t.Fatalf("a freshly rendered expand config failed: %v", err)
+	}
+	widened := []byte(strings.Replace(string(expanded), `"**/__tests__/**"`, `"**/__tests__/**", "src/**"`, 1))
+	for name, tc := range map[string]struct {
+		synced   []byte
+		entries  []string
+		strategy string
+		want     string
+	}{
+		"declared, not synced": {shipped, nil, "expand", `entryPointStrategy is "", want "expand"`},
+		"synced, not declared": {expanded, entries, "", `entryPointStrategy is "expand", want ""`},
+		"exclude widened":      {widened, entries, "expand", "exclude is"},
+	} {
+		err := checkTypeDocEntryPoints(tc.synced, tc.entries, tc.strategy)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want an error containing %q", name, err, tc.want)
+		}
+	}
+}
+
+// A project that lists typedoc.json in [project].exclude owns the file, so the
+// entry-point check must not compare it with the shipped default. With no
+// typedoc_* key declared it reports a skip that doctor does not count as a
+// failure; with a key declared the exclude and the key contradict, and the
+// failure names both.
+func TestTypeDocProbeSkipsAProjectOwnedFile(t *testing.T) {
+	const owned = `{"entryPoints": ["src/lib", "src/components"], "entryPointStrategy": "expand"}`
+	probes := "[[probe]]\nname='typedoc'\ncheck='typedoc-entry-points'\nexpect='pass'\n"
+	run := func(t *testing.T, manifest string) (Result, string) {
+		t.Helper()
+		root, project := t.TempDir(), t.TempDir()
+		write(t, filepath.Join(root, "profiles/web/doctor.toml"), probes)
+		write(t, filepath.Join(project, ".lacquer.toml"), manifest)
+		write(t, filepath.Join(project, "admin/typedoc.json"), owned)
+		cfg, err := config.Load(filepath.Join(project, ".lacquer.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out strings.Builder
+		res, err := Run(root, project, cfg, nil, &out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res) != 1 {
+			t.Fatalf("ran %d probes, want 1: %+v", len(res), res)
+		}
+		return res[0], out.String()
+	}
+	base := "[project]\nname='demo'\nexclude = ['admin/typedoc.json']\n"
+	comp := "\n[[component]]\npath = 'admin'\nprofiles = ['web']\n"
+
+	t.Run("excluded and undeclared skips", func(t *testing.T) {
+		r, out := run(t, base+comp)
+		if !r.OK || !r.Skipped {
+			t.Fatalf("OK=%v Skipped=%v detail=%q, want a skip that is not a failure", r.OK, r.Skipped, r.Detail)
+		}
+		want := "typedoc.json is project-owned ([project].exclude) and no [web] typedoc_* key is declared; not checked"
+		if !strings.Contains(out, want) || !strings.Contains(out, "skip") {
+			t.Errorf("doctor output does not print the skip:\n%s", out)
+		}
+	})
+	t.Run("excluded and declared fails naming both", func(t *testing.T) {
+		r, _ := run(t, base+"\n[web]\ntypedoc_entry_points = ['src/index.ts']\n"+comp)
+		if r.OK || !strings.Contains(r.Detail, "[project].exclude") || !strings.Contains(r.Detail, "typedoc_entry_points") {
+			t.Errorf("OK=%v detail=%q, want a failure naming the exclude and the typedoc key", r.OK, r.Detail)
+		}
+	})
+	t.Run("not excluded still compares the file", func(t *testing.T) {
+		r, _ := run(t, "[project]\nname='demo'\n"+comp)
+		if r.OK || r.Skipped || !strings.Contains(r.Detail, "entryPoints") {
+			t.Errorf("OK=%v Skipped=%v detail=%q, want the entryPoints failure", r.OK, r.Skipped, r.Detail)
+		}
+	})
 }
