@@ -182,6 +182,39 @@ func TestBinaryLeavesPathLookupsAlone(t *testing.T) {
 	}
 }
 
+// {root} names the project root, so a fixer can be a script the lacquer ships at
+// the repository root (the pinned SwiftFormat resolver) even though fixers run
+// inside the component directory, where that script is not.
+func TestRootPlaceholderResolvesAgainstTheProjectRoot(t *testing.T) {
+	lroot := t.TempDir()
+	writeFile(t, filepath.Join(lroot, "profiles", "p", "fix.toml"),
+		"[[command]]\nname = \"pinned\"\nargv = [\"{root}/scripts/tool.sh\", \"{root}/marker\"]\n")
+	proj := t.TempDir()
+	writeFile(t, filepath.Join(proj, "scripts", "tool.sh"), "#!/bin/sh\npwd > \"$1\"\n")
+	if err := os.Chmod(filepath.Join(proj, "scripts", "tool.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(proj, "ios"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{Components: []config.Component{{Path: "ios", Profiles: []string{"p"}}}}
+	res, err := Run(lroot, proj, cfg, new(bytes.Buffer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || strings.Contains(res[0].Status, "not installed") {
+		t.Fatalf("the {root} script was not found: %+v", res)
+	}
+	got, err := os.ReadFile(filepath.Join(proj, "marker"))
+	if err != nil {
+		t.Fatalf("the script never ran with {root} resolved in its argument: %v", err)
+	}
+	if want, _ := filepath.EvalSymlinks(filepath.Join(proj, "ios")); strings.TrimSpace(string(got)) != want {
+		t.Errorf("script ran in %q, want the component directory %q", strings.TrimSpace(string(got)), want)
+	}
+}
+
 func chdir(t *testing.T, dir string) {
 	t.Helper()
 	prev, err := os.Getwd()

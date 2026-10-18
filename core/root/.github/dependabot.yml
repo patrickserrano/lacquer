@@ -41,6 +41,13 @@
 # review rather than quietly becoming permanent. Every rendered `ignore` entry
 # below carries its reason and its date as comments, so this file explains its
 # own exceptions without anyone opening .lacquer.toml.
+#
+# LACQUER-MANAGED WORKFLOWS are excluded from the github-actions entry
+# (`exclude-paths`, listed below from what this render actually manages). Their
+# action versions are the lacquer's to bump, and a floating tag the template uses
+# on purpose (`@v3`) that Dependabot turns into a pinned patch (`@v3.0.1`) fails
+# the drift check, so that pull request can never pass. Workflows the project
+# owns are not listed and still get their updates.
 version: 2
 updates:
 {{DEPENDABOT_UPDATES}}
