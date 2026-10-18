@@ -31,7 +31,9 @@ import (
 	"github.com/patrickserrano/lacquer/internal/safepath"
 )
 
-// Command is one autofixer.
+// Command is one autofixer. Argv entries may name {root}, the project root, for
+// a tool that lives there rather than on PATH: a pinned binary resolved by a
+// script the lacquer ships at the repository root.
 type Command struct {
 	Name string   `toml:"name"`
 	Argv []string `toml:"argv"`
@@ -146,7 +148,11 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 
 				// Resolve the binary before running so "not installed" is
 				// reported as itself rather than as an opaque exec error.
-				bin := Binary(dir, cmd.Argv[0])
+				argv := make([]string, len(cmd.Argv))
+				for i, a := range cmd.Argv {
+					argv[i] = strings.ReplaceAll(a, "{root}", projectRoot)
+				}
+				bin := Binary(dir, argv[0])
 				if _, err := exec.LookPath(bin); err != nil {
 					r.Status = fmt.Sprintf("skipped: %s is not installed", cmd.Argv[0])
 					fmt.Fprintf(out, "  %-24s %s\n", cmd.Name, r.Status)
@@ -171,7 +177,7 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 				// matters is whether THIS pass moved anything.
 				prev, stateErr := treeState(dir)
 				for passes < maxPasses {
-					ex := exec.Command(bin, cmd.Argv[1:]...) // #nosec G204 -- argv comes from a lacquer-owned fix.toml, never user input
+					ex := exec.Command(bin, argv[1:]...) // #nosec G204 -- argv comes from a lacquer-owned fix.toml, never user input
 					ex.Dir = dir
 					combined, runErr = ex.CombinedOutput()
 					passes++

@@ -1,13 +1,13 @@
 ---
 description: Run all formatters and linters with auto-fix
-allowed-tools: Bash(swiftformat *), Bash(swiftlint *)
+allowed-tools: Bash(scripts/swiftformat-pinned.sh *), Bash(swiftlint *)
 ---
 
 Run all code quality tools to format and lint the iOS codebase.
 
 ## Steps
 
-1. Run SwiftFormat: `swiftformat --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.`
+1. Run SwiftFormat (the project's pinned version, never a Homebrew one): `scripts/swiftformat-pinned.sh --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.`
 2. Run SwiftLint auto-correct: `swiftlint --fix --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}.`
 3. Run SwiftLint check: `swiftlint --strict --config {{COMPONENT_PREFIX}}.swiftlint.yml {{COMPONENT_PREFIX}}.`
 4. If `lacquer swift-components` lists package components beside the app, run the SwiftLint check from inside each one, against its own config: `(cd <component> && swiftlint --strict --config .swiftlint.yml .)`
