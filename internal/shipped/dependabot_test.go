@@ -22,10 +22,11 @@ type dependabotFile struct {
 		Schedule  struct {
 			Interval string `yaml:"interval"`
 		} `yaml:"schedule"`
-		Limit  int      `yaml:"open-pull-requests-limit"`
-		Ignore []any    `yaml:"ignore"`
-		Allow  []any    `yaml:"allow"`
-		Labels []string `yaml:"labels"`
+		Limit        int      `yaml:"open-pull-requests-limit"`
+		ExcludePaths []string `yaml:"exclude-paths"`
+		Ignore       []any    `yaml:"ignore"`
+		Allow        []any    `yaml:"allow"`
+		Labels       []string `yaml:"labels"`
 	} `yaml:"updates"`
 }
 

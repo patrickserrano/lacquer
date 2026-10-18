@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -500,7 +501,35 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, []string, 
 		out[i].Prefix = out[i].Merged[0].prefix
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Dest < out[j].Dest })
+	cfg.ManagedWorkflows = managedWorkflows(out, seeded)
 	return out, suppressed, seeded, nil
+}
+
+// managedWorkflows is the workflow files in the plan whose content is the
+// lacquer's: what Dependabot must leave alone, because the lacquer bumps those
+// actions itself and a Dependabot edit fails the drift check.
+//
+// A seed-once file is left out even while the plan still carries it (it is
+// absent, so it will be written once). From the next sync it is the project's,
+// and the list must not flip as soon as the file lands.
+func managedWorkflows(planned []Asset, seeded []string) []string {
+	owned := map[string]bool{}
+	for _, s := range seeded {
+		owned[filepath.ToSlash(s)] = true
+	}
+	var out []string
+	for _, a := range planned {
+		dest := filepath.ToSlash(a.Dest)
+		if path.Dir(dest) != ".github/workflows" || owned[dest] {
+			continue
+		}
+		if ext := path.Ext(dest); ext != ".yml" && ext != ".yaml" {
+			continue
+		}
+		out = append(out, dest)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // present reports whether dest already exists in the project at root. Lstat, so

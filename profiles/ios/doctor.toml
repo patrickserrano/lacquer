@@ -87,7 +87,7 @@ struct DoctorProbeType {
       let value  =  1
 }
 """
-argv = ["swiftformat", "--lint", "--config", "{component}/.swiftformat", "{dir}"]
+argv = ["{root}/scripts/swiftformat-pinned.sh", "--lint", "--config", "{component}/.swiftformat", "{dir}"]
 expect = "fail"
 # Naming the rule proves SwiftFormat parsed the file and produced a diff. An
 # unreadable --config, or a rule name the running version no longer knows, also
@@ -212,8 +212,8 @@ struct DoctorProbeView: View {
 # success, got exit 127" into "swiftformat is not installed" — and, for an
 # expect="fail" probe in this shape, is the difference between a finding and a
 # silent pass. See internal/doctor's Requires.
-requires = ["swiftformat", "swiftlint"]
-argv = ["sh", "-c", "swiftformat {dir} --config {component}/.swiftformat --quiet && swiftlint --strict --config {component}/.swiftlint.yml {dir}"]
+requires = ["{root}/scripts/swiftformat-pinned.sh", "swiftlint"]
+argv = ["sh", "-c", "{root}/scripts/swiftformat-pinned.sh {dir} --config {component}/.swiftformat --quiet && swiftlint --strict --config {component}/.swiftlint.yml {dir}"]
 expect = "pass"
 
 [[probe]]
@@ -255,10 +255,10 @@ struct DoctorProbeExpr {
     }
 }
 """
-requires = ["swiftformat", "swiftlint"]
+requires = ["{root}/scripts/swiftformat-pinned.sh", "swiftlint"]
 argv = ["sh", "-c", """
 set -e
-swiftformat {dir} --config {component}/.swiftformat --quiet
+{root}/scripts/swiftformat-pinned.sh {dir} --config {component}/.swiftformat --quiet
 grep -q 'if case .resolved = phase { true } else { false }' {dir}/Probe.swift
 swiftlint --strict --config {component}/.swiftlint.yml {dir}
 """]

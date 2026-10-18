@@ -542,9 +542,38 @@ jobs:
           done
           exit $status
 
+      # Lint with the SwiftFormat this project PINS, never the runner's Homebrew.
+      # A routine `brew upgrade` moved a shared runner to a release with new
+      # default rules, and Lint failed on unchanged main branches in every iOS
+      # project, with Build and Test skipped behind it. Homebrew has no versioned
+      # formula, so scripts/swiftformat-pinned.sh installs the release asset into
+      # a per-version cache, checks its sha256 against the pin below, and fails
+      # with "runner binary reports X, repo pins Y" if the binary is anything
+      # else. Bump the pin with `swiftformat_version` in .lacquer.toml, in a PR
+      # that also carries the reformat.
+      - name: Install pinned SwiftFormat
+        id: swiftformat
+        if: steps.swiftsrc.outputs.present == 'true'
+        env:
+          SWIFTFORMAT_PIN_VERSION: "{{IOS_SWIFTFORMAT_VERSION}}"
+          SWIFTFORMAT_PIN_SHA256: "{{IOS_SWIFTFORMAT_SHA256}}"
+        run: |
+          set -euo pipefail
+          bin="$(scripts/swiftformat-pinned.sh --path)"
+          have="$("$bin" --version)"
+          if [ "$have" != "$SWIFTFORMAT_PIN_VERSION" ]; then
+            echo "::error::SwiftFormat: runner binary reports $have, repo pins $SWIFTFORMAT_PIN_VERSION"
+            exit 1
+          fi
+          echo "SwiftFormat $have (sha256 $SWIFTFORMAT_PIN_SHA256) at $bin" >> "$GITHUB_STEP_SUMMARY"
+          echo "bin=$bin" >> "$GITHUB_OUTPUT"
+
       - name: Check SwiftFormat
         if: steps.swiftsrc.outputs.present == 'true'
-        run: swiftformat --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.
+        env:
+          SWIFTFORMAT_BIN: ${{ steps.swiftformat.outputs.bin }}
+        run: |
+          "$SWIFTFORMAT_BIN" --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.
 
       # Prove the checks above can actually FAIL. Everything else in this job
       # asks "does this project pass?"; doctor asks "would these checks notice

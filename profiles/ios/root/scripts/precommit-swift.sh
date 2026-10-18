@@ -2,11 +2,15 @@
 # precommit-swift.sh — fail-closed wrapper for the pre-commit Swift stages.
 #
 # Why this exists (bravoapp, adopted into the lacquer):
-#   * Agent shells often lack /opt/homebrew/bin on PATH, so `swiftformat` /
-#     `swiftlint` resolve as "not found". This wrapper resolves the tool from
-#     well-known Homebrew locations itself, and ERRORS (blocking the commit)
-#     when the tool genuinely cannot be found. A check that cannot run must
-#     block, never pass.
+#   * Agent shells often lack /opt/homebrew/bin on PATH, so `swiftlint`
+#     resolves as "not found". This wrapper resolves the tool from well-known
+#     Homebrew locations itself, and ERRORS (blocking the commit) when the tool
+#     genuinely cannot be found. A check that cannot run must block, never pass.
+#   * SwiftFormat is the exception: it is PINNED, because a Homebrew upgrade
+#     changed its default rules under every project at once. It is resolved by
+#     scripts/swiftformat-pinned.sh, the same script CI uses, which installs the
+#     checksummed release and refuses any other version. It is never looked up on
+#     PATH or in Homebrew here, so the hook and CI cannot run different formatters.
 #   * pre-commit invokes this with the staged .swift file list as arguments.
 #     Zero arguments means the file list could not be determined — refuse to
 #     report success for a check that verified nothing (fail closed).
@@ -58,7 +62,18 @@ fi
 
 # Resolve the tool without depending on the caller's PATH.
 BIN=""
-if command -v "$BIN_NAME" >/dev/null 2>&1; then
+if [ "$TOOL" = "swiftformat" ]; then
+  PINNED="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/swiftformat-pinned.sh"
+  if [ ! -x "$PINNED" ]; then
+    echo "precommit-swift.sh: $PINNED is missing, so the pinned SwiftFormat cannot be resolved. Re-run \`lacquer sync\`. Failing closed: the commit is blocked because this check could not run." >&2
+    exit 1
+  fi
+  # Its own stderr carries the reason (checksum mismatch, wrong version, no network).
+  BIN="$("$PINNED" --path)" || {
+    echo "precommit-swift.sh: the pinned SwiftFormat could not be resolved. Failing closed: the commit is blocked because this check could not run." >&2
+    exit 1
+  }
+elif command -v "$BIN_NAME" >/dev/null 2>&1; then
   BIN="$(command -v "$BIN_NAME")"
 else
   for dir in /opt/homebrew/bin /usr/local/bin; do
