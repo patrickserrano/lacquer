@@ -54,6 +54,13 @@ func checkFragments(check, root, component string) error {
 		}
 		return checkBiomeOverrides(data, cfg.Web.BiomeOverrides)
 	default: // typedoc-entry-points
+		rel, err := filepath.Rel(root, filepath.Join(component, "typedoc.json"))
+		if err != nil {
+			return err
+		}
+		if cfg.Project.Excludes(filepath.ToSlash(rel)) {
+			return checkOwnedTypeDoc(cfg.Web.TypeDocEntryPoints, cfg.Web.TypeDocEntryPointStrategy)
+		}
 		data, err := read("typedoc.json")
 		if err != nil {
 			return err
@@ -146,12 +153,38 @@ func checkBiomeOverrides(synced []byte, declared []fragments.BiomeOverride) erro
 	return nil
 }
 
-func checkTypeDocEntryPoints(synced []byte, declared []string, strategy string) error {
+// checkTypeDocGuards proves the two manifest guards still refuse. They are about
+// the manifest, not the synced file, so they run whether or not lacquer manages
+// typedoc.json.
+func checkTypeDocGuards() error {
 	if fragments.ValidateTypeDocEntryPoints([]string{"../outside/index.ts"}) == nil {
 		return fmt.Errorf("the entry-point guard accepted a path outside the component")
 	}
 	if fragments.ValidateTypeDoc([]string{"src"}, "packages") == nil {
 		return fmt.Errorf("the strategy guard accepted \"packages\", which does not apply the docs validation per package")
+	}
+	return nil
+}
+
+// checkOwnedTypeDoc is the typedoc-entry-points check for a project that lists
+// typedoc.json in [project].exclude. Lacquer does not write that file, so
+// comparing it with the shipped default fails a project that is correct. With
+// no typedoc_* key declared there is nothing to compare: the guards still run
+// and the check reports a skip. A declared key can never reach an excluded
+// file, so that is a contradiction and fails, naming both settings.
+func checkOwnedTypeDoc(declared []string, strategy string) error {
+	if len(declared) > 0 || strategy != "" {
+		return fmt.Errorf("typedoc.json is in [project].exclude, so lacquer never writes it, but [web] declares typedoc_entry_points or typedoc_entry_point_strategy, which can only reach that file by sync; drop the exclude or drop the key")
+	}
+	if err := checkTypeDocGuards(); err != nil {
+		return err
+	}
+	return skipped("typedoc.json is project-owned ([project].exclude) and no [web] typedoc_* key is declared; not checked")
+}
+
+func checkTypeDocEntryPoints(synced []byte, declared []string, strategy string) error {
+	if err := checkTypeDocGuards(); err != nil {
+		return err
 	}
 	want := typeDocKeys{EntryPoints: declared, EntryPointStrategy: strategy, Exclude: fragments.TypeDocExcludes(declared, strategy)}
 	if len(want.EntryPoints) == 0 {
