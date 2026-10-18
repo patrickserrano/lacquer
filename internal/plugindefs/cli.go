@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // The manifest the wrapper needs. `claude plugin validate <dir>` only reads
@@ -103,7 +105,7 @@ func ValidateWithCLI(claude, root string) (CLIResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), validateTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claude, "plugin", "validate", "--strict", "--json", tmp)
-	ownGroup(cmd)
+	procgroup.Own(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
@@ -121,7 +123,11 @@ func ValidateWithCLI(claude, root string) (CLIResult, error) {
 		} `json:"contents"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &rep); err != nil {
-		return res, fmt.Errorf("claude plugin validate produced no JSON report (%v): %s", runErr, firstLine(stderr.String(), stdout.String()))
+		// runErr is nil when claude exited 0 without a report, and %w would print
+		// that as a bad verb. The command is not a procgroup.New one, so it never
+		// carries a TimeoutError either.
+		return res, fmt.Errorf("claude plugin validate produced no JSON report (%v): %s",
+			runErr, firstLine(stderr.String(), stdout.String())) //nolint:errorlint // runErr is nil on exit 0; %w would print a bad verb
 	}
 	for _, c := range rep.Contents {
 		orig, ok := m[c.File]
@@ -167,7 +173,7 @@ func cliVersion(claude string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claude, "--version")
-	ownGroup(cmd)
+	procgroup.Own(cmd)
 	out, err := cmd.Output()
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("%w within %s", ErrVersionTimeout, versionTimeout)

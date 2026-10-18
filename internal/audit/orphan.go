@@ -3,7 +3,6 @@ package audit
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -15,6 +14,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/gitattributes"
 	"github.com/patrickserrano/lacquer/internal/gitignore"
 	"github.com/patrickserrano/lacquer/internal/lock"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 	"github.com/patrickserrano/lacquer/internal/region"
 )
 
@@ -554,7 +554,7 @@ func References(projectRoot string, o Orphan) []Reference {
 
 // trackedFiles lists the project's git-tracked paths.
 func trackedFiles(projectRoot string) ([]string, error) {
-	cmd := exec.Command("git", "ls-files", "-z")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "ls-files", "-z")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {

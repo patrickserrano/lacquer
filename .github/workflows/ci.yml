@@ -281,6 +281,14 @@ jobs:
             exit 1
           fi
       - run: go vet ./...
+      # errorlint's Errorf check only (.golangci.yml), over the packages that call a
+      # bounded external command: a `%v` on a wrapped error loses its type, and the
+      # timeout of those commands is read by type. golangci-lint v2.14.0 and the
+      # action are pinned; the run is about ten seconds.
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          args: ./cmd/... ./internal/assets/... ./internal/audit/... ./internal/baseline/... ./internal/fleet/... ./internal/gitguard/... ./internal/hooks/... ./internal/pluginbootstrap/... ./internal/plugindefs/... ./internal/procgroup/... ./internal/protection/... ./internal/ratchet/... ./internal/rootcheck/... ./internal/skillsync/... ./internal/swiftcomponents/... ./internal/testtargets/... ./internal/tokens/... ./internal/xcodegendrift/...
       - run: go build ./...
       # -timeout, not Go's 600s default. internal/shipped is the e2e suite: it
       # runs full syncs against fixture projects, and under -race it lands at

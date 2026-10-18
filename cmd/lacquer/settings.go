@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/baseline"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 const staticSettingsLabel = "static resolution by lacquer: not Xcode's evaluation; defaults and conditionals are not applied"
@@ -177,7 +177,7 @@ func xcodeSettings(project, scheme, target, configuration string) (map[string]st
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	cmd := exec.Command("xcodebuild", "-showBuildSettings", "-json", "-project", project, "-scheme", scheme, "-configuration", configuration, "-derivedDataPath", dir, "-disableAutomaticPackageResolution", "-skipPackageUpdates")
+	cmd := procgroup.New(procgroup.BuildSettings, "xcodebuild", "-showBuildSettings", "-json", "-project", project, "-scheme", scheme, "-configuration", configuration, "-derivedDataPath", dir, "-disableAutomaticPackageResolution", "-skipPackageUpdates")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	output, err := cmd.Output()

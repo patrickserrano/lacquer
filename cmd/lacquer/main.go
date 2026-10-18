@@ -1568,7 +1568,7 @@ func parseConsoleArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 			value = args[i]
 		}
 		if err := fs.Set(name, value); err != nil {
-			return positional, fmt.Errorf("invalid value %q for --%s: %v", value, name, err)
+			return positional, fmt.Errorf("invalid value %q for --%s: %w", value, name, err)
 		}
 	}
 	return positional, nil

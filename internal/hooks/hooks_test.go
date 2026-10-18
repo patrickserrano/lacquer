@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patrickserrano/lacquer/internal/gittest"
 )
@@ -417,5 +418,61 @@ func TestNotInstalledFooterIsUnchanged(t *testing.T) {
 	out := Format(Check(dir))
 	if !strings.HasSuffix(out, wantFooter) {
 		t.Errorf("the not-installed footer changed:\n%s", out)
+	}
+}
+
+// hangingGit puts a `git` on PATH that never exits, after the repository was
+// built with the real one, and shortens the limit so the test is quick.
+func hangingGit(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	write(t, bin, "git", "#!/bin/sh\nsleep 60\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	orig := gitLimit
+	gitLimit = 500 * time.Millisecond
+	t.Cleanup(func() { gitLimit = orig })
+}
+
+// A git that hangs used to hang the audit; the bounded call must not turn that
+// into "no findings", which reads exactly like a project with nothing wrong.
+func TestAGitTimeoutIsAFindingNotASilentPass(t *testing.T) {
+	dir := gitRepo(t)
+	write(t, dir, ".pre-commit-config.yaml", "repos: []\n")
+	hangingGit(t)
+
+	var fs []Finding
+	done := make(chan struct{})
+	go func() { fs = Check(dir); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Check still running after 15s: the git call is not bounded")
+	}
+	if len(fs) != 1 || fs[0].CouldNotCheck == "" {
+		t.Fatalf("got %+v, want one could-not-check finding", fs)
+	}
+	for _, want := range []string{"git", "500ms"} {
+		if !strings.Contains(fs[0].CouldNotCheck, want) {
+			t.Errorf("finding %q does not contain %q", fs[0].CouldNotCheck, want)
+		}
+	}
+	out := Format(fs)
+	if !strings.Contains(out, "could not be checked") || !strings.Contains(out, fs[0].CouldNotCheck) {
+		t.Errorf("Format does not report it:\n%s", out)
+	}
+	if strings.Contains(out, "running on nothing") {
+		t.Errorf("a could-not-check finding must not be reported as an unenforced config:\n%s", out)
+	}
+}
+
+// An ordinary git failure keeps its old meaning: no findings.
+func TestAPlainGitFailureStaysQuiet(t *testing.T) {
+	bin := t.TempDir()
+	write(t, bin, "git", "#!/bin/sh\nexit 128\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	dir := t.TempDir()
+	write(t, dir, ".pre-commit-config.yaml", "repos: []\n")
+	if fs := Check(dir); len(fs) != 0 {
+		t.Errorf("got %+v, want none", fs)
 	}
 }

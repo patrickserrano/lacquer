@@ -3,10 +3,11 @@ package testtargets
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // WatchGateFrom is the first day a watchOS test bundle that nothing runs fails
@@ -135,28 +136,50 @@ func FormatWatch(w WatchReport) string {
 func ReadForAudit(projectRoot, xcodeproj string) (p Project, read bool, source string, err error) {
 	pbx := filepath.Join(projectRoot, filepath.FromSlash(xcodeproj), "project.pbxproj")
 	spec := filepath.Join(projectRoot, filepath.FromSlash(filepath.ToSlash(filepath.Dir(xcodeproj))), "project.yml")
-	if _, statErr := os.Stat(spec); statErr == nil && !tracked(projectRoot, pbx) {
-		p, read, err = ParseSpec(spec)
-		return p, read, spec, err
+	if _, statErr := os.Stat(spec); statErr == nil {
+		isTracked, err := tracked(projectRoot, pbx)
+		if err != nil {
+			return Project{}, false, pbx, fmt.Errorf("cannot tell whether %s is tracked: %w", pbx, err)
+		}
+		if !isTracked {
+			p, read, err = ParseSpec(spec)
+			return p, read, spec, err
+		}
 	}
 	p, read, err = ParseProject(pbx)
 	return p, read, pbx, err
 }
 
+// GitLimit bounds the git calls here. A var so a test, here or in a package that
+// calls ReadForAudit, can shorten it.
+var GitLimit = procgroup.LocalGit
+
 // tracked reports whether path is committed to the git repository at root, or,
 // when root is not a git work tree, whether it exists.
-func tracked(root, path string) bool {
+//
+// A failed git reads as "not tracked", as it always has. A git that does not
+// answer in time is returned as an error instead: "not tracked" would send the
+// audit to read the XcodeGen spec in place of the project and carry on as if it
+// had checked.
+func tracked(root, path string) (bool, error) {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
-		return false
+		return false, nil
 	}
-	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	cmd := procgroup.New(GitLimit, "git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = root
 	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "true" {
+		if procgroup.IsTimeout(err) {
+			return false, err
+		}
 		_, statErr := os.Stat(path)
-		return statErr == nil
+		return statErr == nil, nil
 	}
-	cmd = exec.Command("git", "ls-files", "--error-unmatch", "--", filepath.ToSlash(rel))
+	cmd = procgroup.New(GitLimit, "git", "ls-files", "--error-unmatch", "--", filepath.ToSlash(rel))
 	cmd.Dir = root
-	return cmd.Run() == nil
+	err = cmd.Run()
+	if procgroup.IsTimeout(err) {
+		return false, err
+	}
+	return err == nil, nil
 }

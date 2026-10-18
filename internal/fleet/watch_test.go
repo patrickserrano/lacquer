@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/testtargets"
 )
 
@@ -95,5 +96,48 @@ func TestWatchStateReadsTheProject(t *testing.T) {
 	widget := watchSpecProject(t, "targets:\n  App:\n    type: application\n    platform: iOS\n  W:\n    type: app-extension\n    platform: iOS\n")
 	if got, _ := watchState(widget, cfg, now); got != "" {
 		t.Errorf("no watch app: state %q, want none", got)
+	}
+}
+
+// A git that never answers inside ReadForAudit must not read as "no watch app,
+// not blocking": the sweep would then pass a project it never looked at.
+func TestWatchStateFailsClosedWhenGitTimesOut(t *testing.T) {
+	root := watchSpecProject(t, fleetWatchSpec)
+	gittest.Init(t, root, "-q")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	saved := testtargets.GitLimit
+	t.Cleanup(func() { testtargets.GitLimit = saved })
+	testtargets.GitLimit = 500 * time.Millisecond
+
+	cfg := &config.Config{Project: config.Project{Scheme: "App", Xcodeproj: "App.xcodeproj"}}
+	var state string
+	var blocks bool
+	done := make(chan struct{})
+	go func() { state, blocks = watchState(root, cfg, time.Now()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("watchState still running after 15s: the git call is not bounded")
+	}
+	if !strings.HasPrefix(state, WatchUnchecked) || !blocks {
+		t.Fatalf("state %q blocks %v, want %q and blocking", state, blocks, WatchUnchecked)
+	}
+	for _, want := range []string{"git", "500ms"} {
+		if !strings.Contains(state, want) {
+			t.Errorf("state %q does not name %q", state, want)
+		}
+	}
+	// It reaches the sweep's per-project line, and fails the sweep.
+	var b strings.Builder
+	Text(&b, []Report{{Name: "alpha", Watch: state, WatchBlocking: blocks}})
+	if !strings.Contains(b.String(), "500ms") {
+		t.Errorf("the timeout text is not in the sweep output:\n%s", b.String())
+	}
+	if (Report{Watch: state, WatchBlocking: blocks}).ExitCode() != 4 {
+		t.Error("a timed-out watch check did not fail the sweep")
 	}
 }

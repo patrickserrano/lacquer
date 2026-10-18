@@ -122,7 +122,7 @@ func ciRoundCap(ref string) (int, error) {
 		if _, ok := err.(*exec.ExitError); ok && manifestAbsent(errb.String()) {
 			return config.DefaultCIRoundCap, nil
 		}
-		return 0, fmt.Errorf("git show %s:.lacquer.toml: %v: %s", ref, err, strings.TrimSpace(errb.String()))
+		return 0, fmt.Errorf("git show %s:.lacquer.toml: %w: %s", ref, err, strings.TrimSpace(errb.String()))
 	}
 	dir, err := os.MkdirTemp("", "ci-round-manifest-")
 	if err != nil {
@@ -135,7 +135,7 @@ func ciRoundCap(ref string) (int, error) {
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
-		return 0, fmt.Errorf("%s:.lacquer.toml does not load: %v", ref, err)
+		return 0, fmt.Errorf("%s:.lacquer.toml does not load: %w", ref, err)
 	}
 	return cfg.Project.CIRoundCap(), nil
 }

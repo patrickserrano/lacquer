@@ -13,6 +13,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/detect"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 	"github.com/patrickserrano/lacquer/internal/swiftcomponents"
 	"github.com/patrickserrano/lacquer/internal/swiftformatpin"
 )
@@ -1567,25 +1568,60 @@ func dependabotDir(compPath string) string {
 // the direction to fail in, and sync refuses to write assets outside a git
 // repository anyway.
 func swiftManifests(root string) detect.SwiftManifestIndex {
+	ix, _ := swiftManifestsErr(root)
+	return ix
+}
+
+// swiftManifestsErr is swiftManifests plus the error that produced an empty
+// index. Only Preflight reads it: Values has no error path, so every other git
+// failure still renders as "no entry".
+func swiftManifestsErr(root string) (detect.SwiftManifestIndex, error) {
 	if root == "" {
-		return detect.SwiftManifestIndex{}
+		return detect.SwiftManifestIndex{}, nil
 	}
 	swiftMu.Lock()
 	defer swiftMu.Unlock()
-	if ix, ok := swiftCache[root]; ok {
-		return ix
+	if e, ok := swiftCache[root]; ok {
+		return e.ix, e.err
 	}
 	// A git failure is indistinguishable here from "no manifests", and Values has
-	// no error path to report it on. Fail closed: no entry.
-	ix, _ := detect.IndexSwiftManifests(root)
-	swiftCache[root] = ix
-	return ix
+	// no error path to report it on. Fail closed: no entry. A TIMEOUT is the one
+	// failure that must not render that way; Preflight reports it before any
+	// render, from this same cache.
+	ix, err := detect.IndexSwiftManifests(root)
+	swiftCache[root] = swiftEntry{ix: ix, err: err}
+	return ix, err
+}
+
+type swiftEntry struct {
+	ix  detect.SwiftManifestIndex
+	err error
 }
 
 var (
 	swiftMu    sync.Mutex
-	swiftCache = map[string]detect.SwiftManifestIndex{}
+	swiftCache = map[string]swiftEntry{}
 )
+
+// Preflight reports a git timeout that Values would otherwise swallow. Values
+// has no error path, so the repository indexes it renders from (the Dependabot
+// swift manifests, the Swift package list) fall back to "nothing found" on any
+// git failure. That is the right direction for a failed git, and the wrong one
+// for a git that never answered: the render would write a file computed from an
+// index that timed out, and say nothing. Call it before rendering; it reads the
+// same memoised indexes Values will, so it costs no extra git call.
+func Preflight(cfg *config.Config) error {
+	if cfg.Root == "" {
+		return nil
+	}
+	if _, err := swiftManifestsErr(cfg.Root); procgroup.IsTimeout(err) {
+		return fmt.Errorf("cannot render the Dependabot swift entries: %w", err)
+	}
+	if _, err := packagesErr(cfg); procgroup.IsTimeout(err) {
+		return fmt.Errorf("cannot list the Swift packages: %w", err)
+	}
+	return nil
+}
 
 // DefaultArchiveRoot is where iOS release archives land when a project does not
 // set [project].archive_root: the dedicated volume on the Mac runner, chosen so

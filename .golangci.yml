@@ -1,0 +1,16 @@
+# One linter, on purpose: errorlint's Errorf check. A `%v` where an error is
+# wrapped drops its type, and the timeout of a bounded external command is read
+# by type (procgroup.IsTimeout). Three separate callers lost one that way before
+# a machine looked for it. Not run over the whole repository: it is scoped to the
+# packages that call the bounded commands, in the lint step of .github/workflows/ci.yml.
+version: "2"
+linters:
+  default: none
+  enable:
+    - errorlint
+  settings:
+    errorlint:
+      errorf: true
+      errorf-multi: true
+      asserts: false
+      comparison: false

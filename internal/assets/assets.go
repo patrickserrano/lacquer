@@ -264,6 +264,11 @@ func Shipped(lacquerRoot string, cfg *config.Config) ([]string, error) {
 // plan builds the asset list, returning both the assets to copy and the
 // destinations [project].exclude suppressed.
 func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, []string, error) {
+	// Every render (sync, audit, orphan detection) starts from a plan, so this is
+	// the one place to stop on a git timeout that tokens.Values cannot report.
+	if err := tokens.Preflight(cfg); err != nil {
+		return nil, nil, nil, err
+	}
 	var out []Asset
 	var suppressed []string
 	// seeded is every destination [project].seed_once matched, present or not:

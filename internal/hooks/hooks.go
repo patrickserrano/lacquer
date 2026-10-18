@@ -20,9 +20,10 @@ package hooks
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // Manager is a hook runner a profile may ship a config for.
@@ -92,6 +93,10 @@ type Finding struct {
 	// the bridge is the case where `lefthook install` silently drops the iOS
 	// gates.
 	BridgesRival bool
+	// CouldNotCheck is set INSTEAD of every other field when git did not answer in
+	// time. It carries the timeout text (the command and the limit). It is a finding
+	// rather than silence because "no findings" reads as a project with nothing wrong.
+	CouldNotCheck string
 }
 
 // Check reports hook managers the project has configured whose hooks are not
@@ -108,11 +113,17 @@ type Finding struct {
 func Check(projectRoot string) []Finding {
 	var out []Finding
 
-	hooksDir, ok := effectiveHooksDir(projectRoot)
+	hooksDir, ok, err := effectiveHooksDir(projectRoot)
+	if procgroup.IsTimeout(err) {
+		return []Finding{{CouldNotCheck: err.Error()}}
+	}
 	if !ok {
 		return nil
 	}
-	hooksPathSet, _ := gitConfig(projectRoot, "--local", "core.hooksPath")
+	hooksPathSet, err := gitConfig(projectRoot, "--local", "core.hooksPath")
+	if procgroup.IsTimeout(err) {
+		return []Finding{{CouldNotCheck: err.Error()}}
+	}
 
 	for _, m := range managers {
 		if _, err := os.Stat(filepath.Join(projectRoot, m.ConfigFile)); err != nil {
@@ -169,22 +180,28 @@ func foreignHook(dir string) string {
 	return ""
 }
 
-func effectiveHooksDir(projectRoot string) (string, bool) {
+// effectiveHooksDir returns where git looks for hooks. Any git failure reads as
+// "no repository" (ok false); only a timeout is also returned as an error, so
+// Check can report that git never answered instead of that nothing is wrong.
+func effectiveHooksDir(projectRoot string) (dir string, ok bool, err error) {
 	out, err := gitConfig(projectRoot, "rev-parse", "--git-path", "hooks")
 	if err != nil || out == "" {
-		return "", false
+		return "", false, err
 	}
 	if !filepath.IsAbs(out) {
 		out = filepath.Join(projectRoot, out)
 	}
-	return out, true
+	return out, true, nil
 }
+
+// gitLimit is a var so a test can shorten it.
+var gitLimit = procgroup.LocalGit
 
 func gitConfig(projectRoot string, args ...string) (string, error) {
 	if len(args) > 0 && args[0] != "rev-parse" {
 		args = append([]string{"config"}, args...)
 	}
-	cmd := exec.Command("git", args...)
+	cmd := procgroup.New(gitLimit, "git", args...)
 	cmd.Dir = projectRoot
 	b, err := cmd.Output()
 	return strings.TrimSpace(string(b)), err
@@ -193,10 +210,22 @@ func gitConfig(projectRoot string, args ...string) (string, error) {
 // Format renders findings for `lacquer audit`. Empty when there are none, so the
 // caller can print it unconditionally.
 func Format(fs []Finding) string {
-	if len(fs) == 0 {
-		return ""
-	}
 	var b strings.Builder
+	var checked []Finding
+	for _, f := range fs {
+		if f.CouldNotCheck == "" {
+			checked = append(checked, f)
+			continue
+		}
+		// Not an unenforced config: the check itself did not finish. Reported on
+		// its own so it is never counted into the "running on nothing" footer.
+		b.WriteString("\ngit hooks could not be checked:\n  " + f.CouldNotCheck + "\n")
+		b.WriteString("  Whether the configured hooks are installed is unknown; this is not a pass.\n")
+	}
+	fs = checked
+	if len(fs) == 0 {
+		return b.String()
+	}
 	b.WriteString("\ngit hooks configured but NOT installed:\n")
 	for _, f := range fs {
 		if f.ForeignHook != "" {

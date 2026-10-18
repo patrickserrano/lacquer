@@ -110,6 +110,12 @@ func SwiftComponentList(cfg *config.Config, prefix string) string {
 // Values runs once per rendered file, and each call would otherwise list the
 // repository again. Same shape as swiftManifests.
 func packages(cfg *config.Config) []swiftcomponents.Package {
+	pkgs, _ := packagesErr(cfg)
+	return pkgs
+}
+
+// packagesErr is packages plus the error that produced the list; see Preflight.
+func packagesErr(cfg *config.Config) ([]swiftcomponents.Package, error) {
 	// The `packages` lists are part of the key: two manifests over one root and
 	// one component set can list different packages (#522 U4b).
 	var listed []string
@@ -119,15 +125,20 @@ func packages(cfg *config.Config) []swiftcomponents.Package {
 	key := cfg.Root + "\x00" + SwiftComponentList(cfg, "") + "\x00" + strings.Join(listed, "\x03")
 	pkgMu.Lock()
 	defer pkgMu.Unlock()
-	if pkgs, ok := pkgCache[key]; ok {
-		return pkgs
+	if e, ok := pkgCache[key]; ok {
+		return e.pkgs, e.err
 	}
-	pkgs, _ := swiftcomponents.Packages(cfg.Root, cfg)
-	pkgCache[key] = pkgs
-	return pkgs
+	pkgs, err := swiftcomponents.Packages(cfg.Root, cfg)
+	pkgCache[key] = pkgEntry{pkgs: pkgs, err: err}
+	return pkgs, err
+}
+
+type pkgEntry struct {
+	pkgs []swiftcomponents.Package
+	err  error
 }
 
 var (
 	pkgMu    sync.Mutex
-	pkgCache = map[string][]swiftcomponents.Package{}
+	pkgCache = map[string]pkgEntry{}
 )

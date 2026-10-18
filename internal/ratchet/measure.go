@@ -3,13 +3,13 @@ package ratchet
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 	"github.com/patrickserrano/lacquer/internal/region"
 	"github.com/patrickserrano/lacquer/internal/safepath"
 )
@@ -41,7 +41,7 @@ func Measure(root string, cfg *config.Config) (map[string]int, error) {
 		}
 		values[ClaudeProjectLines] += n
 	}
-	cmd := exec.Command("git", "ls-files", "-z", "--stage")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "ls-files", "-z", "--stage")
 	cmd.Dir = root
 	raw, err := cmd.Output()
 	if err != nil {
