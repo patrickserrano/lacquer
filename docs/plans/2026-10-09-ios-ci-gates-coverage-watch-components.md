@@ -842,3 +842,33 @@ What changes:
   developer checkout, or in a clone on a machine where `sync` can run XcodeGen,
   cannot see a dependency on generated files, so its PR must not describe it as
   CI-equivalent.
+
+### Addendum (2026-10-09, U4b): nested packages a component declares
+
+A Swift component may list local SwiftPM packages nested inside it whose tests
+CI must compile, without making them a second lint component:
+`packages = ["AppCore"]` on the `[[component]]`, relative to the component.
+Explicit for the reason U4's component list is: nothing scans for
+`Package.swift`.
+
+- **Built:** each listed package joins "Build Swift packages" with U4's flags
+  and platform rule (an iOS-only one is named in the notice and not built).
+  Nothing in the template changed: the step only reads two arrays, and a
+  project that lists nothing renders byte-identical.
+- **Linted:** unchanged. The outer component lints the package's files once;
+  a listed package adds no lint directory and no component.
+- **Push filter:** unchanged, and proven rather than extended: a listed
+  package is inside a component, whose `<dir>/**` line already matches every
+  file under it (`TestListedPackageAddsNoLintDirectoryAndIsCoveredByAPushPath`).
+- **Refused at load, naming the entry and the corrected form:** a path that
+  escapes the component, is absolute, empty, not canonical (`Core/`, `./Core`),
+  or the component itself; unsafe characters; a directory that does not exist,
+  is not a directory, or holds no `Package.swift`; a symlink (directory or
+  manifest) that leads outside the component; a duplicate; a path that is also
+  a declared `[[component]]`; `packages` on a component that is not Swift.
+- **Both discovered and listed** (a package one level under a package
+  component, also listed) is built once.
+- **Known wording gap:** with every package iOS-only, the step still says
+  "every package under a package component is iOS-only". The template is left
+  alone so that nothing re-renders for projects that list nothing; fix it with
+  the next template change.
