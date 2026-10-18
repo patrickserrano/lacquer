@@ -20,9 +20,9 @@ func hangingGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	orig := gitLimit
-	gitLimit = 500 * time.Millisecond
-	t.Cleanup(func() { gitLimit = orig })
+	orig := GitLimit
+	GitLimit = 500 * time.Millisecond
+	t.Cleanup(func() { GitLimit = orig })
 }
 
 // ReadForAudit asks git whether the pbxproj is tracked. A git that hangs must

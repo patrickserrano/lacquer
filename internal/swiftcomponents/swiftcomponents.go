@@ -141,6 +141,11 @@ func depth(p string) int {
 func files(root string, pathspec string) ([]string, error) {
 	inTree, err := gitguard.InWorkTree(root)
 	if err != nil {
+		if procgroup.IsTimeout(err) {
+			// Not "git is unavailable": it is there and did not answer. Returned
+			// as itself so no caller reads it as the soft ErrCannotList.
+			return nil, fmt.Errorf("list %s files in %s: %w", pathspec, root, err)
+		}
 		return nil, fmt.Errorf("%w: git is unavailable: %v", ErrCannotList, err)
 	}
 	if !inTree {

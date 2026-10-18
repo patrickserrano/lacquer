@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitguard"
 	"github.com/patrickserrano/lacquer/internal/gittest"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 	"github.com/patrickserrano/lacquer/internal/testtargets"
 )
 
@@ -278,5 +280,35 @@ func TestRemedyNeverSuggestsADirectoryThatContainsAComponent(t *testing.T) {
 	want := []Remedy{{Dir: "ios/NFCLib", Files: 1}, {Files: 1, Move: []string{"ios/Loose.swift"}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Remedies = %+v, want %+v", got, want)
+	}
+}
+
+// A git that never answers is not "git is unavailable": ErrCannotList is read by
+// the fleet sweep as "not checked, not blocking" and by the audit as a notice. A
+// timeout must come back as itself so each caller fails on it.
+func TestAGitTimeoutIsNotErrCannotList(t *testing.T) {
+	dir := repo(t, map[string]string{"A.swift": "// a\n"})
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	saved := gitguard.Limit
+	t.Cleanup(func() { gitguard.Limit = saved })
+	gitguard.Limit = 500 * time.Millisecond
+
+	var err error
+	done := make(chan struct{})
+	go func() { _, err = Check(dir, manifest(appIOS), time.Now()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Check still running after 15s: the git call is not bounded")
+	}
+	if errors.Is(err, ErrCannotList) {
+		t.Fatalf("a git timeout was reported as ErrCannotList: %v", err)
+	}
+	if !procgroup.IsTimeout(err) {
+		t.Fatalf("got %v, want a procgroup timeout", err)
 	}
 }

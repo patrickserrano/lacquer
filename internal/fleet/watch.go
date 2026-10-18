@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 	"github.com/patrickserrano/lacquer/internal/testtargets"
 )
 
@@ -12,6 +13,9 @@ const (
 	WatchElsewhere = "covered elsewhere"
 	WatchUnrun     = "unrun"
 	WatchNoTests   = "no tests"
+	// WatchUnchecked prefixes a state when git did not answer in time. The state
+	// string carries the timeout text after it; test with strings.HasPrefix.
+	WatchUnchecked = "could not check"
 )
 
 // watchState reads a project the way `lacquer audit` does and reports how its
@@ -27,6 +31,12 @@ func watchState(root string, cfg *config.Config, now time.Time) (state string, b
 		return "", false
 	}
 	proj, read, _, err := testtargets.ReadForAudit(root, cfg.Project.Xcodeproj)
+	if procgroup.IsTimeout(err) {
+		// Not "no watch app": git never answered, so the project was not looked at.
+		// The text rides in the state so it reaches the per-project line, and it
+		// blocks so the sweep fails closed.
+		return WatchUnchecked + " (" + err.Error() + ")", true
+	}
 	if err != nil || !read || len(proj.WatchApps()) == 0 {
 		return "", false
 	}

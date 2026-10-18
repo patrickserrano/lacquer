@@ -13,12 +13,16 @@ import (
 	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
+// Limit bounds every git call in this package. A var so a test, here or in a
+// package that calls gitguard, can shorten it.
+var Limit = procgroup.LocalGit
+
 // InWorkTree reports whether dir is inside a git working tree. A directory that
 // is not a git repository returns (false, nil). Any non-exit failure (e.g. git
 // not installed) is returned as an error. Callers that require git for safety
 // should treat a false result as a refusal, not as permission to proceed.
 func InWorkTree(dir string) (bool, error) {
-	cmd := procgroup.New(procgroup.LocalGit, "git", "rev-parse", "--is-inside-work-tree")
+	cmd := procgroup.New(Limit, "git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -52,7 +56,7 @@ func Tracked(dir string, pathspecs ...string) ([]string, error) {
 	// -z: paths are NUL-separated, so a filename containing a newline or a
 	// quote-worthy byte comes through verbatim rather than as git's quoted form.
 	args := append([]string{"ls-files", "-z", "--"}, pathspecs...)
-	cmd := procgroup.New(procgroup.LocalGit, "git", args...)
+	cmd := procgroup.New(Limit, "git", args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -115,7 +119,7 @@ func DirtyPaths(projectRoot string) (map[string]bool, error) {
 		return nil, err
 	}
 
-	cmd := procgroup.New(procgroup.LocalGit, "git", "status", "--porcelain", "-z", "--untracked-files=all", "--", ".")
+	cmd := procgroup.New(Limit, "git", "status", "--porcelain", "-z", "--untracked-files=all", "--", ".")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
@@ -171,7 +175,7 @@ func DirtyPaths(projectRoot string) (map[string]bool, error) {
 // forward-slash path with a trailing slash, or "" when dir IS the repository
 // root. A non-repository is an error, so DirtyPaths fails closed.
 func repoPrefix(dir string) (string, error) {
-	cmd := procgroup.New(procgroup.LocalGit, "git", "rev-parse", "--show-prefix")
+	cmd := procgroup.New(Limit, "git", "rev-parse", "--show-prefix")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

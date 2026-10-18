@@ -150,8 +150,9 @@ func ReadForAudit(projectRoot, xcodeproj string) (p Project, read bool, source s
 	return p, read, pbx, err
 }
 
-// gitLimit is a var so a test can shorten it.
-var gitLimit = procgroup.LocalGit
+// GitLimit bounds the git calls here. A var so a test, here or in a package that
+// calls ReadForAudit, can shorten it.
+var GitLimit = procgroup.LocalGit
 
 // tracked reports whether path is committed to the git repository at root, or,
 // when root is not a git work tree, whether it exists.
@@ -165,7 +166,7 @@ func tracked(root, path string) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	cmd := procgroup.New(gitLimit, "git", "rev-parse", "--is-inside-work-tree")
+	cmd := procgroup.New(GitLimit, "git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = root
 	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "true" {
 		if procgroup.IsTimeout(err) {
@@ -174,7 +175,7 @@ func tracked(root, path string) (bool, error) {
 		_, statErr := os.Stat(path)
 		return statErr == nil, nil
 	}
-	cmd = procgroup.New(gitLimit, "git", "ls-files", "--error-unmatch", "--", filepath.ToSlash(rel))
+	cmd = procgroup.New(GitLimit, "git", "ls-files", "--error-unmatch", "--", filepath.ToSlash(rel))
 	cmd.Dir = root
 	err = cmd.Run()
 	if procgroup.IsTimeout(err) {
