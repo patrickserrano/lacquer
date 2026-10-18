@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // InWorkTree reports whether dir is inside a git working tree. A directory that
@@ -16,7 +18,7 @@ import (
 // not installed) is returned as an error. Callers that require git for safety
 // should treat a false result as a refusal, not as permission to proceed.
 func InWorkTree(dir string) (bool, error) {
-	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -50,7 +52,7 @@ func Tracked(dir string, pathspecs ...string) ([]string, error) {
 	// -z: paths are NUL-separated, so a filename containing a newline or a
 	// quote-worthy byte comes through verbatim rather than as git's quoted form.
 	args := append([]string{"ls-files", "-z", "--"}, pathspecs...)
-	cmd := exec.Command("git", args...)
+	cmd := procgroup.New(procgroup.LocalGit, "git", args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -113,7 +115,7 @@ func DirtyPaths(projectRoot string) (map[string]bool, error) {
 		return nil, err
 	}
 
-	cmd := exec.Command("git", "status", "--porcelain", "-z", "--untracked-files=all", "--", ".")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "status", "--porcelain", "-z", "--untracked-files=all", "--", ".")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
@@ -169,7 +171,7 @@ func DirtyPaths(projectRoot string) (map[string]bool, error) {
 // forward-slash path with a trailing slash, or "" when dir IS the repository
 // root. A non-repository is an error, so DirtyPaths fails closed.
 func repoPrefix(dir string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-prefix")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "rev-parse", "--show-prefix")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

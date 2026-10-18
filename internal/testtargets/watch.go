@@ -3,10 +3,11 @@ package testtargets
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // WatchGateFrom is the first day a watchOS test bundle that nothing runs fails
@@ -150,13 +151,13 @@ func tracked(root, path string) bool {
 	if err != nil {
 		return false
 	}
-	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = root
 	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "true" {
 		_, statErr := os.Stat(path)
 		return statErr == nil
 	}
-	cmd = exec.Command("git", "ls-files", "--error-unmatch", "--", filepath.ToSlash(rel))
+	cmd = procgroup.New(procgroup.LocalGit, "git", "ls-files", "--error-unmatch", "--", filepath.ToSlash(rel))
 	cmd.Dir = root
 	return cmd.Run() == nil
 }

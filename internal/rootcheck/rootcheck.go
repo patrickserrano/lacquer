@@ -13,6 +13,8 @@ import (
 	"time"
 
 	lacquer "github.com/patrickserrano/lacquer"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // fetchTimeout bounds the upstream refresh. Staleness is a nicety and the sync
@@ -148,6 +150,7 @@ func Inspect(root string, fetch bool) State {
 		// Errors are deliberately ignored: offline is a normal state, and the
 		// count below simply stays as stale as the local ref in that case.
 		cmd := exec.CommandContext(ctx, "git", "-C", root, "fetch", "--quiet", remote)
+		procgroup.Own(cmd) // the fetch spawns ssh/https helpers that a plain kill would orphan
 		cmd.Stdout, cmd.Stderr = nil, nil
 		_ = cmd.Run()
 	}
@@ -275,7 +278,7 @@ func (s State) Warning() string {
 }
 
 func git(root string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", root}, args...)...).Output()
+	out, err := procgroup.New(procgroup.LocalGit, "git", append([]string{"-C", root}, args...)...).Output()
 	return string(out), err
 }
 

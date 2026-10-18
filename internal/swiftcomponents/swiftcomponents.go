@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -29,6 +28,7 @@ import (
 
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/gitguard"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 	"github.com/patrickserrano/lacquer/internal/testtargets"
 )
 
@@ -146,7 +146,7 @@ func files(root string, pathspec string) ([]string, error) {
 	if !inTree {
 		return nil, fmt.Errorf("%w: %s is not a git work tree", ErrCannotList, root)
 	}
-	cmd := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", pathspec)
+	cmd := procgroup.New(procgroup.LocalGit, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", pathspec)
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

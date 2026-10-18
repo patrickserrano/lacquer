@@ -20,9 +20,10 @@ package hooks
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // Manager is a hook runner a profile may ship a config for.
@@ -184,7 +185,7 @@ func gitConfig(projectRoot string, args ...string) (string, error) {
 	if len(args) > 0 && args[0] != "rev-parse" {
 		args = append([]string{"config"}, args...)
 	}
-	cmd := exec.Command("git", args...)
+	cmd := procgroup.New(procgroup.LocalGit, "git", args...)
 	cmd.Dir = projectRoot
 	b, err := cmd.Output()
 	return strings.TrimSpace(string(b)), err

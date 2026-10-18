@@ -8,10 +8,11 @@ package pluginbootstrap
 
 import (
 	"fmt"
-	"os/exec"
 	"regexp"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // Marketplace is one `claude plugin marketplace add <source>` entry.
@@ -89,9 +90,11 @@ func Load(path string) (*Manifest, error) {
 // output. Injectable for tests — the real implementation shells out for
 // real, which needs the `claude` binary on PATH and mutates the machine's
 // global plugin state, neither available/safe in a unit test sandbox.
+// pluginLimit is a var so a test can shorten it.
+var pluginLimit = procgroup.PluginCLI
+
 var Runner = func(args ...string) ([]byte, error) {
-	cmd := exec.Command("claude", args...)
-	return cmd.CombinedOutput()
+	return procgroup.New(pluginLimit, "claude", args...).CombinedOutput()
 }
 
 // Result summarizes one Apply call.

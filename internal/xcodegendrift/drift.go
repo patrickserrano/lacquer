@@ -3,7 +3,6 @@
 package xcodegendrift
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,9 +10,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/patrickserrano/lacquer/internal/baseline"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // Finding names a setting present on only one side, or why comparison failed.
@@ -71,7 +70,7 @@ func checkProject(root, project string) ([]Finding, error) {
 		return nil, fmt.Errorf("cannot isolate project path %q", project)
 	}
 	pbx := filepath.ToSlash(filepath.Join(project, "project.pbxproj"))
-	cmd := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	cmd.Dir = root
 	files, err := cmd.Output()
 	if err != nil {
@@ -79,7 +78,7 @@ func checkProject(root, project string) ([]Finding, error) {
 	}
 	// Only tracked projects are in scope; intentionally ignored/generated bundles
 	// have no committed artifact to drift from.
-	cmd = exec.Command("git", "ls-files", "-z", "--", pbx)
+	cmd = procgroup.New(procgroup.LocalGit, "git", "ls-files", "-z", "--", pbx)
 	cmd.Dir = root
 	tracked, err := cmd.Output()
 	if err != nil {
@@ -113,9 +112,7 @@ func checkProject(root, project string) ([]Finding, error) {
 	if err := os.RemoveAll(generated); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	cmd = exec.CommandContext(ctx, generator, "dump", "--type", "json")
+	cmd = procgroup.New(procgroup.XcodeGen, generator, "dump", "--type", "json")
 	cmd.Dir = filepath.Dir(generated)
 	resolved, err := cmd.Output()
 	if err != nil {
@@ -124,7 +121,7 @@ func checkProject(root, project string) ([]Finding, error) {
 	if err := safeSpec(resolved, filepath.Dir(generated), scratch); err != nil {
 		return nil, err
 	}
-	cmd = exec.CommandContext(ctx, generator, "generate")
+	cmd = procgroup.New(procgroup.XcodeGen, generator, "generate")
 	cmd.Dir = filepath.Dir(generated)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -195,7 +192,7 @@ type object struct {
 // values. Comparing object IDs or grepping lines would misattribute settings
 // when XcodeGen regenerates IDs or multiple targets share a configuration name.
 func readSettings(path string) (settings, error) {
-	cmd := exec.Command("plutil", "-convert", "json", "-o", "-", path)
+	cmd := procgroup.New(procgroup.Plutil, "plutil", "-convert", "json", "-o", "-", path)
 	raw, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("parse %s with plutil: %w", path, err)

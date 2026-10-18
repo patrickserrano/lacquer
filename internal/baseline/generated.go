@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // xcodeprojDir returns the .xcodeproj bundle for a path that names either the
@@ -84,7 +86,7 @@ func regenerateXcodeproj(path string) error {
 	if err != nil {
 		return err // this environment cannot generate it (e.g. a Linux runner)
 	}
-	cmd := exec.Command(xcodegen, "generate")
+	cmd := procgroup.New(procgroup.XcodeGen, xcodegen, "generate")
 	cmd.Dir = dir
 	return cmd.Run()
 }

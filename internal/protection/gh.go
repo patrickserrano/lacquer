@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // runGH executes `gh` and returns stdout, stderr and the exit error.
@@ -24,7 +25,7 @@ import (
 // A package var so tests can drive every branch without a network, an account,
 // or a `gh` binary.
 var runGH = func(args ...string) (stdout, stderr []byte, err error) {
-	cmd := exec.Command("gh", args...) // #nosec G204 -- args are literals plus a slug/branch validated below
+	cmd := procgroup.New(procgroup.GitHub, "gh", args...) // #nosec G204 -- args are literals plus a slug/branch validated below
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
@@ -284,7 +285,7 @@ func dedupe(in []string) []string {
 // from a manifest name would point the API at the wrong repo and report a
 // verdict about somebody else's protection.
 func Slug(dir string) (string, error) {
-	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "remote", "get-url", "origin")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

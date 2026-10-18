@@ -10,21 +10,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/gitguard"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // Runner executes one `skills` CLI invocation in dir and returns its combined
 // output. Injectable for tests — the real implementation shells to `npx`,
 // which needs a network connection and Node.js, neither available in a unit
 // test sandbox.
+// installLimit is a var so a test can shorten it.
+var installLimit = procgroup.SkillInstall
+
 var Runner = func(dir string, args ...string) ([]byte, error) {
-	cmd := exec.Command("npx", append([]string{"--yes", "skills@latest"}, args...)...)
+	cmd := procgroup.New(installLimit, "npx", append([]string{"--yes", "skills@latest"}, args...)...)
 	cmd.Dir = dir
 	return cmd.CombinedOutput()
 }
@@ -112,7 +115,7 @@ func trackedSkillPaths(projectRoot string) ([]string, error) {
 	if err != nil || !inGit {
 		return nil, err
 	}
-	cmd := exec.Command("git", "ls-files", "-z", "--", ".")
+	cmd := procgroup.New(procgroup.LocalGit, "git", "ls-files", "-z", "--", ".")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
