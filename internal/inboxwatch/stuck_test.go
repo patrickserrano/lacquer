@@ -341,7 +341,7 @@ func TestTheStuckTabMakesNoGHCallsOfItsOwn(t *testing.T) {
 		return []byte("[]"), nil
 	}}
 	env := Env{Run: gh.run, Now: func() time.Time { return t0 },
-		Roster: fleet.Roster{Project: []fleet.Entry{{Name: "a", Repo: "Acme/steps"}, {Name: "b", Repo: "Acme/kit"}}}}
+		Roster: fleet.Roster{Project: []fleet.Entry{{Name: "a", Repo: "Acme/mike"}, {Name: "b", Repo: "Acme/echo"}}}}
 	const perSweep = 3 // one `pr list` per repository, and one `search issues`
 
 	var p Program = tabModel(t, 140, 20)

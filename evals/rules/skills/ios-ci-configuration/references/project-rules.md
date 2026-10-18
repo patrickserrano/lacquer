@@ -61,7 +61,7 @@ workaround was copying an assertion into the app's test target via `@testable
 import` purely so something would execute it.
 
 ```toml
-extra_test_targets = ["CoreKitTests", "Feature EchoTests"]
+extra_test_targets = ["CoreKitTests", "Feature ModuleTests"]
 ```
 
 Per-product, for the same reason `test_target` is: a package linked into one

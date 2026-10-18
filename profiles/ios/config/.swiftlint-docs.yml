@@ -45,7 +45,7 @@ excluded:
   # the safe direction here: a test file living outside a Tests directory keeps
   # being linted, which is noise. Over-exclusion would silently drop real app
   # code from the documentation standard, which is the failure this whole config
-  # exists to prevent. `**/Tests` covers the SPM layout (flare has bare `Tests`
+  # exists to prevent. `**/Tests` covers the SPM layout (delta has bare `Tests`
   # directories under Packages/); `**/*Tests` covers the Xcode convention,
   # including names with spaces like "BravoApp Capture Watch AppTests".
   - "**/Tests"

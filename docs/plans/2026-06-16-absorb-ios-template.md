@@ -263,4 +263,4 @@ git commit -m "fix: address security audit findings in absorbed content"
 
 1. **Root-file + script asset category** (Brewfile, pre-commit, mcp, scripts) + `init`.
 2. **`scaffold`/`new`**, then **`harvest`**, then **Renovate**.
-3. Onboard a real iOS project (e.g. `rail`) from the harness as the proof, then retire `ios-template`.
+3. Onboard a real iOS project (e.g. `charlie`) from the harness as the proof, then retire `ios-template`.

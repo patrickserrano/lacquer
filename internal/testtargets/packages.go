@@ -68,7 +68,7 @@ func localPackages(pbxproj string) []string {
 
 // packageTargets reads the test targets of every local package the project
 // references. projectDir is the directory holding the .xcodeproj, which is what
-// relativePath is relative to (flare's Delta/Delta.xcodeproj references
+// relativePath is relative to (delta's Delta/Delta.xcodeproj references
 // `../DeltaCore`).
 //
 // A package that cannot be fully read contributes an entry with Unread set, in

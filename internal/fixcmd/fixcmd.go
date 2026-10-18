@@ -164,7 +164,7 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, out io.Writer) ([]
 				// organizeDeclarations is not idempotent in one pass: reordering
 				// members changes their nesting, and the indent rule only sees
 				// the new layout on the next run. A single pass therefore left
-				// kit with 6 files that `swiftformat --lint` still rejected —
+				// echo with 6 files that `swiftformat --lint` still rejected —
 				// which its own pre-push hook caught, after `lacquer fix` had
 				// reported success. A fixer that leaves the tree failing the
 				// check it exists to satisfy has not finished.

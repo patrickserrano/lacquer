@@ -45,7 +45,7 @@ func TestAdoptAddsAProfileToAnExistingComponent(t *testing.T) {
 	write(t, filepath.Join(root, "Charlie.xcodeproj", "project.pbxproj"), "x")
 	write(t, filepath.Join(root, "supabase", "config.toml"), "x")
 	write(t, filepath.Join(root, ".lacquer.toml"), `[project]
-name = "rail"
+name = "charlie"
 
 # This comment explains something load-bearing and must survive.
 [[component]]

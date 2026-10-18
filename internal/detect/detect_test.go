@@ -170,7 +170,7 @@ func TestComponentsDerivesSwiftVersion(t *testing.T) {
 // markers at ".", and detection assigned one profile per path — so the ios
 // assignment overwrote the supabase one and the component was recorded as
 // `profiles = ["ios"]`. The whole supabase profile (deno config, lefthook, CI,
-// RLS rules) was then never synced. rail shipped in that state.
+// RLS rules) was then never synced. charlie shipped in that state.
 func TestDetectRootLayoutWithBothIosAndSupabase(t *testing.T) {
 	root := t.TempDir()
 	mk(t, filepath.Join(root, "Charlie.xcodeproj", "project.pbxproj"))

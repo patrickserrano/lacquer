@@ -86,7 +86,7 @@ var scopedLines = []struct {
 	{"pkill runner workspace", `          pkill -f "$RUNNER_WORKSPACE"`},
 	{"pkill runner temp", `          pkill -f "$RUNNER_TEMP/derived"`},
 	{"pkill expression workspace", `          pkill -f "${{ github.workspace }}"`},
-	{"pkill work path", `          pkill -f /Users/runner/actions-runner/_work/rail/rail`},
+	{"pkill work path", `          pkill -f /Users/runner/actions-runner/_work/charlie/charlie`},
 	{"kill a pid", `          kill 12345`},
 	{"kill a var", `          kill -9 "$pid" 2>/dev/null || true`},
 	{"kill a list", `          kill -9 $pids`},

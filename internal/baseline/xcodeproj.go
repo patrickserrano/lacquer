@@ -148,7 +148,7 @@ func ReadXcodeproj(path string) (Declared, error) {
 		// The multi-line scanner below never sees it, which is not a cosmetic
 		// gap: with no file references resolved, no configuration can be matched
 		// to its xcconfig, and a project that sets a value ONLY in an xcconfig
-		// reads as setting it nowhere. rail does exactly that and was reported
+		// reads as setting it nowhere. charlie does exactly that and was reported
 		// as having six violations while being fully compliant.
 		if strings.Contains(line, "isa = PBXFileReference") {
 			if id := openingID(line); id != "" {

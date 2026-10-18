@@ -265,7 +265,7 @@ func (errFake) Error() string { return "boom" }
 
 // TestSyncHintsAtDeclaredSkillsWithoutInstallingThem pins the offline
 // contract the README states outright: "sync stays fully offline and
-// deterministic". Before this test's line of production code existed, Steps
+// deterministic". Before this test's line of production code existed, Mike
 // had declared [project].skills for months with nothing ever telling anyone
 // to run `lacquer skills` — the entries were gitignored by name, absent on
 // disk, and sync's own success output said nothing about them. skillsync.Runner

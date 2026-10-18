@@ -108,7 +108,7 @@ func TestWarningsInheritedFromProjectLevelPasses(t *testing.T) {
 	}
 }
 
-// TestWarningsMissingEverywhereFails is the kit / kilo / uniform shape.
+// TestWarningsMissingEverywhereFails is the echo / kilo / uniform shape.
 func TestWarningsMissingEverywhereFails(t *testing.T) {
 	dir := pbxproj(t,
 		[]cfg{{id: "P1", name: "Debug"}, {id: "P2", name: "Release"}},
@@ -131,9 +131,9 @@ func TestTargetCannotOptOutOfProjectLevel(t *testing.T) {
 	}
 }
 
-// TestXcconfigUnconditionalPasses is rail and sample-reader-each-day: the value
+// TestXcconfigUnconditionalPasses is charlie and sample-reader-each-day: the value
 // lives ONLY in an xcconfig. This is the case that was completely invisible
-// until PBXFileReference's single-line form was handled — rail was reported
+// until PBXFileReference's single-line form was handled — charlie was reported
 // with six violations while being fully compliant.
 func TestXcconfigUnconditionalPasses(t *testing.T) {
 	refs := map[string]string{"FR1": "Base.xcconfig"}

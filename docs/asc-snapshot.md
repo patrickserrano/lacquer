@@ -21,7 +21,7 @@ over the file, so a reader never sees half of one. File mode 0600.
   "generatedAt": "2026-09-25T14:05:00Z",
   "producer": "asc-status 1.4.0",
   "errors": [
-    { "bundleId": "com.example.flare", "message": "HTTP 401 from /v1/apps/…/appStoreVersions" }
+    { "bundleId": "com.example.delta", "message": "HTTP 401 from /v1/apps/…/appStoreVersions" }
   ],
   "apps": [
     {

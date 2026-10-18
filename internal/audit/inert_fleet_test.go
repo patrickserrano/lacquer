@@ -42,7 +42,7 @@ func managedCI(t *testing.T, prefix string) string {
 
 // managedRelease is profiles/ios/workflows/release.yml with its secrets step
 // rendered by the real renderer. With no product declaring secrets that renders
-// nothing — the state of kit, app-lima and golf, whose releases
+// nothing — the state of echo, app-lima and golf, whose releases
 // write no Secrets.xcconfig at all.
 func managedRelease(t *testing.T, secretsStep string) string {
 	t.Helper()
@@ -79,9 +79,9 @@ func TestCIPlaceholderSeedIsNotTheReleaseWritingSecrets(t *testing.T) {
 		manifest string
 	}{
 		{
-			// flare's shape before its release wrote the key: a REPLACE_ME
+			// delta's shape before its release wrote the key: a REPLACE_ME
 			// RevenueCat placeholder shipped while this audit said nothing.
-			name:   "flare",
+			name:   "delta",
 			prefix: "Delta/",
 			manifest: `
 [project]
@@ -99,11 +99,11 @@ secret_formats = { REVENUECAT_PUBLIC_SDK_KEY = "appl_*" }
 `,
 		},
 		{
-			name:   "kit",
+			name:   "echo",
 			prefix: "",
 			manifest: `
 [project]
-name = "kit"
+name = "echo"
 project_name = "Echo"
 scheme = "Echo"
 secrets = { REVENUECAT_API_KEY = "KIT_REVENUECAT_API_KEY" }
@@ -252,10 +252,10 @@ secrets = { REVENUECAT_PUBLIC_SDK_KEY = "REVENUECAT_PUBLIC_SDK_KEY", ADMOB_APPLI
 		{
 			// charlie's own ios-release.yml: a multi-line sed over the example,
 			// redirected into place, then read back by grep.
-			name: "rail",
+			name: "charlie",
 			manifest: `
 [project]
-name = "rail"
+name = "charlie"
 project_name = "Charlie"
 scheme = "Charlie"
 

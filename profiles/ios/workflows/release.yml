@@ -960,6 +960,7 @@ jobs:
           fi
 
       - name: Upload IPA artifact
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
         uses: actions/upload-artifact@v7
         with:
           name: '${{ matrix.product.name }}-${{ steps.safe_ref.outputs.value }}.ipa'
@@ -974,6 +975,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload dSYM artifact
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_testflight }}
         uses: actions/upload-artifact@v7
         with:
           name: '${{ matrix.product.name }}-${{ steps.safe_ref.outputs.value }}.dSYM'
@@ -1003,7 +1005,7 @@ jobs:
       # single file, so it has to be zipped explicitly here or the upload
       # silently attaches nothing.
       - name: Package dSYMs for the release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || !inputs.skip_testflight) }}
         env:
           # The same sanitised ref the artifact names use — a "/" here would put
           # the zip in a directory that does not exist, and the release asset
@@ -1032,7 +1034,7 @@ jobs:
       # and the one that works for a crash report Sentry never saw (an Apple
       # .ips a user emails you, say).
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || !inputs.skip_testflight) }}
         uses: softprops/action-gh-release@v3
         with:
           files: |

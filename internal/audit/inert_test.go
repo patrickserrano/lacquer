@@ -62,10 +62,10 @@ func TestDeclaredSecretsWithAnExcludedReleaseAreReported(t *testing.T) {
 	}
 }
 
-// The healthy case: Steps declares secrets and its rendered release workflow
+// The healthy case: Mike declares secrets and its rendered release workflow
 // carries the step that consumes them.
 func TestDeclaredSecretsWithAWritingReleaseAreQuiet(t *testing.T) {
-	dir := inertRepo(t, "jobs:\n  release:\n    steps:\n      - name: Write release configuration (Steps)\n        run: scripts/write-release-config.sh \"Secrets.xcconfig\"\n")
+	dir := inertRepo(t, "jobs:\n  release:\n    steps:\n      - name: Write release configuration (Mike)\n        run: scripts/write-release-config.sh \"Secrets.xcconfig\"\n")
 	if fs := InertSecretDeclarations(dir, cfgWithSecrets(false)); len(fs) != 0 {
 		t.Fatalf("a project whose release DOES write its secrets was flagged: %+v", fs)
 	}
@@ -346,7 +346,7 @@ func TestWritesPath(t *testing.T) {
 			want: true,
 		},
 		{
-			// rail: a sed over the example, continued across lines, redirected
+			// charlie: a sed over the example, continued across lines, redirected
 			// into place. Sourced from the example, but substituted — a write.
 			name: "continued_sed_redirected_into_place",
 			body: "          sed \\\n" +

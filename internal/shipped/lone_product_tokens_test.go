@@ -29,7 +29,7 @@ func syncManifest(t *testing.T, manifest string) (string, error) {
 // bundle_id and asc_app_id stated only there. Every iOS template that names
 // {{SCHEME}}, {{BUNDLE_ID}} or {{ASC_APP_ID}} (ci.yml, build.md, test.md,
 // macos-ci-recipes) used to refuse to render: "missing [project] values for
-// placeholders: {{SCHEME}}". flare works around it by stating scheme twice.
+// placeholders: {{SCHEME}}". delta works around it by stating scheme twice.
 func TestLoneProductRendersEveryTemplate(t *testing.T) {
 	project, err := syncManifest(t, `
 [project]
@@ -41,7 +41,7 @@ swift_version = "6"
 [[product]]
 name = "Delta"
 scheme = "DeltaScheme"
-bundle_id = "com.example.flare"
+bundle_id = "com.example.delta"
 asc_app_id = "1000000001"
 
 [[component]]

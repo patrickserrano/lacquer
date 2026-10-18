@@ -15,7 +15,7 @@
 | Project | component (config dir) | xcodeproj |
 |---|---|---|
 | template | `ios` | `ios/MyApp.xcodeproj` |
-| rail | `.` | `Charlie.xcodeproj` |
+| charlie | `.` | `Charlie.xcodeproj` |
 | Romeo | `ios` | `ios/Romeo/Romeo.xcodeproj` |
 
 `{{XCODEPROJ}}` = the xcodeproj column verbatim; `{{COMPONENT_PREFIX}}` = `Prefix(component)`.
@@ -262,7 +262,7 @@ check() { # $1=component  $2=xcodeproj  $3=label
   rm -rf "$tmp"
 }
 check "ios" "ios/App.xcodeproj"               "TEMPLATE"
-check "."   "App.xcodeproj"                    "ROOT (rail-style)"
+check "."   "App.xcodeproj"                    "ROOT (charlie-style)"
 check "ios" "ios/Romeo/Romeo.xcodeproj"  "NESTED (Romeo-style)"
 ```
 
@@ -290,7 +290,7 @@ Expect: NESTED shows `-project ios/Romeo/Romeo.xcodeproj` AND `--config ios/.swi
 
 ## Done — what this milestone delivers
 
-The harness models the xcodeproj path independently from the config/lint dir, so the three real layouts (template, rail, Romeo) all onboard with correct CI. Unblocks Romeo onboarding.
+The harness models the xcodeproj path independently from the config/lint dir, so the three real layouts (template, charlie, Romeo) all onboard with correct CI. Unblocks Romeo onboarding.
 
 ## Next
 

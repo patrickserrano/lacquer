@@ -447,7 +447,7 @@ func (e Exclusion) UntilDate() (time.Time, error) { return time.Parse("2006-01-0
 // RetiredSecret is a credential this project has deliberately stopped reading.
 //
 // The secret-drop guard refuses any sync that would stop a managed workflow
-// reading a `${{ secrets.NAME }}` it reads today, because that is how rail's
+// reading a `${{ secrets.NAME }}` it reads today, because that is how charlie's
 // 1.1.0 shipped with unset runtime keys and was rejected under App Store
 // Guideline 2.1(a) with every check green.
 //

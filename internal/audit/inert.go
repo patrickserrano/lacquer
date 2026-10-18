@@ -71,7 +71,7 @@ const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 //
 // Any one of those satisfied a substring match, so on every project using the
 // default path CI's placeholders counted as the release writing real values,
-// and the audit could not fire. flare shipped a REPLACE_ME RevenueCat key; kit,
+// and the audit could not fire. delta shipped a REPLACE_ME RevenueCat key; echo,
 // app-lima and golf archive with empty keys.
 //
 // A write, here, is exactly one of:
@@ -96,7 +96,7 @@ const releaseWorkflowFor = ".github/workflows/ios-release.yml"
 // managed step's NAME and reported a correct hand-rolled writer as broken
 // (CLAUDE.md, "Three defects"). Every writer the fleet actually has is one of
 // the shapes above: the managed call (mike, delta, alphaapp's testflight.yml),
-// a redirection after a multi-line sed (rail), an awk into a .tmp then `mv`
+// a redirection after a multi-line sed (charlie), an awk into a .tmp then `mv`
 // (bravoapp), a redirection from a block (sample-reader-each-day).
 //
 // What it still over-accepts, deliberately, because a false "not written" is

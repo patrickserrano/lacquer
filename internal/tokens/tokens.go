@@ -1296,7 +1296,7 @@ func ReleaseTags(products []config.Product) string {
 //   - Dependabot does not no-op, it ABORTS THE JOB — "Error during file fetching;
 //     aborting: Repo must contain a Package.swift configuration file or an
 //     .xcodeproj/.xcworkspace directory with a Package.resolved file" — taking the
-//     repo's github-actions updates down with it. Romeo and rail, twice each.
+//     repo's github-actions updates down with it. Romeo and charlie, twice each.
 //   - The manifest is not always at the component root. foxtrot has one, at
 //     FoxtrotKit/Package.resolved, while its entry pointed at "/".
 //
@@ -1384,7 +1384,7 @@ func dependabotUpdates(cfg *config.Config) string {
 
 	// One entry per component, at that component's directory: Dependabot has no
 	// glob for `directory`, so a manifest outside a listed path is simply never
-	// looked at. kit keeps its project at Echo/Echo.xcodeproj, so "/" would find
+	// looked at. echo keeps its project at Echo/Echo.xcodeproj, so "/" would find
 	// nothing.
 	//
 	// Keyed on the component's STACK, falling back to its profiles. Those are

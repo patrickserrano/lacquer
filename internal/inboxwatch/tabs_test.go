@@ -119,7 +119,7 @@ func TestLaterGroupsByProjectSortedByShortNameThenNumber(t *testing.T) {
 func TestLaterSearchesEveryRosterOwnerAndNeverAllOfGitHub(t *testing.T) {
 	gh := &fakeGH{reply: func([]string) ([]byte, error) { return []byte("[]"), nil }}
 	env := Env{Run: gh.run, Now: func() time.Time { return t0 },
-		Roster:     fleet.Roster{Project: []fleet.Entry{{Name: "a", Repo: "Acme/steps"}, {Name: "b", Repo: "Acme/kit"}, {Name: "local"}}},
+		Roster:     fleet.Roster{Project: []fleet.Entry{{Name: "a", Repo: "Acme/mike"}, {Name: "b", Repo: "Acme/echo"}, {Name: "local"}}},
 		ExtraRepos: []string{"patrickserrano/lacquer", "Acme/app-tango"}}
 	if ev := env.Exec(Cmd{Kind: CmdLater}).(LaterEvent); ev.Err != "" {
 		t.Fatalf("Err = %q", ev.Err)
@@ -341,11 +341,11 @@ func prsFor(t *testing.T, repo string, age1, age2 time.Duration) []PR {
 
 func TestPRRowsShowAgeAuthorMergeStateChecksAndDraft(t *testing.T) {
 	p := onTab(t, tabModel(t, 110, 12), "4")
-	prs := prsFor(t, "Acme/steps", 30*time.Hour, 2*time.Hour)
+	prs := prsFor(t, "Acme/mike", 30*time.Hour, 2*time.Hour)
 	p, _ = send(t, p, PRsEvent{PRs: prs, At: t0})
 	f := p.View()
 	rows := strings.Split(plainAll(f), "\n")
-	if rows[2] != "steps  (2)" && !strings.HasPrefix(rows[2], "steps  (2)") {
+	if rows[2] != "mike  (2)" && !strings.HasPrefix(rows[2], "mike  (2)") {
 		t.Errorf("header row = %q", rows[2])
 	}
 	if got := strings.TrimRight(rows[3], " "); got != "  #41    30h  dependabot     BLOCKED   ✓4 ✗2 …2      old one" {

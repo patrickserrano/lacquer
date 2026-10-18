@@ -25,7 +25,7 @@ func retiredReport(name string) Report {
 
 func TestRetiredProjectIsNotCountedClean(t *testing.T) {
 	var b bytes.Buffer
-	Text(&b, []Report{retiredReport("atlas"), {Name: "kit", Path: "/tmp/kit"}})
+	Text(&b, []Report{retiredReport("atlas"), {Name: "echo", Path: "/tmp/echo"}})
 	got := b.String()
 
 	if !strings.Contains(got, "1 clean") {
@@ -78,7 +78,7 @@ func TestLiveProjectsReportUnchanged(t *testing.T) {
 	// The retired tally must not appear when nothing is retired, or every
 	// existing sweep's output changes for no reason.
 	var b bytes.Buffer
-	Text(&b, []Report{{Name: "kit", Path: "/tmp/kit"}})
+	Text(&b, []Report{{Name: "echo", Path: "/tmp/echo"}})
 	got := b.String()
 
 	if strings.Contains(got, "retired") {

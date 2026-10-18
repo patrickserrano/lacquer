@@ -85,7 +85,7 @@ type Finding struct {
 	// installed rival, so installing this one keeps both rule sets running. It
 	// is what turns the collision from a judgement call into one command.
 	//
-	// Measured on rail and bravoapp: pre-commit installed the hooks before the
+	// Measured on charlie and bravoapp: pre-commit installed the hooks before the
 	// lefthook bridge (#317) existed, so lefthook.yml -- which calls `pre-commit
 	// run` -- reported as a collision with no remedy, and an operator had to ask
 	// what to run. Detected rather than assumed, because a lefthook.yml WITHOUT

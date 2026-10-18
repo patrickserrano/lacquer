@@ -6,7 +6,7 @@
 // invisible for the identical reason: `xcodebuild` exits 0 for a
 // `-only-testing:` selector that matches nothing.
 //
-//   - A selector naming a target the project does not have. Measured in `steps`:
+//   - A selector naming a target the project does not have. Measured in `mike`:
 //     the manifest derived `test_target` from the product's DISPLAY name
 //     ("Mike Lite"), producing `Mike LiteTests`, which exists nowhere. 91 unit
 //     tests were selected by a name matching nothing.
@@ -48,7 +48,7 @@ type Target struct {
 	Unread string
 	// PackageDir is the package's directory relative to the project root, for
 	// the report. Package cannot serve: it is relative to the .xcodeproj's
-	// directory, so flare's is `../DeltaCore`. Set by Apply, which is the first
+	// directory, so delta's is `../DeltaCore`. Set by Apply, which is the first
 	// step that knows the project root; "" before it runs.
 	PackageDir string
 	// dir is the package's directory as Parse resolved it (from the pbxproj's

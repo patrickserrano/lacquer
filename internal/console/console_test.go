@@ -229,7 +229,7 @@ func TestRetiredRowDoesNotReadAsClear(t *testing.T) {
 }
 
 func TestLiveRowStillReadsAsClear(t *testing.T) {
-	got := summary(Row{Name: "kit"})
+	got := summary(Row{Name: "echo"})
 	if len(got) != 1 || got[0] != "clear" {
 		t.Errorf("a live project with nothing to report should still read clear, got %v", got)
 	}
