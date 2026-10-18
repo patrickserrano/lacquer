@@ -370,9 +370,9 @@ const pbxprojAllKinds = `// !$*UTF8*$!
 			isa = XCLocalSwiftPackageReference;
 			relativePath = BravoAppCore;
 		};
-		F34E09373030F66F00A9D294 /* XCLocalSwiftPackageReference "Shared Echo" */ = {
+		F34E09373030F66F00A9D294 /* XCLocalSwiftPackageReference "Shared Module" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../Shared Echo";
+			relativePath = "../Shared Module";
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -462,7 +462,7 @@ func TestParsePbxprojPackages(t *testing.T) {
 			t.Errorf("requirement %d = %+v\nwant %+v", i, remote[i], want[i])
 		}
 	}
-	if strings.Join(local, "|") != "BravoAppCore|../Shared Echo" {
+	if strings.Join(local, "|") != "BravoAppCore|../Shared Module" {
 		t.Errorf("local packages = %q", local)
 	}
 	if _, _, err := parsePbxprojPackages("{ objects = { A = { isa = XCRemoteSwiftPackageReference; "); err == nil {

@@ -85,7 +85,7 @@ Each shows how to wrap a SaaS price in a real offer — risk-reversal, a switchi
 
 **Why it beats a discount:** the accelerator sells the *outcome* (a launched course) at a price far above the raw subscription — the opposite of discounting. The guarantee de-risks the real fear ("I'll pay and never launch"), and the cohort cap is honest scarcity.
 
-### 4. Echo — "Painless Switch" $997 migration offer
+### 4. Switch Offer — "Painless Switch" $997 migration offer
 
 **Business:** email-platform SaaS. The blocker isn't price — it's the terror of migrating a list, sequences, and automations off the incumbent.
 
