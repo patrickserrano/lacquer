@@ -1041,3 +1041,41 @@ func TestProductSlug(t *testing.T) {
 		}
 	}
 }
+
+// swiftformat_version is a pin, so a version this lacquer has no checksum for
+// must stop the run at the manifest, in words that say what to do. Accepting it
+// would render an install step with nothing to verify the download against.
+func TestLoadSwiftFormatVersion(t *testing.T) {
+	cfg, err := loadString(t, "[project]\nname=\"q\"\nswiftformat_version=\"0.62.1\"\n")
+	if err != nil {
+		t.Fatalf("a version with a checksum row must load: %v", err)
+	}
+	if got := cfg.Project.SwiftFormatVersion; got != "0.62.1" {
+		t.Errorf("SwiftFormatVersion = %q, want 0.62.1", got)
+	}
+
+	_, err = loadString(t, "[project]\nname=\"q\"\nswiftformat_version=\"9.9.9\"\n")
+	if err == nil {
+		t.Fatal("a swiftformat_version with no checksum row loaded")
+	}
+	want := "swiftformat_version 9.9.9 has no checksum in this lacquer; bump lacquer"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err, want)
+	}
+}
+
+// The value is substituted into shell, so anything but MAJOR.MINOR.PATCH is
+// refused before it reaches a template.
+func TestLoadRejectsMalformedSwiftFormatVersion(t *testing.T) {
+	for _, v := range []string{"0.64", "latest", "0.64.0; rm -rf /", "$(id)", "0.64.0\\n"} {
+		data := "[project]\nname=\"q\"\nswiftformat_version=\"" + strings.ReplaceAll(v, `"`, `\"`) + "\"\n"
+		_, err := loadString(t, data)
+		if err == nil {
+			t.Errorf("swiftformat_version %q loaded", v)
+		} else if !strings.Contains(err.Error(), "MAJOR.MINOR.PATCH") {
+			// An unlisted version is refused too, so only this message tells the
+			// format check from the checksum lookup that follows it.
+			t.Errorf("swiftformat_version %q refused for the wrong reason: %v", v, err)
+		}
+	}
+}

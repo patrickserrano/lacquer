@@ -229,6 +229,7 @@ type iosCIJobs struct {
 			Name string            `yaml:"name"`
 			Run  string            `yaml:"run"`
 			With map[string]string `yaml:"with"`
+			Env  map[string]string `yaml:"env"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
 }
