@@ -303,40 +303,84 @@ func sortedKeys[V any](m map[string]V) []string {
 // here and not in any profile is a Dependabot PR that will keep arriving about a
 // dependency this repo does not ship, and a reviewer learning to wave the ledger
 // through.
+//
+// A same-major `vN.x.y` counts as mirroring `@vN`; see ledgerKey.
 func TestActionLedgerMirrorsEveryShippedActionRef(t *testing.T) {
 	shipped := shippedActionRefs(t)
-	inLedger := map[string]bool{}
 	ledger, _ := ledgerRefs(t)
-	for _, ref := range ledger {
-		inLedger[ref] = true
-	}
-
-	for _, ref := range sortedKeys(shipped) {
-		if !inLedger[ref] {
-			t.Errorf("%s is shipped by %s but is not in %s, so nothing upstream watches it.\n"+
-				"Add `      - uses: %s` to the ledger's steps.",
-				ref, strings.Join(shipped[ref], ", "), ledgerPath, ref)
-		}
-	}
-	for _, ref := range sortedKeys(inLedger) {
-		if _, ok := shipped[ref]; !ok {
-			t.Errorf("%s is in %s but no profile ships it any more.\n"+
-				"If Dependabot just bumped it here, make the same bump in profiles/ (or internal/tokens for "+
-				"pnpm/action-setup) in this same pull request — that is what the ledger is for. "+
-				"If the action was retired, drop the line.", ref, ledgerPath)
-		}
+	problems := compareLedger(shipped, ledger)
+	for _, p := range problems {
+		t.Error(p)
 	}
 
 	// The whole correct steps list, printed ready to paste. Reconstructing it by
 	// hand from the errors above is the step where someone fixes four of five
 	// refs and leaves the ledger wrong in a way that still compiles.
-	if t.Failed() {
+	if len(problems) > 0 {
 		var b strings.Builder
 		for _, ref := range sortedKeys(shipped) {
 			fmt.Fprintf(&b, "      - uses: %s\n", ref)
 		}
 		t.Logf("the `steps:` block in %s should be exactly:\n%s", ledgerPath, b.String())
 	}
+}
+
+// patchPrecision matches a ledger ref that is a floating major (`v7`) made
+// precise by Dependabot: `v7.1` or `v7.1.0`. The capture is the major.
+var patchPrecision = regexp.MustCompile(`^(.+)@(v\d+)\.\d+(?:\.\d+)?$`)
+
+// ledgerKey is the floating ref a ledger line mirrors. A same-major `vN.x.y`
+// mirrors `@vN`; anything else mirrors only itself.
+//
+// Why this exists: an action that this repo's own workflows pin by SHA with a
+// `# vN.x.y` comment AND the ledger floats at `@vN` is one dependency to
+// Dependabot, and a minor release makes it normalise the ledger line to the
+// precise tag. A Dependabot `ignore` cannot prevent that, because it is per
+// dependency, not per file: ignoring minor/patch for the action would stop the
+// SHA-pinned copies updating too. So the test tolerates the one precision case
+// and nothing else. The MAJOR is kept in the key, so `@v8.0.0` against a shipped
+// `@v7` is still both a missing ref and an extra one.
+func ledgerKey(ref string) string {
+	if m := patchPrecision.FindStringSubmatch(ref); m != nil {
+		return m[1] + "@" + m[2]
+	}
+	return ref
+}
+
+// compareLedger returns one message per way the ledger fails to mirror what the
+// profiles ship, in both directions. A ref in a profile and not in the ledger is
+// an action nothing upstream watches (the original hole); a ledger ref no
+// profile ships is a Dependabot PR about a dependency this repo does not ship.
+// Two ledger lines that collapse to one key are reported too: the ledger lists an
+// action once, and a second spelling is how it stops mirroring.
+func compareLedger(shipped map[string][]string, ledger []string) []string {
+	var problems []string
+	byKey := map[string][]string{}
+	for _, ref := range ledger {
+		byKey[ledgerKey(ref)] = append(byKey[ledgerKey(ref)], ref)
+	}
+
+	for _, ref := range sortedKeys(shipped) {
+		if _, ok := byKey[ref]; !ok {
+			problems = append(problems, fmt.Sprintf("%s is shipped by %s but is not in %s, so nothing upstream watches it.\n"+
+				"Add `      - uses: %s` to the ledger's steps.",
+				ref, strings.Join(shipped[ref], ", "), ledgerPath, ref))
+		}
+	}
+	for _, key := range sortedKeys(byKey) {
+		refs := byKey[key]
+		if _, ok := shipped[key]; !ok {
+			problems = append(problems, fmt.Sprintf("%s is in %s but no profile ships it any more.\n"+
+				"If Dependabot just bumped it here, make the same bump in profiles/ (or internal/tokens for "+
+				"pnpm/action-setup) in this same pull request — that is what the ledger is for. "+
+				"If the action was retired, drop the line.", strings.Join(refs, ", "), ledgerPath))
+		}
+		if len(refs) > 1 {
+			problems = append(problems, fmt.Sprintf("%s lists %s more than once (%s); the ledger holds one line per action.",
+				ledgerPath, key, strings.Join(refs, ", ")))
+		}
+	}
+	return problems
 }
 
 // The ledger has to be shaped so Dependabot reads it, which is a different claim

@@ -92,15 +92,24 @@ func isBinary(b []byte) bool {
 // scanPublicNames reports every line of the given files (paths relative to
 // root) that matches a pattern. Binary and unreadable-as-regular files are skipped.
 func scanPublicNames(root string, files []string, patterns []*regexp.Regexp) ([]nameHit, error) {
-	var hits []nameHit
+	hits, _, err := scanPublicNamesCounted(root, files, patterns)
+	return hits, err
+}
+
+// scanPublicNamesCounted is scanPublicNames that also returns how many files it
+// actually read and matched against: text files that were present. A scan that
+// read nothing finds nothing, which is indistinguishable from a clean tree
+// unless the count is looked at.
+func scanPublicNamesCounted(root string, files []string, patterns []*regexp.Regexp) (hits []nameHit, scanned int, err error) {
 	for _, f := range files {
-		b, err := os.ReadFile(filepath.Join(root, f))
-		if err != nil {
+		b, rerr := os.ReadFile(filepath.Join(root, f))
+		if rerr != nil {
 			continue // deleted in the worktree, a symlink to nowhere, a submodule
 		}
 		if isBinary(b) {
 			continue
 		}
+		scanned++
 		for i, line := range strings.Split(string(b), "\n") {
 			for _, re := range patterns {
 				if m := re.FindString(line); m != "" {
@@ -109,7 +118,21 @@ func scanPublicNames(root string, files []string, patterns []*regexp.Regexp) ([]
 			}
 		}
 	}
-	return hits, nil
+	return hits, scanned, nil
+}
+
+// scannedLine is the log line CI greps for. "Passed" and "scanned something"
+// are different claims, and only the second one makes this a check.
+func scannedLine(n int) string {
+	return fmt.Sprintf("public-names: scanned %d tracked files", n)
+}
+
+// requireScanned fails a scan that read no files at all.
+func requireScanned(n int) error {
+	if n == 0 {
+		return fmt.Errorf("the denylist scan read 0 tracked files; an empty scan cannot fail, so it is not a check")
+	}
+	return nil
 }
 
 func trackedFiles(t *testing.T, root string) []string {
@@ -148,8 +171,12 @@ func TestShippedContentNamesNoPrivateConsumer(t *testing.T) {
 		t.Fatalf("%s is set but holds no patterns; an empty list cannot fail, so it is not a check", publicDenylistEnv)
 	}
 	r := root(t)
-	hits, err := scanPublicNames(r, trackedFiles(t, r), patterns)
+	hits, scanned, err := scanPublicNamesCounted(r, trackedFiles(t, r), patterns)
 	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(scannedLine(scanned))
+	if err := requireScanned(scanned); err != nil {
 		t.Fatal(err)
 	}
 	for _, h := range hits {
@@ -258,5 +285,39 @@ func TestLoadDenylistSkipsUnlessRequired(t *testing.T) {
 	raw, skip, err := loadDenylist(present, true)
 	if err != nil || skip != "" || string(raw) != "zorblax\n" {
 		t.Fatalf("readable file: got raw=%q skip=%q err=%v", raw, skip, err)
+	}
+}
+
+// A scan of nothing is a failure, not a pass, and the count line is what CI
+// looks for.
+func TestScanPublicNamesCountsWhatItRead(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{"a.md": "x\n", "b.md": "y\n", "bin.dat": "z\x00z"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	patterns, err := parseDenylist("zorblax\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, n, _ := scanPublicNamesCounted(dir, []string{"a.md", "b.md", "bin.dat", "missing.md"}, patterns)
+	if n != 2 {
+		t.Fatalf("scanned = %d, want 2 (two text files; the binary and the missing file are not scanned)", n)
+	}
+	if err := requireScanned(n); err != nil {
+		t.Fatalf("2 scanned files rejected: %v", err)
+	}
+
+	_, n, _ = scanPublicNamesCounted(dir, nil, patterns)
+	if err := requireScanned(n); err == nil {
+		t.Fatal("a scan of 0 files was accepted")
+	}
+	_, n, _ = scanPublicNamesCounted(dir, []string{"bin.dat", "missing.md"}, patterns)
+	if err := requireScanned(n); err == nil {
+		t.Fatal("a scan in which every file was skipped was accepted")
+	}
+	if got := scannedLine(7); got != "public-names: scanned 7 tracked files" {
+		t.Fatalf("scannedLine = %q; the CI step greps for this exact shape", got)
 	}
 }

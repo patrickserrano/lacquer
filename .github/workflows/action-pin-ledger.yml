@@ -35,7 +35,15 @@
 # ledger: Dependabot's PR is the notification that a shipped ref went stale, and
 # the edit it opens is a copy of the edit the profiles need.
 #
-# You cannot merge the ledger bump on its own. `internal/shipped/
+# A MINOR or PATCH bump is the exception. An action this repo's own workflows
+# pin by SHA (`# v7.1.0`) and that this file floats at `@v7` is one dependency to
+# Dependabot, so a minor release rewrites the line here to `@v7.1.0`. That is
+# expected and needs no profile edit: the test accepts a same-major `vN.x.y` as
+# mirroring `@vN`, and only a different major, a missing ref or an extra one
+# fails. (A Dependabot `ignore` could not do this job: it is per dependency, not
+# per file, so ignoring minors here would also stop the SHA pins updating.)
+#
+# You cannot merge a MAJOR ledger bump on its own. `internal/shipped/
 # action_ledger_test.go` asserts this list and the refs the profiles render are
 # the same set, in both directions, and `.github/workflows/ci.yml` runs
 # `go test ./... -race` on every `pull_request`. A ledger that moved alone is a
