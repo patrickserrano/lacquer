@@ -7,9 +7,12 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/gitguard"
 	"github.com/patrickserrano/lacquer/internal/gittest"
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 func write(t *testing.T, path, content string) {
@@ -543,5 +546,43 @@ func TestPlanRecordsComponentPrefix(t *testing.T) {
 	}
 	if pre[filepath.Join(".claude", "skills", "g.md")] != "" {
 		t.Errorf("core asset prefix must be empty, got %q", pre[filepath.Join(".claude", "skills", "g.md")])
+	}
+}
+
+// Rendering computes values from the repository's tracked files (the Dependabot
+// swift entries, the Swift package list). A git that never answers must stop the
+// plan, because the render after it would otherwise write files computed from an
+// index that timed out, with no entry and no word about it.
+func TestPlanFailsWhenGitTimesOutDuringTheRenderIndex(t *testing.T) {
+	h := t.TempDir()
+	write(t, filepath.Join(h, "core", "skills", "git.md"), "x")
+	root := t.TempDir()
+	gittest.Init(t, root, "-q")
+	bin := t.TempDir()
+	write(t, filepath.Join(bin, "git"), "#!/bin/sh\nsleep 60\n")
+	if err := os.Chmod(filepath.Join(bin, "git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	saved := gitguard.Limit
+	t.Cleanup(func() { gitguard.Limit = saved })
+	gitguard.Limit = 500 * time.Millisecond
+
+	cfg := &config.Config{Root: root, Components: []config.Component{{Path: ".", Profiles: []string{"ios"}}}}
+	var err error
+	done := make(chan struct{})
+	go func() { _, err = Plan(h, cfg); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Plan still running after 20s: the git call is not bounded")
+	}
+	if !procgroup.IsTimeout(err) {
+		t.Fatalf("Plan returned %v, want a procgroup timeout", err)
+	}
+	for _, want := range []string{"git", "500ms"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
 	}
 }
