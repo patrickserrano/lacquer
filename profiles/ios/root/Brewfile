@@ -10,7 +10,10 @@
 brew "xcodegen"
 brew "actionlint"
 brew "swiftlint"
-brew "swiftformat"
+# swiftformat is deliberately NOT here. Homebrew has no versioned formula, so a
+# `brew upgrade` changed its default rules under every project at once. CI, the
+# hooks, `lacquer fix` and `lacquer doctor` run the release pinned by
+# swiftformat_version through scripts/swiftformat-pinned.sh instead.
 cask "periphery"
 
 # Release / signing — Codemagic CLI tools (app-store-connect, xcode-project),
