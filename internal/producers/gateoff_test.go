@@ -377,6 +377,16 @@ func TestGateOffLabelsAnEditThatOnlyBumpsActionVersions(t *testing.T) {
 			wantGateOff(t, gateEntries(t, path, g), [3]string{tc.want, "no reason recorded", "gate-off-edited-files"})
 		})
 	}
+
+	// A bump in one file beside a real edit in another is not "only versions":
+	// the label is a claim about the whole PR.
+	other := ".github/workflows/release.yml"
+	files := map[string]string{wfPath: lock.Hash(before), other: lock.Hash("name: Release\n")}
+	base := tree{wfPath: before, other: "name: Release\n", lock.Name: lockJSON(t, "1.78.1", files)}
+	head := tree{wfPath: steps("actions/checkout@v7.0.1"), other: "name: Release\n# skip signing\n", lock.Name: base[lock.Name]}
+	path, g := gateFixture(t, base, head, wfPath, other)
+	wantGateOff(t, gateEntries(t, path, g),
+		[3]string{"edited managed .github/workflows/ci.yml, .github/workflows/release.yml outside a sync", "no reason recorded", "gate-off-edited-files"})
 }
 
 // A sync rewrites the file and the lock together, so the file hashes to the
