@@ -323,7 +323,7 @@ func fakeGit(t *testing.T, body string) string {
 	return dir
 }
 
-// Foxy, 2026-10-18: the hard time limit goes in the proof. With a git that
+// The hard time limit is part of the proof: with a git that
 // never returns, the hook exits 0 within its limit, prints nothing, and so
 // session start is unaffected.
 func TestStaleCheckoutHookHonoursItsTimeLimitWhenGitHangs(t *testing.T) {
