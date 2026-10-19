@@ -87,6 +87,24 @@ var (
 	stopCommandText    = "lacquer console inbox hook stop"
 )
 
+const (
+	staleCheckoutText = "stale-checkout-warning.sh"
+	iosMCPHookText    = "allow_mcp.js"
+)
+
+// sessionStartCount counts the SessionStart hooks whose command contains text.
+func sessionStartCount(d settingsDoc, text string) int {
+	n := 0
+	for _, g := range d.Hooks["SessionStart"] {
+		for _, h := range g.Hooks {
+			if strings.Contains(h.Command, text) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func stopHookCount(d settingsDoc) int {
 	n := 0
 	for _, g := range d.Hooks["Stop"] {
@@ -198,6 +216,13 @@ func TestMergedSettingsConfigureTheIOSHooksOnceAndTheStopHookOnce(t *testing.T) 
 			if n := stopHookCount(parseSettings(t, got)); n != 1 {
 				t.Errorf("%d Stop hooks running `%s`, want exactly 1", n, stopCommandText)
 			}
+			d := parseSettings(t, got)
+			if n := sessionStartCount(d, staleCheckoutText); n != 1 {
+				t.Errorf("%d SessionStart hooks running `%s`, want exactly 1", n, staleCheckoutText)
+			}
+			if n := sessionStartCount(d, iosMCPHookText); n != 1 {
+				t.Errorf("%d SessionStart hooks running `%s`, want exactly 1", n, iosMCPHookText)
+			}
 			if g := hookSet(t, got); !reflect.DeepEqual(g, want) {
 				t.Errorf("merged hooks differ from the iOS file's.\n got %q\nwant %q", g, want)
 			}
@@ -211,7 +236,7 @@ func TestMergedSettingsConfigureTheIOSHooksOnceAndTheStopHookOnce(t *testing.T) 
 }
 
 // One profile, or web+marketing (marketing ships no settings), is not a merge:
-// the file is the profile's own, Stop hook only.
+// the file is the profile's own: the Stop hook and the stale-checkout SessionStart hook.
 func TestSingleClaimantSettingsAreTheProfilesOwnFile(t *testing.T) {
 	for name, tc := range map[string]struct {
 		cfg     *config.Config
@@ -231,8 +256,12 @@ func TestSingleClaimantSettingsAreTheProfilesOwnFile(t *testing.T) {
 				t.Fatalf("%s differs from profiles/%s's own file:\n%s", settingsDest, tc.profile, got)
 			}
 			d := parseSettings(t, got)
-			if len(d.Hooks) != 1 || stopHookCount(d) != 1 {
-				t.Errorf("want a Stop-only file with one Stop hook, got events %v, %d Stop hooks", keysOf(d.Hooks), stopHookCount(d))
+			events := keysOf(d.Hooks)
+			sort.Strings(events)
+			if !reflect.DeepEqual(events, []string{"SessionStart", "Stop"}) ||
+				stopHookCount(d) != 1 || sessionStartCount(d, staleCheckoutText) != 1 || len(d.Hooks["SessionStart"]) != 1 {
+				t.Errorf("want a file of the stale-checkout SessionStart hook and one Stop hook, got events %v, %d Stop hooks, %d stale-checkout hooks",
+					events, stopHookCount(d), sessionStartCount(d, staleCheckoutText))
 			}
 		})
 	}
@@ -240,8 +269,11 @@ func TestSingleClaimantSettingsAreTheProfilesOwnFile(t *testing.T) {
 
 // The Stop entry in web and supabase is the iOS one, character for character:
 // same command (including `|| true`) and timeout. Compared as decoded JSON so a
-// reformat is not a failure but a changed command is.
-func TestWebAndSupabaseShipTheIOSStopEntry(t *testing.T) {
+// reformat is not a failure but a changed command is. The stale-checkout
+// SessionStart group is likewise identical to the iOS one, which is what lets
+// the merger collapse it to one entry. web and supabase ship Stop and that
+// SessionStart event, nothing else.
+func TestWebAndSupabaseShipTheIOSStopEntryAndTheStaleCheckoutSessionStart(t *testing.T) {
 	stop := func(profile string) string {
 		b, err := os.ReadFile("../../profiles/" + profile + "/root/.claude/settings.json")
 		if err != nil {
@@ -258,11 +290,17 @@ func TestWebAndSupabaseShipTheIOSStopEntry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if profile != "ios" {
+			var names []string
+			for _, ev := range evs {
+				names = append(names, ev.key)
+			}
+			if !reflect.DeepEqual(names, []string{"SessionStart", "Stop"}) {
+				t.Errorf("profiles/%s ships events %v, want exactly SessionStart (the stale-checkout hook) and Stop", profile, names)
+			}
+		}
 		for _, ev := range evs {
 			if ev.key == "Stop" {
-				if profile != "ios" && len(evs) != 1 {
-					t.Errorf("profiles/%s ships events besides Stop", profile)
-				}
 				c, err := canonicalJSON(ev.val)
 				if err != nil {
 					t.Fatal(err)
@@ -272,6 +310,38 @@ func TestWebAndSupabaseShipTheIOSStopEntry(t *testing.T) {
 		}
 		t.Fatalf("profiles/%s has no Stop event", profile)
 		return ""
+	}
+	staleGroup := func(profile string) string {
+		b, err := os.ReadFile("../../profiles/" + profile + "/root/.claude/settings.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var d struct {
+			Hooks map[string][]json.RawMessage `json:"hooks"`
+		}
+		if err := json.Unmarshal(b, &d); err != nil {
+			t.Fatal(err)
+		}
+		var found []string
+		for _, g := range d.Hooks["SessionStart"] {
+			if strings.Contains(string(g), staleCheckoutText) {
+				c, err := canonicalJSON(g)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found = append(found, c)
+			}
+		}
+		if len(found) != 1 {
+			t.Fatalf("profiles/%s has %d SessionStart groups running %s, want 1", profile, len(found), staleCheckoutText)
+		}
+		return found[0]
+	}
+	wantStale := staleGroup("ios")
+	for _, p := range []string{"web", "supabase"} {
+		if got := staleGroup(p); got != wantStale {
+			t.Errorf("profiles/%s's stale-checkout SessionStart group drifted from iOS's:\n got %s\nwant %s", p, got, wantStale)
+		}
 	}
 	want := stop("ios")
 	for _, p := range []string{"web", "supabase"} {

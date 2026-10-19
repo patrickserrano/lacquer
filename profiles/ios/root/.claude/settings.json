@@ -7,7 +7,16 @@
           {
             "type": "command",
             "command": "osascript -l JavaScript .claude/scripts/allow_mcp.js",
-            "timeout": 10000
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/scripts/stale-checkout-warning.sh\" 2>/dev/null || true",
+            "timeout": 5
           }
         ]
       }

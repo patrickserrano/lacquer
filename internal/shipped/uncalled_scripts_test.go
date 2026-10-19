@@ -92,6 +92,11 @@ func TestProfiledProjectsHaveNoUndocumentedUncalledScripts(t *testing.T) {
 // .pre-commit-config.yaml — the only things that call them — come from the web,
 // supabase and ios profiles.
 //
+// It also gets .claude/scripts/stale-checkout-warning.sh: core ships the script
+// so one copy serves every profile (per-profile copies would collide when
+// profiles merge), and only the profiles' settings.json wire it, so a
+// profile-less project carries one unused script.
+//
 // Pinned rather than fixed here, because the remedy is a decision about what
 // core ships to a profile-less project and not a change to this check. What the
 // test buys is that the state is written down and visible instead of being
@@ -99,6 +104,7 @@ func TestProfiledProjectsHaveNoUndocumentedUncalledScripts(t *testing.T) {
 func TestAProfilelessProjectGetsCoreScriptsWithNothingToRunThem(t *testing.T) {
 	dests, _ := uncalled(t, "spmpackage")
 	want := []string{
+		".claude/scripts/stale-checkout-warning.sh",
 		"scripts/check-commit-msg.sh",
 		"scripts/check-secrets.sh",
 		"scripts/docs-relaxation.sh",
