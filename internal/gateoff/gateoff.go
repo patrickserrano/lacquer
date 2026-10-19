@@ -5,8 +5,8 @@
 //
 // It compares two snapshots of a repository, the merge commit and its first
 // parent, and reads only the blobs it needs. It is pure: the caller lists the
-// trees, supplies the reader (the merge harvest reads through gh, a fleet
-// dry-run through local git), and decides what a read error means.
+// trees, supplies the reader (the merge harvest reads through gh), and
+// decides what a read error means.
 //
 // Nothing here blocks anything. A finding is a fact for a human to read; a
 // legitimate downgrade or exemption is surfaced with its reason, and that is its
@@ -35,24 +35,27 @@ type Snapshot struct {
 	Blobs map[string]string
 }
 
+// Options are facts about the change the commits cannot tell.
+type Options struct {
+	// ByDependabot is whether Dependabot authored the change. Its pure action
+	// bumps are not findings (see Check).
+	ByDependabot bool
+}
+
 // Reader returns a blob's content by id. Check returns its errors wrapped,
 // never as an absent file; whether one is worth retrying is the caller's call.
 type Reader func(blobID string) ([]byte, error)
 
 // Finding is one gate the change turned off.
 type Finding struct {
-	// Kind and Subject identify the finding for dedupe: the same change seen
-	// twice yields the same pair.
+	// Kind and Subject say what kind of gate and which one: "exclude" and a
+	// path, "edited" and a managed file.
 	Kind, Subject string
 	// What says what happened, as a predicate: "downgraded .lacquer.lock …".
 	What string
 	// Reason is the reason the change recorded, or "" when it recorded none.
 	Reason string
 }
-
-// Ref is the suffix an inbox entry for this finding is deduped by, appended to
-// the PR's URL after "#".
-func (f Finding) Ref() string { return "gate-off-" + f.Kind + "-" + f.Subject }
 
 // ReasonText is the reason as an inbox entry prints it.
 func (f Finding) ReasonText() string {
@@ -88,24 +91,28 @@ type Result struct {
 //     region) does not hash to the head lock's value: edited outside a sync;
 //   - the head lock still lists it, the file still exists and its region is
 //     gone: the region was deleted outside a sync;
-//   - the file is gone and the lock is byte-identical on both sides: deleted
-//     outside a sync, since no sync ran;
-//   - the head lock dropped it, the file is gone, and neither the lock's
-//     version nor the manifest changed, so no sync could have dropped it:
-//     deleted outside a sync, with the lock entry removed by hand too.
+//   - the file is gone, and either the lock is byte-identical on both sides
+//     (no sync ran) or neither the lock's version nor the manifest changed (a
+//     sync at the same version, from the same manifest, writes the same files
+//     and cannot leave one it lists deleted): deleted outside a sync. When the
+//     head lock dropped the entry too, the finding says so.
 //
-// A file gone from a change that DID rewrite the lock is not reported. The
-// lock lists what a sync wrote to disk, not what is committed, and a sync
-// legitimately stops committing files (a skill directory the new .gitignore
-// region ignores is still on disk, and still in the lock). Telling that apart
-// from a hand deletion would need the head's .gitignore evaluated, which this
-// does not do; the fleet dry-run found thousands of such files and no hand
-// deletion inside a sync.
+// A file gone from a change that moved the lock's version or changed the
+// manifest is not reported. The lock lists what a sync wrote to disk, not what
+// is committed, and a sync to another version or manifest legitimately stops
+// committing files (a skill directory the new .gitignore region ignores is
+// still on disk, and still in the lock). Telling that apart from a hand
+// deletion would need the head's .gitignore evaluated, which this does not do.
 //
 // A file the lacquer has stopped shipping (an orphan the audit asks to have
 // deleted) is still reported when deleted by hand: telling an orphan apart
 // needs the locked release's render, which this does not have.
-func Check(base, head Snapshot, read Reader) (Result, error) {
+//
+// An edit whose every changed line moves a `uses:` version of the same action
+// (audit.ActionBumps) is said to be one. When Dependabot made it
+// (opts.ByDependabot), it is not a finding at all: that is the routine bump of
+// a pinned action, and any other line changed in the file reports as usual.
+func Check(base, head Snapshot, read Reader, opts Options) (Result, error) {
 	var res Result
 	blobs := map[string][]byte{}
 	get := func(s Snapshot, path string) ([]byte, bool, error) {
@@ -194,11 +201,11 @@ func Check(base, head Snapshot, read Reader) (Result, error) {
 				return Result{}, err
 			}
 		}
-		grouped, err := groupManaged(get, base, head, changes, headManifest)
+		found, err := managedFindings(get, base, head, changes, headManifest, opts)
 		if err != nil {
 			return Result{}, err
 		}
-		res.Findings = append(res.Findings, grouped...)
+		res.Findings = append(res.Findings, found...)
 	}
 	return res, nil
 }
@@ -235,12 +242,12 @@ func lockChange(base, head *lock.Lock) (Finding, bool) {
 		return Finding{}, false
 	case head == nil:
 		return Finding{
-			Kind: "lock-removed", Subject: base.Version.String(),
+			Kind: "lock-removed", Subject: lock.Name,
 			What: fmt.Sprintf("removed %s, which named v%s", lock.Name, base.Version),
 		}, true
 	case lock.IsDowngrade(base, head):
 		return Finding{
-			Kind: "downgrade", Subject: base.Version.String() + "-" + head.Version.String(),
+			Kind: "downgrade", Subject: lock.Name,
 			What:   fmt.Sprintf("downgraded %s v%s→v%s", lock.Name, base.Version, head.Version),
 			Reason: lock.DowngradeReason(base, head),
 		}, true
@@ -282,7 +289,9 @@ func managedChanges(get func(Snapshot, string) ([]byte, bool, error), base, head
 	}
 	sort.Strings(keys)
 	sameVersion := headLock != nil && headLock.Version == baseLock.Version
-	lockSame := base.Blobs[lock.Name] == head.Blobs[lock.Name]
+	// No sync could have deleted a file: none ran, or one ran at the same
+	// version from the same manifest.
+	noSyncDeletes := base.Blobs[lock.Name] == head.Blobs[lock.Name] || (sameVersion && manifestSame)
 	var out []change
 	for _, key := range keys {
 		path, marker, isRegion := strings.Cut(key, "#")
@@ -295,17 +304,18 @@ func managedChanges(get func(Snapshot, string) ([]byte, bool, error), base, head
 		if headLock != nil {
 			want, listed = headLock.Files[key]
 		}
-		if !listed {
-			if !inHead && inBase && sameVersion && manifestSame {
+		if !inHead {
+			switch {
+			case !noSyncDeletes || !inBase:
+			case listed:
+				out = append(out, change{"deleted", key, path, path})
+			default:
 				out = append(out, change{"deleted", key, path, path + " (and its " + lock.Name + " entry)"})
 			}
 			continue
 		}
-		if !inHead {
-			if lockSame {
-				out = append(out, change{"deleted", key, path, path})
-			}
-			continue
+		if !listed {
+			continue // a sync dropped it, and the file is still there
 		}
 		data, _, err := get(head, path)
 		if err != nil {
@@ -327,115 +337,64 @@ func managedChanges(get func(Snapshot, string) ([]byte, bool, error), base, head
 	return out, nil
 }
 
-// groupManaged turns the changes into at most two findings, one for edits and
-// one for deletions, each naming every file. A Dependabot bump or the cleanup
-// after a release retires a file touches several managed files in one PR; one
-// entry per file was how the fleet dry-run turned a handful of PRs into dozens
-// of entries. Each finding's reason is the head's exclusion covering its files.
-//
-// An edit that changes nothing but `uses:` versions, in every file, says so
-// with the bumps, so it can be read at a glance. audit.ActionBumps decides
-// that, and it is a proof, not a guess: an action whose NAME changed is not a
-// bump, and the file then reads as an ordinary edit.
-func groupManaged(get func(Snapshot, string) ([]byte, bool, error), base, head Snapshot, changes []change, m *manifest) ([]Finding, error) {
+// managedFindings is one finding per changed file (a region's file counts
+// once per kind). Each finding's reason is the head's exclusion covering it.
+func managedFindings(get func(Snapshot, string) ([]byte, bool, error), base, head Snapshot, changes []change, m *manifest, opts Options) ([]Finding, error) {
 	var out []Finding
-	for _, kind := range []string{"edited", "deleted"} {
-		var labels []string
-		var mine []change
-		seen := map[string]bool{}
-		for _, c := range changes {
-			if c.kind == kind && !seen[c.label] {
-				seen[c.label] = true
-				labels = append(labels, c.label)
-				mine = append(mine, c)
-			}
-		}
-		if len(mine) == 0 {
+	seen := map[string]bool{}
+	for _, c := range changes {
+		if seen[c.kind+"\x00"+c.label] {
 			continue
 		}
-		verb := kind
-		if kind == "edited" {
-			bumps, err := onlyActionBumps(get, base, head, mine)
+		seen[c.kind+"\x00"+c.label] = true
+		what := fmt.Sprintf("%s managed %s outside a sync", c.kind, c.label)
+		if c.kind == "edited" {
+			bumps, err := actionBumps(get, base, head, c)
 			if err != nil {
 				return nil, err
 			}
 			if len(bumps) > 0 {
-				verb = "bumped only action versions (" + strings.Join(bumps, ", ") + ") in"
+				if opts.ByDependabot {
+					continue
+				}
+				what = fmt.Sprintf("bumped only action versions (%s) in managed %s outside a sync", strings.Join(bumps, ", "), c.label)
 			}
 		}
-		out = append(out, Finding{
-			Kind: kind, Subject: "files",
-			What:   fmt.Sprintf("%s managed %s outside a sync", verb, strings.Join(labels, ", ")),
-			Reason: reasons(m, mine),
-		})
+		reason := ""
+		if m != nil {
+			reason = m.exclusionReason(c.path)
+		}
+		out = append(out, Finding{Kind: c.kind, Subject: c.label, What: what, Reason: reason})
 	}
 	return out, nil
 }
 
-// onlyActionBumps is every action bump across the edited files, or nil when any
-// of them changed anything else (or is a region, or is new).
-func onlyActionBumps(get func(Snapshot, string) ([]byte, bool, error), base, head Snapshot, edited []change) ([]string, error) {
+// actionBumps is every action bump in an edited whole file, or nil when any
+// other line changed (or it is a region, or it is new). audit.ActionBumps
+// decides it, and it is a proof, not a guess: an action whose NAME changed is
+// not a bump.
+func actionBumps(get func(Snapshot, string) ([]byte, bool, error), base, head Snapshot, c change) ([]string, error) {
+	if c.key != c.path {
+		return nil, nil // a region: the project owns the rest of the file
+	}
+	before, present, err := get(base, c.path)
+	if err != nil || !present {
+		return nil, err
+	}
+	after, _, err := get(head, c.path)
+	if err != nil {
+		return nil, err
+	}
 	var out []string
 	seen := map[string]bool{}
-	for _, c := range edited {
-		if c.key != c.path {
-			return nil, nil // a region: the project owns the rest of the file
-		}
-		before, present, err := get(base, c.path)
-		if err != nil {
-			return nil, err
-		}
-		if !present {
-			return nil, nil
-		}
-		after, _, err := get(head, c.path)
-		if err != nil {
-			return nil, err
-		}
-		bumps := audit.ActionBumps(string(before), string(after))
-		if bumps == nil {
-			return nil, nil
-		}
-		for _, b := range bumps {
-			s := fmt.Sprintf("%s %s→%s", b.Action, b.From, b.To)
-			if !seen[s] {
-				seen[s] = true
-				out = append(out, s)
-			}
+	for _, b := range audit.ActionBumps(string(before), string(after)) {
+		s := fmt.Sprintf("%s %s→%s", b.Action, b.From, b.To)
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
 		}
 	}
 	return out, nil
-}
-
-// reasons is the head's exclusion reason for the changed files: the one reason
-// when they share it, else each file's, or "" when none is covered.
-func reasons(m *manifest, cs []change) string {
-	if m == nil {
-		return ""
-	}
-	byPath := map[string]string{}
-	distinct := map[string]bool{}
-	var paths []string
-	for _, c := range cs {
-		r := m.exclusionReason(c.path)
-		if _, ok := byPath[c.path]; !ok {
-			paths = append(paths, c.path)
-		}
-		byPath[c.path] = r
-		distinct[r] = true
-	}
-	if len(distinct) == 1 {
-		for r := range distinct {
-			return r
-		}
-	}
-	var parts []string
-	for _, p := range paths {
-		if r := byPath[p]; r != "" {
-			parts = append(parts, p+": "+r)
-		}
-	}
-	return strings.Join(parts, "; ")
 }
 
 // extractRegion finds a managed region's body in whichever comment syntax the

@@ -419,9 +419,9 @@ Every gate a PR runs is advisory against that PR: on `pull_request` the
 workflow and the lacquer binary both come from its head, so it can edit its own
 `ci.yml` or move its lock to a release that predates a check. The console's
 merged-PR harvest is the layer it cannot reach. It runs the fleet's own lacquer
-after the merge, compares the merge commit with its first parent, and adds one
-unread inbox item per finding, quoting the PR's reason or saying `no reason
-recorded`, when the PR:
+after the merge, compares the merge commit with its first parent, and adds ONE
+unread inbox item for the merge, listing every finding with the PR's reason or
+`no reason recorded`, when the PR:
 
 - moved `.lacquer.lock` to an **older** lacquer, or removed it (an upgrade, the
   same version and a first sync are silent);
@@ -430,21 +430,24 @@ recorded`, when the PR:
   (including new version ranges), a `not_run_in_ci` or `covered_elsewhere`
   target, a `retired_secrets` name, `retired`, a `seed_once` path or a
   `biome_ignores` pattern. "Extended" means a later `until`, or a dated entry
-  made undated; removing or shortening one is silent;
+  made undated; removing or shortening one is silent. Entries are compared as
+  whole entries, so a later-dated duplicate is caught wherever it sits;
 - **edited or deleted a managed file outside a sync**. A sync rewrites the
   managed files and the lock together, so after one every managed file hashes to
   what the merge's lock records. A file (or managed region) the base's lock
   lists that the PR changed is reported as edited when the merge's lock still
-  lists it and it no longer hashes to that value, and as deleted when it is gone
-  from a PR that left the lock untouched, or gone with its lock entry while
-  neither the lacquer version nor the manifest changed. A file gone from a PR
-  that did rewrite the lock is not reported: the lock lists what a sync wrote to
-  disk, and a sync legitimately stops committing files (a skill directory the new
+  lists it and it no longer hashes to that value. It is reported as deleted when
+  it is gone and either the lock is unchanged or neither the lacquer version nor
+  the manifest changed: a sync at the same version from the same manifest writes
+  the same files. A file gone from a PR that moved the version or changed the
+  manifest is not reported: the lock lists what a sync wrote to disk, and such a
+  sync legitimately stops committing files (a skill directory the new
   `.gitignore` region ignores). Deleting an orphan the audit asked you to remove
   is reported: telling an orphan apart needs the locked release's render, which
-  the harvest lacks. Each PR gets at most one edited and one deleted item, naming
-  every file, and an edit that only moves `uses:` versions says so with the
-  bumps.
+  the harvest lacks. An edit that only moves `uses:` versions of the same action
+  says so with the bumps, and is not reported at all when Dependabot opened the
+  PR (the author comes from the merge list the harvest already reads, at no
+  extra call); any other line changed in that file reports as usual.
 
 Nothing is blocked. A legitimate downgrade, such as reverting a bad release, is
 surfaced with its reason, and that is its whole path. Record the reason in the
@@ -459,15 +462,28 @@ lives in the lock, not the manifest, because the release being downgraded to may
 not know a new manifest key and would reject it.
 
 A merge whose file list leaves the lock, the manifest and every managed path
-alone costs no extra call, once the harvest has learned the managed paths (it
-keeps them beside its cursor, from the last lock it read, and reads every merge
-until then). Any other merge costs one commit read, two recursive tree reads,
-and one blob read per blob it needs: the lock at each side, the manifest at each
-side when it changed, and each managed file the PR changed (at both sides when
-it was edited, for the action-bump check). A failed read is
-retried on the next harvest; a file that does not parse, or a tree too large for
-GitHub to list whole, gets one unread "couldn't check … for gates turned off …;
-check by hand" item beside whatever could be checked.
+alone, and renames or deletes nothing, costs no extra call once the harvest has
+learned the managed paths of its base branch (it keeps them beside its cursor,
+per branch, from the last lock it read, and reads every merge into a branch
+until then). A rename always counts, because gh lists it by its new path only.
+Any other merge costs one commit read, two recursive tree reads, and one blob
+read per blob it needs: the lock at each side, the manifest at each side when it
+changed (or the merge's alone when a finding wants an exclusion's reason), and
+each managed file the PR changed (at both sides when edited, for the action-bump
+check). A hand edit of one workflow in a project with a manifest is seven calls.
+
+A failed read is retried on the next harvest. A file that does not parse, or a
+merge commit gh does not name or GitHub does not have, gets one unread
+"couldn't check … for gates turned off …; check by hand" item beside whatever
+could be checked, and the harvest moves on. A tree too large for GitHub to list
+whole gets one such item for the repository, not one per merge.
+
+Known limits. A rebase merge is compared as its last commit against that
+commit's parent, so a gate turned off by an earlier commit of the same PR is
+missed. Removing a `[[component]]` or a profile turns that stack's gates off
+with no finding: the lock and the files change exactly as a sync of the smaller
+manifest would change them. A hand edit whose lock hash was refreshed by hand
+too reads as a sync here; `audit --ci` fails it in CI (exit 8).
 
 `audit --ci --ci-event pull_request`, which the shipped CI runs, adds a floor
 under this: it exits 9 on a downgrade with no recorded reason, and prints the

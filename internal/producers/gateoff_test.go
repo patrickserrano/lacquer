@@ -94,8 +94,29 @@ func lockJSON(t *testing.T, ver string, files map[string]string, downgrade ...st
 }
 
 func mergedWithCommit(n int, title, mergedAt, head, merge string) string {
-	return fmt.Sprintf(`{"number":%d,"title":%q,"url":"https://github.com/acme/widgets/pull/%d","mergedAt":%q,"headRefOid":%q,"mergeCommit":{"oid":%q}}`, n, title, n, mergedAt, head, merge)
+	return mergedBy(n, title, mergedAt, head, merge, `{"login":"octocat","is_bot":false}`)
 }
+
+// mergedBy is a merged PR into main opened by author, as gh's JSON spells it.
+func mergedBy(n int, title, mergedAt, head, merge, author string) string {
+	return mergedInto(n, title, mergedAt, head, merge, author, "main")
+}
+
+func mergedInto(n int, title, mergedAt, head, merge, author, branch string) string {
+	return fmt.Sprintf(`{"number":%d,"title":%q,"url":"https://github.com/acme/widgets/pull/%d","mergedAt":%q,"headRefOid":%q,"mergeCommit":{"oid":%q},"baseRefName":%q,"author":%s}`, n, title, n, mergedAt, head, merge, branch, author)
+}
+
+// filesChanged is one PR's file list with each file's changeType, path then
+// type in pairs.
+func filesChanged(n int, pairs ...string) string {
+	var fs []string
+	for i := 0; i+1 < len(pairs); i += 2 {
+		fs = append(fs, fmt.Sprintf(`{"path":%q,"changeType":%q}`, pairs[i], pairs[i+1]))
+	}
+	return fmt.Sprintf(`{"url":"https://github.com/acme/widgets/pull/%d","files":[%s]}`, n, strings.Join(fs, ","))
+}
+
+const dependabot = `{"login":"app/dependabot","is_bot":true}`
 
 // gateFixture is a primed harvest with PR #9 merged, changing files, from base
 // to head.
@@ -134,16 +155,28 @@ func gateEntries(t *testing.T, path string, g *loosenGH) []inbox.Entry {
 	return res.Added[:len(res.Added)-1]
 }
 
+// wantGateOff asserts the merge's one gate-off entry lists exactly want, in
+// order, each as {what, reason text, "kind subject"}; no want means no entry.
 func wantGateOff(t *testing.T, got []inbox.Entry, want ...[3]string) {
 	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("got %d gate-off entries, want %d:\n%s", len(got), len(want), describe(got))
-	}
-	for i, w := range want {
-		e := got[i]
-		if e.Type != inbox.Unread || e.Title != "acme/widgets#9 "+w[0] || e.Body != w[1] || e.Ref != pr9URL+"#"+w[2] || e.Project != "widgets" {
-			t.Errorf("entry %d =\n  %q | %q | %q\nwant\n  %q | %q | %q", i, e.Title, e.Body, e.Ref, "acme/widgets#9 "+w[0], w[1], pr9URL+"#"+w[2])
+	if len(want) == 0 {
+		if len(got) != 0 {
+			t.Fatalf("got gate-off entries, want none:\n%s", describe(got))
 		}
+		return
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d gate-off entries, want one for the merge:\n%s", len(got), describe(got))
+	}
+	var whats, lines []string
+	for _, w := range want {
+		whats = append(whats, w[0])
+		lines = append(lines, "- "+w[2]+" — "+w[1])
+	}
+	e := got[0]
+	title, body := "acme/widgets#9 turned gates off: "+strings.Join(whats, "; "), strings.Join(lines, "\n")
+	if e.Type != inbox.Unread || e.Title != title || e.Body != body || e.Ref != pr9URL+"#gate-off" || e.Project != "widgets" {
+		t.Errorf("entry =\n  %q\n  %q\n  %q\nwant\n  %q\n  %q\n  %q", e.Title, e.Body, e.Ref, title, body, pr9URL+"#gate-off")
 	}
 }
 
@@ -160,7 +193,7 @@ func describe(es []inbox.Entry) string {
 func TestGateOffRaisesALockDowngrade(t *testing.T) {
 	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), synced(t, "1.77.0", wf, nil), lock.Name)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"downgraded .lacquer.lock v1.78.1→v1.77.0", "no reason recorded", "gate-off-downgrade-1.78.1-1.77.0"})
+		[3]string{"downgraded .lacquer.lock v1.78.1→v1.77.0", "no reason recorded", "downgrade .lacquer.lock"})
 }
 
 func TestGateOffQuotesTheDowngradeReasonTheLockRecords(t *testing.T) {
@@ -168,7 +201,7 @@ func TestGateOffQuotesTheDowngradeReasonTheLockRecords(t *testing.T) {
 	head[lock.Name] = lockJSON(t, "1.77.0", map[string]string{wfPath: lock.Hash(wf)}, "1.78.1", "1.78.1 breaks the release job")
 	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), head, lock.Name)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"downgraded .lacquer.lock v1.78.1→v1.77.0", "reason: 1.78.1 breaks the release job", "gate-off-downgrade-1.78.1-1.77.0"})
+		[3]string{"downgraded .lacquer.lock v1.78.1→v1.77.0", "reason: 1.78.1 breaks the release job", "downgrade .lacquer.lock"})
 }
 
 // A reason recorded for leaving another version does not explain this one.
@@ -177,7 +210,7 @@ func TestGateOffIgnoresADowngradeReasonForAnotherVersion(t *testing.T) {
 	head[lock.Name] = lockJSON(t, "1.77.0", map[string]string{wfPath: lock.Hash(wf)}, "1.79.0", "stale note")
 	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), head, lock.Name)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"downgraded .lacquer.lock v1.78.1→v1.77.0", "no reason recorded", "gate-off-downgrade-1.78.1-1.77.0"})
+		[3]string{"downgraded .lacquer.lock v1.78.1→v1.77.0", "no reason recorded", "downgrade .lacquer.lock"})
 }
 
 func TestGateOffIsSilentOnAnUpgradeOrTheSameVersion(t *testing.T) {
@@ -195,7 +228,7 @@ func TestGateOffRaisesARemovedLock(t *testing.T) {
 	delete(head, lock.Name)
 	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), head, lock.Name)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"removed .lacquer.lock, which named v1.78.1", "no reason recorded", "gate-off-lock-removed-1.78.1"})
+		[3]string{"removed .lacquer.lock, which named v1.78.1", "no reason recorded", "lock-removed .lacquer.lock"})
 }
 
 // "Absent at the base" is a first sync, and silent. It is a different state
@@ -230,69 +263,92 @@ func TestGateOffRaisesEachAddedOrExtendedExemption(t *testing.T) {
 		{"exclude added", ``,
 			`[project]
 exclude = [{ path = ".github/workflows/ios-ci.yml", reason = "local fix", until = "2026-12-01" }]`,
-			[3]string{`added [project].exclude ".github/workflows/ios-ci.yml" (until 2026-12-01)`, "reason: local fix", "gate-off-exclude-.github/workflows/ios-ci.yml"}},
+			[3]string{`added [project].exclude ".github/workflows/ios-ci.yml" (until 2026-12-01)`, "reason: local fix", "exclude .github/workflows/ios-ci.yml"}},
 		{"bare exclude added", ``, `[project]
 exclude = ["typedoc.json"]`,
-			[3]string{`added [project].exclude "typedoc.json" (undated)`, "no reason recorded", "gate-off-exclude-typedoc.json"}},
+			[3]string{`added [project].exclude "typedoc.json" (undated)`, "no reason recorded", "exclude typedoc.json"}},
 		{"exclude extended", `[project]
 exclude = [{ path = "a.yml", reason = "r", until = "2026-11-01" }]`, `[project]
 exclude = [{ path = "a.yml", reason = "still broken", until = "2026-12-01" }]`,
-			[3]string{`extended [project].exclude "a.yml" until 2026-11-01→2026-12-01`, "reason: still broken", "gate-off-exclude-a.yml"}},
+			[3]string{`extended [project].exclude "a.yml" until 2026-11-01→2026-12-01`, "reason: still broken", "exclude a.yml"}},
 		{"exclude made undated", `[project]
 exclude = [{ path = "a.yml", reason = "r", until = "2026-11-01" }]`, `[project]
 exclude = [{ path = "a.yml", reason = "permanent now" }]`,
-			[3]string{`extended [project].exclude "a.yml" until 2026-11-01→undated`, "reason: permanent now", "gate-off-exclude-a.yml"}},
+			[3]string{`extended [project].exclude "a.yml" until 2026-11-01→undated`, "reason: permanent now", "exclude a.yml"}},
 		{"exclude widened to a directory", `[project]
 exclude = [{ path = ".github/workflows/a.yml", reason = "r" }]`, `[project]
 exclude = [{ path = ".github/workflows", reason = "all of them" }]`,
-			[3]string{`added [project].exclude ".github/workflows" (undated)`, "reason: all of them", "gate-off-exclude-.github/workflows"}},
+			[3]string{`added [project].exclude ".github/workflows" (undated)`, "reason: all of them", "exclude .github/workflows"}},
+		// A manifest may list a path twice. A later-dated duplicate is caught
+		// wherever it sits: above the old entry, a map keyed by path would
+		// keep the old one and see nothing.
+		{"later duplicate above the old exclude", `[project]
+exclude = [{ path = "a.yml", reason = "r", until = "2026-11-01" }]`, `[project]
+exclude = [{ path = "a.yml", reason = "dup", until = "2026-12-01" }, { path = "a.yml", reason = "r", until = "2026-11-01" }]`,
+			[3]string{`extended [project].exclude "a.yml" until 2026-11-01→2026-12-01`, "reason: dup", "exclude a.yml"}},
+		{"later duplicate below the old exclude", `[project]
+exclude = [{ path = "a.yml", reason = "r", until = "2026-11-01" }]`, `[project]
+exclude = [{ path = "a.yml", reason = "r", until = "2026-11-01" }, { path = "a.yml", reason = "dup", until = "2026-12-01" }]`,
+			[3]string{`extended [project].exclude "a.yml" until 2026-11-01→2026-12-01`, "reason: dup", "exclude a.yml"}},
+		{"wider duplicate above the old ignore", `[[component]]
+path = "."
+dependabot_ignore = [{ dependency = "ts", versions = ["7.x"], reason = "r", until = "2026-12-01" }]`, `[[component]]
+path = "."
+dependabot_ignore = [{ dependency = "ts", versions = ["8.x"], reason = "dup", until = "2026-12-01" }, { dependency = "ts", versions = ["7.x"], reason = "r", until = "2026-12-01" }]`,
+			[3]string{`widened dependabot_ignore ".:ts" to also withhold 8.x`, "reason: dup", "dependabot_ignore .:ts"}},
+		{"wider duplicate below the old ignore", `[[component]]
+path = "."
+dependabot_ignore = [{ dependency = "ts", versions = ["7.x"], reason = "r", until = "2026-12-01" }]`, `[[component]]
+path = "."
+dependabot_ignore = [{ dependency = "ts", versions = ["7.x"], reason = "r", until = "2026-12-01" }, { dependency = "ts", versions = ["8.x"], reason = "dup", until = "2026-12-01" }]`,
+			[3]string{`widened dependabot_ignore ".:ts" to also withhold 8.x`, "reason: dup", "dependabot_ignore .:ts"}},
 		{"relax added", ``, `[baseline.relax.warnings_as_errors]
 until = "2026-12-01"
 reason = "vendored SDK"`,
-			[3]string{`added [baseline.relax] "warnings_as_errors" (until 2026-12-01)`, "reason: vendored SDK", "gate-off-relax-warnings_as_errors"}},
+			[3]string{`added [baseline.relax] "warnings_as_errors" (until 2026-12-01)`, "reason: vendored SDK", "relax warnings_as_errors"}},
 		{"relax extended", `[baseline.relax.coverage]
 until = "2026-11-01"
 reason = "r"`, `[baseline.relax.coverage]
 until = "2027-01-01"
 reason = "r2"`,
-			[3]string{`extended [baseline.relax] "coverage" until 2026-11-01→2027-01-01`, "reason: r2", "gate-off-relax-coverage"}},
+			[3]string{`extended [baseline.relax] "coverage" until 2026-11-01→2027-01-01`, "reason: r2", "relax coverage"}},
 		{"dependabot ignore added", `[[component]]
 path = "."`, `[[component]]
 path = "."
 dependabot_ignore = [{ dependency = "typescript", versions = ["7.x"], reason = "breaks build", until = "2026-12-01" }]`,
-			[3]string{`added dependabot_ignore ".:typescript" (until 2026-12-01)`, "reason: breaks build", "gate-off-dependabot_ignore-.:typescript"}},
+			[3]string{`added dependabot_ignore ".:typescript" (until 2026-12-01)`, "reason: breaks build", "dependabot_ignore .:typescript"}},
 		{"dependabot ignore widened", `[[component]]
 path = "."
 dependabot_ignore = [{ dependency = "typescript", versions = ["7.x"], reason = "r", until = "2026-12-01" }]`, `[[component]]
 path = "."
 dependabot_ignore = [{ dependency = "typescript", versions = ["7.x", "8.x"], reason = "r", until = "2026-12-01" }]`,
-			[3]string{`widened dependabot_ignore ".:typescript" to also withhold 8.x`, "reason: r", "gate-off-dependabot_ignore-.:typescript"}},
+			[3]string{`widened dependabot_ignore ".:typescript" to also withhold 8.x`, "reason: r", "dependabot_ignore .:typescript"}},
 		{"not run in CI added", ``, `[[project.not_run_in_ci]]
 target = "AppUITests"
 reason = "needs a device"
 until = "2026-12-01"`,
-			[3]string{`added [[project.not_run_in_ci]] "AppUITests" (until 2026-12-01)`, "reason: needs a device", "gate-off-not_run_in_ci-AppUITests"}},
+			[3]string{`added [[project.not_run_in_ci]] "AppUITests" (until 2026-12-01)`, "reason: needs a device", "not_run_in_ci AppUITests"}},
 		{"covered elsewhere added", ``, `[[project.covered_elsewhere]]
 target = "Watch Tests"
 workflow = ".github/workflows/watch.yml"
 job = "test"
 reason = "watch.yml test job runs it"`,
-			[3]string{`added [[project.covered_elsewhere]] "Watch Tests"`, "reason: watch.yml test job runs it", "gate-off-covered_elsewhere-Watch Tests"}},
+			[3]string{`added [[project.covered_elsewhere]] "Watch Tests"`, "reason: watch.yml test job runs it", "covered_elsewhere Watch Tests"}},
 		{"retired secret added", ``, `[[project.retired_secrets]]
 name = "SENTRY_DSN"
 reason = "moved off Sentry"`,
-			[3]string{`added [[project.retired_secrets]] "SENTRY_DSN"`, "reason: moved off Sentry", "gate-off-retired_secrets-SENTRY_DSN"}},
+			[3]string{`added [[project.retired_secrets]] "SENTRY_DSN"`, "reason: moved off Sentry", "retired_secrets SENTRY_DSN"}},
 		{"project retired", `[project]
 name = "x"`, `[project]
 name = "x"
 retired = { since = "2026-10-19", reason = "not viable" }`,
-			[3]string{`added [project].retired "project"`, "reason: not viable", "gate-off-retired-project"}},
+			[3]string{`added [project].retired "project"`, "reason: not viable", "retired project"}},
 		{"seed once added", ``, `[project]
 seed_once = ["ios/Secrets.xcconfig.example"]`,
-			[3]string{`added [project].seed_once "ios/Secrets.xcconfig.example"`, "no reason recorded", "gate-off-seed_once-ios/Secrets.xcconfig.example"}},
+			[3]string{`added [project].seed_once "ios/Secrets.xcconfig.example"`, "no reason recorded", "seed_once ios/Secrets.xcconfig.example"}},
 		{"biome ignore added", ``, `[web]
 biome_ignores = ["!**/generated"]`,
-			[3]string{`added [web].biome_ignores "!**/generated"`, "no reason recorded", "gate-off-biome_ignores-!**/generated"}},
+			[3]string{`added [web].biome_ignores "!**/generated"`, "no reason recorded", "biome_ignores !**/generated"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -325,6 +381,9 @@ path = "."
 dependabot_ignore = [{ dependency = "ts", versions = ["7.x", "8.x"], reason = "r", until = "2026-12-01" }]`, `[[component]]
 path = "."
 dependabot_ignore = [{ dependency = "ts", versions = ["7.x"], reason = "r", until = "2026-12-01" }]`},
+		{"shorter duplicate added", `[project]
+exclude = [{ path = "a.yml", reason = "r", until = "2026-12-01" }]`, `[project]
+exclude = [{ path = "a.yml", reason = "r2", until = "2026-11-01" }, { path = "a.yml", reason = "r", until = "2026-12-01" }]`},
 		{"unrelated key", `[project]
 name = "x"`, `[project]
 name = "y"`},
@@ -344,20 +403,21 @@ name = "y"`},
 func TestGateOffRaisesAManagedFileEditedByHand(t *testing.T) {
 	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), synced(t, "1.78.1", wf, tree{wfPath: wf + "  # skip the slow job\n"}), wfPath)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "gate-off-edited-files"})
+		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"})
 }
 
-// Several managed files in one PR are one entry each for edits and deletions,
-// naming every file: a Dependabot bump touches many at once.
-func TestGateOffGroupsAPRsManagedFilesIntoOneEntryPerKind(t *testing.T) {
+// Every finding of one merge is one entry, listing each: a PR that touches
+// several managed files, or exemptions beside them, is one thing to read.
+func TestGateOffRaisesOneEntryPerMergeListingEveryFinding(t *testing.T) {
 	other := ".github/workflows/release.yml"
 	files := map[string]string{wfPath: lock.Hash(wf), other: lock.Hash("name: Release\n"), "lefthook.yml": lock.Hash("pre-commit:\n")}
 	base := tree{wfPath: wf, other: "name: Release\n", "lefthook.yml": "pre-commit:\n", lock.Name: lockJSON(t, "1.78.1", files)}
 	head := tree{wfPath: wf + "# a\n", other: "name: Release\n# b\n", lock.Name: base[lock.Name]}
 	path, g := gateFixture(t, base, head, wfPath, other, "lefthook.yml")
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"edited managed .github/workflows/ci.yml, .github/workflows/release.yml outside a sync", "no reason recorded", "gate-off-edited-files"},
-		[3]string{"deleted managed lefthook.yml outside a sync", "no reason recorded", "gate-off-deleted-files"})
+		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"},
+		[3]string{"edited managed .github/workflows/release.yml outside a sync", "no reason recorded", "edited .github/workflows/release.yml"},
+		[3]string{"deleted managed lefthook.yml outside a sync", "no reason recorded", "deleted lefthook.yml"})
 }
 
 // An edit that only moves `uses:` versions says so; one that swaps the action
@@ -374,7 +434,7 @@ func TestGateOffLabelsAnEditThatOnlyBumpsActionVersions(t *testing.T) {
 			head := synced(t, "1.78.1", before, nil)
 			head[wfPath] = tc.after
 			path, g := gateFixture(t, base, head, wfPath)
-			wantGateOff(t, gateEntries(t, path, g), [3]string{tc.want, "no reason recorded", "gate-off-edited-files"})
+			wantGateOff(t, gateEntries(t, path, g), [3]string{tc.want, "no reason recorded", "edited .github/workflows/ci.yml"})
 		})
 	}
 
@@ -386,7 +446,8 @@ func TestGateOffLabelsAnEditThatOnlyBumpsActionVersions(t *testing.T) {
 	head := tree{wfPath: steps("actions/checkout@v7.0.1"), other: "name: Release\n# skip signing\n", lock.Name: base[lock.Name]}
 	path, g := gateFixture(t, base, head, wfPath, other)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"edited managed .github/workflows/ci.yml, .github/workflows/release.yml outside a sync", "no reason recorded", "gate-off-edited-files"})
+		[3]string{"bumped only action versions (actions/checkout v6.0.2→v7.0.1) in managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"},
+		[3]string{"edited managed .github/workflows/release.yml outside a sync", "no reason recorded", "edited .github/workflows/release.yml"})
 }
 
 // A sync rewrites the file and the lock together, so the file hashes to the
@@ -405,7 +466,7 @@ func TestGateOffRaisesAHandEditBesideALockBump(t *testing.T) {
 	head[wfPath] = wf + "  # by hand\n"
 	path, g := gateFixture(t, base, head, lock.Name, wfPath)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "gate-off-edited-files"})
+		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"})
 }
 
 func TestGateOffRaisesADeletedManagedFile(t *testing.T) {
@@ -413,13 +474,12 @@ func TestGateOffRaisesADeletedManagedFile(t *testing.T) {
 	delete(head, wfPath)
 	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), head, wfPath)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"deleted managed .github/workflows/ci.yml outside a sync", "no reason recorded", "gate-off-deleted-files"})
+		[3]string{"deleted managed .github/workflows/ci.yml outside a sync", "no reason recorded", "deleted .github/workflows/ci.yml"})
 }
 
 // A sync can stop committing a file it still writes (a skill directory the new
 // .gitignore region ignores): the file leaves the commit, the lock still lists
-// it, and nothing was turned off. Measured in the fleet dry-run on every sync
-// that moved skills out of git.
+// it, and nothing was turned off.
 func TestGateOffIsSilentOnASyncThatStopsCommittingAFile(t *testing.T) {
 	skill := ".claude/skills/review/SKILL.md"
 	files := func(ver string) map[string]string {
@@ -431,13 +491,24 @@ func TestGateOffIsSilentOnASyncThatStopsCommittingAFile(t *testing.T) {
 	wantGateOff(t, gateEntries(t, path, g))
 }
 
+// A sync at the same version from the same manifest writes the same files, so
+// it cannot leave one it lists deleted: the lock changing (here it gained an
+// entry) does not excuse the deletion.
+func TestGateOffRaisesADeletionBesideASameVersionResync(t *testing.T) {
+	base := synced(t, "1.78.1", wf, nil)
+	head := tree{lock.Name: lockJSON(t, "1.78.1", map[string]string{wfPath: lock.Hash(wf), "lefthook.yml": lock.Hash("pre-commit:\n")}), "lefthook.yml": "pre-commit:\n", "Sources/App.swift": "app\n"}
+	path, g := gateFixture(t, base, head, lock.Name, wfPath, "lefthook.yml")
+	wantGateOff(t, gateEntries(t, path, g),
+		[3]string{"deleted managed .github/workflows/ci.yml outside a sync", "no reason recorded", "deleted .github/workflows/ci.yml"})
+}
+
 // Deleting the file and its lock entry by hand is not a sync either: with the
 // same lacquer version and the same manifest, no sync drops an entry.
 func TestGateOffRaisesAManagedFileDeletedWithItsLockEntry(t *testing.T) {
 	head := tree{lock.Name: lockJSON(t, "1.78.1", map[string]string{}), "Sources/App.swift": "app\n"}
 	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), head, lock.Name, wfPath)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"deleted managed .github/workflows/ci.yml (and its .lacquer.lock entry) outside a sync", "no reason recorded", "gate-off-deleted-files"})
+		[3]string{"deleted managed .github/workflows/ci.yml (and its .lacquer.lock entry) outside a sync", "no reason recorded", "deleted .github/workflows/ci.yml (and its .lacquer.lock entry)"})
 }
 
 // An exclusion the same PR added explains the edit, and is quoted with it.
@@ -447,8 +518,8 @@ func TestGateOffQuotesTheExclusionThatCoversAnEditedFile(t *testing.T) {
 	head[lock.Name] = base[lock.Name]
 	path, g := gateFixture(t, base, head, ".lacquer.toml", wfPath)
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{`added [project].exclude ".github/workflows" (undated)`, "reason: runner fix pending upstream", "gate-off-exclude-.github/workflows"},
-		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "reason: runner fix pending upstream", "gate-off-edited-files"})
+		[3]string{`added [project].exclude ".github/workflows" (undated)`, "reason: runner fix pending upstream", "exclude .github/workflows"},
+		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "reason: runner fix pending upstream", "edited .github/workflows/ci.yml"})
 }
 
 const claudeRegion = "<!-- lacquer:core:start v1.78.1 -->\nRun the tests.\n<!-- lacquer:core:end -->\n"
@@ -464,9 +535,9 @@ func TestGateOffComparesARegionByItsBody(t *testing.T) {
 	}{
 		{"outside the region", "# Project notes\n\n" + claudeRegion, nil},
 		{"inside the region", strings.Replace(claudeRegion, "Run the tests.", "Skip the tests.", 1),
-			[][3]string{{"edited managed CLAUDE.md outside a sync", "no reason recorded", "gate-off-edited-files"}}},
+			[][3]string{{"edited managed CLAUDE.md outside a sync", "no reason recorded", "edited CLAUDE.md"}}},
 		{"region removed", "# Project notes\n",
-			[][3]string{{"deleted managed region CLAUDE.md#core outside a sync", "no reason recorded", "gate-off-deleted-files"}}},
+			[][3]string{{"deleted managed region CLAUDE.md#core outside a sync", "no reason recorded", "deleted region CLAUDE.md#core"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			base := synced(t, "1.78.1", wf, tree{"CLAUDE.md": claudeRegion, lock.Name: lockWith("1.78.1")})
@@ -488,7 +559,7 @@ func TestGateOffReadsAHashCommentRegion(t *testing.T) {
 
 	path, g = gateFixture(t, files(ignore), files(strings.Replace(ignore, ".build/", ".build/\n!Secrets.xcconfig", 1)), ".gitignore")
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"edited managed .gitignore outside a sync", "no reason recorded", "gate-off-edited-files"})
+		[3]string{"edited managed .gitignore outside a sync", "no reason recorded", "edited .gitignore"})
 }
 
 // --- unreadable, transient, dedupe -----------------------------------------
@@ -520,18 +591,30 @@ func TestGateOffKeepsWhatItCouldReadBesideAnUnreadablePart(t *testing.T) {
 	head := synced(t, "1.77.0", wf, tree{".lacquer.toml": "[project\n"})
 	path, g := gateFixture(t, base, head, lock.Name, ".lacquer.toml")
 	got := gateEntries(t, path, g)
-	if len(got) != 2 || got[0].Title != "acme/widgets#9 downgraded .lacquer.lock v1.78.1→v1.77.0" ||
+	if len(got) != 2 || got[0].Title != "acme/widgets#9 turned gates off: downgraded .lacquer.lock v1.78.1→v1.77.0" || got[0].Ref != pr9URL+"#gate-off" ||
 		!strings.Contains(got[1].Title, ".lacquer.toml at the merge does not parse") || got[1].Ref != pr9URL+"#gate-off-unreadable" {
 		t.Fatalf("got:\n%s", describe(got))
 	}
 }
 
-func TestGateOffTurnsATruncatedTreeIntoAnUnreadItem(t *testing.T) {
+// A tree too large to list will be as large on the next merge: one entry for
+// the repository, not one per merge, and the harvest moves on.
+func TestGateOffTurnsATruncatedTreeIntoOneUnreadItemPerRepository(t *testing.T) {
 	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), synced(t, "1.77.0", wf, nil), lock.Name)
 	g.api[treePath(merge9)] = strings.Replace(g.api[treePath(merge9)], `"truncated":false`, `"truncated":true`, 1)
 	got := gateEntries(t, path, g)
-	if len(got) != 1 || !strings.Contains(got[0].Title, "truncated") || got[0].Ref != pr9URL+"#gate-off-unreadable" {
+	if len(got) != 1 || !strings.Contains(got[0].Title, "couldn't check acme/widgets for gates turned off: its tree is too large") ||
+		got[0].Ref != "https://github.com/acme/widgets#gate-off-tree-truncated" {
 		t.Fatalf("got:\n%s", describe(got))
+	}
+	merge10 := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	g.list = "[" + mergedWithCommit(10, "again", "2026-09-24T13:30:00Z", head9, merge10) + "]"
+	g.files = "[" + filesOf(10, lock.Name) + "]"
+	scriptMerge(g, merge10, merge9, synced(t, "1.78.1", wf, nil), synced(t, "1.77.0", wf, nil))
+	g.api[treePath(merge10)] = strings.Replace(g.api[treePath(merge10)], `"truncated":false`, `"truncated":true`, 1)
+	res := harvest9(path, t0.Add(2*time.Hour), g)
+	if len(res.Unavailable) != 0 || len(res.Added) != 1 || res.Added[0].Ref != "https://github.com/acme/widgets/pull/10" {
+		t.Fatalf("the second truncated merge added:\n%s (unavailable %v); want only its merge entry", describe(res.Added), res.Unavailable)
 	}
 }
 
@@ -553,7 +636,7 @@ func TestGateOffReportsATransientFailureAndRetries(t *testing.T) {
 	}
 	delete(g.apiErr, blobPath(head[wfPath]))
 	wantGateOff(t, gateEntries(t, path, g),
-		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "gate-off-edited-files"})
+		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"})
 }
 
 func TestGateOffDedupesOnReharvest(t *testing.T) {
@@ -569,8 +652,8 @@ func TestGateOffDedupesOnReharvest(t *testing.T) {
 	if res := harvest9(path, t0.Add(2*time.Hour), g); len(res.Added) != 0 || len(entries(t, path)) != n {
 		t.Fatalf("a rerun added %+v", res.Added)
 	}
-	// And without the merge entry that normally stops it: a finding is deduped
-	// by its own ref.
+	// And without the merge entry that normally stops it: the gate-off entry
+	// is deduped by its own ref.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -619,17 +702,19 @@ func TestGateOffCostsNothingForAnOrdinaryMerge(t *testing.T) {
 	merge11 := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	g.list = "[" + mergedWithCommit(11, "tweak ci", "2026-09-24T14:30:00Z", head9, merge11) + "]"
 	g.files = "[" + filesOf(11, wfPath) + "]"
-	edited := synced(t, "1.78.1", wf, nil)
+	manifest := tree{".lacquer.toml": "[project]\nname = \"x\"\n"}
+	edited := synced(t, "1.78.1", wf, manifest)
 	edited[wfPath] = wf + "# x\n"
-	scriptMerge(g, merge11, merge9, synced(t, "1.78.1", wf, nil), edited)
+	scriptMerge(g, merge11, merge9, synced(t, "1.78.1", wf, manifest), edited)
 	res = harvest9(path, t0.Add(3*time.Hour), g)
 	if len(res.Added) != 2 || !strings.Contains(res.Added[0].Title, "edited managed "+wfPath) {
 		t.Fatalf("a managed-path merge: added:\n%s", describe(res.Added))
 	}
 	// commit, two trees, the lock once (same blob both sides), the workflow at
-	// the merge, and at the base for the action-bump proof.
-	if n := g.apiCalls(); n != 6 {
-		t.Errorf("a touching merge made %d api calls, want 6: %v", n, g.calls)
+	// the merge and at the base (the action-bump proof), and the merge's
+	// manifest (an exclusion's reason).
+	if n := g.apiCalls(); n != 7 {
+		t.Errorf("a touching merge made %d api calls, want 7: %v", n, g.calls)
 	}
 }
 
@@ -658,13 +743,13 @@ func TestGateOffChecksAMergeWhoseFileListIsMissingOrFull(t *testing.T) {
 			// may have cut the ratchet file off.
 			g.api[runsPath] = `{"total_count":0,"check_runs":[]}`
 			wantGateOff(t, gateEntries(t, path, g),
-				[3]string{"downgraded .lacquer.lock v1.78.1→v1.77.0", "no reason recorded", "gate-off-downgrade-1.78.1-1.77.0"})
+				[3]string{"downgraded .lacquer.lock v1.78.1→v1.77.0", "no reason recorded", "downgrade .lacquer.lock"})
 		})
 	}
 }
 
-// seedManaged records, in the cursor file, that acme/widgets's lock manages
-// paths, as an earlier harvest would have.
+// seedManaged records, in the cursor file, that acme/widgets's lock on main
+// manages paths, as an earlier harvest would have.
 func seedManaged(t *testing.T, inboxPath string, paths ...string) {
 	t.Helper()
 	p := filepath.Join(filepath.Dir(inboxPath), CursorFile)
@@ -679,12 +764,110 @@ func seedManaged(t *testing.T, inboxPath string, paths ...string) {
 	if paths == nil {
 		paths = []string{}
 	}
-	c["managed"] = map[string][]string{"acme/widgets": paths}
+	c["managed"] = map[string][]string{"acme/widgets@main": paths}
 	out, err := json.Marshal(c)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(p, out, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// gh lists a rename by its new path only. Renaming a managed workflow to
+// ci.yml.off turns it off without the managed path appearing in the list, so
+// any rename or deletion is read.
+func TestGateOffChecksAMergeThatRenamesAFile(t *testing.T) {
+	head := synced(t, "1.78.1", wf, nil)
+	delete(head, wfPath)
+	head[wfPath+".off"] = wf
+	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), head)
+	seedManaged(t, path, wfPath)
+	g.files = "[" + filesChanged(9, wfPath+".off", "RENAMED") + "]"
+	wantGateOff(t, gateEntries(t, path, g),
+		[3]string{"deleted managed .github/workflows/ci.yml outside a sync", "no reason recorded", "deleted .github/workflows/ci.yml"})
+}
+
+// A merge commit gh does not name, or GitHub does not have, will not appear
+// on a retry: one unread item, and the harvest moves on.
+func TestGateOffTurnsAMissingMergeCommitIntoAnUnreadItemAndMovesOn(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"not found", "merge commit " + merge9 + ": gh api repos/acme/widgets/git/commits/" + merge9 + ": Not Found (HTTP 404)"},
+		{"not named", "gh reported no merge commit for the PR"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), synced(t, "1.77.0", wf, nil), lock.Name)
+			if tc.name == "not found" {
+				g.apiErr[commitPath(merge9)] = errors.New("gh api repos/acme/widgets/git/commits/" + merge9 + ": Not Found (HTTP 404)")
+			} else {
+				g.list = strings.Replace(g.list, `"oid":"`+merge9+`"`, `"oid":""`, 1)
+			}
+			res := harvest9(path, t0.Add(time.Hour), g)
+			if len(res.Unavailable) != 0 {
+				t.Fatalf("unavailable %v; a merge commit that will never be there must not hold the cursor", res.Unavailable)
+			}
+			if len(res.Added) != 2 || res.Added[0].Ref != pr9URL+"#gate-off-unreadable" || !strings.Contains(res.Added[0].Title, tc.want) || res.Added[1].Ref != pr9URL {
+				t.Fatalf("added:\n%s want the unreadable item naming %q, then the merge", describe(res.Added), tc.want)
+			}
+			cur, err := readCursors(filepath.Join(filepath.Dir(path), CursorFile))
+			if err != nil || !cur.Repos["acme/widgets"].After(t0) {
+				t.Fatalf("cursor %+v (%v) did not advance", cur, err)
+			}
+		})
+	}
+}
+
+// The managed paths are remembered per base branch: another branch has its
+// own lock, so a merge into it is read until that branch's are known.
+func TestGateOffKeepsManagedPathsPerBaseBranch(t *testing.T) {
+	head := synced(t, "1.78.1", wf, tree{"Sources/App.swift": "app 2\n"})
+	head[wfPath] = wf + "# release-only change\n"
+	path, g := gateFixture(t, synced(t, "1.78.1", wf, nil), head, "Sources/App.swift")
+	seedManaged(t, path) // main's lock manages nothing the list names
+	g.list = "[" + mergedInto(9, "release fix", "2026-09-24T12:30:00Z", head9, merge9, `{"login":"octocat","is_bot":false}`, "release/1.0") + "]"
+	g.files = "[" + filesOf(9, "Sources/App.swift", wfPath) + "]"
+	wantGateOff(t, gateEntries(t, path, g),
+		[3]string{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"})
+	cur, err := readCursors(filepath.Join(filepath.Dir(path), CursorFile))
+	if err != nil || len(cur.Managed["acme/widgets@release/1.0"]) == 0 || len(cur.Managed["acme/widgets@main"]) != 0 {
+		t.Fatalf("managed = %v (%v); want release/1.0 learned and main untouched", cur.Managed, err)
+	}
+}
+
+// Dependabot's routine bump of a pinned action is not a gate turned off: when
+// Dependabot opened the PR and every changed line of a managed file moves a
+// `uses:` version of the same action, that file is silent. Anything else in
+// the file, anyone else's bump, or a changed action name reports as usual.
+func TestGateOffLetsOnlyDependabotsPureActionBumpsPass(t *testing.T) {
+	steps := func(uses ...string) string {
+		out := "jobs:\n  t:\n    steps:\n"
+		for _, u := range uses {
+			out += "      - uses: " + u + "\n"
+		}
+		return out
+	}
+	before := steps("actions/checkout@v6.0.2", "actions/cache@v4.3.0")
+	for _, tc := range []struct {
+		name, author, after string
+		want                [][3]string
+	}{
+		{"dependabot pure bump", dependabot, steps("actions/checkout@v7.0.1", "actions/cache@v4.3.0"), nil},
+		{"dependabot bump plus another line", dependabot, steps("actions/checkout@v7.0.1", "actions/cache@v4.3.0") + "      - run: echo skipped\n",
+			[][3]string{{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"}}},
+		{"someone else's pure bump", `{"login":"octocat","is_bot":false}`, steps("actions/checkout@v7.0.1", "actions/cache@v4.3.0"),
+			[][3]string{{"bumped only action versions (actions/checkout v6.0.2→v7.0.1) in managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"}}},
+		{"a human named dependabot", `{"login":"app/dependabot","is_bot":false}`, steps("actions/checkout@v7.0.1", "actions/cache@v4.3.0"),
+			[][3]string{{"bumped only action versions (actions/checkout v6.0.2→v7.0.1) in managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"}}},
+		{"dependabot swapped action name", dependabot, steps("evil/checkout@v7.0.1", "actions/cache@v4.3.0"),
+			[][3]string{{"edited managed .github/workflows/ci.yml outside a sync", "no reason recorded", "edited .github/workflows/ci.yml"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := synced(t, "1.78.1", before, nil)
+			head := synced(t, "1.78.1", before, nil)
+			head[wfPath] = tc.after
+			path, g := gateFixture(t, base, head, wfPath)
+			g.list = "[" + mergedBy(9, "bump", "2026-09-24T12:30:00Z", head9, merge9, tc.author) + "]"
+			wantGateOff(t, gateEntries(t, path, g), tc.want...)
+		})
 	}
 }

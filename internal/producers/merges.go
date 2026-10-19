@@ -71,8 +71,8 @@ type HarvestResult struct {
 
 type cursors struct {
 	Repos map[string]time.Time `json:"repos"`
-	// Managed is, per repository, every path its .lacquer.lock listed at the
-	// last merge the gate-off check read. It is what lets an ordinary merge
+	// Managed is, per repository and base branch ("owner/repo@main"), every
+	// path its .lacquer.lock listed at the last merge the gate-off check read. It is what lets an ordinary merge
 	// skip that check without a call: only a merge touching one of these, the
 	// lock or the manifest needs reading. A repository missing here is
 	// unknown, and each of its merges is read until one fills it in.
@@ -91,6 +91,22 @@ type mergedPR struct {
 	MergeCommit struct {
 		Oid string `json:"oid"`
 	} `json:"mergeCommit"`
+	// BaseRefName is the branch the PR merged into. The managed paths the
+	// harvest remembers are per branch: another branch has its own lock.
+	BaseRefName string `json:"baseRefName"`
+	// Author is who opened the PR. The gate-off check lets Dependabot's pure
+	// action bumps pass (gateoff.Options); it is read here, in the list the
+	// harvest already makes, so it costs no call.
+	Author struct {
+		Login string `json:"login"`
+		IsBot bool   `json:"is_bot"`
+	} `json:"author"`
+}
+
+// byDependabot reports whether Dependabot opened the PR. gh spells the bot's
+// login "app/dependabot"; the REST API spells it "dependabot[bot]".
+func (pr mergedPR) byDependabot() bool {
+	return pr.Author.IsBot && (pr.Author.Login == "app/dependabot" || pr.Author.Login == "dependabot[bot]")
 }
 
 // prFiles is the second, narrower look at the merges that are new to the inbox:
@@ -101,6 +117,10 @@ type prFiles struct {
 	URL   string `json:"url"`
 	Files []struct {
 		Path string `json:"path"`
+		// ChangeType is ADDED, MODIFIED, DELETED, RENAMED, COPIED or CHANGED.
+		// A rename lists only its new path, so the old one (perhaps a managed
+		// file) is not in Path.
+		ChangeType string `json:"changeType"`
 	} `json:"files"`
 }
 
@@ -186,7 +206,7 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 			defer cancel()
 			out, err := o.Run(ctx, "pr", "list", "-R", repo, "--state", "merged",
 				"--search", "merged:>="+since.UTC().Format(time.RFC3339),
-				"--json", "number,title,url,mergedAt,headRefOid,mergeCommit", "--limit", fmt.Sprint(harvestLimit))
+				"--json", "number,title,url,mergedAt,headRefOid,mergeCommit,baseRefName,author", "--limit", fmt.Sprint(harvestLimit))
 			a := answer{err: err}
 			if err == nil {
 				if jerr := json.Unmarshal(out, &a.prs); jerr != nil {
@@ -243,7 +263,8 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 					break
 				}
 			}
-			managed, known := next.Managed[r.repo]
+			cacheKey := r.repo + "@" + pr.BaseRefName
+			managed, known := next.Managed[cacheKey]
 			if f, listed := a.files[pr.URL]; !listed || touchesGates(f, managed, known) {
 				added, now, err := harvestGatesOff(o, r, pr, existing)
 				res.Added = append(res.Added, added...)
@@ -253,7 +274,7 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 					break
 				}
 				if now != nil {
-					next.Managed[r.repo] = now
+					next.Managed[cacheKey] = now
 				}
 			}
 			e, err := inbox.Add(o.InboxPath, inbox.Entry{

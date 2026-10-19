@@ -73,108 +73,152 @@ func (m manifest) exclusionReason(path string) string {
 	return ""
 }
 
-// dated is one exemption entry with an optional end date, for the added/
-// extended comparison every dated kind shares.
-type dated struct {
-	until, reason string
-	// extra is anything else that widens the entry, keyed for comparison
-	// (dependabot_ignore's version ranges).
-	extra []string
+// entry is one exemption entry, flattened for comparison: key is what it
+// exempts, until its end date ("" for none), extra anything else that widens it
+// (dependabot_ignore's version ranges).
+type entry struct {
+	key, until, reason string
+	extra              []string
+}
+
+// full identifies an entry by everything in it, for the multiset compare.
+func (e entry) full() string {
+	return e.key + "\x00" + e.until + "\x00" + e.reason + "\x00" + strings.Join(e.extra, "\x01")
 }
 
 // exemptionChanges lists each exemption head has that base did not, and each
 // one head extended. Removing or shortening one is silent.
+//
+// Entries are compared as multisets of whole entries, never as a map by key:
+// a manifest may list the same path twice, and a map keeps whichever came last,
+// so a later-dated duplicate written above the old entry would vanish. Every
+// head entry the base does not hold verbatim is weighed against the most
+// permissive base entry for its key (the latest end, undated beating any date,
+// the union of version ranges): no base entry is "added", a later end or a
+// dated entry made undated is "extended", new version ranges are "widened",
+// and anything else (a reworded reason, a shorter duplicate) is silent.
 func exemptionChanges(base, head manifest) []Finding {
 	var out []Finding
-	compare := func(kind, label string, hasDates bool, b, h map[string]dated) {
-		for _, subject := range sortedKeys(h) {
-			he := h[subject]
-			be, had := b[subject]
-			name := fmt.Sprintf("%s %q", label, subject)
+	compare := func(kind, label string, hasDates bool, b, h []entry) {
+		left := map[string]int{}
+		for _, e := range b {
+			left[e.full()]++
+		}
+		type widest struct {
+			until   string
+			undated bool
+			extra   []string
+		}
+		most := map[string]*widest{}
+		for _, e := range b {
+			w := most[e.key]
+			if w == nil {
+				w = &widest{until: e.until}
+				most[e.key] = w
+			}
+			if e.until == "" {
+				w.undated = true
+			} else if e.until > w.until {
+				w.until = e.until
+			}
+			w.extra = append(w.extra, e.extra...)
+		}
+		sort.SliceStable(h, func(i, j int) bool { return h[i].key < h[j].key })
+		said := map[string]bool{}
+		for _, he := range h {
+			if left[he.full()] > 0 {
+				left[he.full()]--
+				continue
+			}
+			name := fmt.Sprintf("%s %q", label, he.key)
+			var what string
+			w := most[he.key]
 			switch {
-			case !had:
-				out = append(out, Finding{Kind: kind, Subject: subject, Reason: he.reason,
-					What: "added " + name + untilText(hasDates, he.until)})
-			case extends(be.until, he.until):
-				out = append(out, Finding{Kind: kind, Subject: subject, Reason: he.reason,
-					What: fmt.Sprintf("extended %s until %s→%s", name, be.until, orUndated(he.until))})
+			case w == nil:
+				what = "added " + name + untilText(hasDates, he.until)
+			case !w.undated && extends(w.until, he.until):
+				what = fmt.Sprintf("extended %s until %s→%s", name, w.until, orUndated(he.until))
 			default:
-				if wider := missing(be.extra, he.extra); len(wider) > 0 {
-					out = append(out, Finding{Kind: kind, Subject: subject, Reason: he.reason,
-						What: fmt.Sprintf("widened %s to also withhold %s", name, strings.Join(wider, ", "))})
+				if wider := missing(w.extra, he.extra); len(wider) > 0 {
+					what = fmt.Sprintf("widened %s to also withhold %s", name, strings.Join(wider, ", "))
 				}
 			}
+			if what == "" || said[what] {
+				continue
+			}
+			said[what] = true
+			out = append(out, Finding{Kind: kind, Subject: he.key, What: what, Reason: he.reason})
 		}
 	}
 
-	excl := func(m manifest) map[string]dated {
-		out := map[string]dated{}
+	excl := func(m manifest) []entry {
+		var out []entry
 		for _, e := range m.Project.Exclude {
-			out[e.Path] = dated{until: e.Until, reason: strings.TrimSpace(e.Reason)}
+			out = append(out, entry{key: e.Path, until: e.Until, reason: strings.TrimSpace(e.Reason)})
 		}
 		return out
 	}
 	compare("exclude", "[project].exclude", true, excl(base), excl(head))
 
-	relax := func(m manifest) map[string]dated {
-		out := map[string]dated{}
+	relax := func(m manifest) []entry {
+		var out []entry
 		for k, r := range m.Baseline.Relax {
-			out[k] = dated{until: r.Until, reason: strings.TrimSpace(r.Reason)}
+			out = append(out, entry{key: k, until: r.Until, reason: strings.TrimSpace(r.Reason)})
 		}
 		return out
 	}
 	compare("relax", "[baseline.relax]", true, relax(base), relax(head))
 
-	ignores := func(m manifest) map[string]dated {
-		out := map[string]dated{}
+	ignores := func(m manifest) []entry {
+		var out []entry
 		for _, c := range m.Component {
 			for _, d := range c.DependabotIgnore {
-				out[c.Path+":"+d.Dependency] = dated{until: d.Until, reason: strings.TrimSpace(d.Reason), extra: d.Versions}
+				out = append(out, entry{key: c.Path + ":" + d.Dependency, until: d.Until, reason: strings.TrimSpace(d.Reason), extra: d.Versions})
 			}
 		}
 		return out
 	}
 	compare("dependabot_ignore", "dependabot_ignore", true, ignores(base), ignores(head))
 
-	notRun := func(m manifest) map[string]dated {
-		out := map[string]dated{}
+	notRun := func(m manifest) []entry {
+		var out []entry
 		for _, n := range m.Project.NotRunInCI {
-			out[n.Target] = dated{until: n.Until, reason: strings.TrimSpace(n.Reason)}
+			out = append(out, entry{key: n.Target, until: n.Until, reason: strings.TrimSpace(n.Reason)})
 		}
 		return out
 	}
 	compare("not_run_in_ci", "[[project.not_run_in_ci]]", true, notRun(base), notRun(head))
 
-	covered := func(m manifest) map[string]dated {
-		out := map[string]dated{}
+	covered := func(m manifest) []entry {
+		var out []entry
 		for _, c := range m.Project.CoveredElsewhere {
-			out[c.Target] = dated{reason: strings.TrimSpace(c.Reason)}
+			out = append(out, entry{key: c.Target, reason: strings.TrimSpace(c.Reason)})
 		}
 		return out
 	}
 	compare("covered_elsewhere", "[[project.covered_elsewhere]]", false, covered(base), covered(head))
 
-	secrets := func(m manifest) map[string]dated {
-		out := map[string]dated{}
+	secrets := func(m manifest) []entry {
+		var out []entry
 		for _, s := range m.Project.RetiredSecrets {
-			out[s.Name] = dated{reason: strings.TrimSpace(s.Reason)}
+			out = append(out, entry{key: s.Name, reason: strings.TrimSpace(s.Reason)})
 		}
 		return out
 	}
 	compare("retired_secrets", "[[project.retired_secrets]]", false, secrets(base), secrets(head))
 
-	retired := func(m manifest) map[string]dated {
+	retired := func(m manifest) []entry {
 		if m.Project.Retired == nil {
 			return nil
 		}
-		return map[string]dated{"project": {reason: strings.TrimSpace(m.Project.Retired.Reason)}}
+		return []entry{{key: "project", reason: strings.TrimSpace(m.Project.Retired.Reason)}}
 	}
 	compare("retired", "[project].retired", false, retired(base), retired(head))
 
-	names := func(list []string) map[string]dated {
-		out := map[string]dated{}
+	names := func(list []string) []entry {
+		var out []entry
 		for _, s := range list {
-			out[s] = dated{}
+			out = append(out, entry{key: s})
 		}
 		return out
 	}
@@ -222,14 +266,5 @@ func missing(b, h []string) []string {
 			out = append(out, s)
 		}
 	}
-	return out
-}
-
-func sortedKeys(m map[string]dated) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
 	return out
 }
