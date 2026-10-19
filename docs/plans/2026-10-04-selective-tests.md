@@ -99,7 +99,7 @@ findings below still hold in shape; the numbers are not to be reused.
 ### 1b. Jobs whose billed minutes far exceed their wall clock
 
 From the lacquer templates (repo-local workflows are reported to their own
-PMs):
+projects):
 
 | template job | runner today | wall | billed per run | proposal |
 |---|---|---|---|---|
@@ -380,9 +380,10 @@ guaranteed to equal the tree that was tested. Comparing the tree, not the PR
 number or the SHA, is what makes reuse safe without `strict`.
 
 **A SELECTED run is never reused.** When the engine ships, a PR run in
-`selected` mode records `mode: selected`, and rule 2 refuses it. Reuse is
-extended to selected runs only through this same rule ("FULL and green on the
-same tree"), never by a separate path.
+`selected` mode records `mode: selected`, and rule 2 refuses it. No other path
+can make a selected run reusable: the engine adds only a test that its real
+`selected` record is refused by this same rule ("FULL and green on the same
+tree").
 
 Reuse needs the GitHub API from a job, which `ci.yml:19-20` forbids ("No job
 talks to the GitHub API", with `contents: read` only, `:29-30`). **Accepted
@@ -566,22 +567,23 @@ makes each round cheaper.
 + provenance, ONE unit) → Unit 2 → Unit 3 → Unit 4 → Unit 6 → Unit 7. The
 numbers keep their 10-04 meaning so references to them stay valid.
 
-1. **Sonnet** (shipped, #514): job consolidation from §1b. Template-only and
+1. Job consolidation from §1b (shipped, #514). Template-only and
    measured by itself, with the deviations recorded in the plan.
-5. **Opus** (next): tree reuse on push to main (D4b) **and** release
+5. Tree reuse on push to main (D4b) **and** release
    provenance (D5, closes #508) as one unit, proven and measured while every
    PR run is still FULL. It also introduces the `test-selection.json` record
-   (always `mode: full` at this point) that both halves read.
-2. **Opus**: the `lacquer select-tests` engine with the §5 fixtures. Pure Go,
+   that both halves read (`full` when the test job was expected to run,
+   `none` when it was not, `reused` on a push that reused a PR run).
+2. The `lacquer select-tests` engine with the §5 fixtures. Pure Go,
    no workflow change.
-3. **Opus**: wiring and the gate: the `changes` step, the Test and `watch-test`
+3. Wiring and the gate: the `changes` step, the Test and `watch-test`
    consumers, the coverage-gate rule, the CI OK asserts (§6), and the reuse
    extension that keeps a SELECTED run from ever being reused.
-4. **Sonnet**: weekly slots: the `[weekly]` config, the schedule token and its
+4. Weekly slots: the `[weekly]` config, the schedule token and its
    own concurrency group, `lacquer fleet slots`.
-6. **Opus**: weekly failure reporting: the result artifact and `HarvestWeekly`
+6. Weekly failure reporting: the result artifact and `HarvestWeekly`
    (ACTION and issue), per §4.
-7. **Sonnet**: the pilot, an iOS repo with local packages (named in the
+7. The pilot, an iOS repo with local packages (named in the
    operator's private brief), synced to the last release before Unit 3 ships;
    "before" is re-measured on its next ~10 PRs, then measure after on real
    PRs for a week, then propose the fleet sync. The pilot's name never appears

@@ -196,7 +196,7 @@ const watchJobHeader = `
     # self-hosted runner. Identical to the Test job's condition on purpose.
     # 'needs.changes.outputs.xcodeproj': a pre-code component has nothing to
     # test yet.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true' && needs.changes.outputs.reuse != 'true'
     timeout-minutes: 20
     strategy:
       # One product's watch suite failing must not cancel another's: a cancelled

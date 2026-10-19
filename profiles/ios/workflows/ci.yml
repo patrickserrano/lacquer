@@ -1,7 +1,19 @@
 name: iOS CI
+# Every run keeps GitHub's own name (the commit message or PR title) unless it
+# was dispatched with a dispatch_id: this evaluates to '' then, and a run-name
+# that is empty or whitespace falls back to the event's default. The release
+# gate dispatches with one, and finds ITS run by this title rather than by
+# "the latest run" (see verify-ci-provenance in ios-release.yml).
+run-name: ${{ inputs.dispatch_id && format('iOS CI provenance {0}', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
+    inputs:
+      dispatch_id:
+        description: 'Set by the release gate to find the run it dispatched; leave blank'
+        required: false
+        default: ''
+        type: string
   pull_request:
     # No path filter on purpose: the workflow must run on EVERY PR so the single
     # required check (CI OK) always reports. A path-filtered workflow that doesn't
@@ -16,8 +28,12 @@ on:
     paths:
 {{IOS_CI_PUSH_PATHS}}
 
-# No job talks to the GitHub API (caches/artifacts/step summaries use the
-# Actions runtime token, not GITHUB_TOKEN) — checkout is all the token does.
+# One job talks to the GitHub API, read-only: `changes`, on a push to main, to
+# find the merged PR's run and decide whether its result can be reused (its
+# reuse step says when). It alone is granted `actions: read` and
+# `pull-requests: read`; every other job keeps the default below, and
+# internal/shipped/workflow_permissions_test.go pins that. Caches, artifacts and
+# step summaries use the Actions runtime token, not GITHUB_TOKEN.
 # Pinned explicitly rather than inherited from `xcode-select`. On a shared
 # self-hosted host, whatever xcode-select points at is host state that changes
 # without a PR — see the "Verify the toolchain" step for the incident this
@@ -74,16 +90,183 @@ jobs:
     # `lacquer audit` when the `lacquer` filter fires; it used to be a diff and
     # nothing else.
     timeout-minutes: 10
+    # The one job granted more than `contents: read`, read-only, for the reuse
+    # step below (accepted 2026-10-19 as a scoped exception). A job-level block
+    # REPLACES the workflow default, so `contents` is restated for checkout.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
       lacquer: ${{ steps.filter.outputs.lacquer }}
       # Empty when the drift audit below did not run; `pass` or `fail` when it did.
       drift: ${{ steps.drift.outputs.result }}
       xcodeproj: ${{ steps.filter.outputs.xcodeproj }}
+      # The reuse step's verdict. Anything but exactly `true` runs the Mac jobs.
+      reuse: ${{ steps.reuse.outputs.reuse }}
+      reused_run: ${{ steps.reuse.outputs.reused_run }}
+      reused_run_id: ${{ steps.reuse.outputs.reused_run_id }}
+      tree: ${{ steps.reuse.outputs.tree }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # ---- tree reuse (D4b) ----
+      #
+      # A push to main re-runs the full suite on a tree a pull request may have
+      # already tested in full. This step lets the push reuse that result, and
+      # ONLY when all three hold:
+      #   1. this merge commit's TREE equals the tree the PR run recorded,
+      #   2. that run was FULL (its record says mode "full"), and
+      #   3. it was green (the run and its CI OK job both concluded success).
+      # Then `reuse=true` skips every Mac job, and CI OK names the reused run.
+      #
+      # The TREE, not the PR number or the head SHA: branch protection's
+      # `strict` is off on purpose (see the Test job), so a squash-merged tree is
+      # not guaranteed to equal the tree the PR tested. When main moved after the
+      # PR's last run the trees differ and main runs the full suite.
+      #
+      # Every other outcome runs FULL: not a push to main, no PR or more than one
+      # for the commit, no run or more than one for its head, a run not green, a
+      # record missing, unreadable or disagreeing, any API error, a rate limit,
+      # a timeout, a tool missing from the runner. The step cannot fail the job
+      # (continue-on-error, and it always exits 0); its failure mode is
+      # `reuse=false`, published by the EXIT trap whatever path the script took.
+      # Each call is bounded, and so is the step.
+      #
+      # Before the filter step on purpose: it reads no filter output, and the
+      # steps after the filter are the drift audit's. It also publishes this
+      # commit's `tree` on every run, which CI OK writes into the run record.
+      - name: Reuse a full green PR run of this exact tree
+        id: reuse
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          API_URL: ${{ github.api_url }}
+        run: |
+          # `set +e`: GitHub's default shell is `bash -e`, and this script must
+          # reach its own verdict (and the trap) past every failing command.
+          set +e
+          set -uo pipefail
+          reuse=false
+          reused_run=""
+          reused_run_id=""
+          tree=$(git rev-parse "$SHA^{tree}" 2>/dev/null) || tree=""
+          # shellcheck disable=SC2329  # invoked by the EXIT trap on the next line
+          publish() {
+            {
+              echo "tree=$tree"
+              echo "reuse=$reuse"
+              echo "reused_run=$reused_run"
+              echo "reused_run_id=$reused_run_id"
+            } >> "$GITHUB_OUTPUT"
+          }
+          trap publish EXIT
+          full() {
+            echo "Running the full suite: $*"
+            echo "::notice title=Full suite on main::$*"
+            exit 0
+          }
+
+          [ "$EVENT_NAME" = push ] && [ "$GIT_REF" = refs/heads/main ] || exit 0
+          [ -n "$tree" ] || full "could not read the tree of $SHA"
+          for tool in curl jq unzip perl; do
+            command -v "$tool" >/dev/null 2>&1 || full "$tool is not installed on this runner, so no PR run was looked up"
+          done
+
+          bound="${REUSE_API_TIMEOUT:-20}"
+          work="${RUNNER_TEMP:-/tmp}/tree-reuse"
+          mkdir -p "$work"
+          why=""
+          # api <path> <file>: GET one API path into file, bounded twice over
+          # (curl's own --max-time, and an alarm in case curl ignores it). Returns
+          # non-zero, with `why` set, on anything but a 2xx.
+          api() {
+            local code rc
+            code=$(perl -e 'alarm shift; exec @ARGV' "$bound" \
+              curl -sS -L --max-time "$bound" --connect-timeout 10 \
+                -o "$2" -D "$2.headers" -w '%{http_code}' \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "$API_URL$1")
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              case "$rc" in
+                28|142) why="$1 timed out after ${bound}s" ;;
+                *) why="$1 failed (curl exit $rc)" ;;
+              esac
+              return 1
+            fi
+            case "$code" in
+              2??) return 0 ;;
+              403|429)
+                if grep -qiE '^(x-ratelimit-remaining: *0|retry-after:)' "$2.headers" 2>/dev/null; then
+                  why="$1 was rate limited (HTTP $code)"
+                else
+                  why="$1 was refused (HTTP $code)"
+                fi ;;
+              *) why="$1 returned HTTP $code" ;;
+            esac
+            return 1
+          }
+
+          api "/repos/$REPO/commits/$SHA/pulls" "$work/pulls.json" || full "$why"
+          n=$(jq 'if type == "array" then length else error("not a list") end' "$work/pulls.json" 2>/dev/null) \
+            || full "the pull request list for $SHA is not a JSON list"
+          [ "$n" = 1 ] || full "$SHA belongs to $n pull requests, not exactly one"
+          pr=$(jq -r '.[0].number' "$work/pulls.json")
+          merged=$(jq -r '.[0].merge_commit_sha // ""' "$work/pulls.json")
+          pr_head=$(jq -r '.[0].head.sha // ""' "$work/pulls.json")
+          [ "$merged" = "$SHA" ] || full "PR #$pr was merged as ${merged:-nothing}, not $SHA"
+          [ -n "$pr_head" ] || full "PR #$pr names no head commit"
+
+          api "/repos/$REPO/actions/workflows/ios-ci.yml/runs?event=pull_request&head_sha=$pr_head&per_page=100" "$work/runs.json" || full "$why"
+          runs=$(jq -c --arg h "$pr_head" '[.workflow_runs[] | select(.head_sha == $h and .event == "pull_request")]' "$work/runs.json" 2>/dev/null) \
+            || full "the run list for PR #$pr is not JSON"
+          n=$(jq 'length' <<< "$runs")
+          [ "$n" = 1 ] || full "PR #$pr's head $pr_head has $n iOS CI runs, not exactly one"
+          run_id=$(jq -r '.[0].id' <<< "$runs")
+          run_url=$(jq -r '.[0].html_url // ""' <<< "$runs")
+          state=$(jq -r '"\(.[0].status)/\(.[0].conclusion)"' <<< "$runs")
+          [ "$state" = completed/success ] || full "PR #$pr's run $run_id is $state, not completed/success"
+
+          api "/repos/$REPO/actions/runs/$run_id/jobs?filter=latest&per_page=100" "$work/jobs.json" || full "$why"
+          ok=$(jq -r '[.jobs[] | select(.name == "CI OK")] | if length == 1 then .[0].conclusion else "\(length) CI OK jobs" end' "$work/jobs.json" 2>/dev/null) \
+            || full "the job list for run $run_id is not JSON"
+          [ "$ok" = success ] || full "run $run_id's CI OK is $ok, not success"
+
+          api "/repos/$REPO/actions/runs/$run_id/artifacts?name=test-selection&per_page=100" "$work/artifacts.json" || full "$why"
+          ids=$(jq -c '[.artifacts[] | select(.name == "test-selection" and (.expired | not)) | .id]' "$work/artifacts.json" 2>/dev/null) \
+            || full "the artifact list for run $run_id is not JSON"
+          [ "$(jq 'length' <<< "$ids")" = 1 ] || full "run $run_id has $(jq 'length' <<< "$ids") test-selection records, not exactly one"
+          api "/repos/$REPO/actions/artifacts/$(jq -r '.[0]' <<< "$ids")/zip" "$work/record.zip" || full "$why"
+          unzip -p "$work/record.zip" test-selection.json > "$work/record.json" 2>/dev/null || full "run $run_id's record archive holds no test-selection.json"
+          rec() { jq -r "$1" "$work/record.json" 2>/dev/null; }
+          rec_tree=$(rec '.tree // ""') || full "run $run_id's record is not JSON"
+          rec_mode=$(rec '.mode // ""')
+          rec_pr=$(rec '.pr // ""')
+          rec_head=$(rec '.head // ""')
+          [ "$rec_pr" = "$pr" ] || full "run $run_id's record is for PR ${rec_pr:-none}, not #$pr"
+          [ "$rec_head" = "$pr_head" ] || full "run $run_id's record is for head ${rec_head:-none}, not $pr_head"
+          [ "$rec_mode" = full ] || full "run $run_id ran mode '${rec_mode}', and only a FULL run is reused"
+          [ "$rec_tree" = "$tree" ] || full "run $run_id tested tree ${rec_tree:-none}, but this merge is tree $tree (main moved after the PR's last run)"
+          case "$run_url" in
+            https://*/actions/runs/"$run_id") ;;
+            *) full "run $run_id has an unexpected URL '$run_url'" ;;
+          esac
+
+          reuse=true
+          reused_run="$run_url"
+          reused_run_id="$run_id"
+          echo "Reusing $run_url: PR #$pr's FULL, green run tested tree $tree, this exact tree."
 
       - id: filter
         name: Check for code / view changes
@@ -438,7 +621,10 @@ jobs:
     # SECURITY: never run untrusted fork-PR code on the self-hosted runner — the
     # same-repo guard skips this job for fork PRs (also enable repo setting
     # "Require approval for all fork PRs" for defense-in-depth).
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true'
+    # `reuse != 'true'`: on a push to main whose exact tree a PR run already
+    # tested in full and green, every Mac job skips (the reuse step in
+    # `changes`; CI OK then names the reused run). Every Mac job carries it.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.reuse != 'true'
     steps:
       # FIRST, before any xcodebuild. A toolchain change on a shared self-hosted
       # host arrives with no PR and no warning, and its first symptom is a red
@@ -1014,7 +1200,7 @@ jobs:
     # `needs.changes.outputs.xcodeproj`: a pre-code component (no {{XCODEPROJ}}
     # committed and no project.yml to regenerate it) has nothing to build yet —
     # see the `changes` job's `xcodeproj` output for the full reasoning.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true' && needs.changes.outputs.reuse != 'true'
     timeout-minutes: 25
     env:
       # Homebrew is shared by every runner user on this Mac, and cleanup after an
@@ -1402,11 +1588,16 @@ jobs:
     # setting in a different system to keep it shut. Build (Release) remains the
     # compile backstop; this makes tests one too.
     #
+    # The one exception is the merged tree being byte-identical to a tree a PR
+    # run already tested in FULL and green: then the push reuses that result
+    # (the reuse step in `changes`). A different tree, which is what a merge
+    # after main moved produces, still runs here.
+    #
     # SECURITY: same-repo guard — fork-PR code must not build/test on the self-hosted runner.
     # `needs.changes.outputs.xcodeproj`: a pre-code component (no {{XCODEPROJ}}
     # committed and no project.yml to regenerate it) has nothing to test yet —
     # see the `changes` job's `xcodeproj` output for the full reasoning.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true'
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true' && needs.changes.outputs.reuse != 'true'
     # Per-step fail-fast timeouts below catch silent hangs; this is the generous
     # backstop with headroom for a cold, cache-cold build.
     timeout-minutes: 20
@@ -2381,6 +2572,12 @@ jobs:
     timeout-minutes: 2
     steps:
       - name: Verify required jobs passed (or were skipped)
+        env:
+          # Through the environment: reused_run is a URL read off the API.
+          EVENT_NAME: ${{ github.event_name }}
+          REUSE: ${{ needs.changes.outputs.reuse }}
+          REUSED_RUN: ${{ needs.changes.outputs.reused_run }}
+          TREE: ${{ needs.changes.outputs.tree }}
         run: |
           echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} build-release=${{ needs.build-release.result }} test=${{ needs.test.result }}{{IOS_CI_WATCH_ECHO}}"
           for r in \
@@ -2410,4 +2607,89 @@ jobs:
             echo "::error::lacquer drift was detected — see the \"Detect changed paths\" job log for what to fix."
             exit 1
           fi
+          # A reused tree skips every Mac job, and a skip reads as passing in the
+          # loop above, so this is where a reuse has to prove itself: only on a
+          # push, and only naming the run it reused. Anything but exactly
+          # `true` or `false`/empty is a value nobody planned for, and fails.
+          case "${REUSE:-}" in
+            true)
+              if [ "${EVENT_NAME:-}" != push ] || [ -z "${REUSED_RUN:-}" ]; then
+                echo "::error::The Mac jobs were skipped as a reuse, but the reuse names no run (event=${EVENT_NAME:-none}, reused_run=${REUSED_RUN:-none}). Nothing was tested."
+                exit 1
+              fi
+              echo "Reused full green suite from $REUSED_RUN (identical tree ${TREE:-unknown})" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              ;;
+            false|"") ;;
+            *) echo "::error::The reuse step reported '$REUSE', which is neither true nor false."; exit 1 ;;
+          esac
           echo "All required jobs passed or were skipped."
+
+      # ---- the run record ----
+      #
+      # What this run tested, for the two readers that must not take a green
+      # CI OK at its word: a later push to main deciding whether this result can
+      # be reused, and the release gate deciding whether this commit was tested
+      # in FULL. `mode` is `full` only when the test job was expected to run
+      # here (code changed, a project exists, and the run is not a fork PR's,
+      # which the same-repo guard keeps off the Mac); otherwise `none`, because
+      # a docs-only or fork PR's CI OK is green with no test run behind it. A
+      # push that reused a PR run records `reused` and names that run, so a
+      # reader that checks only for `full` refuses it rather than trusting it.
+      #
+      # Written here rather than in `changes` because this job knows how the
+      # run went, and in every run (always()) because a red run is a record too.
+      # It cannot fail CI OK: a missing record means "run the full suite" to
+      # the reuse step and "blocked" to the release gate, never a pass.
+      - name: Record what this run tested
+        id: record
+        if: always()
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          TREE: ${{ needs.changes.outputs.tree }}
+          CODE: ${{ needs.changes.outputs.code }}
+          XCODEPROJ: ${{ needs.changes.outputs.xcodeproj }}
+          SAME_REPO: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          REUSE: ${{ needs.changes.outputs.reuse }}
+          REUSED_RUN: ${{ needs.changes.outputs.reused_run }}
+          REUSED_RUN_ID: ${{ needs.changes.outputs.reused_run_id }}
+        run: |
+          set -euo pipefail
+          # Plain printf rather than jq, which this runner is not guaranteed to
+          # have. Every value is reduced to the characters its kind can contain,
+          # so nothing read off the event or the API can break the JSON.
+          clean() { printf '%s' "${1:-}" | tr -cd "$2"; }
+          mode=none
+          if [ "${SAME_REPO:-}" = true ] && [ "${CODE:-}" = true ] && [ "${XCODEPROJ:-}" = true ]; then
+            mode=full
+          fi
+          extra=""
+          if [ "${REUSE:-}" = true ]; then
+            mode=reused
+            run_id=$(clean "${REUSED_RUN_ID:-}" '0-9')
+            extra=$(printf ',"reused_run":"%s","reused_run_id":%s' \
+              "$(clean "${REUSED_RUN:-}" 'A-Za-z0-9:/._-')" "${run_id:-null}")
+          fi
+          pr=$(clean "${PR_NUMBER:-}" '0-9')
+          mkdir -p "$RUNNER_TEMP/test-selection"
+          printf '{"pr":%s,"head":"%s","tree":"%s","mode":"%s"%s}\n' \
+            "${pr:-null}" "$(clean "${HEAD_SHA:-}" '0-9a-f')" "$(clean "${TREE:-}" '0-9a-f')" "$mode" "$extra" \
+            > "$RUNNER_TEMP/test-selection/test-selection.json"
+          cat "$RUNNER_TEMP/test-selection/test-selection.json"
+
+      - name: Upload the run record
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-selection
+          path: ${{ runner.temp }}/test-selection
+          # 30 days is a request, not a promise: a repository or organization
+          # artifact retention limit lower than that silently caps it, and the
+          # record then expires sooner. Both readers are safe with that: a push
+          # finding no record runs the full suite, and the release gate finding
+          # none dispatches a fresh FULL run of the commit rather than trusting
+          # an unrecorded one. A higher limit only means fewer of those.
+          retention-days: 30
+          if-no-files-found: ignore

@@ -4,16 +4,17 @@
 
 **Status 2026-10-19.** Unit 1 shipped (#514); its actual deviations are
 recorded under Unit 1 below. Nothing from Unit 2 onward is built. The plan was
-refreshed against `main` on 2026-10-19, and the points
-quoted in the design's §8 ("Decided 2026-10-19"). What changed here:
+refreshed against `main` on 2026-10-19 and applies the decisions quoted in the
+design's §8 ("Decided 2026-10-19"). What changed here:
 
 - **New unit order: Unit 1 (shipped) → Unit 5 → Unit 2 → Unit 3 → Unit 4 →
   Unit 6 → Unit 7.** Unit 5 is push-to-main tree reuse (D4b) and release
   provenance (D5) as ONE unit, shipping next, before any selection exists, so
   every PR run is FULL while it is proven. Unit numbers keep their 10-04
-  meaning. Unit 5's tests carry both fail paths from the decision, and Unit 3
-  later extends reuse to selected runs only through the same "FULL and green
-  on the same tree" rule, so a SELECTED run is never reused.
+  meaning. Unit 5's tests carry both fail paths from the decision. A SELECTED run is
+  never reused: Unit 3 adds no second path, only a test that the real
+  engine's `selected` record is refused by the same "FULL and green on the
+  same tree" rule (Task 5.3).
 - **iOS only.** The web tasks (old 2.5 and 3.4) and the web pilot are removed
   from scope and kept in "Later: web" at the end of this file, with the
   reasoning.
@@ -29,7 +30,7 @@ full green suite on their exact tree.
 
 **Design (read first, it is the spec):** `docs/plans/2026-10-04-selective-tests.md`.
 All decisions D1–D9 were approved 2026-10-04, as amended 2026-10-19. Where this
-plan and the design disagree, the design wins: stop and report to your PM.
+plan and the design disagree, the design wins: stop and report it.
 
 **Architecture:** A pure Go function, `selecttests.Select(diff, manifest,
 tree)`, sits behind a `lacquer select-tests` subcommand. The workflows run it
@@ -74,11 +75,11 @@ in that unit, never in wall clock.
    findings about a particular repo) goes in lacquer, not even on a branch.**
    That includes PR bodies, commit messages, test fixtures and code
    comments. Tests use generic fixtures (`CoreKit`, `DataKit`, `Demo`). The
-   proof runs, billed before/after and dry-run output go to your PM, who
-   files them in the operator's private fleet repo. The lacquer PR's
+   proof runs, billed before/after and dry-run output go to the operator's
+   private fleet repo. The lacquer PR's
    `## Proven on` says only "pilot repo (private; recorded in the operator's
    fleet repo), run <numeric id>, <date>". A run URL would name the repo, so
-   it goes to your PM, not into the PR. CI checks for the heading.
+   it goes to the private fleet repo, not into the PR. CI checks for the heading.
 7. Run `go test ./...` before every push. Two CI rounds per PR, through
    `lacquer ci-round begin`. No force-push.
 
@@ -87,7 +88,7 @@ local SPM packages. iOS only; the web pilot is under "Later: web".
 
 ---
 
-## Unit 1 — Job consolidation (Sonnet). SHIPPED (#514).
+## Unit 1 — Job consolidation. SHIPPED (#514).
 
 Design §1b. This was independent of selection and probably the biggest billed
 saving. The tasks below are kept as written, for the record and for the
@@ -129,7 +130,7 @@ time from queue to start is under 30 s.
 **Step 3:** Run two PR runs at once (two proof PRs) and confirm both start on
 pi-gate without waiting for each other for longer than a run takes.
 **Decision rule:** if any check fails, `changes` stays on 2vcpu-arm, and
-Tasks 1.2–1.6 still ship. Report the failing check to your PM.
+Tasks 1.2–1.6 still ship. Report the failing check.
 
 ### Task 1.2: `changes` → pi-gate in all three profiles (only if 1.1 passed)
 
@@ -255,7 +256,7 @@ Commit: `ci(release): coordination jobs on pi-gate`.
   repo (throwaway branches). Open one draft PR each that touches code, so
   every job runs.
 - `## Proven on` in the lacquer PR: the numeric run ids only (see rule 6). The billed table,
-  before and after per run, goes to your PM, never into lacquer. "Before" is the pilot's last 10 PR runs on main's
+  before and after per run, goes to the private fleet repo, never into lacquer. "Before" is the pilot's last 10 PR runs on main's
   templates; "after" is the proof runs. Compute billed with the design §1b
   rules. Use cached JSON, `per_page=100`, and stop at 1,000 remaining rate
   limit.
@@ -265,7 +266,7 @@ Commit: `ci(release): coordination jobs on pi-gate`.
 
 ---
 
-## Unit 5 — Push-to-main reuse + release provenance (Opus). Ships next.
+## Unit 5 — Push-to-main reuse + release provenance. Ships next.
 
 D4b and D5 as ONE unit (decided 2026-10-19). Closes #508. It ships before the
 selection engine, so every PR run is still FULL while it is proven and
@@ -288,6 +289,19 @@ On every `pull_request` and `push` run, a step in `changes` uploads
 read after checkout, so on a PR run it is the tree of `refs/pull/N/merge`, the
 tree that was actually tested. The step must not fail the job (the same
 reasoning as drift). Unit 6 reads this file too.
+
+**As built (#513 Unit 5).** Two deviations, both toward FULL:
+- The record is written by CI OK (`if: always()`, `continue-on-error`), not by
+  `changes`. Every step after `changes`' filter step belongs to the drift
+  audit, and `TestDriftIsAStepGatedOnTheFilter` holds them to that; CI OK is
+  also the job that knows whether the test job was expected. `changes`
+  publishes the `tree` (from its reuse step, which runs before the filter).
+- `mode` is `full` only when the test job was expected to run (same-repo, code
+  changed, a project exists; D9's condition), and `none` otherwise. A
+  docs-only or fork PR's green CI OK ran no tests, so it must never be reused
+  or prove a release. A push that reused a PR run records `mode: reused` with
+  `reused_run` and `reused_run_id`, so a reader that checks only for `full`
+  refuses it rather than trusting it; provenance follows the named run.
 
 ### Task 5.1: Tree reuse on push (D4b)
 
@@ -396,6 +410,26 @@ OK`" to:
 Extend `release_provenance_test.go` with these; the existing assertions are
 not loosened.
 
+**As built (#513 Unit 5).** The new fail paths live in
+`release_full_ci_test.go` beside `release_provenance_test.go`, which is
+unchanged. Also:
+- The dispatched run is found by a nonce: iOS CI gained an optional
+  `dispatch_id` input and a `run-name` that is `iOS CI provenance <nonce>` when
+  it is set and empty (GitHub's default name) when it is not. Zero runs or more
+  than one carrying the nonce blocks the release.
+- If a push or dispatched iOS CI run on the SHA is red, cancelled or still in
+  progress, the release is blocked and nothing is dispatched: a fresh run must
+  not launder that verdict. A green run that cannot be shown FULL (its record
+  expired, or says `none`/`selected`) is D5's "otherwise": the gate dispatches
+  a FULL run. Records can expire long before the 30 days requested, because a
+  repository's artifact retention limit caps them.
+- There is no `inputs.full` yet: a dispatched run is FULL by construction
+  until selection exists, and its record must still say `full`.
+- `actions: write` is how "read + write" is spelled; a permissions map holds
+  one value per scope.
+- The tag-ancestry check runs first, so a tag that cannot ship is refused
+  before any dispatch.
+
 ### Task 5.3: Extension for selected runs (lands with Unit 3)
 
 When the engine ships, a selected PR run records `mode: selected`, and
@@ -407,13 +441,13 @@ engine on a real fixture diff, is not reused and does not satisfy provenance.
 
 `## Proven on`: a PR run and its merge on the pilot, one numeric run id each
 (rule 6 of the rules above). Prove both a reuse (tree matches) and a non-reuse
-(main moved between the PR's last run and the merge). Report to your PM the
+(main moved between the PR's last run and the merge). Report the
 push-to-main billed minutes per merge, before and after, and the share of
 pushes that reused; they go to the operator's private repo, never here.
 
 ---
 
-## Unit 2 — The selection engine (Opus)
+## Unit 2 — The selection engine
 
 Design §2, §5. Pure Go, no workflow changes in this unit. iOS only.
 
@@ -594,17 +628,17 @@ project otherwise. For every managed iOS repo, run `select-tests` over each of
 its last 20 merged PRs (`base = merge-base`, `head = PR head`, read from local
 clones, no API). In the lacquer PR, `## Fleet dry-run` gives only anonymized
 totals ("N repos, M PRs: full X / selected Y / none Z; 0 unexpected none").
-The per-repo output goes to your PM. Any `none` for a PR that touched a
+The per-repo output goes to the private fleet repo. Any `none` for a PR that touched a
 non-docs file and no required owner is a bug. The `public-names` job
 (`TestShippedContentNamesNoPrivateConsumer`) enforces the neutral-fixture rule
 in CI.
 
-Commit, then open the PR. Opus reviews the reasons strings: they are what a
+Commit, then open the PR. Review the reasons strings closely: they are what a
 reviewer sees in CI.
 
 ---
 
-## Unit 3 — Wiring + the gate (Opus)
+## Unit 3 — Wiring + the gate
 
 Design §2 (Wiring), §6, D3 and D9. Depends on Unit 2 being merged and
 released. Depends on Unit 5, which introduced the run record and the reuse
@@ -730,7 +764,7 @@ every release in between changes what it runs.
 
 ---
 
-## Unit 4 — Weekly slots (Sonnet)
+## Unit 4 — Weekly slots
 
 Design §3 and D6. iOS only.
 
@@ -816,7 +850,7 @@ real table here.
 
 ---
 
-## Unit 6 — Weekly failure reporting (Opus)
+## Unit 6 — Weekly failure reporting
 
 Design §4 and D7, reworked 2026-10-19. **The workflow makes NO GitHub API
 call**; the template's rule that no job talks to the GitHub API
@@ -876,10 +910,10 @@ silence. Mutation: drop the slot check → "repo with no slot" fails by name.
 
 ---
 
-## Unit 7 — Pilot and measurement (Sonnet)
+## Unit 7 — Pilot and measurement
 
 iOS only: one iOS repo with local packages (named in the operator's private
-brief, never here). Arranged through the pilot's PM when this unit is reached
+brief, never here). Arranged with the pilot's maintainers when this unit is reached
 (decided 2026-10-19).
 
 1. **Sync the pilot to the last release before Unit 3 ships, first.** It is
@@ -898,7 +932,7 @@ brief, never here). Arranged through the pilot's PM when this unit is reached
    Blacksmith billed separately, the share of push runs that reused, whether a
    weekly run fired in its slot and what it found, and, for the open
    question, whether `Run Tests` shrank.
-6. Propose the fleet sync to your PM with those numbers. the operator
+6. Propose the fleet sync with those numbers. The operator
    schedules it.
 
 ---
