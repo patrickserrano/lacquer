@@ -530,7 +530,7 @@ secret_formats = { REVENUECAT_API_KEY = "appl_*", SENTRY_DSN = "https://*@*/*" }
 ```
 
 A project with several products declares them per product, since each app's
-keys are its own. Setting `secrets`, `secrets_file` or `secret_formats` under
+keys are its own. Setting `secrets`, `secrets_file`, `secret_formats` or `secret_plist_keys` under
 `[project]` alongside any `[[product]]` block is rejected rather than merged,
 because which product they belong to would have to be guessed:
 
@@ -569,6 +569,26 @@ found, the release fails** and names where it looked: a keys-only file leaves
 every other key undefined and gives the placeholder check nothing to compare
 against. A declared `secrets_example` is the only template consulted, and the
 watch-test job seeds the same file from it.
+
+After the archive and before the export, the release reads the **archived**
+app's Info.plist and fails when a declared key is missing there, empty, not a
+string, or still its template placeholder. A key the release wrote correctly can
+still be lost on the way: a plist template without the entry, a custom
+`INFOPLIST_KEY_*` setting a generated plist drops, a setting pointing at a
+variable nothing defines. The failure names the key and never prints a value.
+
+It finds each key's Info.plist entry in the committed source plists: the entry
+whose value is exactly `$(NAME)`. When the value takes another route, such as a
+build setting that reads `$(NAME)` and that the plist reads under its own name,
+name the entry with `secret_plist_keys`, beside `secrets` (on `[project]` or the
+product):
+
+```toml
+secret_plist_keys = { ADMOB_APP_ID = "GADApplicationIdentifier" }
+```
+
+A declared key whose entry cannot be found is reported as a warning naming what
+to declare, and fails the release from 2026-11-15.
 
 The manifest holds the secret's **name**; the value stays in GitHub. `lacquer`
 rejects a value that looks like a real credential, because this file is

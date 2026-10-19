@@ -254,6 +254,9 @@ type Project struct {
 	SecretsFile    string            `toml:"secrets_file"`
 	SecretsExample string            `toml:"secrets_example"`
 	SecretFormats  map[string]string `toml:"secret_formats"`
+	// SecretPlistKeys is the single-product spelling of
+	// [[product]].secret_plist_keys.
+	SecretPlistKeys map[string]string `toml:"secret_plist_keys"`
 }
 
 // Retirement is the [project].retired entry: a project the fleet keeps but stops
@@ -662,6 +665,9 @@ var (
 	// IDENTICAL. A character allowed here but not there loads cleanly and then
 	// fails every release. TestSecretFormatCharsetIsExactly pins this side.
 	globPatternVal = regexp.MustCompile(`^[A-Za-z0-9_~.:/*?@-]+$`)
+	// plistKeyVal is a secret_plist_keys value. verify-archived-secrets.sh
+	// refuses anything outside the same set, so the two must stay identical.
+	plistKeyVal = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 )
 
 // ValidProjectName reports whether s is a safe project/repo name (the same
@@ -1200,6 +1206,19 @@ type Product struct {
 	// notices: it builds, signs, uploads, passes review, and serves the wrong
 	// ads or no subscriptions to real users.
 	SecretFormats map[string]string `toml:"secret_formats"`
+	// SecretPlistKeys optionally names, per declared secret, the Info.plist key
+	// that carries its value into the app: { NAME = "PlistKey" }. The release
+	// reads that key from the ARCHIVED app and fails when it is missing, empty
+	// or still the template's placeholder.
+	//
+	// Optional, because the common wiring states it already: a source plist
+	// entry whose value is exactly $(NAME) carries NAME, and the release finds
+	// it there. It is needed when the value takes another route — a build
+	// setting that reads $(NAME) and that the plist then reads under its own
+	// name, or a key the plist spells differently. A NAME declared nowhere and
+	// referenced by no plist cannot be checked, and the release says to declare
+	// it here.
+	SecretPlistKeys map[string]string `toml:"secret_plist_keys"`
 	// TestTarget is the unit-test target CI runs for this product, as an
 	// `-only-testing:` selector. Optional: it defaults to `<scheme>Tests`,
 	// falling back to `<name>Tests` only when Scheme is empty.
@@ -1993,10 +2012,11 @@ func (c *Config) Products() []Product {
 		// And the release secrets, for the same reason. Validated in Load
 		// against the synthesised product by the same validateSecrets a declared
 		// product goes through, so the [project] route skips none of its guards.
-		Secrets:        c.Project.Secrets,
-		SecretsFile:    c.Project.SecretsFile,
-		SecretsExample: c.Project.SecretsExample,
-		SecretFormats:  c.Project.SecretFormats,
+		Secrets:         c.Project.Secrets,
+		SecretsFile:     c.Project.SecretsFile,
+		SecretsExample:  c.Project.SecretsExample,
+		SecretFormats:   c.Project.SecretFormats,
+		SecretPlistKeys: c.Project.SecretPlistKeys,
 	}}
 }
 
@@ -2407,6 +2427,7 @@ func Load(path string) (*Config, error) {
 		{"secrets_file", cfg.Project.SecretsFile != ""},
 		{"secrets_example", cfg.Project.SecretsExample != ""},
 		{"secret_formats", len(cfg.Project.SecretFormats) > 0},
+		{"secret_plist_keys", len(cfg.Project.SecretPlistKeys) > 0},
 	} {
 		if f.set && len(cfg.Product) > 0 {
 			return nil, fmt.Errorf("[project].%s is set alongside %d [[product]] block(s) — it is the single-product spelling of [[product]].%s, and which product these belong to would have to be guessed. Declare them on the product instead", f.field, len(cfg.Product), f.field)
@@ -2603,6 +2624,16 @@ func validateSecrets(label string, p Product) error {
 		// injecting shell into a release.
 		if !globPatternVal.MatchString(pattern) {
 			return fmt.Errorf("%s: secret_formats.%s = %q has characters that are unsafe in a shell pattern", label, key, pattern)
+		}
+	}
+	for key, plistKey := range p.SecretPlistKeys {
+		if _, ok := p.Secrets[key]; !ok {
+			return fmt.Errorf("%s: secret_plist_keys.%s has no matching entry in secrets", label, key)
+		}
+		// Rendered into the release's command line, and matched as a key in
+		// the archived Info.plist: an identifier, never shell.
+		if !plistKeyVal.MatchString(plistKey) {
+			return fmt.Errorf("%s: secret_plist_keys.%s = %q is not an Info.plist key name (letters, digits, '_', '.' and '-')", label, key, plistKey)
 		}
 	}
 	if p.SecretsFile != "" {

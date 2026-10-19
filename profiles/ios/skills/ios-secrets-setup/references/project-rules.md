@@ -104,6 +104,22 @@ Five things it does that a hand-written `sed` step does not:
   hold in secrets are still defined. The xcconfig is the target's base
   configuration file; writing only the declared keys leaves the rest undefined.
 
+After the archive, `scripts/verify-archived-secrets.sh` reads the **archived**
+app's Info.plist and fails the release, before the export, when a declared key
+is missing there, empty, not a string, or still its placeholder (the same rules
+as above, from one shared `scripts/secret-placeholders.awk`). It finds each
+key's plist entry as the source plist entry set to exactly `$(NAME)`. When the
+value reaches the plist another way, typically a per-configuration build
+setting that reads `$(NAME)` and that the plist reads under its own name, map
+it in the manifest:
+
+```toml
+secret_plist_keys = { ADMOB_APP_ID = "GADApplicationIdentifier" }
+```
+
+A key the check cannot locate is a named warning until 2026-11-15, then a
+failure. Only names are printed, never a value.
+
 > **Why this is a script and not a step body.** The step it replaces was dropped
 > by an onboarding sync in one repo, and the next four releases archived with
 > every app-runtime key unset. `Purchases.configure` never ran, RevenueCatUI's

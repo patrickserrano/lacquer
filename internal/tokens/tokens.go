@@ -305,6 +305,11 @@ const (
 	IOSCIBundleSecretsBuild = "{{IOS_CI_BUNDLE_SECRETS_BUILD}}"
 	IOSCIBundleSecretsTest  = "{{IOS_CI_BUNDLE_SECRETS_TEST}}"
 	IOSReleaseBundleSecrets = "{{IOS_RELEASE_BUNDLE_SECRETS}}"
+	// IOSReleaseArchivedSecrets is the step that fails when a declared
+	// build-time key did not reach the archived app's Info.plist with a real
+	// value: one per product declaring secrets, or nothing. It sits right after
+	// IOSReleaseBundleSecrets, at the end of a line, for the same reason.
+	IOSReleaseArchivedSecrets = "{{IOS_RELEASE_ARCHIVED_SECRETS}}"
 	// DependabotUpdates expands to the `updates:` list of .github/dependabot.yml:
 	// one github-actions entry for the repo, plus one npm entry per web
 	// component, each pointing at that component's directory.
@@ -394,6 +399,7 @@ var registry = []entry{
 	{IOSCIBundleSecretsBuild, false},
 	{IOSCIBundleSecretsTest, false},
 	{IOSReleaseBundleSecrets, false},
+	{IOSReleaseArchivedSecrets, false},
 	// Empty for every project with one Swift component: no package for Lint to
 	// build.
 	{IOSCIPackageDirs, false},
@@ -535,9 +541,10 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSArchiveRoot:          archiveRoot(cfg.Project.ArchiveRoot),
 		IOSCISimMatch:           CISimMatch(products),
 
-		IOSCIBundleSecretsBuild: CIBundleSecretsBuild(products, prefix),
-		IOSCIBundleSecretsTest:  CIBundleSecretsTest(products, prefix),
-		IOSReleaseBundleSecrets: ReleaseBundleSecrets(products, prefix),
+		IOSCIBundleSecretsBuild:   CIBundleSecretsBuild(products, prefix),
+		IOSCIBundleSecretsTest:    CIBundleSecretsTest(products, prefix),
+		IOSReleaseBundleSecrets:   ReleaseBundleSecrets(products, prefix),
+		IOSReleaseArchivedSecrets: ReleaseArchivedSecrets(products, prefix),
 
 		IOSCIPushPaths:      CIPushPaths(cfg, prefix),
 		IOSCILintComponents: CILintComponents(cfg, prefix),
