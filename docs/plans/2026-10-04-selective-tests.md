@@ -261,22 +261,35 @@ Units and the rules that select them:
    Otherwise the path is FULL. The reason: a no-test result for iOS is safe
    only because something else tests that path before merge, and a check that
    is present but not required can be red on a merged PR.
-   - *How "required" is determined.* The authority is the branch's required
-     status-check list, which `internal/protection` already reads
-     (`protection.Fetch`, `internal/protection/gh.go:126`, into
-     `Requirements.Contexts`, `internal/protection/protection.go:107`, from
-     both classic protection and rulesets) and already matches against the
-     contexts the local workflows post (`protection.Local`,
-     `workflows.go:78`; `protection.Compare`, `protection.go:207`). The
-     `changes` job cannot ask for it, because no job talks to the GitHub API
-     (`ci.yml:19-20`). So `select-tests` takes the component's required
-     context as a committed, deterministic input, and the claim is proven
-     out of band by the existing protection check: it fails when the committed
-     claim names a context that is not in the live required list. The
-     mechanism is settled in the engine's unit brief; the rule is not
-     negotiable: **if "required" cannot be determined (no claim, an
+   - *How "required" is determined (decided 2026-10-19: a committed claim, cross-checked by audit).*
+     The authority is the branch's required status-check list, which
+     `internal/protection` already reads (`protection.Fetch`,
+     `internal/protection/gh.go:126`, into `Requirements.Contexts`,
+     `internal/protection/protection.go:107`) and matches against the contexts
+     the local workflows post (`protection.Local`, `workflows.go:78`;
+     `protection.Compare`, `protection.go:207`). `changes` does NOT read it
+     live, for a reason checked rather than assumed: reading classic branch
+     protection needs repository ADMIN (lacquer's own reader records this,
+     `gh.go:49-57` and `:250-255`, where a non-admin read comes back as 404),
+     and `GITHUB_TOKEN` cannot be granted it, because `administration` is not
+     among the scopes a workflow's `permissions:` key accepts
+     (https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions;
+     the REST page for the read, https://docs.github.com/en/rest/branches/branch-protection,
+     states no token permission for it, so the admin requirement rests on
+     lacquer's observation and is **not confirmed by GitHub's docs**). A live
+     read in `changes` would usually error, and an error means FULL anyway. So
+     `select-tests` takes the component's required context as a **committed,
+     deterministic claim** (a table in `.lacquer.toml` naming the component and
+     its CI context), and the claim is proven out of band: `lacquer audit` /
+     `lacquer doctor` (which run as the operator, with admin) compare it with
+     the live required list through the protection code above. **A claim the
+     live list does not back raises an inbox ACTION, not a log line.** The rule
+     is not negotiable: **if "required" cannot be determined (no claim, an
      unreadable claim, a claim the live list does not back), the answer is
-     FULL.**
+     FULL.** Possible LATER upgrade only: where a repository uses rulesets,
+     `GET /repos/{owner}/{repo}/rules/branches/{branch}` may be readable at
+     read scope, which would allow a live read; its permission requirement was
+     not confirmed from GitHub's docs, so nothing here depends on it.
    - *What the result says.* A result that selects nothing because every
      changed path was component-owned is `none` with `owned_by` naming each
      component relied on. It is distinct from a docs-only `none` so the merge
@@ -372,9 +385,13 @@ extended to selected runs only through this same rule ("FULL and green on the
 same tree"), never by a separate path.
 
 Reuse needs the GitHub API from a job, which `ci.yml:19-20` forbids ("No job
-talks to the GitHub API", with `contents: read` only, `:29-30`). The unit that
-adds reuse amends that comment and the permissions explicitly, names the added
-permissions in its PR as a widening, and tests that no other job gained any.
+talks to the GitHub API", with `contents: read` only, `:29-30`). **Accepted
+2026-10-19 as a read-only exception, scoped exactly:** `changes` only,
+`actions: read` + `pull-requests: read`, the comment amended, and a test that
+no other job gained a permission. **Every failure of the lookup means FULL,
+never a reuse:** any API error, a rate limit, a timeout, a missing run, or an
+ambiguous match (more than one candidate PR or run). Each is a named fail path
+that the unit proves.
 
 ### Weekly: staggered and scattered (operator requirement)
 
@@ -597,12 +614,14 @@ D1–D9 stand, as amended by the 2026-10-19 decisions below.
 - **D5 Releases** (→ operator): the release SHA needs a FULL green CI OK from
   the iOS CI workflow by name. With D4(a/b) that holds by construction.
   Otherwise `ios-release` dispatches a full run and waits. Fixes #508 in the
-  same change. *Recommended.* Amended 2026-10-19: ships with D4b, and the path
+  same change. *Recommended.* Amended 2026-10-19: ships with D4b. The path
   filter on iOS push runs means a main commit that touched no Swift component
-  has no iOS CI run to accept. Until the fate of such a commit is decided, the
-  gate **fails closed** for it (it is blocked, with the reason printed) rather
-  than waving it through; "dispatch a full run and wait" is not implemented by
-  any task and stays an open option.
+  has no iOS CI run to accept; that is the "otherwise" above, now specified:
+  `ios-release` dispatches a FULL iOS CI run on that exact SHA and waits. If
+  that run is not FULL and green, the release fails closed. Considered and
+  rejected: accepting the nearest first-parent ancestor's run (it proves a
+  different commit's tree), and blocking the tag outright (it contradicts the
+  approved D5).
 - **D6 Weekly slots** as in §3: 06:15 and 08:15 UTC on Mac, stored in
   `.lacquer.toml`. *Recommended.* (The 05:15 UTC Linux slot moves to "Later:
   web".)
@@ -637,6 +656,7 @@ How each is applied in this project:
   product with watch separate, the fail-safe list and component prefixes, the
   D9 condition, an old locked binary means FULL, the weekly concurrency group,
   and the corrected anchors in the plan.
+- **A and B (2026-10-19), on the two open points the above raised.** B, accepted: "ACCEPT as a read-only exception, scoped exactly as planned: `changes` only, actions:read + pull-requests:read, the comment amended, and a test that no other job gained a permission. Add: any API error, rate limit, timeout, missing run or ambiguous match means FULL, never a reuse. Name that in the plan as a fail path to prove." A, "A-CLAIM, with the cross-check in fleet audit/doctor. Not A-live: classic branch-protection reads need admin, and GITHUB_TOKEN can't get administration:read, so a live read in `changes` would usually error and go FULL anyway. ... If the repo uses rulesets, GET /rules/branches/<b> is readable at read scope, so mention that as a possible later upgrade only. An unbacked claim from audit raises an inbox ACTION, not a log line." Applied in §2 rule 5 and §3.
 - **Q1:** §2 rule 5. **Q2:** §2, the coverage ratchet gate. **Q3:** §4.
 - **Q4:** §7 Unit 7: the pilot is synced to the last release before Unit 3
   ships, and "before" is re-measured on its next ~10 PRs.

@@ -318,6 +318,16 @@ permissions widening, and tests that no other job gained a permission.
 `changes` runs on pi-gate (`ci.yml:72`), which has two architectures; before
 relying on `gh` there, prove it is installed on both boxes, and if it is not,
 use `curl` with the token. (Provenance uses `gh` on a hosted Linux runner.)
+Accepted 2026-10-19 as a read-only exception, scoped exactly this way.
+
+**The lookup fails toward FULL, and each way it can fail is a named test:**
+an API error (non-2xx), a rate limit (403/429 with the limit headers), a
+timeout (the call is bounded; a hang is not a reuse), a missing run (no PR
+for the commit, no completed iOS CI run on its head, or no artifact), and an
+ambiguous match (more than one PR for the commit, or more than one candidate
+run for the head). Each fixture asserts `reuse=false` and that the Mac jobs
+run. Mutation: treat an error or an ambiguous match as "no objection" → the
+named tests fail.
 
 **Fail paths, written first (the decision's, verbatim in intent):**
 - **A merge whose tree differs must run CI on main.** Fixture: a PR run
@@ -341,7 +351,7 @@ use `curl` with the token. (Provenance uses `gh` on a hosted Linux runner.)
 **Files:** `profiles/ios/workflows/release.yml`, step "Require a passing CI OK
 for this exact commit" (`:107-134`). It stays on its hosted runner
 (`release.yml:88`); `release_provenance_test.go:52-60` pins that as a property
-and must pass unchanged. Change the selection from "any check run named `CI
+and must pass unchanged (the new `actions: write` is a permission, not a runner change). Change the selection from "any check run named `CI
 OK`" to:
 - check runs named `CI OK` whose workflow run `path` ends in `/ios-ci.yml`
   (`gh api .../check-runs` → `check_suite.id` →
@@ -353,11 +363,18 @@ OK`" to:
   (`release.yml:90-96` has only `contents` and `checks`); name it in the PR.
 - no `CI OK` of the right workflow on the SHA, because the path filter
   produced no iOS push run for it (a commit that touched no Swift component):
-  **blocked, fail closed**, with an error that says which commit lacks an iOS
-  CI run and to tag one that has it. Whether to instead accept the nearest
-  first-parent ancestor with a FULL green run on identical Swift-component
-  trees, or to dispatch a full run and wait, is an open decision recorded in
-  the design (§8, D5). The default here is the safe one.
+  the release job **dispatches a FULL iOS CI run on that exact SHA and waits**
+  (D5 as approved: "Otherwise `ios-release` dispatches a full run and
+  waits"). It dispatches `workflow_dispatch` on the tag (a ref that resolves to
+  the SHA; `inputs.full` is true by default), asserts the new run's `head_sha`
+  equals the release SHA, waits with a bounded timeout, and then applies the
+  SAME acceptance rules as above to that run: iOS CI workflow path, `mode ==
+  full`, CI OK `success`. If the run is not FULL and green, times out, cannot
+  be found, or the dispatch itself fails, **the release fails closed**. The
+  job gains `actions: write` for the dispatch, named in the PR as a
+  permissions widening on this job only. Considered and rejected: accepting
+  the nearest first-parent ancestor's run (it proves a different commit's
+  tree), and blocking the tag outright (it contradicts D5).
 
 **Fail paths, written first:**
 - **A non-FULL "CI OK" must not let a release through.** Fixture: the SHA has a
@@ -367,6 +384,13 @@ OK`" to:
   has a green `CI OK` from the web or supabase CI workflow and none from iOS CI
   → the gate fails (this is #508). Mutation: revert to name-only matching →
   the named test fails.
+- **A dispatched run that comes back non-FULL or red must block.** Fixtures,
+  for a SHA with no iOS push run: the dispatched run reports `mode: selected`
+  → the release fails; it concludes `failure` → fails; its `head_sha` is not
+  the release SHA → fails; it never appears or times out → fails. Only a
+  dispatched run that is FULL, green, on the right SHA and the iOS workflow
+  lets the release through. Mutations: skip the `mode` check on the dispatched
+  run, and skip the `head_sha` check → each flips its named test.
 - A green FULL iOS `CI OK` passes; a reused-FULL push run passes; a missing
   record fails (not passes).
 Extend `release_provenance_test.go` with these; the existing assertions are
@@ -530,16 +554,7 @@ per-product sorted selectors, watch list, reasons non-empty):
    targets; app-side → app targets.
 4. Union, sort, dedupe per product. Empty → FULL.
 
-**Required-check input (rule 5).** `select-tests` reads the required context
-of each non-Swift component from a committed claim (the mechanism is chosen in
-this unit's brief; the recommended shape is a table in `.lacquer.toml` naming
-the component and its CI context). It never calls the API. Add the matching
-`lacquer protection` cross-check, reusing `protection.Fetch`
-(`internal/protection/gh.go:126`), `protection.Local`
-(`internal/protection/workflows.go:78`) and `protection.Compare`
-(`internal/protection/protection.go:207`): a claim naming a context that is
-not in the live required list is a finding. That cross-check is what makes the
-claim trustworthy; without it the claim defaults every owned path to FULL.
+**Required-check input (rule 5; decided 2026-10-19: a committed claim, cross-checked by audit).** `select-tests` reads the required context of each non-Swift component from a committed claim (recommended shape: a table in `.lacquer.toml` naming the component and its CI context; the exact shape is fixed in this unit's brief). It never calls the API, and it is not a live read, because reading classic branch protection needs admin (`internal/protection/gh.go:49-57`, `:250-255`) and `GITHUB_TOKEN` cannot be granted `administration`, which is not among the scopes a workflow's `permissions:` accepts (https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions; GitHub's REST page for the read states no token permission, so the admin requirement is **not confirmed by GitHub's docs**). Add the cross-check to `lacquer audit` / `lacquer doctor`, reusing `protection.Fetch` (`internal/protection/gh.go:126`), `protection.Local` (`internal/protection/workflows.go:78`) and `protection.Compare` (`internal/protection/protection.go:207`): **a claim the live required list does not back raises an inbox ACTION, not a log line** (existing entry types and fields only). Without the cross-check the claim cannot be trusted, so every owned path is FULL. Add a test per case: backed claim, unbacked claim (ACTION raised), no claim, malformed claim. Possible LATER upgrade only: where a repository uses rulesets, `GET /repos/{owner}/{repo}/rules/branches/{branch}` may be readable at read scope; not confirmed from GitHub's docs, and nothing here depends on it.
 
 FULL's selector lists are exactly what `config.Product.TestSelectors()`
 (`internal/config/config.go:1569`) and `WatchTestSelectors()` (`:1539`) give
