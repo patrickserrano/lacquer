@@ -187,7 +187,7 @@ func TestCheckOnlyDependabotsPureBumpsPass(t *testing.T) {
 		{"pure bump by someone else", file("ci", "actions/checkout@v7", "0"), false, 1},
 		{"dependabot renamed action", file("ci", "evil/checkout@v7", "0"), true, 1},
 		// Only `uses:` lines may move. A changed `with:` argument or comment
-		// line, in place, is an edit whoever made it (verifier, #579).
+		// line, in place, is an edit whoever made it (#579).
 		{"dependabot bump and a changed with: line", file("ci", "actions/checkout@v7", "1"), true, 1},
 		{"dependabot changed with: line alone", file("ci", "actions/checkout@v6", "1"), true, 1},
 		{"dependabot bump and a changed comment line", file("fast ci", "actions/checkout@v7", "0"), true, 1},
