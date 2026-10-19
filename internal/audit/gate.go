@@ -17,14 +17,21 @@ type Gate struct {
 	// the same grace date has passed (swiftcomponents.GateFrom). They rank with
 	// Undeclared: Swift nothing declares is a stack the manifest does not cover.
 	StraySwift int
+	// Downgrade is 1 when, under `audit --ci --ci-event pull_request`, the PR's
+	// lock names an older lacquer than its base's and records no reason (see
+	// DowngradeFloor). Always zero otherwise.
+	Downgrade int
 }
 
-// ExitCode ranks a lock its own version never wrote first: every other
-// attribution is made against that lock, so none of them can be trusted until
-// it is re-synced. Then destructive drift, policy violations, and missing stack
-// declarations. Informational findings do not block.
+// ExitCode ranks an unexplained downgrade first: it moves every gate at once,
+// to whatever the older release enforced. Then a lock its own version never
+// wrote: every other attribution is made against that lock, so none of them can
+// be trusted until it is re-synced. Then destructive drift, policy violations,
+// and missing stack declarations. Informational findings do not block.
 func (g Gate) ExitCode() int {
 	switch {
+	case g.Downgrade > 0:
+		return 9
 	case g.LockMismatch > 0:
 		return 8
 	case g.Clobbered > 0:
