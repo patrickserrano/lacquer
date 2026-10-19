@@ -9,6 +9,12 @@ description: Implement, review, or improve SwiftUI features using the iOS 26+ Li
 
 Liquid Glass is a dynamic material in iOS 26+ that combines optical glass properties with fluidity. It blurs content, reflects surrounding color and light, and reacts to touch interactions in real time.
 
+## The `UIDesignRequiresCompatibility` opt-out ends with the iOS 27 SDK
+
+The `UIDesignRequiresCompatibility` Info.plist key lets an app built with the iOS 26 SDK keep its pre-iOS 26 look. Apple's reference page for the key says: "The system ignores this key when you build for iOS 27 or later, iPadOS 27 or later, Mac Catalyst 27 or later, macOS 27 or later, or tvOS 27 or later." (https://developer.apple.com/documentation/bundleresources/information-property-list/uidesignrequirescompatibility)
+
+Before moving a project to Xcode 27, audit its UI under the current design with the key removed or set to `NO`, and fix what changes. Do not rely on the key to postpone that work.
+
 ## Workflow Decision Tree
 
 ### 1) Review an existing feature
