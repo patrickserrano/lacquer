@@ -208,21 +208,46 @@ func TestStaleCheckoutComparesMarkersNumericallyNotAsText(t *testing.T) {
 
 func TestStaleCheckoutComparesMarkersToTheLockAtUpstreamNotTheLocalOne(t *testing.T) {
 	// Locally the marker matches the local lock; origin has since bumped the
-	// lock. The issue asks for the lock AT THE UPSTREAM REF.
+	// lock and the local checkout has caught up with it, so it is not behind.
+	// The issue asks for the lock AT THE UPSTREAM REF, so a local lock edited
+	// back down must not hide a stale marker.
 	r := newStaleRepo(t, "1.73.0", map[string]string{"core": "1.73.0"})
 	writeFile(t, filepath.Join(r.other, ".lacquer.lock"), `{"version":"1.74.0","files":{}}`+"\n")
 	gitIn(t, r.other, "add", "-A")
 	gitIn(t, r.other, "commit", "-qm", "bump lock")
 	gitIn(t, r.other, "push", "-q", "origin", "main")
 	gitIn(t, r.work, "fetch", "-q", "origin")
+	gitIn(t, r.work, "merge", "-q", "--ff-only", "origin/main")
+	// The merge left CLAUDE.md as upstream has it (stamped 1.73.0), the lock
+	// upstream says 1.74.0: stale, and not behind.
+	wantOneLine(t, r.mustRun(), "core", "v1.73.0", "v1.74.0", "lacquer sync")
+}
+
+// On a checkout that is BOTH behind and carries stale markers, the fast-forward
+// merge brings in upstream's already-synced CLAUDE.md and clears the marker
+// warning, whereas `lacquer sync` would re-render with the locally installed
+// lacquer and conflict with what upstream already holds. So the merge line is
+// the only line.
+func TestStaleCheckoutBehindAndStaleMarkersPrintsOnlyTheMergeLine(t *testing.T) {
+	r := newStaleRepo(t, "1.73.0", map[string]string{"core": "1.70.0"})
+	r.advanceOrigin(2)
 	out := r.mustRun()
-	// It is behind AND the marker is old against upstream's lock: both lines.
-	if !strings.Contains(out, "1 commit behind") || !strings.Contains(out, "v1.74.0") {
-		t.Fatalf("want the behind line and the stale-marker line naming v1.74.0, got %q", out)
+	wantOneLine(t, out, "2 commits behind", "git merge --ff-only")
+	if strings.Contains(out, "lacquer sync") {
+		t.Errorf("a behind checkout must not be told to run lacquer sync: %q", out)
 	}
-	if n := strings.Count(strings.TrimRight(out, "\n"), "\n") + 1; n != 2 {
-		t.Errorf("want one line per condition (2), got %d: %q", n, out)
+}
+
+func TestStaleCheckoutReportsAMarkerInAPathWithASpace(t *testing.T) {
+	r := newStaleRepo(t, "1.73.0", map[string]string{"core": "1.73.0"})
+	dir := filepath.Join(r.work, "sub dir")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(dir, "CLAUDE.md"), markerBlock(map[string]string{"ios": "1.70.0"}))
+	gitIn(t, r.work, "add", "-A")
+	gitIn(t, r.work, "commit", "-qm", "component with a space in its path")
+	wantOneLine(t, r.mustRun(), "ios", "v1.70.0", "sub dir/CLAUDE.md", "lacquer sync")
 }
 
 func TestStaleCheckoutSilentWhenUpToDate(t *testing.T) {

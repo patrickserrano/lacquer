@@ -60,26 +60,40 @@ work() {
 	behind=$(git rev-list --count 'HEAD..@{u}') || behind=
 	case $behind in
 	'' | *[!0-9]* | 0) ;;
-	1) echo "lacquer: this checkout is 1 commit behind $up as of the last fetch; run \`git merge --ff-only $up\` to catch up." ;;
-	*) echo "lacquer: this checkout is $behind commits behind $up as of the last fetch; run \`git merge --ff-only $up\` to catch up." ;;
+	1)
+		echo "lacquer: this checkout is 1 commit behind $up as of the last fetch; run \`git merge --ff-only $up\` to catch up."
+		return 0
+		;;
+	*)
+		echo "lacquer: this checkout is $behind commits behind $up as of the last fetch; run \`git merge --ff-only $up\` to catch up."
+		return 0
+		;;
 	esac
+	# Behind: say only that. The fast-forward brings in upstream's already-synced
+	# CLAUDE.md, which clears the marker warning, whereas `lacquer sync` here would
+	# re-render with the locally installed lacquer and conflict with it.
 
 	# The lock at the upstream ref, not the local one: the local lock moves with
 	# the markers, upstream's is what the project has actually synced to.
 	latest=$(git show '@{u}:.lacquer.lock' | sed -n 's/.*"version" *: *"\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -n 1)
 	case $latest in '' | *[!0-9.]*) return 0 ;; esac
 
-	stale=
-	for f in $(git ls-files -- CLAUDE.md '*/CLAUDE.md'); do
-		[ -f "$f" ] || continue
-		for m in $(sed -n 's/^<!-- lacquer:\([^: ]*\):start v\([0-9][0-9.]*\) -->$/\1@\2/p' "$f"); do
-			key=${m%@*}
-			stamp=${m#*@}
-			if less "$stamp" "$latest"; then
-				stale="${stale:+$stale, }$key v$stamp ($f)"
-			fi
-		done
-	done
+	# `git ls-files -z` piped through tr, read line by line: POSIX sh has no
+	# read -d, and a path with a space must not word-split. (A path holding a
+	# newline would split; none of these files has one.) Each stale region is
+	# one output line, joined with ", " by awk.
+	stale=$(
+		git ls-files -z -- CLAUDE.md '*/CLAUDE.md' | tr '\0' '\n' | while IFS= read -r f; do
+			[ -f "$f" ] || continue
+			sed -n 's/^<!-- lacquer:\([^: ]*\):start v\([0-9][0-9.]*\) -->$/\1@\2/p' "$f" | while IFS= read -r m; do
+				key=${m%@*}
+				stamp=${m#*@}
+				if less "$stamp" "$latest"; then
+					echo "$key v$stamp ($f)"
+				fi
+			done
+		done | awk 'NR > 1 { printf ", " } { printf "%s", $0 }'
+	)
 	[ -n "$stale" ] || return 0
 	echo "lacquer: managed regions older than v$latest at $up: $stale; run \`lacquer sync\` to refresh them."
 }
