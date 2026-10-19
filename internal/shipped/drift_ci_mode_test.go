@@ -84,6 +84,7 @@ func TestDriftStepFailsOnLockMismatch(t *testing.T) {
 				{"0", "pass", ""},
 				{"3", "fail", "::error::"},
 				{"8", "fail", "::error::The managed files match .lacquer.lock's recorded hashes"},
+				{"9", "fail", "::error::This PR moves .lacquer.lock to an older lacquer than its base and records no reason"},
 			} {
 				t.Run("exit "+tc.code, func(t *testing.T) {
 					script := "set +e\nresult=fail\ntrap 'echo RESULT=$result' EXIT\ncode=" + tc.code + "\n" + tail
@@ -102,5 +103,41 @@ func TestDriftStepFailsOnLockMismatch(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+// TestEveryShippedDriftAuditPassesTheEvent pins the downgrade floor (#576): the
+// audit only compares the lock with the PR's base when it is told the event,
+// and without the flag every downgrade passes the floor unseen.
+func TestEveryShippedDriftAuditPassesTheEvent(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(root(t), "profiles", "*", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "echo ") {
+				continue
+			}
+			if !strings.Contains(trimmed, "LACQUER_ROOT=") || !auditInvocation.MatchString(trimmed) {
+				continue
+			}
+			found++
+			if !strings.Contains(trimmed, `--ci-event "$GITHUB_EVENT_NAME"`) {
+				rel, _ := filepath.Rel(root(t), f)
+				t.Errorf("%s:%d runs the drift audit without --ci-event, so a PR that downgrades "+
+					"the lock passes the floor:\n  %s", rel, i+1, trimmed)
+			}
+		}
+	}
+	if found < len(ciProfiles) {
+		t.Fatalf("found %d drift audit invocations under profiles/, want at least %d (%v)",
+			found, len(ciProfiles), ciProfiles)
 	}
 }

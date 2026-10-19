@@ -80,3 +80,27 @@ func FormatNotRendered(rows []Row, ver version.Version) string {
 	}
 	return b.String()
 }
+
+// DowngradeFloor is the in-binary layer of the downgrade check (#576): on a
+// pull request, a .lacquer.lock that names an older lacquer than the PR's base
+// fails unless the lock records why (lock.Downgrade). base is the lock at the
+// base commit baseCommit, nil when the base has none; head is the PR's.
+//
+// It is a floor, not the gate. CI runs the release binary the HEAD's lock
+// names, so it holds only between two versions that both carry it, and a PR
+// can edit its own workflow. The post-merge harvest (internal/producers) is the
+// layer a PR cannot reach. A recorded reason is printed here and quoted there.
+func DowngradeFloor(baseCommit string, base, head *lock.Lock) (blocking bool, report string) {
+	if !lock.IsDowngrade(base, head) {
+		return false, ""
+	}
+	if reason := lock.DowngradeReason(base, head); reason != "" {
+		return false, fmt.Sprintf("\ndowngrade floor: %s names v%s, older than v%s on the PR's base (%s); reason: %s\n",
+			lock.Name, head.Version, base.Version, baseCommit, reason)
+	}
+	return true, fmt.Sprintf("\ndowngrade floor: %s names v%s, older than v%s on the PR's base (%s), and records no reason for leaving v%s.\n"+
+		"A downgrade is allowed, and is reported after the merge either way. To make this one, sync with the older\n"+
+		"release, then add this to %s (the next sync drops it):\n"+
+		"  \"downgrade\": {\"from\": \"%s\", \"reason\": \"<why, ideally with an issue>\"}\n",
+		lock.Name, head.Version, base.Version, baseCommit, base.Version, lock.Name, base.Version)
+}

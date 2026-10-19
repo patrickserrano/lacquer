@@ -50,52 +50,71 @@ type Base struct {
 //
 // A fetch failure must never read as "the base was not enrolled".
 func ReadBase(root string) (Base, error) {
-	g := func(args ...string) ([]byte, error) { return git(context.Background(), root, args...) }
-	prefix, err := g("rev-parse", "--show-prefix")
+	commit, data, present, err := ReadBaseFile(root, Name)
 	if err != nil {
-		return Base{}, fmt.Errorf("the checkout is not a git work tree, so the PR's base cannot be read: %w", err)
+		return Base{}, err
 	}
-	raw, err := g("cat-file", "commit", "HEAD")
-	if err != nil {
-		return Base{}, fmt.Errorf("cannot read the checked-out commit: %w", err)
-	}
-	parents := commitParents(raw)
-	if len(parents) != 2 {
-		return Base{}, fmt.Errorf("the checked-out commit has %d parent(s), not 2; a pull_request run checks out GitHub's PR merge commit, and its first parent is the base, so the base cannot be identified", len(parents))
-	}
-	base := Base{Commit: parents[0]}
-	if _, err := g("cat-file", "-e", base.Commit+"^{commit}"); err != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), BaseFetchTimeout)
-		_, ferr := git(ctx, root, "fetch", "--no-tags", "--no-recurse-submodules", "--depth=1", "origin", base.Commit)
-		cancel()
-		if ferr != nil {
-			return Base{}, fmt.Errorf("could not fetch the base commit %s: %w", base.Commit, ferr)
-		}
-		if _, err := g("cat-file", "-e", base.Commit+"^{commit}"); err != nil {
-			return Base{}, fmt.Errorf("the base commit %s is still missing after fetching it: %w", base.Commit, err)
-		}
-	}
-	path := strings.TrimSpace(string(prefix)) + Name
-	entry, err := g("ls-tree", "-z", base.Commit, "--", path)
-	if err != nil {
-		return Base{}, fmt.Errorf("cannot list %s at the base commit %s: %w", path, base.Commit, err)
-	}
-	if len(entry) == 0 {
+	base := Base{Commit: commit}
+	if !present {
 		return base, nil
-	}
-	if mode, _, _ := strings.Cut(string(entry), " "); mode != "100644" && mode != "100755" {
-		return Base{}, fmt.Errorf("%s at the base commit %s is not a regular file (mode %s)", path, base.Commit, mode)
-	}
-	data, err := g("cat-file", "blob", base.Commit+":"+path)
-	if err != nil {
-		return Base{}, fmt.Errorf("cannot read %s at the base commit %s: %w", path, base.Commit, err)
 	}
 	b, err := parseBase(data)
 	if err != nil {
-		return Base{}, fmt.Errorf("%s at the base commit %s does not parse: %w", path, base.Commit, err)
+		return Base{}, fmt.Errorf("%s at the base commit %s does not parse: %w", Name, commit, err)
 	}
 	base.Baseline = b
 	return base, nil
+}
+
+// ReadBaseFile reads name, a path relative to root, from the PR's base: the
+// first parent of the merge commit checked out at root, fetched from origin
+// (depth 1) when a shallow checkout lacks it. It returns the base commit, the
+// file's content, and whether the file exists there. present is false with a
+// nil error ONLY when the base demonstrably has no such file; every way of
+// failing to know that (no merge commit, a failed fetch, an unreadable tree,
+// something other than a regular file) is an error.
+func ReadBaseFile(root, name string) (commit string, data []byte, present bool, err error) {
+	g := func(args ...string) ([]byte, error) { return git(context.Background(), root, args...) }
+	prefix, err := g("rev-parse", "--show-prefix")
+	if err != nil {
+		return "", nil, false, fmt.Errorf("the checkout is not a git work tree, so the PR's base cannot be read: %w", err)
+	}
+	raw, err := g("cat-file", "commit", "HEAD")
+	if err != nil {
+		return "", nil, false, fmt.Errorf("cannot read the checked-out commit: %w", err)
+	}
+	parents := commitParents(raw)
+	if len(parents) != 2 {
+		return "", nil, false, fmt.Errorf("the checked-out commit has %d parent(s), not 2; a pull_request run checks out GitHub's PR merge commit, and its first parent is the base, so the base cannot be identified", len(parents))
+	}
+	commit = parents[0]
+	if _, err := g("cat-file", "-e", commit+"^{commit}"); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), BaseFetchTimeout)
+		_, ferr := git(ctx, root, "fetch", "--no-tags", "--no-recurse-submodules", "--depth=1", "origin", commit)
+		cancel()
+		if ferr != nil {
+			return "", nil, false, fmt.Errorf("could not fetch the base commit %s: %w", commit, ferr)
+		}
+		if _, err := g("cat-file", "-e", commit+"^{commit}"); err != nil {
+			return "", nil, false, fmt.Errorf("the base commit %s is still missing after fetching it: %w", commit, err)
+		}
+	}
+	path := strings.TrimSpace(string(prefix)) + name
+	entry, err := g("ls-tree", "-z", commit, "--", path)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("cannot list %s at the base commit %s: %w", path, commit, err)
+	}
+	if len(entry) == 0 {
+		return commit, nil, false, nil
+	}
+	if mode, _, _ := strings.Cut(string(entry), " "); mode != "100644" && mode != "100755" {
+		return "", nil, false, fmt.Errorf("%s at the base commit %s is not a regular file (mode %s)", path, commit, mode)
+	}
+	data, err = g("cat-file", "blob", commit+":"+path)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("cannot read %s at the base commit %s: %w", path, commit, err)
+	}
+	return commit, data, true, nil
 }
 
 func git(ctx context.Context, dir string, args ...string) ([]byte, error) {

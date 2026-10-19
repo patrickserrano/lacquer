@@ -65,10 +65,6 @@ const (
 	loosenedMsg = `lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines","from":100,"to":150,"reason":"vendored parser"}`
 )
 
-func mergedWithHead(n int, title, mergedAt, head string) string {
-	return fmt.Sprintf(`{"number":%d,"title":%q,"url":"https://github.com/acme/widgets/pull/%d","mergedAt":%q,"headRefOid":%q}`, n, title, n, mergedAt, head)
-}
-
 func filesOf(n int, paths ...string) string {
 	var fs []string
 	for _, p := range paths {
@@ -92,7 +88,13 @@ func loosenFixture(t *testing.T) (string, *loosenGH) {
 	path := newInbox(t)
 	g := &loosenGH{api: map[string]string{}, apiErr: map[string]error{}}
 	harvest9(path, t0, g) // primes the cursor
-	g.list = "[" + mergedWithHead(9, "loosen coverage", "2026-09-24T12:30:00Z", head9) + "]"
+	// The gate-off check (#576) needs to know which paths the lock manages
+	// before it can pass a merge over unread; this project has no lock, so
+	// none. A merge it must read anyway (its file list is missing) leaves
+	// every gate alone.
+	seedManaged(t, path)
+	scriptMerge(g, merge9, parent9, tree{"Sources/Parser.swift": "a\n"}, tree{"Sources/Parser.swift": "b\n"})
+	g.list = "[" + mergedWithCommit(9, "loosen coverage", "2026-09-24T12:30:00Z", head9, merge9) + "]"
 	g.files = "[" + filesOf(9, ".lacquer.ratchet.toml", "Sources/Parser.swift") + "]"
 	g.api[runsPath] = `{"total_count":3,"check_runs":[{"id":1,"output":{"annotations_count":2}},{"id":2,"output":{"annotations_count":1}},{"id":3,"output":{"annotations_count":0}}]}`
 	g.api["repos/acme/widgets/check-runs/1/annotations?per_page=100&page=1"] = annotations("Xcode 26 is deprecated", loosenedMsg)

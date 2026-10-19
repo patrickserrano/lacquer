@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/patrickserrano/lacquer/internal/version"
 )
@@ -30,6 +31,26 @@ const Name = ".lacquer.lock"
 type Lock struct {
 	Version version.Version   `json:"version"`
 	Files   map[string]string `json:"files"`
+	// Downgrade is why this lock names an older lacquer than the one it
+	// replaced. Written by hand, after syncing with the older release, and only
+	// then: sync never writes it, so the next sync drops it and it lasts exactly
+	// as long as the downgrade does. It is a field of the lock rather than of
+	// .lacquer.toml because the release being downgraded TO may predate it, and
+	// an older lacquer rejects a manifest key it does not know, while
+	// encoding/json ignores an unknown lock field. See internal/gateoff.
+	Downgrade *Downgrade `json:"downgrade,omitempty"`
+}
+
+// Downgrade is the reason recorded for a lock downgrade.
+//
+//	"downgrade": {"from": "1.78.1", "reason": "1.78.1 breaks the release job, #123"}
+//
+// From is the version the PR's base named, the one being left. A reason only
+// counts for the downgrade it was written for: a later downgrade from another
+// version is unexplained until it gets its own.
+type Downgrade struct {
+	From   string `json:"from"`
+	Reason string `json:"reason"`
 }
 
 // Hash returns the hex sha256 of content. Used for every recorded baseline and
@@ -50,14 +71,24 @@ func Read(projectRoot string) (*Lock, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
+	l, err := Parse(data)
+	if err != nil {
+		return nil, false, err
+	}
+	return l, true, nil
+}
+
+// Parse decodes a lockfile's content, for a lock read from somewhere other than
+// a project directory (a commit, through git or the GitHub API).
+func Parse(data []byte) (*Lock, error) {
 	var l Lock
 	if err := json.Unmarshal(data, &l); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if l.Files == nil {
 		l.Files = map[string]string{}
 	}
-	return &l, true, nil
+	return &l, nil
 }
 
 // Write saves l to projectRoot/.lacquer.lock as indented JSON with a trailing
@@ -75,4 +106,19 @@ func Write(projectRoot string, l *Lock) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(target, data, 0o644)
+}
+
+// IsDowngrade reports whether head names an older lacquer than base. Either is
+// nil when that side has no lock, which is never a downgrade.
+func IsDowngrade(base, head *Lock) bool {
+	return base != nil && head != nil && head.Version.Less(base.Version)
+}
+
+// DowngradeReason is the reason head records for leaving base's version, or ""
+// when it records none for that version (see Downgrade).
+func DowngradeReason(base, head *Lock) string {
+	if base == nil || head == nil || head.Downgrade == nil || head.Downgrade.From != base.Version.String() {
+		return ""
+	}
+	return strings.TrimSpace(head.Downgrade.Reason)
 }

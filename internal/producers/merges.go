@@ -71,6 +71,12 @@ type HarvestResult struct {
 
 type cursors struct {
 	Repos map[string]time.Time `json:"repos"`
+	// Managed is, per repository, every path its .lacquer.lock listed at the
+	// last merge the gate-off check read. It is what lets an ordinary merge
+	// skip that check without a call: only a merge touching one of these, the
+	// lock or the manifest needs reading. A repository missing here is
+	// unknown, and each of its merges is read until one fills it in.
+	Managed map[string][]string `json:"managed,omitempty"`
 }
 
 type mergedPR struct {
@@ -80,6 +86,11 @@ type mergedPR struct {
 	MergedAt string `json:"mergedAt"`
 	// HeadRefOid is the PR's head commit, where its CI's annotations live.
 	HeadRefOid string `json:"headRefOid"`
+	// MergeCommit is the commit the merge made on the base branch. Its first
+	// parent is the base the PR merged into.
+	MergeCommit struct {
+		Oid string `json:"oid"`
+	} `json:"mergeCommit"`
 }
 
 // prFiles is the second, narrower look at the merges that are new to the inbox:
@@ -175,7 +186,7 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 			defer cancel()
 			out, err := o.Run(ctx, "pr", "list", "-R", repo, "--state", "merged",
 				"--search", "merged:>="+since.UTC().Format(time.RFC3339),
-				"--json", "number,title,url,mergedAt,headRefOid", "--limit", fmt.Sprint(harvestLimit))
+				"--json", "number,title,url,mergedAt,headRefOid,mergeCommit", "--limit", fmt.Sprint(harvestLimit))
 			a := answer{err: err}
 			if err == nil {
 				if jerr := json.Unmarshal(out, &a.prs); jerr != nil {
@@ -192,9 +203,12 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 	}
 	wg.Wait()
 
-	next := cursors{Repos: map[string]time.Time{}}
+	next := cursors{Repos: map[string]time.Time{}, Managed: map[string][]string{}}
 	for k, v := range cur.Repos {
 		next.Repos[k] = v
+	}
+	for k, v := range cur.Managed {
+		next.Managed[k] = v
 	}
 	var primed []string
 	for _, r := range repos {
@@ -227,6 +241,19 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 					res.Unavailable = append(res.Unavailable, fmt.Sprintf("ratchet loosening harvest %s#%d (%v)", r.repo, pr.Number, err))
 					failed = true
 					break
+				}
+			}
+			managed, known := next.Managed[r.repo]
+			if f, listed := a.files[pr.URL]; !listed || touchesGates(f, managed, known) {
+				added, now, err := harvestGatesOff(o, r, pr, existing)
+				res.Added = append(res.Added, added...)
+				if err != nil {
+					res.Unavailable = append(res.Unavailable, fmt.Sprintf("gate-off harvest %s#%d (%v)", r.repo, pr.Number, err))
+					failed = true
+					break
+				}
+				if now != nil {
+					next.Managed[r.repo] = now
 				}
 			}
 			e, err := inbox.Add(o.InboxPath, inbox.Entry{

@@ -40,7 +40,13 @@ to record it. CI audits at the version `.lacquer.lock` names (`lacquer audit
 --ci`), and fails on exit 8 when a managed file matches the lock's hash but not
 what that version renders: the lock came from a different build, or an input
 changed without a re-sync. Re-sync with the released lacquer; never refresh a
-lock hash by hand. If a project genuinely owns a file, say so:
+lock hash by hand. On a pull request it also fails on exit 9 when the PR moves
+`.lacquer.lock` to an OLDER lacquer than its base without saying why. Reverting
+a bad release is allowed: sync with the older release, then add
+`"downgrade": {"from": "<the version you are leaving>", "reason": "<why>"}` to
+`.lacquer.lock` (the next sync drops it). Every downgrade, new exemption below,
+and managed file edited outside a sync is reported to the operator after the
+merge, with its reason or with none. If a project genuinely owns a file, say so:
 
 ```toml
 [project]

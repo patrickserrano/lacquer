@@ -421,11 +421,15 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		// CI checks the lacquer out at the tag .lacquer.lock names, so there
 		// "behind" cannot mean the lacquer advanced. See internal/audit/ci.go.
 		ci := flags.Bool("ci", false, "audit at the lock's own version: refuse any other, and exit 8 on a unit the lock vouches for that this version does not render")
+		ciEvent := flags.String("ci-event", "", "with --ci: GITHUB_EVENT_NAME; on pull_request, exit 9 when .lacquer.lock names an older lacquer than the PR's base (the checked-out merge commit's first parent) and records no downgrade reason")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}
 		if flags.NArg() != 0 {
 			return fail(stderr, fmt.Errorf("unexpected audit arguments: %v", flags.Args()))
+		}
+		if *ciEvent != "" && !*ci {
+			return fail(stderr, fmt.Errorf("--ci-event needs --ci"))
 		}
 		fmt.Fprint(stdout, xcodegendrift.Format(xcodegendrift.Check(projectRoot, cfg.BaselineTargets())))
 		if *xcodegenOnly {
@@ -448,6 +452,17 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			}
 		}
 		fmt.Fprint(stdout, audit.Format(rows, ver))
+		downgrade := 0
+		if *ciEvent == "pull_request" {
+			blocking, report, err := downgradeFloor(projectRoot)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			fmt.Fprint(stdout, report)
+			if blocking {
+				downgrade = 1
+			}
+		}
 		var lockMismatch []audit.Row
 		if *ci {
 			lockMismatch = audit.NotRendered(rows)
@@ -691,7 +706,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			Exclusions: exclusion.Blocking(exclusions), DepIgnores: depignore.Blocking(ignores),
 			NotRunInCI: notRunExpired, Orphans: len(orphans), Undeclared: len(detect.Adoptable(findings)),
 			UnrunWatch: watchBlocking, MissingWorkflows: len(missingWorkflows),
-			LockMismatch: len(lockMismatch), StraySwift: strays.Blocking(),
+			LockMismatch: len(lockMismatch), StraySwift: strays.Blocking(), Downgrade: downgrade,
 		}).ExitCode()
 
 	case "fleet":
