@@ -26,6 +26,7 @@ func runRatchet(args []string, root, lacquerRoot string, stdout, stderr io.Write
 	reason := fs.String("reason", "", "reason for the explicit increase")
 	to := fs.String("to", "", "with --loosen on a coverage metric: the value to raise it to")
 	accept := fs.String("accept", "", "METRIC=N: lower a coverage metric to N (never raises)")
+	enroll := fs.String("enroll", "", "with --to N --reason TEXT: enroll a coverage metric that is not enrolled yet at N, the value a CI run reported (a product-count change)")
 	report := fs.String("coverage-report", "", "xccov --report --json output to measure the iOS coverage metric from")
 	product := fs.String("product", "", "with --coverage-report: the product slug, or - for the lone product")
 	event := fs.String("ci-event", "", "GITHUB_EVENT_NAME; an improvement beyond the slack fails only on pull_request")
@@ -36,10 +37,25 @@ func runRatchet(args []string, root, lacquerRoot string, stdout, stderr io.Write
 		return 2
 	}
 	coverageOnly := *product != "" || *event != "" || *testResult != "" || *summary != "" || *compareBase
+	if *enroll != "" {
+		if fs.NArg() != 0 || *write || *loosen != "" || *accept != "" || *report != "" || coverageOnly || *to == "" {
+			fmt.Fprintln(stderr, "use ratchet --enroll METRIC --to N --reason TEXT")
+			return 2
+		}
+		n, err := strconv.Atoi(*to)
+		if err != nil {
+			return fail(stderr, fmt.Errorf("--to takes an integer, got %q", *to))
+		}
+		if err := ratchet.Enroll(root, *enroll, n, *reason); err != nil {
+			return fail(stderr, err)
+		}
+		fmt.Fprintf(stdout, "ratchet: enrolled %s at %d with reason in %s\n", *enroll, n, ratchet.Name)
+		return 0
+	}
 	if fs.NArg() != 0 || (*write && *loosen != "") || (*write && *compareBase) || (*reason != "" && *loosen == "") ||
 		(*to != "" && *loosen == "") || (*accept != "" && (*write || *loosen != "" || *report != "" || coverageOnly)) ||
 		(coverageOnly && *report == "") || (*report != "" && *product == "") || (*report != "" && *loosen != "") {
-		fmt.Fprintln(stderr, "use ratchet [--write | --loosen METRIC --reason TEXT [--to N] | --accept METRIC=N]\n"+
+		fmt.Fprintln(stderr, "use ratchet [--write | --loosen METRIC --reason TEXT [--to N] | --accept METRIC=N | --enroll METRIC --to N --reason TEXT]\n"+
 			"          [--coverage-report XCCOV.json --product SLUG|- [--write] [--ci-event E] [--compare-base] [--test-result R] [--summary FILE]]")
 		return 2
 	}
@@ -170,7 +186,7 @@ func runCoverage(root, lacquerRoot string, cfg *config.Config, c coverageRun, st
 	}
 	v := ratchet.Gate(in)
 	if c.compareBase && event == "pull_request" {
-		v = withBaseCompare(root, b, ratchet.LiveCoverageKeys(cfg), v)
+		v = withBaseCompare(root, b, ratchet.LiveCoverageKeys(cfg), measuredKey{key, measured, reportErr}, v)
 	}
 	for _, line := range v.Lines {
 		fmt.Fprintln(stdout, line)
@@ -194,13 +210,27 @@ func runCoverage(root, lacquerRoot string, cfg *config.Config, c coverageRun, st
 	return 0
 }
 
+// measuredKey is the coverage key this leg measures and what it measured.
+type measuredKey struct {
+	key    string
+	report ratchet.CoverageReport
+	err    error
+}
+
 // withBaseCompare prepends the base compare's verdict to the gate's. Any doubt
 // about the base (unidentifiable, unfetchable, unreadable, unparseable) fails:
 // only a base that demonstrably has no ratchet file reads as not enrolled.
 //
 // live is the head manifest's coverage keys: cfg was loaded from the head's
 // .lacquer.toml before the gate ran, and an unreadable manifest already failed.
-func withBaseCompare(root string, head *ratchet.Baseline, live map[string]bool, v ratchet.Verdict) ratchet.Verdict {
+//
+// It also closes the product-count hole (#578). When the base gates coverage
+// at all and the key this leg measures is not in the head's ratchet file, the
+// PR changed what is measured (2→1 measures the lone key, 1→2 a per-slug key)
+// and would leave coverage un-gated behind a warning. That fails, printing the
+// command that enrolls the key at this run's value. A first enrollment, where
+// the base gates no coverage, stays the not-enrolled warning.
+func withBaseCompare(root string, head *ratchet.Baseline, live map[string]bool, m measuredKey, v ratchet.Verdict) ratchet.Verdict {
 	var lines []string
 	fail := false
 	base, err := ratchet.ReadBase(root)
@@ -209,6 +239,13 @@ func withBaseCompare(root string, head *ratchet.Baseline, live map[string]bool, 
 		fail = true
 	} else {
 		bv := ratchet.CompareBase(base.Baseline, head, live)
+		if ratchet.Enrolled(base.Baseline) && (head == nil || !hasKey(head, m.key)) {
+			value := "<the uncovered lines a passing run reports>"
+			if m.err == nil {
+				value = fmt.Sprint(m.report.Uncovered())
+			}
+			bv.Failures = append(bv.Failures, fmt.Sprintf("ratchet: this leg measures %s, which this PR does not enroll, while the PR's base gates coverage, so the PR changes the product count and would leave coverage un-gated. Enroll it at this run's value, with why: lacquer ratchet --enroll %s --to %s --reason \"<why the product count changed>\"", m.key, m.key, value))
+		}
 		for _, f := range bv.Failures {
 			lines = append(lines, "::error::"+f)
 		}
@@ -220,6 +257,14 @@ func withBaseCompare(root string, head *ratchet.Baseline, live map[string]bool, 
 		}
 		if loosened.Len() > 0 {
 			v.Summary += "\n**Loosened on this PR** (against base " + base.Commit + "):\n\n" + loosened.String()
+		}
+		var enrolled strings.Builder
+		for _, e := range bv.Enrolled {
+			lines = append(lines, "ratchet: "+e.Summary(), e.Annotation())
+			fmt.Fprintf(&enrolled, "- %s\n", e.Summary())
+		}
+		if enrolled.Len() > 0 {
+			v.Summary += "\n**Enrolled on this PR** (against base " + base.Commit + "):\n\n" + enrolled.String()
 		}
 	}
 	v.Lines = append(lines, v.Lines...)
@@ -362,4 +407,9 @@ func proveCoverage(project string, invoke func(...string) int, out *bytes.Buffer
 		return fmt.Errorf("known-bad coverage = %d, expected 4 and 100 → 200: %s", code, out)
 	}
 	return nil
+}
+
+func hasKey(b *ratchet.Baseline, key string) bool {
+	_, ok := b.Ratchet[key]
+	return ok
 }

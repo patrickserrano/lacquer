@@ -383,17 +383,29 @@ func harvestLoosenings(o HarvestOptions, r harvestRepo, pr mergedPR, existing ma
 	if pr.HeadRefOid == "" {
 		return nil, fmt.Errorf("gh reported no head commit for the PR, so its check runs cannot be read")
 	}
-	found, err := loosenings(o.Run, r.repo, pr.HeadRefOid)
+	found, enrolled, err := loosenings(o.Run, r.repo, pr.HeadRefOid)
 	var stuck *unreadableError
 	if errors.As(err, &stuck) {
 		ref := pr.URL + "#ratchet-loosenings-unreadable"
 		if existing[ref] {
 			return nil, nil
 		}
+		// The lines read before the failure are valid and stay visible (#578):
+		// the item is read by hand, and these are part of what it says.
+		body := "head " + pr.HeadRefOid
+		if len(found)+len(enrolled) > 0 {
+			body += "\nread before it stopped:"
+			for _, l := range found {
+				body += "\n- " + l.Summary()
+			}
+			for _, e := range enrolled {
+				body += "\n- " + e.Summary()
+			}
+		}
 		e, aerr := inbox.Add(o.InboxPath, inbox.Entry{
 			Type:    inbox.Unread,
 			Title:   fmt.Sprintf("couldn't read ratchet loosenings for %s#%d: %s; check by hand", r.repo, pr.Number, stuck.why),
-			Body:    "head " + pr.HeadRefOid,
+			Body:    body,
 			Ref:     ref,
 			Project: r.name,
 		})
@@ -425,6 +437,24 @@ func harvestLoosenings(o HarvestOptions, r harvestRepo, pr mergedPR, existing ma
 		existing[ref] = true
 		added = append(added, e)
 	}
+	for _, en := range enrolled {
+		ref := pr.URL + "#ratchet-enrolled-" + en.Key
+		if existing[ref] {
+			continue
+		}
+		e, err := inbox.Add(o.InboxPath, inbox.Entry{
+			Type:    inbox.Unread,
+			Title:   fmt.Sprintf("%s#%d enrolled %s at %d (the product count changed)", r.repo, pr.Number, en.Key, en.To),
+			Body:    "reason: " + en.Reason,
+			Ref:     ref,
+			Project: r.name,
+		})
+		if err != nil {
+			return added, err
+		}
+		existing[ref] = true
+		added = append(added, e)
+	}
 	return added, nil
 }
 
@@ -436,9 +466,10 @@ type unreadableError struct{ why string }
 
 func (e *unreadableError) Error() string { return e.why }
 
-// loosenings reads every loosening line from the head commit's latest check
-// runs, once per key.
-func loosenings(run ciwait.Runner, repo, head string) ([]ratchet.Loosened, error) {
+// loosenings reads every loosening and enrollment line from the head commit's
+// latest check runs, once per key. With an unreadableError it also returns the
+// valid lines it read before the failure.
+func loosenings(run ciwait.Runner, repo, head string) (out []ratchet.Loosened, enrolled []ratchet.Enrollment, err error) {
 	type checkRun struct {
 		ID     int64 `json:"id"`
 		Output struct {
@@ -452,21 +483,21 @@ func loosenings(run ciwait.Runner, repo, head string) ([]ratchet.Loosened, error
 			Checks []checkRun `json:"check_runs"`
 		}
 		if err := ghJSON(run, &runs, "api", fmt.Sprintf("repos/%s/commits/%s/check-runs?filter=latest&per_page=100&page=%d", repo, head, page)); err != nil {
-			return nil, fmt.Errorf("check runs of %s: %w", head, err)
+			return nil, nil, fmt.Errorf("check runs of %s: %w", head, err)
 		}
 		if runs.Total == nil {
-			return nil, fmt.Errorf("check runs of %s: gh answered without a total_count", head)
+			return nil, nil, fmt.Errorf("check runs of %s: gh answered without a total_count", head)
 		}
 		checks = append(checks, runs.Checks...)
 		if len(checks) >= *runs.Total {
 			break
 		}
 		if len(runs.Checks) == 0 || page == maxPages {
-			return nil, &unreadableError{fmt.Sprintf("%d check runs on %s, only %d read", *runs.Total, head, len(checks))}
+			return nil, nil, &unreadableError{fmt.Sprintf("%d check runs on %s, only %d read", *runs.Total, head, len(checks))}
 		}
 	}
-	var out []ratchet.Loosened
 	seen := map[string]bool{}
+	seenEnrolled := map[string]bool{}
 	for _, c := range checks {
 		if c.Output.Annotations == 0 {
 			continue
@@ -479,28 +510,36 @@ func loosenings(run ciwait.Runner, repo, head string) ([]ratchet.Loosened, error
 				Message string `json:"message"`
 			}
 			if err := ghJSON(run, &batch, "api", fmt.Sprintf("repos/%s/check-runs/%d/annotations?per_page=100&page=%d", repo, c.ID, page)); err != nil {
-				return nil, fmt.Errorf("annotations of check run %d: %w", c.ID, err)
+				return nil, nil, fmt.Errorf("annotations of check run %d: %w", c.ID, err)
 			}
 			anns = append(anns, batch...)
 			if len(anns) >= c.Output.Annotations {
 				break
 			}
 			if len(batch) == 0 || page == maxPages {
-				return nil, &unreadableError{fmt.Sprintf("check run %d has %d annotations, only %d read", c.ID, c.Output.Annotations, len(anns))}
+				return out, enrolled, &unreadableError{fmt.Sprintf("check run %d has %d annotations, only %d read", c.ID, c.Output.Annotations, len(anns))}
 			}
 		}
 		for _, a := range anns {
 			l, ok, err := ratchet.ParseLoosened(a.Message)
 			if err != nil {
-				return nil, &unreadableError{fmt.Sprintf("check run %d: %v", c.ID, err)}
+				return out, enrolled, &unreadableError{fmt.Sprintf("check run %d: %v", c.ID, err)}
 			}
 			if ok && !seen[l.Key] {
 				seen[l.Key] = true
 				out = append(out, l)
 			}
+			en, ok, err := ratchet.ParseEnrolled(a.Message)
+			if err != nil {
+				return out, enrolled, &unreadableError{fmt.Sprintf("check run %d: %v", c.ID, err)}
+			}
+			if ok && !seenEnrolled[en.Key] {
+				seenEnrolled[en.Key] = true
+				enrolled = append(enrolled, en)
+			}
 		}
 	}
-	return out, nil
+	return out, enrolled, nil
 }
 
 // ghJSON runs one bounded gh call and decodes its output into v.

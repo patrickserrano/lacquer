@@ -373,6 +373,40 @@ func LoosenTo(root, key string, value int, reason string) error {
 	return write(root, b)
 }
 
+// Enroll records a coverage key that is not enrolled yet at N, with a reason:
+// the reasoned path for a PR that changes the product count (#578). N comes
+// from the CI run that failed for want of it, since the key is measured only in
+// CI. It never touches an enrolled key (--accept lowers one, --loosen raises
+// one) and needs an existing ratchet file: a project's first enrollment is
+// --write --coverage-report, which also records the local metrics.
+func Enroll(root, key string, value int, reason string) error {
+	if !IsCoverageKey(key) {
+		return fmt.Errorf("--enroll takes a coverage metric (%s or %s_<product>), not %q", Coverage, Coverage, key)
+	}
+	if value < 0 {
+		return fmt.Errorf("--enroll %s --to %d: the value must be nonnegative", key, value)
+	}
+	if strings.TrimSpace(reason) == "" {
+		return fmt.Errorf("--enroll requires a nonempty --reason: say why the product count changed")
+	}
+	b, err := Read(root)
+	if err != nil {
+		return err
+	}
+	if b == nil {
+		return fmt.Errorf("%s does not exist; a first enrollment is lacquer ratchet --write --coverage-report <xccov.json>", Name)
+	}
+	if before, ok := b.Ratchet[key]; ok {
+		return fmt.Errorf("%s is already enrolled at %d; use --accept to lower it or --loosen --to to raise it", key, before)
+	}
+	b.Ratchet[key] = value
+	if b.Reasons == nil {
+		b.Reasons = map[string]string{}
+	}
+	b.Reasons[key] = strings.TrimSpace(reason)
+	return write(root, b)
+}
+
 // ReadReport reads a report file for ParseCoverage.
 func ReadReport(path, target string) (CoverageReport, error) {
 	data, err := os.ReadFile(path)

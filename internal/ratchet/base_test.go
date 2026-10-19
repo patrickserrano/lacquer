@@ -272,3 +272,83 @@ func TestParseLoosenedRejectsDamagedLines(t *testing.T) {
 		}
 	}
 }
+
+// #578: a coverage key the head adds while the base already gates coverage is
+// a product-count change. It needs a new reason, and is reported.
+func TestCompareBaseEnrollmentOnAProductCountChange(t *testing.T) {
+	const lone, paid, free = Coverage, Coverage + "_paid", Coverage + "_free"
+	base := bl(map[string]int{lone: 100}, map[string]string{lone: "enrolled"})
+	live := map[string]bool{paid: true, free: true}
+	for name, tc := range map[string]struct {
+		head     *Baseline
+		fail     []string
+		enrolled []Enrollment
+	}{
+		"new keys with new reasons are reported": {
+			head:     bl(map[string]int{lone: 100, paid: 90, free: 10}, map[string]string{lone: "enrolled", paid: "split", free: "split"}),
+			enrolled: []Enrollment{{Key: free, To: 10, Reason: "split"}, {Key: paid, To: 90, Reason: "split"}},
+		},
+		"a new key without a reason fails": {
+			head: bl(map[string]int{lone: 100, paid: 90}, map[string]string{lone: "enrolled"}),
+			fail: []string{paid + " is enrolled on this PR while the PR's base already gates coverage, without a new reason in [reasons]"},
+		},
+		"a new key with a blank reason fails": {
+			head: bl(map[string]int{lone: 100, paid: 90}, map[string]string{lone: "enrolled", paid: "  "}),
+			fail: []string{paid + " is enrolled on this PR"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := CompareBase(base, tc.head, live)
+			if len(v.Failures) != len(tc.fail) {
+				t.Fatalf("failures %q, want %d", v.Failures, len(tc.fail))
+			}
+			for i, f := range tc.fail {
+				if !strings.Contains(v.Failures[i], f) {
+					t.Errorf("failure %q lacks %q", v.Failures[i], f)
+				}
+			}
+			if !reflect.DeepEqual(v.Enrolled, tc.enrolled) {
+				t.Errorf("enrolled %+v, want %+v", v.Enrolled, tc.enrolled)
+			}
+		})
+	}
+	// A base that gates no coverage makes any coverage key a first enrollment.
+	if v := CompareBase(bl(map[string]int{Suppressions: 0}, nil), bl(map[string]int{Suppressions: 0, paid: 9}, nil), live); len(v.Failures) != 0 || len(v.Enrolled) != 0 {
+		t.Errorf("a first enrollment: %+v", v)
+	}
+}
+
+// The lone key is live only while a single-product render measures it.
+func TestLiveCoverageKeysDropsTheLoneKeyForSeveralProducts(t *testing.T) {
+	ios := []config.Component{{Path: ".", Profiles: []string{"ios"}}}
+	two := &config.Config{Product: []config.Product{{Name: "Paid", Scheme: "Paid"}, {Name: "Free", Scheme: "Free"}}, Components: ios}
+	if got := LiveCoverageKeys(two); got[Coverage] {
+		t.Errorf("two products: %v counts the lone key live", got)
+	}
+	one := &config.Config{Product: []config.Product{{Name: "Paid", Scheme: "Paid"}}, Components: ios}
+	if got := LiveCoverageKeys(one); !got[Coverage] {
+		t.Errorf("one declared product renders single-product: %v lacks the lone key", got)
+	}
+}
+
+func TestEnrollmentRoundTripsAndRejectsDamage(t *testing.T) {
+	e := Enrollment{Key: Coverage + "_paid", To: 90, Reason: "split, 100% = \"all\""}
+	got, ok, err := ParseEnrolled(e.MachineLine())
+	if !ok || err != nil || got != e {
+		t.Fatalf("round trip: %+v %v %v", got, ok, err)
+	}
+	if _, ok, err := ParseEnrolled("lacquer-ratchet-loosened/v1 {}"); ok || err != nil {
+		t.Errorf("another line read as an enrollment: %v %v", ok, err)
+	}
+	for _, bad := range []string{
+		`{"key":"ios_uncovered_lines_paid","to":90}`,
+		`{"key":"unjustified_suppressions","to":1,"reason":"x"}`,
+		`{"key":"ios_uncovered_lines_paid","to":-1,"reason":"x"}`,
+		`{"key":"ios_uncovered_lines_paid","to":1,"reason":"x","extra":1}`,
+		`{"key":"ios_uncovered_lines_paid"`,
+	} {
+		if _, ok, err := ParseEnrolled(EnrolledPrefix + bad); !ok || err == nil {
+			t.Errorf("%s: ok=%v err=%v; want a damaged-line error", bad, ok, err)
+		}
+	}
+}

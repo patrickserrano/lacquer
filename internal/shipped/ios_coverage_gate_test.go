@@ -45,9 +45,7 @@ func stubTool(t *testing.T, bin, name, body string) {
 // that records its argv and exits with $STUB_EXIT, on PATH.
 func coverageStubs(t *testing.T) (bin, argv string) {
 	t.Helper()
-	if _, err := exec.LookPath("jq"); err != nil {
-		t.Skip("jq not installed")
-	}
+	requireJQ(t, "the Check Coverage step tests")
 	bin = t.TempDir()
 	argv = filepath.Join(bin, "argv")
 	stubTool(t, bin, "xcrun", `echo '{"targets":[{"name":"Demo.app","executableLines":100,"coveredLines":90,"lineCoverage":0.9}]}'`+"\n")

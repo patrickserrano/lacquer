@@ -187,10 +187,23 @@ type Loosened struct {
 }
 
 // BaseVerdict is the base compare's output: each failure is one line naming its
-// key, and each sanctioned loosening is reported, never silent.
+// key, and each sanctioned loosening or enrollment is reported, never silent.
 type BaseVerdict struct {
 	Failures []string
 	Loosened []Loosened
+	// Enrolled is each coverage key this PR enrolls while the base already
+	// gates coverage, with its new reason (#578).
+	Enrolled []Enrollment
+}
+
+// Enrollment is a coverage key a PR enrolled while its base already gated
+// coverage: the reasoned path of a product-count change (#578). A 2→1 or 1→2
+// PR measures a key the base never recorded; enrolling it, with a reason, is
+// how that PR keeps coverage gated, and it is reported like a loosening.
+type Enrollment struct {
+	Key    string `json:"key"`
+	To     int    `json:"to"`
+	Reason string `json:"reason"`
 }
 
 // CompareBase compares every key the base records with the head. head is nil
@@ -206,9 +219,13 @@ type BaseVerdict struct {
 //	raised, new reason                   loosened: passes, and is reported
 //	lowered or equal                     passes silently
 //
-// Keys only the head records are a first enrollment and pass. Every key in the
-// file is compared, not only the product a run measures: deleting another
-// product's key is the same hole.
+// A coverage key only the head records is a first enrollment, and passes,
+// when the base gates no coverage at all. When the base does gate coverage,
+// the PR changed what is measured (a product added, removed or renamed), so
+// the new key needs a NEW reason: with one it passes and is reported
+// (Enrollment), without one it fails (#578). Every key in the file is compared,
+// not only the product a run measures: deleting another product's key is the
+// same hole.
 func CompareBase(base, head *Baseline, live map[string]bool) BaseVerdict {
 	var v BaseVerdict
 	if base == nil {
@@ -250,6 +267,24 @@ func CompareBase(base, head *Baseline, live map[string]bool) BaseVerdict {
 			v.Loosened = append(v.Loosened, Loosened{Key: key, From: from, To: to, Reason: reason})
 		}
 	}
+	if head == nil || !Enrolled(base) {
+		return v
+	}
+	added := make([]string, 0, len(head.Ratchet))
+	for key := range head.Ratchet {
+		if _, had := base.Ratchet[key]; !had && IsCoverageKey(key) {
+			added = append(added, key)
+		}
+	}
+	slices.Sort(added)
+	for _, key := range added {
+		reason, problem := newReason(base, head, key)
+		if problem != "" {
+			v.Failures = append(v.Failures, fmt.Sprintf("ratchet: %s is enrolled on this PR while the PR's base already gates coverage, %s. A product-count change keeps coverage gated by enrolling the new key with a reason: lacquer ratchet --enroll %s --to %d --reason \"<why the product count changed>\"", key, problem, key, head.Ratchet[key]))
+			continue
+		}
+		v.Enrolled = append(v.Enrolled, Enrollment{Key: key, To: head.Ratchet[key], Reason: reason})
+	}
 	return v
 }
 
@@ -283,16 +318,21 @@ func loosenHint(key string, to int, reused bool) string {
 
 // LiveCoverageKeys is the set of coverage keys whose product the manifest
 // still declares: ios_uncovered_lines_<slug> for each product's slug, and the
-// lone ios_uncovered_lines for any iOS project, since the project itself is
-// that key's product. Presence is by slug, not by product count, so a 2→1
-// matrix change that renames a surviving product's key still counts it as
-// present. A project with no iOS component declares none.
+// lone ios_uncovered_lines while the project renders a single product, which
+// is the only render that measures it (`--product -`). Per-slug presence is by
+// slug, not by product count, so a 2→1 matrix change that renames a surviving
+// product's key still counts it as present. Once no single-product render
+// exists the lone key measures nothing, and removing it falls under the
+// removal-with-reason rule (#578). A project with no iOS component declares
+// none.
 func LiveCoverageKeys(cfg *config.Config) map[string]bool {
 	live := map[string]bool{}
 	if !hasIOS(cfg) {
 		return live
 	}
-	live[Coverage] = true
+	if len(cfg.Products()) == 1 {
+		live[Coverage] = true
+	}
 	for _, p := range cfg.Products() {
 		live[CoverageKey(p.Slug())] = true
 	}
@@ -310,6 +350,57 @@ func (l Loosened) ToText() string {
 		return "removed"
 	}
 	return fmt.Sprint(l.To)
+}
+
+// Summary is the human line for an enrollment, for the job summary.
+func (e Enrollment) Summary() string {
+	return fmt.Sprintf("enrolled %s at %d: %s", e.Key, e.To, e.Reason)
+}
+
+// EnrolledPrefix starts the machine-readable enrollment line, stable and
+// versioned like LoosenedPrefix and emitted the same way:
+//
+//	lacquer-ratchet-enrolled/v1 {"key":"<key>","to":<int>,"reason":"<text>"}
+//
+// It is its own line rather than a /v1 loosening with a new field: /v1 is
+// never edited, and a harvest that predates it reads a loosening line with an
+// unknown field as damaged.
+const EnrolledPrefix = "lacquer-ratchet-enrolled/v1 "
+
+// MachineLine is the enrollment in the stable format above.
+func (e Enrollment) MachineLine() string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(e) // a struct of strings and ints cannot fail to encode
+	return EnrolledPrefix + strings.TrimSuffix(buf.String(), "\n")
+}
+
+// Annotation is MachineLine as a `::notice` workflow command.
+func (e Enrollment) Annotation() string {
+	msg := strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A").Replace(e.MachineLine())
+	return "::notice title=lacquer ratchet enrolled::" + msg
+}
+
+// ParseEnrolled reads one enrollment MachineLine, with ParseLoosened's
+// contract: ok is false for other text, err set for a damaged line.
+func ParseEnrolled(s string) (e Enrollment, ok bool, err error) {
+	body, found := strings.CutPrefix(strings.TrimSpace(s), EnrolledPrefix)
+	if !found {
+		return Enrollment{}, false, nil
+	}
+	dec := json.NewDecoder(strings.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&e); err != nil {
+		return Enrollment{}, true, fmt.Errorf("malformed %s line: %w", strings.TrimSpace(EnrolledPrefix), err)
+	}
+	if dec.More() {
+		return Enrollment{}, true, errors.New("malformed " + strings.TrimSpace(EnrolledPrefix) + " line: trailing data")
+	}
+	if !IsCoverageKey(e.Key) || e.To < 0 || strings.TrimSpace(e.Reason) == "" {
+		return Enrollment{}, true, fmt.Errorf("malformed %s line: %q", strings.TrimSpace(EnrolledPrefix), body)
+	}
+	return e, true, nil
 }
 
 // LoosenedPrefix starts the machine-readable loosening line. The format is
