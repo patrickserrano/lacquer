@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/patrickserrano/lacquer/internal/config"
 )
 
 // The base compare (#571). On a pull request, the gate also reads the ratchet
@@ -155,12 +156,15 @@ func parseBase(data []byte) (*Baseline, error) {
 	return &b, nil
 }
 
-// Loosened is one key a PR raised against its base with a new reason.
+// Loosened is one key a PR raised against its base with a new reason, or a
+// coverage key it removed, with a new reason, together with its product.
 type Loosened struct {
-	Key    string `json:"key"`
-	From   int    `json:"from"`
-	To     int    `json:"to"`
-	Reason string `json:"reason"`
+	Key  string `json:"key"`
+	From int    `json:"from"`
+	// To is the raised value; absent when Removed.
+	To      int    `json:"to,omitempty"`
+	Removed bool   `json:"removed,omitempty"`
+	Reason  string `json:"reason"`
 }
 
 // BaseVerdict is the base compare's output: each failure is one line naming its
@@ -171,17 +175,22 @@ type BaseVerdict struct {
 }
 
 // CompareBase compares every key the base records with the head. head is nil
-// when the PR deleted the file. A key is:
+// when the PR deleted the file. live is the set of coverage keys the head's
+// manifest still measures (LiveCoverageKeys). A key is:
 //
-//	absent at head          FAIL: the PR removes its own gate
-//	raised, no NEW reason   FAIL: a reason is new only if nonempty and unlike the base's
-//	raised, new reason      loosened: passes, and is reported
-//	lowered or equal        passes silently
+//	file deleted                         FAIL, always
+//	removed, local metric                FAIL, always
+//	removed, its product still in live   FAIL: a disguised loosening
+//	removed with its product, no NEW reason  FAIL
+//	removed with its product, new reason     loosened (to=removed): passes, reported
+//	raised, no NEW reason                FAIL: new means nonempty and unlike the base's
+//	raised, new reason                   loosened: passes, and is reported
+//	lowered or equal                     passes silently
 //
 // Keys only the head records are a first enrollment and pass. Every key in the
 // file is compared, not only the product a run measures: deleting another
 // product's key is the same hole.
-func CompareBase(base, head *Baseline) BaseVerdict {
+func CompareBase(base, head *Baseline, live map[string]bool) BaseVerdict {
 	var v BaseVerdict
 	if base == nil {
 		return v
@@ -200,12 +209,23 @@ func CompareBase(base, head *Baseline) BaseVerdict {
 		switch {
 		case head == nil:
 			v.Failures = append(v.Failures, fmt.Sprintf("ratchet: %s is enrolled on the PR's base (%d) and this PR deletes %s, which removes the gate. Restore the file", key, from, Name))
+		case !ok && (!IsCoverageKey(key) || live[key]):
+			why := "it is a local metric, which is always measured"
+			if IsCoverageKey(key) {
+				why = "its product is still in .lacquer.toml, so this is a loosening in disguise"
+			}
+			v.Failures = append(v.Failures, fmt.Sprintf("ratchet: %s is enrolled on the PR's base (%d) and this PR removes it from %s, which removes the gate, and %s. Restore the key", key, from, Name, why))
 		case !ok:
-			v.Failures = append(v.Failures, fmt.Sprintf("ratchet: %s is enrolled on the PR's base (%d) and this PR removes it from %s, which removes the gate. Restore the key", key, from, Name))
+			reason, problem := newReason(base, head, key)
+			if problem != "" {
+				v.Failures = append(v.Failures, fmt.Sprintf("ratchet: %s is enrolled on the PR's base (%d) and this PR removes it with its product, %s. Removing it needs a new [reasons] entry for %s saying why", key, from, problem, key))
+				continue
+			}
+			v.Loosened = append(v.Loosened, Loosened{Key: key, From: from, Removed: true, Reason: reason})
 		case to > from:
-			reason := strings.TrimSpace(head.Reasons[key])
-			if reason == "" || reason == strings.TrimSpace(base.Reasons[key]) {
-				v.Failures = append(v.Failures, fmt.Sprintf("ratchet: %s is raised %d → %d on this PR without a new reason in [reasons]. Raise it with: %s", key, from, to, loosenHint(key, to)))
+			reason, problem := newReason(base, head, key)
+			if problem != "" {
+				v.Failures = append(v.Failures, fmt.Sprintf("ratchet: %s is raised %d → %d on this PR %s. Raise it with: %s", key, from, to, problem, loosenHint(key, to, problem != noReason)))
 				continue
 			}
 			v.Loosened = append(v.Loosened, Loosened{Key: key, From: from, To: to, Reason: reason})
@@ -214,24 +234,72 @@ func CompareBase(base, head *Baseline) BaseVerdict {
 	return v
 }
 
-func loosenHint(key string, to int) string {
-	if IsCoverageKey(key) {
-		return fmt.Sprintf("lacquer ratchet --loosen %s --to %d --reason \"<why>\"", key, to)
+const noReason = "without a new reason in [reasons]"
+
+// newReason is head's reason for key when it is new: nonempty and different
+// from the base's. Otherwise problem says which of the two it is not, quoting
+// a reused base reason so the author sees what to change.
+func newReason(base, head *Baseline, key string) (reason, problem string) {
+	reason = strings.TrimSpace(head.Reasons[key])
+	old := strings.TrimSpace(base.Reasons[key])
+	switch {
+	case reason == "":
+		return "", noReason
+	case reason == old:
+		return "", fmt.Sprintf("without a new reason: [reasons] still holds the base's reason %q, and a new reason must differ from the base's", old)
 	}
-	return fmt.Sprintf("lacquer ratchet --loosen %s --reason \"<why>\"", key)
+	return reason, ""
+}
+
+func loosenHint(key string, to int, reused bool) string {
+	why := "<why>"
+	if reused {
+		why = "<a new reason, different from the base's>"
+	}
+	if IsCoverageKey(key) {
+		return fmt.Sprintf("lacquer ratchet --loosen %s --to %d --reason \"%s\"", key, to, why)
+	}
+	return fmt.Sprintf("lacquer ratchet --loosen %s --reason \"%s\"", key, why)
+}
+
+// LiveCoverageKeys is the set of coverage keys whose product the manifest
+// still declares: ios_uncovered_lines_<slug> for each product's slug, and the
+// lone ios_uncovered_lines for any iOS project, since the project itself is
+// that key's product. Presence is by slug, not by product count, so a 2→1
+// matrix change that renames a surviving product's key still counts it as
+// present. A project with no iOS component declares none.
+func LiveCoverageKeys(cfg *config.Config) map[string]bool {
+	live := map[string]bool{}
+	if !hasIOS(cfg) {
+		return live
+	}
+	live[Coverage] = true
+	for _, p := range cfg.Products() {
+		live[CoverageKey(p.Slug())] = true
+	}
+	return live
 }
 
 // Summary is the human line for a loosening, for the job summary.
 func (l Loosened) Summary() string {
-	return fmt.Sprintf("loosened %s %d→%d: %s", l.Key, l.From, l.To, l.Reason)
+	return fmt.Sprintf("loosened %s %d→%s: %s", l.Key, l.From, l.ToText(), l.Reason)
+}
+
+// ToText is the raised value, or "removed".
+func (l Loosened) ToText() string {
+	if l.Removed {
+		return "removed"
+	}
+	return fmt.Sprint(l.To)
 }
 
 // LoosenedPrefix starts the machine-readable loosening line. The format is
 // stable and versioned:
 //
 //	lacquer-ratchet-loosened/v1 {"key":"<key>","from":<int>,"to":<int>,"reason":"<text>"}
+//	lacquer-ratchet-loosened/v1 {"key":"<key>","from":<int>,"removed":true,"reason":"<text>"}
 //
-// one JSON object on one line after a single space. The gate emits it as the
+// the second for a coverage key removed with its product; one JSON object on one line after a single space. The gate emits it as the
 // message of a `::notice` workflow command, so it becomes a check-run
 // annotation with exactly this text; the raw log line carries the same text in
 // workflow-command encoding (% as %25, CR as %0D, LF as %0A). The merged-PR
@@ -271,7 +339,11 @@ func ParseLoosened(s string) (l Loosened, ok bool, err error) {
 	if dec.More() {
 		return Loosened{}, true, errors.New("malformed " + strings.TrimSpace(LoosenedPrefix) + " line: trailing data")
 	}
-	if !known(l.Key) || l.To <= l.From || strings.TrimSpace(l.Reason) == "" {
+	valid := l.To > l.From
+	if l.Removed {
+		valid = l.To == 0 && IsCoverageKey(l.Key)
+	}
+	if !known(l.Key) || !valid || strings.TrimSpace(l.Reason) == "" {
 		return Loosened{}, true, fmt.Errorf("malformed %s line: %q", strings.TrimSpace(LoosenedPrefix), body)
 	}
 	return l, true, nil

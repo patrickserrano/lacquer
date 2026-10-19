@@ -59,7 +59,7 @@ func (f *loosenGH) apiCalls() int {
 
 const (
 	head9    = "9999999999999999999999999999999999999999"
-	runsPath = "repos/acme/widgets/commits/" + head9 + "/check-runs?filter=latest&per_page=100"
+	runsPath = "repos/acme/widgets/commits/" + head9 + "/check-runs?filter=latest&per_page=100&page=1"
 	// The message GitHub stores for the gate's ::notice, pinned literally: this
 	// is the documented v1 format, not whatever the encoder happens to emit.
 	loosenedMsg = `lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines","from":100,"to":150,"reason":"vendored parser"}`
@@ -95,8 +95,8 @@ func loosenFixture(t *testing.T) (string, *loosenGH) {
 	g.list = "[" + mergedWithHead(9, "loosen coverage", "2026-09-24T12:30:00Z", head9) + "]"
 	g.files = "[" + filesOf(9, ".lacquer.ratchet.toml", "Sources/Parser.swift") + "]"
 	g.api[runsPath] = `{"total_count":3,"check_runs":[{"id":1,"output":{"annotations_count":2}},{"id":2,"output":{"annotations_count":1}},{"id":3,"output":{"annotations_count":0}}]}`
-	g.api["repos/acme/widgets/check-runs/1/annotations?per_page=100"] = annotations("Xcode 26 is deprecated", loosenedMsg)
-	g.api["repos/acme/widgets/check-runs/2/annotations?per_page=100"] = annotations(loosenedMsg)
+	g.api["repos/acme/widgets/check-runs/1/annotations?per_page=100&page=1"] = annotations("Xcode 26 is deprecated", loosenedMsg)
+	g.api["repos/acme/widgets/check-runs/2/annotations?per_page=100&page=1"] = annotations(loosenedMsg)
 	return path, g
 }
 
@@ -159,7 +159,7 @@ func TestHarvestChecksAMergeTheFilesLookMissed(t *testing.T) {
 // harvest finds the loosening.
 func TestHarvestReportsAFailedLooseningLookAndRetries(t *testing.T) {
 	path, g := loosenFixture(t)
-	g.apiErr["repos/acme/widgets/check-runs/2/annotations?per_page=100"] = errors.New("HTTP 502")
+	g.apiErr["repos/acme/widgets/check-runs/2/annotations?per_page=100&page=1"] = errors.New("HTTP 502")
 	res := harvest9(path, t0.Add(time.Hour), g)
 	if len(res.Unavailable) != 1 || !strings.Contains(res.Unavailable[0], "acme/widgets#9") || !strings.Contains(res.Unavailable[0], "HTTP 502") {
 		t.Fatalf("unavailable = %v; want the failed look named", res.Unavailable)
@@ -167,26 +167,143 @@ func TestHarvestReportsAFailedLooseningLookAndRetries(t *testing.T) {
 	if n := len(entries(t, path)); n != 0 {
 		t.Fatalf("a failed look still wrote %d entries", n)
 	}
-	delete(g.apiErr, "repos/acme/widgets/check-runs/2/annotations?per_page=100")
+	delete(g.apiErr, "repos/acme/widgets/check-runs/2/annotations?per_page=100&page=1")
 	if res := harvest9(path, t0.Add(2*time.Hour), g); len(res.Added) != 2 {
 		t.Fatalf("the retry added %+v (unavailable %v); want the loosening and the merge", res.Added, res.Unavailable)
 	}
 }
 
-func TestHarvestReportsADamagedLooseningLine(t *testing.T) {
+func runsPage(n int) string {
+	return fmt.Sprintf("repos/acme/widgets/commits/%s/check-runs?filter=latest&per_page=100&page=%d", head9, n)
+}
+
+func annPage(id, n int) string {
+	return fmt.Sprintf("repos/acme/widgets/check-runs/%d/annotations?per_page=100&page=%d", id, n)
+}
+
+// checkRuns is one page of `total` runs: ids from..to, the one named annotated
+// carrying `count` annotations, the rest none.
+func checkRuns(total, from, to, annotated, count int) string {
+	var rs []string
+	for id := from; id <= to; id++ {
+		n := 0
+		if id == annotated {
+			n = count
+		}
+		rs = append(rs, fmt.Sprintf(`{"id":%d,"output":{"annotations_count":%d}}`, id, n))
+	}
+	return fmt.Sprintf(`{"total_count":%d,"check_runs":[%s]}`, total, strings.Join(rs, ","))
+}
+
+func filler(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("warning %d", i)
+	}
+	return out
+}
+
+// Over 100 check runs and over 100 annotations: both are paged, and the
+// loosening on the second page of the second page's run is found.
+func TestHarvestPaginatesCheckRunsAndAnnotations(t *testing.T) {
 	path, g := loosenFixture(t)
-	g.api["repos/acme/widgets/check-runs/2/annotations?per_page=100"] = annotations(`lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines"`)
+	g.api = map[string]string{
+		runsPage(1):     checkRuns(150, 1, 100, 0, 0),
+		runsPage(2):     checkRuns(150, 101, 150, 140, 120),
+		annPage(140, 1): annotations(filler(100)...),
+		annPage(140, 2): annotations(append(filler(19), loosenedMsg)...),
+	}
 	res := harvest9(path, t0.Add(time.Hour), g)
-	if len(res.Unavailable) != 1 || !strings.Contains(res.Unavailable[0], "malformed") {
-		t.Fatalf("unavailable = %v; a damaged line must be reported, not dropped", res.Unavailable)
+	if len(res.Unavailable) != 0 || len(res.Added) != 2 || res.Added[0].Title != "acme/widgets#9 loosened ios_uncovered_lines 100→150" {
+		t.Fatalf("added %+v, unavailable %v; want the loosening from page 2", res.Added, res.Unavailable)
 	}
 }
 
-func TestHarvestRefusesATruncatedCheckRunList(t *testing.T) {
-	path, g := loosenFixture(t)
-	g.api[runsPath] = `{"total_count":150,"check_runs":[{"id":1,"output":{"annotations_count":2}}]}`
+// pastCap asserts the permanent path: one UNREAD item naming the PR and why,
+// the merge recorded, nothing unavailable, the cursor moved on, and a rerun
+// adding nothing.
+func pastCap(t *testing.T, path string, g *loosenGH, why string) {
+	t.Helper()
 	res := harvest9(path, t0.Add(time.Hour), g)
-	if len(res.Unavailable) != 1 || !strings.Contains(res.Unavailable[0], "150 runs, only 1 read") {
-		t.Fatalf("unavailable = %v; a partial read must not pass as complete", res.Unavailable)
+	if len(res.Unavailable) != 0 {
+		t.Fatalf("unavailable %v; a read no retry can fix must not hold the cursor", res.Unavailable)
+	}
+	if len(res.Added) != 2 || res.Added[0].Type != inbox.Unread ||
+		!strings.HasPrefix(res.Added[0].Title, "couldn't read ratchet loosenings for acme/widgets#9: ") ||
+		!strings.Contains(res.Added[0].Title, why) || !strings.HasSuffix(res.Added[0].Title, "; check by hand") ||
+		res.Added[0].Ref != "https://github.com/acme/widgets/pull/9#ratchet-loosenings-unreadable" ||
+		res.Added[1].Ref != "https://github.com/acme/widgets/pull/9" {
+		t.Fatalf("added %+v; want the unreadable item, then the merge", res.Added)
+	}
+	cur, err := readCursors(filepath.Join(filepath.Dir(path), CursorFile))
+	if err != nil || !cur.Repos["acme/widgets"].After(t0) {
+		t.Fatalf("cursor %+v (%v) did not advance past %s", cur, err, t0)
+	}
+	// Rewound, the harvest sees the PR again and adds nothing.
+	if err := writeCursors(filepath.Join(filepath.Dir(path), CursorFile), cursors{Repos: map[string]time.Time{"acme/widgets": t0}}); err != nil {
+		t.Fatal(err)
+	}
+	if res := harvest9(path, t0.Add(2*time.Hour), g); len(res.Added) != 0 {
+		t.Fatalf("a rerun added %+v", res.Added)
+	}
+}
+
+func TestHarvestPastTheCheckRunPageCapWritesAnUnreadItemAndMovesOn(t *testing.T) {
+	path, g := loosenFixture(t)
+	g.api = map[string]string{
+		runsPage(1): checkRuns(400, 1, 100, 0, 0),
+		runsPage(2): checkRuns(400, 101, 200, 0, 0),
+		runsPage(3): checkRuns(400, 201, 300, 0, 0),
+	}
+	pastCap(t, path, g, "400 check runs on "+head9+", only 300 read")
+}
+
+func TestHarvestPastTheAnnotationPageCapWritesAnUnreadItemAndMovesOn(t *testing.T) {
+	path, g := loosenFixture(t)
+	g.api = map[string]string{
+		runsPage(1):   checkRuns(1, 7, 7, 7, 350),
+		annPage(7, 1): annotations(filler(100)...),
+		annPage(7, 2): annotations(filler(100)...),
+		annPage(7, 3): annotations(filler(100)...),
+	}
+	pastCap(t, path, g, "check run 7 has 350 annotations, only 300 read")
+}
+
+// A damaged line is in GitHub for good: retrying cannot fix it.
+func TestHarvestTurnsADamagedLooseningLineIntoAnUnreadItem(t *testing.T) {
+	path, g := loosenFixture(t)
+	g.api[annPage(2, 1)] = annotations(`lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines"`)
+	pastCap(t, path, g, "malformed")
+}
+
+func TestHarvestRaisesAnUnreadItemForARemovedKey(t *testing.T) {
+	path, g := loosenFixture(t)
+	g.api[annPage(2, 1)] = annotations(`lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines_widget","from":7,"removed":true,"reason":"widget app retired"}`)
+	res := harvest9(path, t0.Add(time.Hour), g)
+	var titles []string
+	for _, e := range res.Added {
+		titles = append(titles, e.Title)
+	}
+	if !strings.Contains(strings.Join(titles, "\n"), "acme/widgets#9 loosened ios_uncovered_lines_widget 7→removed") {
+		t.Fatalf("added %q (unavailable %v); want the removal as a loosening", titles, res.Unavailable)
+	}
+}
+
+// The unreadable item is deduped by its ref on its own, not only through the
+// merge entry that normally follows it.
+func TestTheUnreadableItemIsDedupedByRef(t *testing.T) {
+	path, g := loosenFixture(t)
+	g.api[annPage(2, 1)] = annotations(`lacquer-ratchet-loosened/v1 {`)
+	o := HarvestOptions{InboxPath: path, Run: g.run}
+	pr := mergedPR{Number: 9, URL: "https://github.com/acme/widgets/pull/9", HeadRefOid: head9}
+	existing := map[string]bool{}
+	r := harvestRepo{name: "widgets", repo: "acme/widgets"}
+	first, err := harvestLoosenings(o, r, pr, existing)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first look: %+v, %v", first, err)
+	}
+	again, err := harvestLoosenings(o, r, pr, existing)
+	if err != nil || len(again) != 0 || len(entries(t, path)) != 1 {
+		t.Fatalf("second look added %+v (%v); want nothing", again, err)
 	}
 }

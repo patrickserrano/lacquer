@@ -81,6 +81,10 @@ func prCheckout(t *testing.T, files map[string]string) string {
 func runGateStep(t *testing.T, co, event string, uncovered int) (out, summary string, code int) {
 	t.Helper()
 	if _, err := exec.LookPath("jq"); err != nil {
+		// A skip in CI would read as green with nothing run.
+		if os.Getenv("CI") != "" {
+			t.Fatal("jq not installed on a CI runner; the base-compare step tests cannot run")
+		}
 		t.Skip("jq not installed")
 	}
 	run := stepRun(t, parseIOSCI(t, soloConfig()), "test", "Check Coverage")

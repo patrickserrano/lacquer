@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,5 +156,77 @@ func TestCompareBaseIsRejectedWithWrite(t *testing.T) {
 	report := writeReport(t, dir, covReport("Demo.app", 8000, 8000-4312))
 	if code := run([]string{"ratchet", "--write", "--coverage-report", report, "--product", "-", "--compare-base"}, env, &out, &out); code != 2 {
 		t.Fatalf("exit %d; --compare-base is a gate flag, not a write flag:\n%s", code, out.String())
+	}
+}
+
+// Removing a coverage key (#571, round 2): allowed only together with its
+// product AND with a new reason; reported as a loosening to "removed".
+
+func productManifest(names ...string) string {
+	m := "[project]\nname = \"demo\"\nproject_name = \"Demo\"\nxcodeproj = \"Demo.xcodeproj\"\n\n[[component]]\npath = \".\"\nprofiles = [\"ios\"]\n"
+	for i, n := range names {
+		m += fmt.Sprintf("\n[[product]]\nname = %q\nscheme = %q\nbundle_id = \"com.x.%s\"\nasc_app_id = \"%d\"\ntag_prefix = %q\n", n, n, strings.ToLower(n), i+1, strings.ToLower(n))
+	}
+	return m
+}
+
+const threeKeys = locals + "ios_uncovered_lines_demo = 100\nios_uncovered_lines_widget = 7\nios_uncovered_lines_extra = 50\n"
+
+// removalPR is a three-product base; the PR writes headManifest and drops the
+// widget key, with headReasons appended to the ratchet file.
+func removalPR(t *testing.T, headManifest, headReasons string) func(string) string {
+	t.Helper()
+	base := map[string]string{".lacquer.toml": productManifest("Demo", "Widget", "Extra"), ".lacquer.ratchet.toml": threeKeys}
+	pr := gittest.NewPR(t, base, func(work string) {
+		gittest.Write(t, work, map[string]string{
+			".lacquer.toml":         headManifest,
+			".lacquer.ratchet.toml": locals + "ios_uncovered_lines_demo = 100\nios_uncovered_lines_extra = 50\n" + headReasons,
+		})
+	})
+	lq := t.TempDir()
+	gittest.Write(t, lq, map[string]string{"profiles/ios/baseline.toml": "[baseline]\ncoverage_floor = 80\n"})
+	chdir(t, pr.Checkout)
+	return envMap(map[string]string{"LACQUER_ROOT": lq})
+}
+
+func TestBaseComparePassesAKeyRemovedWithItsProductAndANewReason(t *testing.T) {
+	env := removalPR(t, productManifest("Demo", "Extra"), "[reasons]\nios_uncovered_lines_widget = \"widget app retired\"\n")
+	code, out := baseGate(t, env, "pull_request", 100, "--product", "demo")
+	if code != 0 {
+		t.Fatalf("exit %d; a key removed with its product and a new reason passes:\n%s", code, out)
+	}
+	for _, want := range []string{
+		"ratchet: loosened ios_uncovered_lines_widget 7→removed: widget app retired",
+		`lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines_widget","from":7,"removed":true,"reason":"widget app retired"}`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestBaseCompareFailsAKeyRemovedWhileItsProductStillExists(t *testing.T) {
+	env := removalPR(t, productManifest("Demo", "Widget", "Extra"), "[reasons]\nios_uncovered_lines_widget = \"widget app retired\"\n")
+	code, out := baseGate(t, env, "pull_request", 100, "--product", "demo")
+	if code != 4 || !strings.Contains(out, "ios_uncovered_lines_widget is enrolled on the PR's base (7) and this PR removes it") ||
+		!strings.Contains(out, "its product is still in .lacquer.toml") {
+		t.Fatalf("exit %d; removing a live product's key is a disguised loosening:\n%s", code, out)
+	}
+}
+
+func TestBaseCompareFailsAKeyRemovedWithItsProductButNoNewReason(t *testing.T) {
+	for name, reasons := range map[string]string{
+		"no reason": "",
+		// A reason for another key does not cover this one. The reused-base-
+		// reason case is in internal/ratchet's TestCompareBase.
+		"a reason for another key only": "[reasons]\nios_uncovered_lines_extra = \"unrelated\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := removalPR(t, productManifest("Demo", "Extra"), reasons)
+			code, out := baseGate(t, env, "pull_request", 100, "--product", "demo")
+			if code != 4 || !strings.Contains(out, "ios_uncovered_lines_widget is enrolled on the PR's base (7) and this PR removes it with its product, without a new reason") {
+				t.Fatalf("exit %d; want 4 asking for a new reason:\n%s", code, out)
+			}
+		})
 	}
 }

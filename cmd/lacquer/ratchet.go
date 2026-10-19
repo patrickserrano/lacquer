@@ -170,7 +170,7 @@ func runCoverage(root, lacquerRoot string, cfg *config.Config, c coverageRun, st
 	}
 	v := ratchet.Gate(in)
 	if c.compareBase && event == "pull_request" {
-		v = withBaseCompare(root, b, v)
+		v = withBaseCompare(root, b, ratchet.LiveCoverageKeys(cfg), v)
 	}
 	for _, line := range v.Lines {
 		fmt.Fprintln(stdout, line)
@@ -197,7 +197,10 @@ func runCoverage(root, lacquerRoot string, cfg *config.Config, c coverageRun, st
 // withBaseCompare prepends the base compare's verdict to the gate's. Any doubt
 // about the base (unidentifiable, unfetchable, unreadable, unparseable) fails:
 // only a base that demonstrably has no ratchet file reads as not enrolled.
-func withBaseCompare(root string, head *ratchet.Baseline, v ratchet.Verdict) ratchet.Verdict {
+//
+// live is the head manifest's coverage keys: cfg was loaded from the head's
+// .lacquer.toml before the gate ran, and an unreadable manifest already failed.
+func withBaseCompare(root string, head *ratchet.Baseline, live map[string]bool, v ratchet.Verdict) ratchet.Verdict {
 	var lines []string
 	fail := false
 	base, err := ratchet.ReadBase(root)
@@ -205,7 +208,7 @@ func withBaseCompare(root string, head *ratchet.Baseline, v ratchet.Verdict) rat
 		lines = append(lines, "::error::ratchet: the PR's base could not be compared, so this PR's ratchet is unverified: "+err.Error())
 		fail = true
 	} else {
-		bv := ratchet.CompareBase(base.Baseline, head)
+		bv := ratchet.CompareBase(base.Baseline, head, live)
 		for _, f := range bv.Failures {
 			lines = append(lines, "::error::"+f)
 		}

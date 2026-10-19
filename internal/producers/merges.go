@@ -318,18 +318,43 @@ func touchesRatchet(f prFiles) bool {
 // merged PR's CI reported (#571). The gate prints each loosening as a
 // `::notice` whose message is ratchet.LoosenedPrefix + JSON; GitHub keeps it as
 // a check-run annotation on the PR's head commit, which is where this reads
-// it: one call for the head's check runs, then one per run that has
-// annotations. No log is downloaded.
+// it: the head's check runs, then the annotations of each run that has any,
+// both paginated up to maxPages. No log is downloaded.
 //
 // Each entry's ref is the PR URL plus #ratchet-loosened-<key>, so a rerun, or
-// the same line from several matrix legs, adds it once. A damaged line, or a
-// look that failed, is an error: the caller reports it and does not mark the
-// PR done.
+// the same line from several matrix legs, adds it once.
+//
+// Two kinds of failure, handled differently:
+//   - transient (gh failed, an unreadable answer): returned, so the caller
+//     reports it and leaves the PR unmarked, and the next harvest retries;
+//   - permanent (more than maxPages of runs or annotations, a damaged
+//     loosening line): retrying would fail the same way on every harvest and
+//     hold the repository's cursor forever, so it becomes one UNREAD entry
+//     asking for a look by hand, and the harvest moves on.
 func harvestLoosenings(o HarvestOptions, r harvestRepo, pr mergedPR, existing map[string]bool) ([]inbox.Entry, error) {
 	if pr.HeadRefOid == "" {
 		return nil, fmt.Errorf("gh reported no head commit for the PR, so its check runs cannot be read")
 	}
 	found, err := loosenings(o.Run, r.repo, pr.HeadRefOid)
+	var stuck *unreadableError
+	if errors.As(err, &stuck) {
+		ref := pr.URL + "#ratchet-loosenings-unreadable"
+		if existing[ref] {
+			return nil, nil
+		}
+		e, aerr := inbox.Add(o.InboxPath, inbox.Entry{
+			Type:    inbox.Unread,
+			Title:   fmt.Sprintf("couldn't read ratchet loosenings for %s#%d: %s; check by hand", r.repo, pr.Number, stuck.why),
+			Body:    "head " + pr.HeadRefOid,
+			Ref:     ref,
+			Project: r.name,
+		})
+		if aerr != nil {
+			return nil, aerr
+		}
+		existing[ref] = true
+		return []inbox.Entry{e}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +366,7 @@ func harvestLoosenings(o HarvestOptions, r harvestRepo, pr mergedPR, existing ma
 		}
 		e, err := inbox.Add(o.InboxPath, inbox.Entry{
 			Type:    inbox.Unread,
-			Title:   fmt.Sprintf("%s#%d loosened %s %d→%d", r.repo, pr.Number, l.Key, l.From, l.To),
+			Title:   fmt.Sprintf("%s#%d loosened %s %d→%s", r.repo, pr.Number, l.Key, l.From, l.ToText()),
 			Body:    "reason: " + l.Reason,
 			Ref:     ref,
 			Project: r.name,
@@ -355,46 +380,71 @@ func harvestLoosenings(o HarvestOptions, r harvestRepo, pr mergedPR, existing ma
 	return added, nil
 }
 
+// maxPages caps each paginated read at maxPages × 100 items.
+const maxPages = 3
+
+// unreadableError is a loosening read that no retry can fix.
+type unreadableError struct{ why string }
+
+func (e *unreadableError) Error() string { return e.why }
+
 // loosenings reads every loosening line from the head commit's latest check
 // runs, once per key.
 func loosenings(run ciwait.Runner, repo, head string) ([]ratchet.Loosened, error) {
-	var runs struct {
-		Total  *int `json:"total_count"`
-		Checks []struct {
-			ID     int64 `json:"id"`
-			Output struct {
-				Annotations int `json:"annotations_count"`
-			} `json:"output"`
-		} `json:"check_runs"`
+	type checkRun struct {
+		ID     int64 `json:"id"`
+		Output struct {
+			Annotations int `json:"annotations_count"`
+		} `json:"output"`
 	}
-	if err := ghJSON(run, &runs, "api", "repos/"+repo+"/commits/"+head+"/check-runs?filter=latest&per_page=100"); err != nil {
-		return nil, fmt.Errorf("check runs of %s: %w", head, err)
-	}
-	if runs.Total == nil {
-		return nil, fmt.Errorf("check runs of %s: gh answered without a total_count", head)
-	}
-	if *runs.Total > len(runs.Checks) {
-		return nil, fmt.Errorf("check runs of %s: %d runs, only %d read", head, *runs.Total, len(runs.Checks))
+	var checks []checkRun
+	for page := 1; ; page++ {
+		var runs struct {
+			Total  *int       `json:"total_count"`
+			Checks []checkRun `json:"check_runs"`
+		}
+		if err := ghJSON(run, &runs, "api", fmt.Sprintf("repos/%s/commits/%s/check-runs?filter=latest&per_page=100&page=%d", repo, head, page)); err != nil {
+			return nil, fmt.Errorf("check runs of %s: %w", head, err)
+		}
+		if runs.Total == nil {
+			return nil, fmt.Errorf("check runs of %s: gh answered without a total_count", head)
+		}
+		checks = append(checks, runs.Checks...)
+		if len(checks) >= *runs.Total {
+			break
+		}
+		if len(runs.Checks) == 0 || page == maxPages {
+			return nil, &unreadableError{fmt.Sprintf("%d check runs on %s, only %d read", *runs.Total, head, len(checks))}
+		}
 	}
 	var out []ratchet.Loosened
 	seen := map[string]bool{}
-	for _, c := range runs.Checks {
+	for _, c := range checks {
 		if c.Output.Annotations == 0 {
 			continue
 		}
 		var anns []struct {
 			Message string `json:"message"`
 		}
-		if err := ghJSON(run, &anns, "api", fmt.Sprintf("repos/%s/check-runs/%d/annotations?per_page=100", repo, c.ID)); err != nil {
-			return nil, fmt.Errorf("annotations of check run %d: %w", c.ID, err)
-		}
-		if c.Output.Annotations > len(anns) {
-			return nil, fmt.Errorf("annotations of check run %d: %d, only %d read", c.ID, c.Output.Annotations, len(anns))
+		for page := 1; ; page++ {
+			var batch []struct {
+				Message string `json:"message"`
+			}
+			if err := ghJSON(run, &batch, "api", fmt.Sprintf("repos/%s/check-runs/%d/annotations?per_page=100&page=%d", repo, c.ID, page)); err != nil {
+				return nil, fmt.Errorf("annotations of check run %d: %w", c.ID, err)
+			}
+			anns = append(anns, batch...)
+			if len(anns) >= c.Output.Annotations {
+				break
+			}
+			if len(batch) == 0 || page == maxPages {
+				return nil, &unreadableError{fmt.Sprintf("check run %d has %d annotations, only %d read", c.ID, c.Output.Annotations, len(anns))}
+			}
 		}
 		for _, a := range anns {
 			l, ok, err := ratchet.ParseLoosened(a.Message)
 			if err != nil {
-				return nil, fmt.Errorf("check run %d: %w", c.ID, err)
+				return nil, &unreadableError{fmt.Sprintf("check run %d: %v", c.ID, err)}
 			}
 			if ok && !seen[l.Key] {
 				seen[l.Key] = true

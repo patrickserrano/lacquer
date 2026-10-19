@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/gittest"
 )
 
@@ -92,8 +93,11 @@ func TestCompareBase(t *testing.T) {
 	const cov, other = Coverage, Coverage + "_widget"
 	for name, tc := range map[string]struct {
 		base, head *Baseline
-		fail       []string // substrings, one per expected failure, in key order
-		loosened   []Loosened
+		// live is the head manifest's coverage keys; nil means both products
+		// are still declared.
+		live     map[string]bool
+		fail     []string // substrings, one per expected failure, in key order
+		loosened []Loosened
 	}{
 		"first enrollment passes": {
 			base: nil, head: bl(map[string]int{cov: 100}, nil),
@@ -115,6 +119,36 @@ func TestCompareBase(t *testing.T) {
 			base: bl(map[string]int{cov: 100, other: 7}, nil), head: bl(map[string]int{cov: 100}, nil),
 			fail: []string{other + " is enrolled on the PR's base (7) and this PR removes it"},
 		},
+		"removed with a new reason while its product still exists fails": {
+			base: bl(map[string]int{cov: 100, other: 7}, nil),
+			head: bl(map[string]int{cov: 100}, map[string]string{other: "widget retired"}),
+			fail: []string{other + " is enrolled on the PR's base (7) and this PR removes it from .lacquer.ratchet.toml, which removes the gate, and its product is still in .lacquer.toml"},
+		},
+		"removed with its product and a new reason is loosened to removed": {
+			base:     bl(map[string]int{cov: 100, other: 7}, map[string]string{other: "legacy"}),
+			head:     bl(map[string]int{cov: 100}, map[string]string{other: "widget retired"}),
+			live:     map[string]bool{cov: true},
+			loosened: []Loosened{{Key: other, From: 7, Removed: true, Reason: "widget retired"}},
+		},
+		"removed with its product and no reason fails": {
+			base: bl(map[string]int{cov: 100, other: 7}, nil), head: bl(map[string]int{cov: 100}, nil),
+			live: map[string]bool{cov: true},
+			fail: []string{other + " is enrolled on the PR's base (7) and this PR removes it with its product, without a new reason in [reasons]"},
+		},
+		"removed with its product and the base's unchanged reason fails": {
+			base: bl(map[string]int{cov: 100, other: 7}, map[string]string{other: "legacy"}),
+			head: bl(map[string]int{cov: 100}, map[string]string{other: "legacy"}),
+			live: map[string]bool{cov: true},
+			fail: []string{other + " is enrolled on the PR's base (7) and this PR removes it with its product, without a new reason: [reasons] still holds the base's reason \"legacy\""},
+		},
+		"deleted file fails even with every product gone and new reasons": {
+			base: bl(map[string]int{cov: 100}, nil), head: nil, live: map[string]bool{},
+			fail: []string{cov + " is enrolled on the PR's base (100) and this PR deletes"},
+		},
+		"a removed local metric fails even with a new reason": {
+			base: bl(map[string]int{Suppressions: 3}, nil), head: bl(map[string]int{}, map[string]string{Suppressions: "gone"}), live: map[string]bool{},
+			fail: []string{Suppressions + " is enrolled on the PR's base (3) and this PR removes it from .lacquer.ratchet.toml, which removes the gate, and it is a local metric"},
+		},
 		"raise without a reason fails": {
 			base: bl(map[string]int{cov: 100}, nil), head: bl(map[string]int{cov: 150}, nil),
 			fail: []string{cov + " is raised 100 → 150 on this PR without a new reason"},
@@ -122,6 +156,10 @@ func TestCompareBase(t *testing.T) {
 		"raise with the base's unchanged reason fails": {
 			base: bl(map[string]int{cov: 100}, map[string]string{cov: "legacy"}), head: bl(map[string]int{cov: 150}, map[string]string{cov: "legacy"}),
 			fail: []string{cov + " is raised 100 → 150 on this PR without a new reason"},
+		},
+		"a reused reason says it must differ from the base's and quotes it": {
+			base: bl(map[string]int{cov: 100}, map[string]string{cov: "legacy"}), head: bl(map[string]int{cov: 150}, map[string]string{cov: "legacy"}),
+			fail: []string{`[reasons] still holds the base's reason "legacy", and a new reason must differ from the base's. Raise it with: lacquer ratchet --loosen ` + cov + ` --to 150 --reason "<a new reason, different from the base's>"`},
 		},
 		"raise with a whitespace-only change to the reason fails": {
 			base: bl(map[string]int{cov: 100}, map[string]string{cov: "legacy"}), head: bl(map[string]int{cov: 150}, map[string]string{cov: " legacy "}),
@@ -137,7 +175,11 @@ func TestCompareBase(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			v := CompareBase(tc.base, tc.head)
+			live := tc.live
+			if live == nil {
+				live = map[string]bool{cov: true, other: true}
+			}
+			v := CompareBase(tc.base, tc.head, live)
 			if len(v.Failures) != len(tc.fail) {
 				t.Fatalf("failures %q, want %d matching %q", v.Failures, len(tc.fail), tc.fail)
 			}
@@ -150,6 +192,51 @@ func TestCompareBase(t *testing.T) {
 				t.Errorf("loosened %+v, want %+v", v.Loosened, tc.loosened)
 			}
 		})
+	}
+}
+
+func TestLiveCoverageKeys(t *testing.T) {
+	ios := []config.Component{{Path: ".", Profiles: []string{"ios"}}}
+	solo := &config.Config{Project: config.Project{ProjectName: "Demo", Scheme: "Demo"}, Components: ios}
+	if got := LiveCoverageKeys(solo); !got[Coverage] {
+		t.Errorf("lone product: %v lacks %s", got, Coverage)
+	}
+	two := &config.Config{Product: []config.Product{{Name: "Paid", Scheme: "Paid"}, {Name: "Free", Scheme: "Free"}}, Components: ios}
+	got := LiveCoverageKeys(two)
+	for _, p := range two.Product {
+		if !got[CoverageKey(p.Slug())] {
+			t.Errorf("two products: %v lacks %s", got, CoverageKey(p.Slug()))
+		}
+	}
+	// 2 → 1: the surviving product's slug key is still present, so removing it
+	// is not "its product is gone".
+	one := &config.Config{Product: []config.Product{{Name: "Paid", Scheme: "Paid"}}, Components: ios}
+	if got := LiveCoverageKeys(one); !got[CoverageKey(one.Product[0].Slug())] {
+		t.Errorf("one declared product: %v lacks its slug key", got)
+	}
+	if got := LiveCoverageKeys(&config.Config{Components: []config.Component{{Path: ".", Profiles: []string{"web"}}}}); len(got) != 0 {
+		t.Errorf("no iOS component: %v, want none", got)
+	}
+}
+
+func TestRemovedLooseningRoundTrips(t *testing.T) {
+	l := Loosened{Key: Coverage + "_widget", From: 7, Removed: true, Reason: "widget retired"}
+	if line := l.MachineLine(); line != `lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines_widget","from":7,"removed":true,"reason":"widget retired"}` {
+		t.Fatalf("removed line = %s", line)
+	}
+	if got, ok, err := ParseLoosened(l.MachineLine()); !ok || err != nil || got != l {
+		t.Fatalf("round trip = %+v, %v, %v", got, ok, err)
+	}
+	if s := l.Summary(); s != "loosened ios_uncovered_lines_widget 7→removed: widget retired" {
+		t.Errorf("summary = %s", s)
+	}
+	for _, bad := range []string{
+		LoosenedPrefix + `{"key":"ios_uncovered_lines","from":7,"to":9,"removed":true,"reason":"x"}`,
+		LoosenedPrefix + `{"key":"unjustified_suppressions","from":7,"removed":true,"reason":"x"}`,
+	} {
+		if _, ok, err := ParseLoosened(bad); !ok || err == nil {
+			t.Errorf("accepted %s", bad)
+		}
 	}
 }
 

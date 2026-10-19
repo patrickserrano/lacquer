@@ -377,8 +377,10 @@ every product and the local metrics too:
 
 | Head, against the base | Verdict |
 |---|---|
-| file deleted, or a key removed | fails, naming the key |
-| a key raised, with no reason or the base's unchanged reason | fails, printing the `--loosen` command |
+| file deleted | fails, naming every key |
+| a local metric removed, or a coverage key removed while its product is still in `.lacquer.toml` | fails, naming the key |
+| a coverage key removed together with its `[[product]]`, with a new reason in `[reasons]` | passes, reported as a loosening to `removed` |
+| a key raised (or a coverage key removed with its product) with no reason, or the base's unchanged reason | fails, quoting a reused reason and printing the `--loosen` command |
 | a key raised with a new reason | passes, reported as a loosening (below) |
 | a key lowered, or unchanged | passes silently |
 | no file at the base (first enrollment) | passes |
@@ -395,15 +397,21 @@ leaves one machine-readable line, as a `::notice` annotation on the check run:
 
 ```text
 lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines","from":4312,"to":4400,"reason":"…"}
+lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines_widget","from":120,"removed":true,"reason":"…"}
 ```
 
-That is the whole format: the prefix, one space, one JSON object on one line.
+That is the whole format: the prefix, one space, one JSON object on one line;
+`removed` replaces `to` for a coverage key removed with its product.
+"New reason" means nonempty and different from the base's reason for that key.
 The raw log line carries it in workflow-command encoding (`%` as `%25`); the
 annotation's message is the text above. A change of shape will be `/v2`. The
 console's merged-PR harvest reads these annotations from the head commit of
 each merged PR that changed `.lacquer.ratchet.toml` and adds one unread inbox
 item per loosened key, so a loosening reaches the inbox and not only a reviewer
-reading the diff.
+reading the diff. A failed look is retried on the next harvest; a PR whose
+runs or annotations run past three pages of 100, or whose line is damaged,
+gets one unread "couldn't read ratchet loosenings … check by hand" item
+instead, so it cannot hold the harvest back.
 
 An enrolled project's app target must also reach `coverage_floor` (80 %) from
 `profiles/ios/baseline.toml`. A project below it adds a dated relaxation:
