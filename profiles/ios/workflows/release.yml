@@ -86,13 +86,29 @@ jobs:
     # job's expected label individually so a token merge like that cannot do
     # this again without failing a named test.
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
-    timeout-minutes: 5
+    # The release needs a FULL, green CI OK from the iOS CI workflow on this
+    # exact commit (D5): a pull-request run never counts, nor does another
+    # workflow's CI OK (#508). When iOS CI never ran on the commit (the push
+    # path filter skips one that touched no Swift component) this job
+    # dispatches a full run and waits for it, so the bound has to cover one iOS
+    # CI run on a busy Mac: up to 5 minutes for the run to appear, then up to
+    # 120 for it to finish. That is the Mac jobs' own limits run back to back
+    # on one dedicated runner (Lint, Build (Release) at 25, Test at 20, Watch
+    # Tests at 20) plus room to queue behind other repositories' work. The job
+    # timeout sits above the script's 125 minutes so the script, not the
+    # runner, is what stops and says why. A release that already has its run
+    # spends a minute here, as before.
+    timeout-minutes: 140
     permissions:
       # A job-level block REPLACES the workflow default, so `contents` has to be
       # restated: checkout needs it, and `checks: read` alone would leave this
       # job unable to clone.
       contents: read
       checks: read
+      # Runs, jobs and run records (artifacts) to trace a CI OK to iOS CI's
+      # FULL run, and the dispatch when there is none. `write` includes read;
+      # a permissions map holds one value per scope. This job only.
+      actions: write
     steps:
       - name: Checkout release commit
         uses: actions/checkout@v7
@@ -111,29 +127,23 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          check_runs=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/$GITHUB_REPOSITORY/commits/$EXPECTED_SHA/check-runs?per_page=100")
-          # `head_sha == $sha` as well as the endpoint's own scoping. The
-          # endpoint is documented to return check runs for that commit, and
-          # asserting it again costs nothing — the failure this guards is a
-          # check run inherited from a merge or a re-run pointing elsewhere,
-          # which would let a green run on a DIFFERENT commit authorise this one.
-          successful_ci_ok=$(jq \
-            --arg sha "$EXPECTED_SHA" \
-            '[.check_runs[] | select(
-              .name == "CI OK" and
-              .head_sha == $sha and
-              .status == "completed" and
-              .conclusion == "success"
-            )] | length' <<< "$check_runs")
-          if [ "$successful_ci_ok" -lt 1 ]; then
-            echo "::error::Release blocked: $EXPECTED_SHA has no completed, successful \"CI OK\" check run."
-            echo "Push the commit and let CI finish before tagging it, or release a commit that already passed."
+          fail() {
+            echo "::error::Release blocked: $*"
             exit 1
-          fi
-
+          }
+          # Every API call is bounded, and so is every wait. A timeout blocks the
+          # release; it never lets one through. The defaults are sized in the
+          # job's comment above; the variables exist so tests can shrink them.
+          api_timeout="${PROVENANCE_API_TIMEOUT:-30}"
+          poll="${PROVENANCE_POLL_INTERVAL:-60}"
+          appear_timeout="${PROVENANCE_APPEAR_TIMEOUT:-300}"
+          wait_timeout="${PROVENANCE_WAIT_TIMEOUT:-7200}"
+          gh_api() {
+            perl -e 'alarm shift; exec @ARGV' "$api_timeout" gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$@"
+          }
           # The repository's default branch, not a hardcoded name. This gate
           # decides whether a tag may ship, and a stale branch name here does not
           # fail loudly: `git merge-base --is-ancestor` against a ref that no
@@ -142,8 +152,11 @@ jobs:
           #
           # Tags only. A workflow_dispatch runs from a branch and is the
           # build-only / TestFlight path, where "is this on main yet" is not the
-          # question being asked — but the CI OK requirement above still applies
+          # question being asked — but the CI requirement below still applies
           # to it, so a dispatch cannot launder an unverified commit either.
+          #
+          # First, because it is free: a tag that cannot ship must not wait on,
+          # or dispatch, a full iOS CI run before being refused.
           if [ "${GITHUB_REF:-}" != "${GITHUB_REF#refs/tags/}" ] && \
              ! git merge-base --is-ancestor "$EXPECTED_SHA" "origin/$DEFAULT_BRANCH"; then
             echo "::error::Release blocked: tag commit $EXPECTED_SHA is not reachable from origin/$DEFAULT_BRANCH."
@@ -151,7 +164,184 @@ jobs:
             exit 1
           fi
 
+          release_tree=$(git rev-parse "$EXPECTED_SHA^{tree}") || fail "cannot read the tree of $EXPECTED_SHA"
+          work="${RUNNER_TEMP:-/tmp}/provenance"
+          mkdir -p "$work"
+          why=""
+
+          # record_of <run id> <file>: download the run's test-selection.json.
+          # Exactly one unexpired record, or none at all.
+          record_of() {
+            local ids
+            ids=$(gh_api "/repos/$GITHUB_REPOSITORY/actions/runs/$1/artifacts?name=test-selection&per_page=100" \
+              | jq -c '[.artifacts[] | select(.name == "test-selection" and (.expired | not)) | .id]') \
+              || { why="could not list run $1's artifacts"; return 1; }
+            [ "$(jq 'length' <<< "$ids")" = 1 ] || { why="run $1 has $(jq 'length' <<< "$ids") test-selection records, not exactly one"; return 1; }
+            gh_api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$(jq -r '.[0]' <<< "$ids")/zip" > "$2.zip" \
+              || { why="could not download run $1's record"; return 1; }
+            unzip -p "$2.zip" test-selection.json > "$2" 2>/dev/null \
+              || { why="run $1's record archive holds no test-selection.json"; return 1; }
+            jq -e 'type == "object"' "$2" > /dev/null 2>&1 || { why="run $1's record is not a JSON object"; return 1; }
+          }
+
+          # green_ios_run <run id> <event rule>: the run is iOS CI's, completed,
+          # successful, with exactly one CI OK job that succeeded. Sets `run`.
+          green_ios_run() {
+            local state ok
+            run=$(gh_api "/repos/$GITHUB_REPOSITORY/actions/runs/$1") || { why="could not read run $1"; return 1; }
+            case "$(jq -r '.path // ""' <<< "$run")" in
+              */ios-ci.yml) ;;
+              *) why="run $1 is from $(jq -r '.path // "an unnamed workflow"' <<< "$run"), not the iOS CI workflow"; return 1 ;;
+            esac
+            case "$2:$(jq -r '.event' <<< "$run")" in
+              pr:pull_request|release:push|release:workflow_dispatch) ;;
+              *) why="run $1 is a $(jq -r '.event' <<< "$run") run, which cannot prove this release"; return 1 ;;
+            esac
+            state=$(jq -r '"\(.status)/\(.conclusion)"' <<< "$run")
+            [ "$state" = completed/success ] || { why="run $1 is $state, not completed/success"; return 1; }
+            ok=$(gh_api "/repos/$GITHUB_REPOSITORY/actions/runs/$1/jobs?filter=latest&per_page=100" \
+              | jq -r '[.jobs[] | select(.name == "CI OK")] | if length == 1 then .[0].conclusion else "\(length) CI OK jobs" end') \
+              || { why="could not read run $1's jobs"; return 1; }
+            [ "$ok" = success ] || { why="run $1's CI OK is $ok, not success"; return 1; }
+          }
+
+          # accept_run <run id>: the one rule, for a push run, a dispatched run,
+          # or a push run that reused a PR run (D4b):
+          #   - iOS CI's own run, on THIS commit, not a pull-request run;
+          #   - completed and green, CI OK included;
+          #   - its record is for this commit's tree and says mode `full`, or
+          #     says `reused` and names a PR run that itself passes the same
+          #     checks (iOS CI, green, FULL, this tree).
+          # Anything else, a missing record included, is not accepted.
+          accept_run() {
+            local mode reused_id
+            green_ios_run "$1" release || return 1
+            [ "$(jq -r '.head_sha' <<< "$run")" = "$EXPECTED_SHA" ] \
+              || { why="run $1 tested $(jq -r '.head_sha' <<< "$run"), not $EXPECTED_SHA"; return 1; }
+            record_of "$1" "$work/record-$1.json" || return 1
+            [ "$(jq -r '.tree // ""' "$work/record-$1.json")" = "$release_tree" ] \
+              || { why="run $1's record is for tree $(jq -r '.tree // "none"' "$work/record-$1.json"), not $release_tree"; return 1; }
+            mode=$(jq -r '.mode // ""' "$work/record-$1.json")
+            case "$mode" in
+              full) return 0 ;;
+              reused) ;;
+              *) why="run $1 ran mode '$mode', and only a FULL run proves a release"; return 1 ;;
+            esac
+            reused_id=$(jq -r '.reused_run_id // "" | tostring' "$work/record-$1.json")
+            case "$reused_id" in ''|*[!0-9]*) why="run $1 reused a run it does not name"; return 1 ;; esac
+            green_ios_run "$reused_id" pr || { why="run $1 reused run $reused_id, but $why"; return 1; }
+            record_of "$reused_id" "$work/record-$reused_id.json" || { why="run $1 reused run $reused_id, but $why"; return 1; }
+            mode=$(jq -r '.mode // ""' "$work/record-$reused_id.json")
+            [ "$mode" = full ] || { why="run $1 reused run $reused_id, which ran mode '$mode', not FULL"; return 1; }
+            [ "$(jq -r '.tree // ""' "$work/record-$reused_id.json")" = "$release_tree" ] \
+              || { why="run $1 reused run $reused_id, which tested another tree"; return 1; }
+          }
+
+          # 1. A green "CI OK" on this exact commit, from iOS CI, FULL.
+          #
+          # `head_sha == $sha` as well as the endpoint's own scoping. The
+          # endpoint is documented to return check runs for that commit, and
+          # asserting it again costs nothing — the failure this guards is a
+          # check run inherited from a merge or a re-run pointing elsewhere,
+          # which would let a green run on a DIFFERENT commit authorise this one.
+          #
+          # The NAME alone used to be the whole test, so a green "CI OK" from the
+          # web or supabase CI workflow let a tag through (#508). Each check run
+          # is now traced to its workflow run through its check suite, and only
+          # iOS CI's own run, accepted by the rule above, counts.
+          check_runs=$(gh_api "/repos/$GITHUB_REPOSITORY/commits/$EXPECTED_SHA/check-runs?per_page=100") \
+            || fail "could not read the check runs of $EXPECTED_SHA"
+          suites=$(jq -r \
+            --arg sha "$EXPECTED_SHA" \
+            '[.check_runs[] | select(
+              .name == "CI OK" and
+              .head_sha == $sha and
+              .status == "completed" and
+              .conclusion == "success"
+            ) | .check_suite.id] | unique | .[]' <<< "$check_runs") \
+            || fail "the check runs of $EXPECTED_SHA are not readable"
+          reasons=""
+          for suite in $suites; do
+            runs=$(gh_api "/repos/$GITHUB_REPOSITORY/actions/runs?check_suite_id=$suite" | jq -r '.workflow_runs[].id') \
+              || fail "could not find the workflow run behind check suite $suite"
+            for id in $runs; do
+              if accept_run "$id"; then
+                echo "Accepted iOS CI run $id: FULL and green on $EXPECTED_SHA."
+                verified=yes
+                break 2
+              fi
+              reasons="$reasons
+            - $why"
+            done
+          done
+
+          if [ "${verified:-}" != yes ]; then
+            # 2. No acceptable run. If an iOS CI run on this commit (a push or a
+            # dispatch) is red, cancelled or still going, that verdict stands:
+            # dispatching another would let a pass launder a failure. Wait for
+            # it, or re-run it.
+            blocking=$(gh_api "/repos/$GITHUB_REPOSITORY/actions/workflows/ios-ci.yml/runs?head_sha=$EXPECTED_SHA&per_page=100" \
+              | jq -r '[.workflow_runs[] | select(.event != "pull_request" and (.status != "completed" or .conclusion != "success"))
+                  | "\(.id) (\(.event), \(.status)/\(.conclusion))"] | join(", ")') \
+              || fail "could not list iOS CI's runs on $EXPECTED_SHA"
+            if [ -n "$blocking" ]; then
+              fail "$EXPECTED_SHA has no FULL, green CI OK from iOS CI, and its iOS CI runs are not all green: $blocking.${reasons}
+            Wait for a run in progress to finish, or re-run a failed one, then re-run this release."
+            fi
+
+            # 3. iOS CI never ran on this commit (the push path filter skipped
+            # it, because it touched no Swift component), or it ran green but
+            # cannot be shown to have run in FULL: its record expired (a
+            # repository's artifact retention limit can be far shorter than
+            # the 30 days the record asks for), or it says it ran less than
+            # the full suite. Either way, dispatch a FULL run on the release
+            # ref and wait for it (D5).
+            #
+            # workflow_dispatch takes a REF, not a SHA, so the run is found by a
+            # nonce it carries in its run name (iOS CI's `run-name`), never as
+            # "the latest run", and then must have tested THIS commit: if the
+            # ref moved between the release and the dispatch, it tested another.
+            if [ -n "$reasons" ]; then
+              echo "No iOS CI run proves $EXPECTED_SHA was tested in FULL:${reasons}"
+            fi
+            nonce="${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-1}-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+            title="iOS CI provenance $nonce"
+            since=$(jq -rn --argjson t "$(( $(date -u +%s) - 120 ))" '$t | todate')
+            gh_api -X POST "/repos/$GITHUB_REPOSITORY/actions/workflows/ios-ci.yml/dispatches" \
+              -f ref="$GITHUB_REF" -f "inputs[dispatch_id]=$nonce" > /dev/null \
+              || fail "no FULL iOS CI run proves $EXPECTED_SHA, and dispatching one on $GITHUB_REF failed."
+            echo "Dispatched a FULL iOS CI run of $EXPECTED_SHA on $GITHUB_REF as '$title'."
+
+            deadline=$(( $(date +%s) + appear_timeout ))
+            while :; do
+              matches=$(gh_api "/repos/$GITHUB_REPOSITORY/actions/workflows/ios-ci.yml/runs?event=workflow_dispatch&created=%3E%3D$since&per_page=100" \
+                | jq -c --arg t "$title" '[.workflow_runs[] | select(.display_title == $t)]') \
+                || fail "could not list iOS CI's dispatched runs"
+              n=$(jq 'length' <<< "$matches")
+              [ "$n" -le 1 ] || fail "$n iOS CI runs carry this release's dispatch id $nonce; refusing to guess which one is ours."
+              [ "$n" = 0 ] || break
+              [ "$(date +%s)" -lt "$deadline" ] || fail "the dispatched iOS CI run ('$title') did not appear within ${appear_timeout}s."
+              sleep "$poll"
+            done
+            id=$(jq -r '.[0].id' <<< "$matches")
+            run_sha=$(jq -r '.[0].head_sha' <<< "$matches")
+            [ "$run_sha" = "$EXPECTED_SHA" ] \
+              || fail "the dispatched iOS CI run $id tested $run_sha, but the release commit is $EXPECTED_SHA: $GITHUB_REF moved between the release and the dispatch."
+
+            deadline=$(( $(date +%s) + wait_timeout ))
+            while :; do
+              status=$(gh_api "/repos/$GITHUB_REPOSITORY/actions/runs/$id" | jq -r '.status') \
+                || fail "could not read the dispatched iOS CI run $id"
+              [ "$status" != completed ] || break
+              [ "$(date +%s)" -lt "$deadline" ] || fail "the dispatched iOS CI run $id did not finish within ${wait_timeout}s (still $status)."
+              sleep "$poll"
+            done
+            accept_run "$id" || fail "the dispatched iOS CI run $id is not a FULL, green run of $EXPECTED_SHA: $why"
+            echo "Accepted the dispatched iOS CI run $id: FULL and green on $EXPECTED_SHA."
+          fi
+
           echo "Release provenance verified for $EXPECTED_SHA."
+
 
   # Decides WHICH products this run releases, before the matrix exists.
   #

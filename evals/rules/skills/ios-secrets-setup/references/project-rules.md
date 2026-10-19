@@ -246,10 +246,11 @@ than leaning on a fallback that hides which branch you are in.
 ### A release must come from a commit CI passed
 
 `ios-release.yml` opens with a `verify-ci-provenance` job that refuses the run
-unless the exact SHA being released has a **completed, successful `CI OK` check
-run**, and — for a tag — unless that commit is **reachable from the repository's
-default branch**. It runs first, on Linux, so a release that must not happen
-costs two minutes on a hosted runner rather than forty-five on the dedicated Mac.
+unless the exact SHA being released has a **completed, successful `CI OK` from
+the iOS CI workflow, on a run that tested in FULL**, and — for a tag — unless
+that commit is **reachable from the repository's default branch**. It runs
+first, on Linux, so a release that must not happen costs a few minutes on a
+hosted runner rather than forty-five on the dedicated Mac.
 
 `CI OK` is already the required check for **merging**. It was enforced nowhere
 for **releasing**: a tag can be pushed at any commit — an unreviewed branch, a
@@ -259,10 +260,28 @@ main. The dispatch path is gated too, so a `workflow_dispatch` cannot launder an
 unverified commit; only the ancestry half is tag-only, because a dispatch runs
 from a branch and "is this on main yet" is not the question it is asking.
 
+What counts, and what does not:
+
+- **iOS CI's own run.** A green `CI OK` from another workflow (web, supabase)
+  on the same SHA does not count. The check run is traced to its workflow run.
+- **A push or dispatched run, never a pull-request run.** Its run record
+  (`test-selection.json`) must say `full` for this commit's tree, or `reused`
+  naming a PR run that itself was FULL and green on the same tree (a push to
+  main reuses a PR run only when the trees are identical).
+- **No run that proves it** (iOS CI never ran on the commit because it touched
+  no Swift component, or its run is green but its record expired or says less
+  than `full`): the gate dispatches a full iOS CI run on the release ref and
+  waits for it, up to about two hours. It finds that run by a nonce in its run
+  name, and refuses it if the ref moved and the run tested a different commit.
+  A dispatch from a branch with no push run, and a release made after the
+  record expired, take this path too, so expect a full CI run before the build.
+- **An iOS CI run on the commit that is red, cancelled or still going** blocks
+  the release, and nothing is dispatched: re-run that run, or wait for it.
+
 Two consequences worth knowing before you hit it:
 
 - **Tag the merge commit, not the branch tip.** A tag on a branch that has not
   landed is blocked by design.
-- **Let CI finish before you tag.** The check run must be *completed* and
-  *successful* for that SHA; a tag pushed in the same breath as the commit
-  arrives before CI has reported and is refused.
+- **Let CI finish before you tag.** iOS CI's run on that SHA must be
+  *completed* and *successful*; a tag pushed while main's run is still going
+  is refused. Wait for it, then re-run the release.
