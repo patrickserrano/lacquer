@@ -8,7 +8,7 @@ description: Use when writing, reviewing, or refactoring SwiftUI code — state 
 ## Operating Rules
 
 - Consult `references/latest-apis.md` at the start of every task to avoid deprecated APIs
-- Only adopt Liquid Glass when explicitly requested by the user (use the `swiftui-liquid-glass` skill)
+- Liquid Glass is the system design from the iOS 27 SDK on; design for it by default, and audit an app's UI before moving it to Xcode 27 (use the `swiftui-liquid-glass` skill)
 - Use `#available` gating with sensible fallbacks for version-specific APIs
 
 ## SwiftUI Code Workflow
@@ -105,7 +105,7 @@ Consult the reference file for each topic relevant to the current task:
 | Swift Charts | Chart marks, axes, selection, styling | `references/charts.md` |
 | Charts accessibility | Charts VoiceOver, Audio Graph | `references/charts-accessibility.md` |
 | Image optimization | AsyncImage, downsampling, caching | `references/image-optimization.md` |
-| Liquid Glass (iOS 26+) | Adopting or reviewing Liquid Glass | Use the `swiftui-liquid-glass` skill |
+| Liquid Glass (iOS 26+) | Building or reviewing any UI (default from the iOS 27 SDK) | Use the `swiftui-liquid-glass` skill |
 | macOS scenes | Settings, MenuBarExtra, multi-window | `references/macos-scenes.md` |
 | macOS window styling | Toolbar styles, window sizing, Commands | `references/macos-window-styling.md` |
 | macOS views | HSplitView, Table, AppKit interop | `references/macos-views.md` |
