@@ -19,7 +19,7 @@ Systematically scan Apple's developer documentation via the Sosumi MCP, identify
 
 Read `../swiftui-expert-skill/references/latest-apis.md` to understand:
 - Which deprecated-to-modern transitions are already documented
-- The version segments in use (iOS 15+, 16+, 17+, 18+, 26+)
+- The version segments in use (iOS 15+, 16+, 17+, 18+, 26+, 27+)
 - The Quick Lookup Table at the bottom
 
 ### 2. Load the scan manifest
@@ -51,7 +51,7 @@ Follow the established format exactly. Each entry must include:
 
 **Section placement** -- place under the correct version segment:
 - "Always Use (iOS 15+)" for long-deprecated APIs
-- "When Targeting iOS 16+" / "17+" / "18+" / "26+" for version-gated changes
+- "When Targeting iOS 16+" / "17+" / "18+" / "26+" / "27+" for version-gated changes
 
 **Entry format:**
 

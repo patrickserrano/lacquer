@@ -8,6 +8,7 @@
 - [When Targeting iOS 17+](#when-targeting-ios-17)
 - [When Targeting iOS 18+](#when-targeting-ios-18)
 - [When Targeting iOS 26+](#when-targeting-ios-26)
+- [When Targeting iOS 27+](#when-targeting-ios-27)
 
 ---
 
@@ -453,6 +454,141 @@ PhotoGrid(photos: photos)
 
 ---
 
+## When Targeting iOS 27+
+
+Every entry below is stated by Apple's own documentation or WWDC26 session 269 ("What's new in SwiftUI"); the availability line quoted for each is from the cited page.
+
+### Toolbars
+
+**Use `visibilityPriority(_:)`, `toolbarOverflowMenu(content:)` and the `.topBarPinnedTrailing` placement to control which toolbar items survive when space runs out.** Lower-priority items move into the overflow menu first.
+
+```swift
+ContentView()
+    .toolbar {
+        ToolbarItem { SecondaryControl() }
+        ToolbarItem(placement: .topBarPinnedTrailing) { ShareButton() }
+        ToolbarItem { PrimaryControl() }
+            .visibilityPriority(.high)
+    }
+    .toolbarOverflowMenu {
+        Button("Export") { }
+        Button("Clear") { }
+    }
+```
+
+- `visibilityPriority(_:)`: iOS 27.0+ ("When toolbar space is limited, items with a lower priority move into the overflow menu before items with a higher priority."). https://developer.apple.com/documentation/swiftui/toolbarcontent/visibilitypriority(_:)
+- `toolbarOverflowMenu(content:)`: iOS 27.0+ (actions "always placed in the toolbar's overflow menu, regardless of the toolbar mode, platform, or customizability"). https://developer.apple.com/documentation/swiftui/view/toolbaroverflowmenu(content:)
+- `topBarPinnedTrailing`: iOS 27.0+ ("A placement that pins the item to the trailing edge of the toolbar."). https://developer.apple.com/documentation/swiftui/toolbaritemplacement/topbarpinnedtrailing
+
+**Use `toolbarMinimizationBehavior(_:for:)` to collapse the navigation bar on scroll.** The session names this modifier `toolbarMinimizeBehavior`; the documented symbol is `toolbarMinimizationBehavior`.
+
+```swift
+ScrollView { /* content */ }
+    .toolbarMinimizationBehavior(.onScrollDown, for: .navigationBar)
+```
+
+> Source: https://developer.apple.com/documentation/swiftui/view/toolbarminimizationbehavior(_:for:) (iOS 27.0+; "The supported placement is `navigationBar`.")
+> Source: "What's new in SwiftUI" (WWDC26, session 269), https://developer.apple.com/videos/play/wwdc2026/269/
+
+### Reordering
+
+**Use `reorderable()` on the `ForEach` and `reorderContainer(for:isEnabled:move:)` on the enclosing container to let people drag to reorder in any container, not just a `List`.** It works in lists, stacks, grids and custom layouts, and on watchOS. The `move` closure receives a `ReorderDifference` to apply to your array.
+
+```swift
+ScrollView {
+    LazyVGrid(columns: columns) {
+        ForEach(photos) { photo in
+            PhotoView(photo: photo)
+        }
+        .reorderable()
+    }
+}
+.reorderContainer(for: Photo.self) { difference in
+    move(difference: difference)
+}
+```
+
+For items spread across several collections, use `reorderable(collectionID:)` with `reorderContainer(for:in:isEnabled:move:)`.
+
+> Source: https://developer.apple.com/documentation/swiftui/dynamicviewcontent/reorderable() (iOS 27.0+)
+> Source: https://developer.apple.com/documentation/swiftui/view/reordercontainer(for:isenabled:move:) (iOS 27.0+)
+> Source: https://developer.apple.com/documentation/swiftui/reordering-items-in-lists-stacks-grids-and-custom-layouts
+
+### Swipe Actions
+
+**Add `swipeActionsContainer()` when you use `swipeActions` on rows outside a `List`.** It makes one row's actions open at a time, dismisses them on scroll, and dismisses them on a tap outside the row. On a `List` it is a no-op.
+
+```swift
+ScrollView {
+    LazyVStack {
+        ForEach(items) { item in
+            ItemRow(item)
+                .swipeActions {
+                    Button("Delete", role: .destructive) { delete(item) }
+                }
+        }
+    }
+}
+.swipeActionsContainer()
+```
+
+> Source: https://developer.apple.com/documentation/swiftui/view/swipeactionscontainer() (iOS 27.0+)
+
+### Documents
+
+**Use the `Document` protocol family (`ReadableDocument` and `WritableDocument`) for document-based apps on iOS 27+.** Apple describes asynchronous, snapshot-based reads and writes with progress reporting. Documents are reference types; Apple recommends `@Observable`. `Document` is shorthand for both protocols.
+
+```swift
+@Observable
+final class NoteDocument: WritableDocument {
+    static let writableContentTypes: [UTType] = [.markdown]
+    var text = ""
+
+    func writer(configuration: sending WriteConfiguration) -> sending FileWrapperDocumentWriter<String> {
+        FileWrapperDocumentWriter(configuration) { snapshot, _ in
+            FileWrapper(regularFileWithContents: Data(snapshot.utf8))
+        }
+    }
+
+    @MainActor
+    func snapshot(contentType: UTType) async throws -> sending String { text }
+}
+```
+
+Apple's note on saving: "Without registered undo actions, SwiftUI won't trigger autosave. Register undo actions with the undo manager from the `View` environment for every user-facing change."
+
+On iOS, declare `DocumentCreationSource` values and pass them to `NewDocumentButton(_:source:)` inside a `DocumentGroupLaunchScene`; read the chosen source from the document configuration's `creationSource`.
+
+> Source: https://developer.apple.com/documentation/swiftui/writabledocument (iOS 27.0+)
+> Source: https://developer.apple.com/documentation/swiftui/readabledocument (iOS 27.0+)
+> Source: https://developer.apple.com/documentation/swiftui/document (iOS 27.0+)
+> Source: https://developer.apple.com/documentation/swiftui/documentcreationsource (iOS 27.0+)
+> Source: "What's new in SwiftUI" (WWDC26, session 269), https://developer.apple.com/videos/play/wwdc2026/269/
+
+### Images
+
+**`AsyncImage` now caches downloaded image data by default.** Apple: "In iOS 27, macOS 27, watchOS 27, tvOS 27, and visionOS 27 and later, `AsyncImage` caches downloaded image data following the transport protocol." Change cache policy by passing a `URLRequest` to `AsyncImage(request:scale:transaction:content:)`, or supply a configured `URLSession` for a view hierarchy with `asyncImageURLSession(_:)`.
+
+```swift
+AsyncImage(url: url)
+    .asyncImageURLSession(session) // session configured with a custom URLCache
+```
+
+> Source: https://developer.apple.com/documentation/swiftui/asyncimage
+> Source: https://developer.apple.com/documentation/swiftui/view/asyncimageurlsession(_:) (iOS 27.0+)
+
+### State and Builders
+
+**`@State` is a macro when you build with Xcode 27, so a class stored in `@State` is created lazily, once per view lifetime.** Apple: "When you build with Xcode 27 or later, the system uses the `State()` macro instead." The session adds that the behavior is back-ported to the releases where `@Observable` was introduced (iOS 17 and aligned releases). It can be source-breaking: giving a `@State` property a default value and also assigning it in `init` is now a "use before initialization" error; remove the default value.
+
+**`ContentBuilder` is the unified builder name** (a type alias for `ViewBuilder`). The session says it "can be used with any minimum deployment target" and improves type-checking performance when building with Xcode 27.
+
+> Source: https://developer.apple.com/documentation/swiftui/state and https://developer.apple.com/documentation/swiftui/state()
+> Source: https://developer.apple.com/documentation/swiftui/contentbuilder
+> Source: "What's new in SwiftUI" (WWDC26, session 269), https://developer.apple.com/videos/play/wwdc2026/269/
+
+---
+
 ## Quick Lookup Table
 
 | Deprecated | Recommended | Since |
@@ -486,3 +622,8 @@ PhotoGrid(photos: photos)
 | Manual `animatableData` | `@Animatable` macro | iOS 26+ |
 | `presentationBackground(_:)` on sheets | Default Liquid Glass sheet material | iOS 26+ |
 | Custom toolbar background hacks | `scrollEdgeEffectStyle(_:for:)` | iOS 26+ |
+| (new) drag-to-reorder in any container | `reorderable()` + `reorderContainer(for:isEnabled:move:)` | iOS 27+ |
+| (new) `swipeActions` coordination in `ScrollView` / `LazyVStack` rows | `swipeActionsContainer()` | iOS 27+ |
+| (new) toolbar overflow control | `visibilityPriority(_:)`, `toolbarOverflowMenu(content:)`, `.topBarPinnedTrailing` | iOS 27+ |
+| (new) document API alongside `FileDocument` | `Document` (`ReadableDocument` + `WritableDocument`) | iOS 27+ |
+| (new) `AsyncImage` caching control | default HTTP caching, `asyncImageURLSession(_:)` | iOS 27+ |
