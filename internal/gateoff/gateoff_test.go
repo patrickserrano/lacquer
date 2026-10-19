@@ -168,8 +168,12 @@ func TestCheckDeletionRules(t *testing.T) {
 
 func TestCheckOnlyDependabotsPureBumpsPass(t *testing.T) {
 	wf := ".github/workflows/ci.yml"
-	file := func(comment, uses, depth string) string {
-		return "# " + comment + "\nsteps:\n  - uses: " + uses + "\n    with:\n      fetch-depth: " + depth + "\n"
+	file := func(comment, uses, depth string, cache ...string) string {
+		c := "actions/cache@v4"
+		if len(cache) > 0 {
+			c = cache[0]
+		}
+		return "# " + comment + "\nsteps:\n  - uses: " + uses + "\n    with:\n      fetch-depth: " + depth + "\n  - uses: " + c + "\n"
 	}
 	before := file("ci", "actions/checkout@v6", "0")
 	base := commit{wf: before, lock.Name: lockOf("1.78.1", map[string]string{wf: lock.Hash(before)})}
@@ -188,6 +192,9 @@ func TestCheckOnlyDependabotsPureBumpsPass(t *testing.T) {
 		{"dependabot changed with: line alone", file("ci", "actions/checkout@v6", "1"), true, 1},
 		{"dependabot bump and a changed comment line", file("fast ci", "actions/checkout@v7", "0"), true, 1},
 		{"dependabot changed uses: comment, same version", file("ci", "actions/checkout@v6 # pinned", "0"), true, 1},
+		// A real bump on one line does not cover a comment-only change on
+		// another `uses:` line.
+		{"dependabot bump beside a same-version uses: comment", file("ci", "actions/checkout@v7", "0", "actions/cache@v4 # pinned"), true, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			head := commit{wf: tc.after, lock.Name: base[lock.Name]}
