@@ -22,7 +22,7 @@ every project regardless.
 | `lacquer sync [--force] [--fix]` | Render core + per-profile content into the project (managed regions + whole-file assets); `--fix` then runs the autofixers. |
 | `lacquer fix` | Run each profile's autofixers (formatter, `lint --fix`) over the project source. |
 | `lacquer settings [--project P] [--target T] [--configuration C] [--json] [SETTING...]` | Inspect static build settings with provenance; `--xcode` queries Xcode, `--xcode --compare` compares both. |
-| `lacquer ratchet [--write]` | Measure project ceilings; `--write` enrolls or tightens the committed baseline. `--coverage-report` runs the iOS coverage gate. |
+| `lacquer ratchet [--write]` | Measure project ceilings; `--write` enrolls or tightens the committed baseline. `--coverage-report` runs the iOS coverage gate. `--enroll KEY --to N --reason TEXT` enrolls a coverage key a product-count change made CI measure. |
 | `lacquer doctor` | Prove each check can fail: feed known-bad input and assert it's rejected (exit 5 if one can't). |
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
@@ -383,7 +383,24 @@ every product and the local metrics too:
 | a key raised (or a coverage key removed with its product) with no reason, or the base's unchanged reason | fails, quoting a reused reason and printing the `--loosen` command |
 | a key raised with a new reason | passes, reported as a loosening (below) |
 | a key lowered, or unchanged | passes silently |
-| no file at the base (first enrollment) | passes |
+| no file at the base, or no coverage key in it (first enrollment) | passes |
+| the key this leg measures is not in the head's file, while the base gates coverage | fails, printing `lacquer ratchet --enroll <key> --to <this run's value> --reason "…"` |
+| a coverage key the base lacks, enrolled while the base gates coverage, with a new reason | passes, reported as an enrollment (below) |
+| the same, with no reason or the base's reason | fails, printing the `--enroll` command |
+
+**Changing the product count** (#578). One product measures the lone
+`ios_uncovered_lines` (`--product -`); several measure one
+`ios_uncovered_lines_<slug>` per leg. So a PR that adds or drops a `[[product]]`
+measures a key its base never recorded. That used to read as "not enrolled",
+warn, and pass, leaving coverage un-gated. Now the leg fails and prints the
+value to enroll at: run `lacquer ratchet --enroll <key> --to N --reason "<why
+the product count changed>"` with that value, and commit. `--enroll` only adds a
+key that is not enrolled yet, needs a reason, and records it in `[reasons]`. The
+enrollment is reported, and the console harvest raises it as an unread inbox
+item. The lone key counts as live only while the project renders a single
+product, so after 1→2 the stale lone key can be removed with a new reason, like
+any key whose product is gone; while one product is rendered it cannot. A
+surviving product's slug key after 2→1 stays live, as before.
 
 Anything that stops the compare (the checkout is not a merge commit, the base
 cannot be fetched or read, the base's file does not parse) fails the gate and
@@ -401,7 +418,10 @@ lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines_widget","from":120,"remo
 ```
 
 That is the whole format: the prefix, one space, one JSON object on one line;
-`removed` replaces `to` for a coverage key removed with its product.
+`removed` replaces `to` for a coverage key removed with its product. An
+enrollment writes `enrolled <key> at <n>: <reason>` and its own line,
+`lacquer-ratchet-enrolled/v1 {"key":"…","to":<n>,"reason":"…"}`, as a `::notice`
+titled `lacquer ratchet enrolled`.
 "New reason" means nonempty and different from the base's reason for that key.
 The raw log line carries it in workflow-command encoding (`%` as `%25`); the
 annotation's message is the text above. A change of shape will be `/v2`. The
@@ -411,7 +431,9 @@ item per loosened key, so a loosening reaches the inbox and not only a reviewer
 reading the diff. A failed look is retried on the next harvest; a PR whose
 runs or annotations run past three pages of 100, or whose line is damaged,
 gets one unread "couldn't read ratchet loosenings … check by hand" item
-instead, so it cannot hold the harvest back.
+instead, so it cannot hold the harvest back. That item lists the valid lines it
+read before it stopped. Enrollments are harvested the same way, one unread
+item per key.
 
 #### A merged PR that turned a gate off
 

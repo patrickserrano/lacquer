@@ -61,9 +61,7 @@ func selectScript(t *testing.T, cfg *config.Config) string {
 // a tag push, where it defaults to `all`.
 func runSelect(t *testing.T, script, event, ref, product string) (string, bool) {
 	t.Helper()
-	if _, err := exec.LookPath("jq"); err != nil {
-		t.Skip("jq not installed")
-	}
+	requireJQ(t, "the release selection tests")
 	out := filepath.Join(t.TempDir(), "gh_output")
 	if err := os.WriteFile(out, nil, 0o644); err != nil {
 		t.Fatal(err)

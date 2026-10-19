@@ -309,3 +309,32 @@ func TestTheUnreadableItemIsDedupedByRef(t *testing.T) {
 		t.Fatalf("second look added %+v (%v); want nothing", again, err)
 	}
 }
+
+// #578: an enrollment on a product-count change is reported like a loosening.
+func TestHarvestRaisesAnUnreadItemForAnEnrollment(t *testing.T) {
+	path, g := loosenFixture(t)
+	g.api[annPage(2, 1)] = annotations(`lacquer-ratchet-enrolled/v1 {"key":"ios_uncovered_lines_widget","to":7,"reason":"widget app added"}`)
+	res := harvest9(path, t0.Add(time.Hour), g)
+	var got []string
+	for _, e := range res.Added {
+		got = append(got, e.Title+" | "+e.Body+" | "+e.Ref)
+	}
+	want := "acme/widgets#9 enrolled ios_uncovered_lines_widget at 7 (the product count changed) | reason: widget app added | https://github.com/acme/widgets/pull/9#ratchet-enrolled-ios_uncovered_lines_widget"
+	if !strings.Contains(strings.Join(got, "\n"), want) {
+		t.Fatalf("added:\n%s\nwant %q (unavailable %v)", strings.Join(got, "\n"), want, res.Unavailable)
+	}
+}
+
+// A damaged line stops the read, but the valid lines read before it are not
+// thrown away: the unreadable item carries them.
+func TestTheUnreadableItemCarriesTheLinesReadBeforeIt(t *testing.T) {
+	path, g := loosenFixture(t)
+	g.api[annPage(2, 1)] = annotations(`lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines_widget"`)
+	res := harvest9(path, t0.Add(time.Hour), g)
+	if len(res.Added) != 2 || res.Added[0].Ref != "https://github.com/acme/widgets/pull/9#ratchet-loosenings-unreadable" {
+		t.Fatalf("added %+v (unavailable %v); want the unreadable item, then the merge", res.Added, res.Unavailable)
+	}
+	if body := res.Added[0].Body; !strings.Contains(body, "read before it stopped:\n- loosened ios_uncovered_lines 100→150: vendored parser") {
+		t.Fatalf("the unreadable item's body drops the valid loosening read first:\n%s", body)
+	}
+}

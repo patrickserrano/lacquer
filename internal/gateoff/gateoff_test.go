@@ -168,17 +168,33 @@ func TestCheckDeletionRules(t *testing.T) {
 
 func TestCheckOnlyDependabotsPureBumpsPass(t *testing.T) {
 	wf := ".github/workflows/ci.yml"
-	before := "steps:\n  - uses: actions/checkout@v6\n"
+	file := func(comment, uses, depth string, cache ...string) string {
+		c := "actions/cache@v4"
+		if len(cache) > 0 {
+			c = cache[0]
+		}
+		return "# " + comment + "\nsteps:\n  - uses: " + uses + "\n    with:\n      fetch-depth: " + depth + "\n  - uses: " + c + "\n"
+	}
+	before := file("ci", "actions/checkout@v6", "0")
 	base := commit{wf: before, lock.Name: lockOf("1.78.1", map[string]string{wf: lock.Hash(before)})}
 	for _, tc := range []struct {
 		name, after string
 		bot         bool
 		want        int
 	}{
-		{"dependabot pure bump", "steps:\n  - uses: actions/checkout@v7\n", true, 0},
-		{"dependabot bump and a line", "steps:\n  - uses: actions/checkout@v7\n  - run: true\n", true, 1},
-		{"pure bump by someone else", "steps:\n  - uses: actions/checkout@v7\n", false, 1},
-		{"dependabot renamed action", "steps:\n  - uses: evil/checkout@v7\n", true, 1},
+		{"dependabot pure bump", file("ci", "actions/checkout@v7", "0"), true, 0},
+		{"dependabot bump and an added line", file("ci", "actions/checkout@v7", "0") + "  - run: true\n", true, 1},
+		{"pure bump by someone else", file("ci", "actions/checkout@v7", "0"), false, 1},
+		{"dependabot renamed action", file("ci", "evil/checkout@v7", "0"), true, 1},
+		// Only `uses:` lines may move. A changed `with:` argument or comment
+		// line, in place, is an edit whoever made it (#579).
+		{"dependabot bump and a changed with: line", file("ci", "actions/checkout@v7", "1"), true, 1},
+		{"dependabot changed with: line alone", file("ci", "actions/checkout@v6", "1"), true, 1},
+		{"dependabot bump and a changed comment line", file("fast ci", "actions/checkout@v7", "0"), true, 1},
+		{"dependabot changed uses: comment, same version", file("ci", "actions/checkout@v6 # pinned", "0"), true, 1},
+		// A real bump on one line does not cover a comment-only change on
+		// another `uses:` line.
+		{"dependabot bump beside a same-version uses: comment", file("ci", "actions/checkout@v7", "0", "actions/cache@v4 # pinned"), true, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			head := commit{wf: tc.after, lock.Name: base[lock.Name]}
