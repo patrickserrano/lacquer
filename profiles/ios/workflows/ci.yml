@@ -2479,11 +2479,16 @@ jobs:
           # The verdict: the ratchet band and the floor, decided by the lacquer
           # binary the step above verified, and reported by its exit code alone.
           # Not enrolled warns and passes; see `lacquer ratchet --help`.
+          # --compare-base: on a pull_request the binary also reads the ratchet
+          # file at this merge commit's first parent (fetching that one commit,
+          # depth 1) and fails a PR that deletes a key or raises one without a
+          # new reason. On any other event it does nothing.
           printf '%s' "$COV_JSON" > coverage-report.json
           LACQUER_ROOT="$PWD/.lacquer-checkout" lacquer ratchet \
             --coverage-report coverage-report.json \
             --product "{{IOS_CI_COVERAGE_PRODUCT}}" \
             --ci-event "$GITHUB_EVENT_NAME" \
+            --compare-base \
             --test-result "$TEST_RESULT" \
             --summary "$GITHUB_STEP_SUMMARY"
 

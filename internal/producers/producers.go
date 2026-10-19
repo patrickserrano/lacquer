@@ -12,6 +12,10 @@
 //   - HarvestMerges: a PR merge happens through `gh pr merge`, typed by a PM,
 //     and lacquer never sees it. So the console asks GitHub, on read, what
 //     merged since it last looked.
+//     For a merge that changed .lacquer.ratchet.toml it also reads the
+//     coverage gate's loosening annotations off the PR's head commit and adds
+//     one entry per loosened key (#571), so a loosening reaches the inbox and
+//     not only a reviewer reading the diff.
 //   - AgentIdle: a background agent going idle is a Claude Code Stop hook firing
 //     in that session, so `lacquer console inbox hook stop` (shipped in the iOS
 //     profile's .claude/settings.json) writes it, keyed on $CLAUDE_JOB_DIR so
