@@ -284,7 +284,11 @@ type (
 	HarvestedEvent struct {
 		Added       int
 		Unavailable []string
-		At          time.Time
+		// Cleared counts idle entries resolved because their session ended,
+		// and Notes says why none could be (the session list was unreadable).
+		Cleared int
+		Notes   []string
+		At      time.Time
 	}
 )
 
@@ -299,7 +303,10 @@ type Env struct {
 	// means merges are not being recorded, and the list says so.
 	Roster fleet.Roster
 	Run    ciwait.Runner
-	Cmd    Commander
+	// LiveSessions lists the ids `claude agents --json` still reports; nil
+	// switches off resolving the idle entries of ended sessions.
+	LiveSessions func() ([]string, error)
+	Cmd          Commander
 	// Resolve is the same function `lacquer console inbox resolve` calls.
 	Resolve func(path, id string) (inbox.Entry, error)
 	Now     func() time.Time
@@ -606,7 +613,12 @@ func (e Env) nativeSelection() (restore func()) {
 func (e Env) harvest() Event {
 	at := e.now()
 	res := producers.HarvestMerges(producers.HarvestOptions{InboxPath: e.InboxPath, Roster: e.Roster, Now: at, Run: e.Run})
-	return HarvestedEvent{Added: len(res.Added), Unavailable: res.Unavailable, At: at}
+	ev := HarvestedEvent{Added: len(res.Added), Unavailable: res.Unavailable, At: at}
+	if e.LiveSessions != nil {
+		clear := producers.AutoClear(producers.AutoClearOptions{InboxPath: e.InboxPath, Live: e.LiveSessions})
+		ev.Cleared, ev.Notes = len(clear.Entries), clear.Notes
+	}
+	return ev
 }
 
 // formatQuote escapes what tmux would expand in a format string. -T is one on

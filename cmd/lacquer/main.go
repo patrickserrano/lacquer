@@ -34,6 +34,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/initcmd"
 	"github.com/patrickserrano/lacquer/internal/onboardcmd"
 	"github.com/patrickserrano/lacquer/internal/pluginbootstrap"
+	"github.com/patrickserrano/lacquer/internal/producers"
 	"github.com/patrickserrano/lacquer/internal/protection"
 	"github.com/patrickserrano/lacquer/internal/ratchet"
 	"github.com/patrickserrano/lacquer/internal/retire"
@@ -872,7 +873,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		mode := fs.String("mode", "", "dispatch target: bg (background agent in a new git worktree and branch under <repo>/.claude/worktrees/) or tmux (detached tmux session in the checkout itself, edits it)")
 		model := fs.String("model", "", "with dispatch/dispatch-role: Claude model (IC default: roster ic_model or sonnet; role default: role model or inherited)")
 		effort := fs.String("effort", "", "with dispatch/dispatch-role: Claude effort (default: roster ic_effort or role effort, otherwise inherited)")
-		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role/watch --relaunch: print the command without starting anything")
+		dryRun := fs.Bool("dry-run", false, "with dispatch/dispatch-role/watch --relaunch: print the command without starting anything; with inbox autoclear: list what would be resolved and change nothing")
 		relaunch := fs.Bool("relaunch", false, "with watch: re-dispatch every session found dead")
 		live := fs.Bool("live", false, "with watch: keep refreshing in place every --interval until Ctrl-C, instead of checking once")
 		interval := fs.Duration("interval", 2*time.Second, "with watch --live: refresh interval")
@@ -1037,6 +1038,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return runInboxAdd(inboxPath, *entryType, inbox.Entry{Title: *entryTitle, Body: *entryBody, Ref: *entryRef, Project: *entryProject}, stdout, stderr)
 			case "resolve":
 				return runInboxResolve(inboxPath, rest[2:], stdout, stderr)
+			case "autoclear":
+				return runInboxAutoClear(inboxPath, *dryRun, stdout, stderr)
 			case "watch":
 				if *showID != "" {
 					return runInboxShow(inboxPath, *showID, stdout, stderr)
@@ -1368,6 +1371,11 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "                               (usable non-interactively, e.g. from an agent's own shell)")
 	fmt.Fprintln(w, "  console --inbox F inbox resolve <id>")
 	fmt.Fprintln(w, "                               mark one inbox entry resolved")
+	fmt.Fprintln(w, "  console --inbox F inbox autoclear [--dry-run]")
+	fmt.Fprintln(w, "                               resolve the open UNREAD idle entries (ref session:<id>) whose session")
+	fmt.Fprintln(w, "                               `claude agents --json` no longer lists. Never an ACTION, never an entry")
+	fmt.Fprintln(w, "                               without that ref; if the session list cannot be read it resolves nothing")
+	fmt.Fprintln(w, "                               and exits 1. --dry-run lists what it would resolve and writes nothing")
 	fmt.Fprintln(w, "  console --inbox F inbox list [--all]")
 	fmt.Fprintln(w, "                               list open inbox entries (--all also lists resolved ones)")
 	fmt.Fprintln(w, "  console --inbox F [--roster F] [--overseer-pane T | --overseer-title T [--overseer-session S]] [--extra-repo R]... inbox watch [--show ID]")
@@ -1595,12 +1603,12 @@ func consoleSubcommand(args []string) (string, error) {
 			return sub, nil
 		}
 		switch args[1] {
-		case "add", "list", "watch":
+		case "add", "list", "watch", "autoclear":
 			sub, max = "inbox "+args[1], 2
 		case "resolve":
 			sub, max = "inbox resolve", 3
 		default:
-			return "", fmt.Errorf("unknown inbox subcommand %q (want add, resolve, list, or watch)", args[1])
+			return "", fmt.Errorf("unknown inbox subcommand %q (want add, resolve, list, autoclear, or watch)", args[1])
 		}
 	default:
 		return "", fmt.Errorf("unknown console subcommand %q (want watch, kill, dispatch, dispatch-role or inbox; none for the dashboard)", sub)
@@ -1625,7 +1633,7 @@ var consoleFlagScope = map[string][]string{
 	"sessions": nil,
 	"inbox":    nil,
 	"mode":     {"dispatch"},
-	"dry-run":  {"dispatch", "dispatch-role", "watch"},
+	"dry-run":  {"dispatch", "dispatch-role", "watch", "inbox autoclear"},
 	"worktree": {"dispatch", "dispatch-role"},
 	"branch":   {"dispatch", "dispatch-role"},
 	"model":    {"dispatch", "dispatch-role"},
@@ -1726,6 +1734,36 @@ func runInboxResolve(path string, args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	fmt.Fprintf(stdout, "resolved %s [%s]: %s\n", e.ID, e.Type, e.Title)
+	return 0
+}
+
+// liveSessionIDs lists the sessions `claude agents --json` still reports;
+// tests replace it so none of them can reach the real claude.
+var liveSessionIDs = func() ([]string, error) {
+	return console.ClaudeAgents{}.LiveSessionIDs(context.Background())
+}
+
+// runInboxAutoClear is `lacquer console --inbox F inbox autoclear [--dry-run]`.
+// Exit 1 when the session list could not be read, so "could not tell" is never
+// mistaken for "nothing was due".
+func runInboxAutoClear(path string, dryRun bool, stdout, stderr io.Writer) int {
+	res := producers.AutoClear(producers.AutoClearOptions{InboxPath: path, Live: liveSessionIDs, DryRun: dryRun})
+	verb := "resolved"
+	if dryRun {
+		verb = "would resolve"
+	}
+	for _, e := range res.Entries {
+		fmt.Fprintf(stdout, "%s %s [%s] ref=%s: %s\n", verb, e.ID, e.Type, e.Ref, e.Title)
+	}
+	for _, n := range res.Notes {
+		fmt.Fprintln(stderr, n)
+	}
+	if len(res.Notes) > 0 {
+		return 1
+	}
+	if len(res.Entries) == 0 {
+		fmt.Fprintln(stdout, "no idle entry belongs to an ended session")
+	}
 	return 0
 }
 

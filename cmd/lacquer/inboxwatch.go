@@ -60,6 +60,7 @@ func newWatchEnv(inboxPath string, isDefault bool, o overseerFlags, roster fleet
 		Overseer:     o.overseer(),
 		Roster:       roster,
 		Run:          ciwait.GH,
+		LiveSessions: liveSessionIDs,
 		Cmd:          inboxwatch.OSCommander{},
 		Diffs:        &inboxwatch.DiffMemo{},
 		// The same function `lacquer console inbox resolve` calls.
