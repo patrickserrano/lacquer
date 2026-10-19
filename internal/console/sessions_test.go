@@ -216,3 +216,28 @@ func TestSessionsTableNamesTheProjectAndShowsTheShortID(t *testing.T) {
 		t.Errorf("elsewhere: %v", f)
 	}
 }
+
+func TestLiveSessionIDsOnlyAJSONArrayIsASuccess(t *testing.T) {
+	run := func(out string, err error) ClaudeAgents {
+		return ClaudeAgents{Run: func(context.Context, ...string) ([]byte, error) { return []byte(out), err }}
+	}
+	ids, err := run(`[{"sessionId":"a"},{"sessionId":""},{"sessionId":"b"}]`, nil).LiveSessionIDs(context.Background())
+	if err != nil || len(ids) != 2 || ids[0] != "a" || ids[1] != "b" {
+		t.Fatalf("ids=%v err=%v", ids, err)
+	}
+	ids, err = run(`[]`, nil).LiveSessionIDs(context.Background())
+	if err != nil || len(ids) != 0 {
+		t.Fatalf("a command that ran and listed nothing is a real empty list: ids=%v err=%v", ids, err)
+	}
+	for name, c := range map[string]ClaudeAgents{
+		"run error":    run("", errors.New("exit 1")),
+		"empty output": run("", nil),
+		"null":         run("null", nil),
+		"prose":        run("not logged in", nil),
+		"object":       run(`{"error":"x"}`, nil),
+	} {
+		if ids, err := c.LiveSessionIDs(context.Background()); err == nil {
+			t.Errorf("%s: err=nil ids=%v, want an error: it must not read as an empty list", name, ids)
+		}
+	}
+}

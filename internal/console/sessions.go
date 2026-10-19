@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/patrickserrano/lacquer/internal/procgroup"
 )
 
 // SessionSource lists the live Claude Code sessions on this machine. It is an
@@ -30,6 +32,45 @@ type ClaudeAgents struct {
 }
 
 func (c ClaudeAgents) List(ctx context.Context) ([]Session, error) {
+	out, err := c.output(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSessions(out)
+}
+
+// LiveSessionIDs returns the id of every session `claude agents --json` lists,
+// for the caller that must tell "no session is running" from "could not tell".
+// `claude agents --json` lists active sessions only (a stopped, finished or
+// failed background session is absent unless --all is passed), so an id missing
+// from this list belongs to a session that has ended.
+//
+// Stricter than List: only a JSON array is a success, so an empty `[]` from a
+// command that ran is a real empty list while empty output, `null` or anything
+// else is an error. A caller that resolves things when a session is absent
+// must never read a broken call as everyone having left.
+func (c ClaudeAgents) LiveSessionIDs(ctx context.Context) ([]string, error) {
+	out, err := c.output(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.HasPrefix(bytes.TrimSpace(out), []byte("[")) {
+		return nil, errors.New("unreadable output: not a JSON array")
+	}
+	sessions, err := ParseSessions(out)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		if s.SessionID != "" {
+			ids = append(ids, s.SessionID)
+		}
+	}
+	return ids, nil
+}
+
+func (c ClaudeAgents) output(ctx context.Context) ([]byte, error) {
 	timeout := c.Timeout
 	if timeout == 0 {
 		timeout = sessionTimeout
@@ -48,11 +89,12 @@ func (c ClaudeAgents) List(ctx context.Context) ([]Session, error) {
 		}
 		return nil, err
 	}
-	return ParseSessions(out)
+	return out, nil
 }
 
 func execClaude(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "claude", args...)
+	procgroup.Own(cmd) // a timeout kills claude's helpers too, not only claude
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

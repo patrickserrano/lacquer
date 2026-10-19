@@ -87,6 +87,9 @@ type Entry struct {
 	Project    string     `json:"project,omitempty"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+	// ResolvedNote says why a machine resolved the entry, so a reader can tell
+	// it was not a person. Empty for an entry a person resolved.
+	ResolvedNote string `json:"resolvedNote,omitempty"`
 }
 
 // Open reports whether e is still awaiting resolution.
@@ -276,6 +279,41 @@ func Resolve(path, id string) (Entry, error) {
 		return Entry{}, err
 	}
 	return entries[idx], nil
+}
+
+// ResolveIDs resolves every listed entry that is still open, in one read and
+// one rewrite, and records note on each. An id that is missing or already
+// resolved is skipped, never an error: the caller chose the ids from an earlier
+// read and another process may have got there first. It returns the entries it
+// resolved. Like Resolve it is not safe against a concurrent rewrite.
+func ResolveIDs(path string, ids []string, note string) ([]Entry, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	entries, _, err := ReadAll(path)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	var done []Entry
+	for i := range entries {
+		if want[entries[i].ID] && entries[i].Open() {
+			entries[i].ResolvedAt = &now
+			entries[i].ResolvedNote = note
+			done = append(done, entries[i])
+		}
+	}
+	if len(done) == 0 {
+		return nil, nil
+	}
+	if err := rewrite(path, entries); err != nil {
+		return nil, err
+	}
+	return done, nil
 }
 
 // rewrite replaces the inbox file's content with entries, one JSON object per

@@ -340,8 +340,18 @@ func (m *Model) harvested(ev HarvestedEvent) []Cmd {
 		return nil
 	}
 	m.HarvestErr = ""
+	var notes []string
 	if ev.Added > 0 {
-		m.Note = fmt.Sprintf("recorded %d PR merge(s)", ev.Added)
+		notes = append(notes, fmt.Sprintf("recorded %d PR merge(s)", ev.Added))
+	}
+	if ev.Cleared > 0 {
+		notes = append(notes, fmt.Sprintf("resolved %d idle entr(ies) of ended sessions", ev.Cleared))
+	}
+	notes = append(notes, ev.Notes...)
+	if len(notes) > 0 {
+		m.Note = strings.Join(notes, "; ")
+	}
+	if ev.Added > 0 || ev.Cleared > 0 {
 		m.LoadReqAt = m.Now
 		return []Cmd{{Kind: CmdLoad}}
 	}
