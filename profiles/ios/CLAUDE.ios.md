@@ -27,10 +27,10 @@
 - App-runtime public keys live in gitignored `Secrets.xcconfig`; examples alone
   must never feed a release. Declare release secret names and formats in the
   manifest. CI/server credentials (including RevenueCat `sk_…`) never enter the app.
-- Only the app's Info.plist may carry those keys (`scripts/verify-bundle-secrets.sh`).
-- Use `ios-secrets-setup` for wiring and `scripts/write-release-config.sh` for
-  release config. Release only a SHA with successful completed CI; tags must
-  point to a commit reachable from the default branch. Read `ios-release-guide`.
+- Only the app's Info.plist may carry those keys (`scripts/verify-bundle-secrets.sh`),
+  and the archive must hold real values for them (`scripts/verify-archived-secrets.sh`).
+- Use `ios-secrets-setup` and `scripts/write-release-config.sh`. Release only a SHA whose
+  CI passed, tagged on a commit reachable from the default branch; read `ios-release-guide`.
 - Release archives use the configured archive volume, never the checkout;
   missing storage must fail, not fall back. ASC processing delays are not proof
   an upload failed; do not blindly retry a non-idempotent upload.

@@ -147,6 +147,15 @@ for spec in "$@"; do
 	globs+=("$glob")
 done
 
+# The placeholder rules live beside this script, shared with the check that
+# reads the archived app's Info.plist, so the two can never disagree about what
+# a placeholder is. Looked for before anything is written: without it the last
+# check below could not run, and a release must not proceed on a check it skipped.
+placeholder_awk="$(dirname "${BASH_SOURCE[0]}")/secret-placeholders.awk"
+if [ "${#keys[@]}" -gt 0 ] && [ ! -f "$placeholder_awk" ]; then
+	fail "$placeholder_awk is missing, so a value still holding its placeholder could not be caught"
+fi
+
 # Presence first, and ALL of them at once. Failing on the first missing key
 # turns provisioning a release into one round trip per secret, each costing a
 # whole run to discover.
@@ -256,51 +265,8 @@ fi
 if [ "${#keys[@]}" -gt 0 ]; then
 	# awk prints the offending keys and exits 0; anything else is the check
 	# itself failing, which must stop the release rather than read as "none".
-	placeholders=$(XCCONFIG_DECLARED="${keys[*]}" XCCONFIG_TEMPLATE="$example" awk '
-		# value is what xcconfig reads: cut at the `//` comment marker, trimmed,
-		# with the `/$()/` escape undone. whole skips the cut, because a template
-		# that wrote a URL placeholder unescaped holds the placeholder a human
-		# copies, not the `https:` xcconfig would read.
-		function whole(line) {
-			sub(/^[^=]*=/, "", line)
-			sub(/^[ \t]+/, "", line)
-			sub(/[ \t\r]+$/, "", line)
-			gsub(/\/\$\(\)\//, "//", line)
-			return line
-		}
-		function value(line) {
-			sub(/^[^=]*=/, "", line)
-			sub(/\/\/.*/, "", line)
-			return whole("=" line)
-		}
-		function key(line) {
-			sub(/[ \t]*=.*/, "", line)
-			return line
-		}
-		function assignment(line) {
-			return line ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=/
-		}
-		BEGIN {
-			n = split(ENVIRON["XCCONFIG_DECLARED"], d, " ")
-			for (i = 1; i <= n; i++) declared[d[i]] = 1
-			# A missing template makes getline return -1: no template values.
-			tf = ENVIRON["XCCONFIG_TEMPLATE"]
-			while ((getline line < tf) > 0)
-				if (assignment(line)) {
-					template[key(line)] = value(line)
-					template_whole[key(line)] = whole(line)
-				}
-		}
-		!assignment($0) { next }
-		{
-			k = key($0); v = value($0)
-			if (tolower(v) ~ /your[-_]|change[-_]?me|<[^>]*>/ ||
-			    (k in declared && k in template && (v == template[k] || v == template_whole[k]))) {
-				if (!(k in seen)) { seen[k] = 1; out = out (out == "" ? "" : " ") k }
-			}
-		}
-		END { print out }
-	' "$dest") || fail "could not read $dest to check it for placeholder values"
+	placeholders=$(XCCONFIG_DECLARED="${keys[*]}" XCCONFIG_TEMPLATE="$example" awk -f "$placeholder_awk" "$dest") ||
+		fail "could not read $dest to check it for placeholder values"
 	if [ -n "$placeholders" ]; then
 		echo "::error::$me: $dest still holds a placeholder for: $placeholders"
 		echo "$me: a placeholder is non-empty, so the release would build, sign and upload with that service unconfigured."

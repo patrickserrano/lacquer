@@ -111,16 +111,19 @@ func TestSecretsStepCallsTheShippedWriter(t *testing.T) {
 func releaseWriter(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	src := filepath.Join(root(t), "profiles", "ios", "root", "scripts", "write-release-config.sh")
-	data, err := os.ReadFile(src)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "scripts", "write-release-config.sh"), data, 0o755); err != nil {
-		t.Fatal(err)
+	// The writer reads its placeholder rules from the awk file shipped beside
+	// it, so the scratch project carries both, as a synced one does.
+	for _, name := range []string{"write-release-config.sh", "secret-placeholders.awk"} {
+		data, err := os.ReadFile(filepath.Join(root(t), "profiles", "ios", "root", "scripts", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scripts", name), data, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return dir
 }
