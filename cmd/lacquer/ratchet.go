@@ -31,15 +31,16 @@ func runRatchet(args []string, root, lacquerRoot string, stdout, stderr io.Write
 	event := fs.String("ci-event", "", "GITHUB_EVENT_NAME; an improvement beyond the slack fails only on pull_request")
 	testResult := fs.String("test-result", "", "the Test job's test_result; anything but passed fails the gate")
 	summary := fs.String("summary", "", "append the coverage verdict table to this file (GITHUB_STEP_SUMMARY)")
+	compareBase := fs.Bool("compare-base", false, "with --ci-event pull_request: also compare the ratchet file with the PR's base (the checked-out merge commit's first parent), so a PR cannot loosen or delete its own gate")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	coverageOnly := *product != "" || *event != "" || *testResult != "" || *summary != ""
-	if fs.NArg() != 0 || (*write && *loosen != "") || (*reason != "" && *loosen == "") ||
+	coverageOnly := *product != "" || *event != "" || *testResult != "" || *summary != "" || *compareBase
+	if fs.NArg() != 0 || (*write && *loosen != "") || (*write && *compareBase) || (*reason != "" && *loosen == "") ||
 		(*to != "" && *loosen == "") || (*accept != "" && (*write || *loosen != "" || *report != "" || coverageOnly)) ||
 		(coverageOnly && *report == "") || (*report != "" && *product == "") || (*report != "" && *loosen != "") {
 		fmt.Fprintln(stderr, "use ratchet [--write | --loosen METRIC --reason TEXT [--to N] | --accept METRIC=N]\n"+
-			"          [--coverage-report XCCOV.json --product SLUG|- [--write] [--ci-event E] [--test-result R] [--summary FILE]]")
+			"          [--coverage-report XCCOV.json --product SLUG|- [--write] [--ci-event E] [--compare-base] [--test-result R] [--summary FILE]]")
 		return 2
 	}
 	if *accept != "" {
@@ -74,7 +75,10 @@ func runRatchet(args []string, root, lacquerRoot string, stdout, stderr io.Write
 		return 0
 	}
 	if *report != "" {
-		return runCoverage(root, lacquerRoot, cfg, *report, *product, *event, *testResult, *summary, *write, stdout, stderr)
+		return runCoverage(root, lacquerRoot, cfg, coverageRun{
+			report: *report, product: *product, event: *event, testResult: *testResult, summary: *summary,
+			write: *write, compareBase: *compareBase,
+		}, stdout, stderr)
 	}
 	if *write {
 		findings, err := ratchet.Tighten(root, cfg, true)
@@ -112,10 +116,22 @@ func runRatchet(args []string, root, lacquerRoot string, stdout, stderr io.Write
 	return 0
 }
 
+// coverageRun is the coverage gate's flags.
+type coverageRun struct {
+	report, product, event, testResult, summary string
+	write, compareBase                          bool
+}
+
 // runCoverage is the iOS coverage gate the Test job's Check Coverage step runs,
 // and, with --write, the enrollment and tighten path. Every message is owned
 // here; the workflow step is plumbing and reads only the exit code.
-func runCoverage(root, lacquerRoot string, cfg *config.Config, report, product, event, testResult, summary string, write bool, stdout, stderr io.Writer) int {
+//
+// With --compare-base on a pull_request event it also runs the base compare
+// (#571). The flag exists so the gate stays callable outside a PR merge
+// checkout (tests, the doctor probe); the shipped step always passes it, and
+// on any other event it is a no-op, which is exactly the pre-#571 behaviour.
+func runCoverage(root, lacquerRoot string, cfg *config.Config, c coverageRun, stdout, stderr io.Writer) int {
+	report, product, event, testResult, summary, write := c.report, c.product, c.event, c.testResult, c.summary, c.write
 	target, err := ratchet.AppTarget(cfg, product)
 	if err != nil {
 		return fail(stderr, err)
@@ -153,6 +169,9 @@ func runCoverage(root, lacquerRoot string, cfg *config.Config, report, product, 
 		}
 	}
 	v := ratchet.Gate(in)
+	if c.compareBase && event == "pull_request" {
+		v = withBaseCompare(root, b, v)
+	}
 	for _, line := range v.Lines {
 		fmt.Fprintln(stdout, line)
 	}
@@ -173,6 +192,36 @@ func runCoverage(root, lacquerRoot string, cfg *config.Config, report, product, 
 		return 4
 	}
 	return 0
+}
+
+// withBaseCompare prepends the base compare's verdict to the gate's. Any doubt
+// about the base (unidentifiable, unfetchable, unreadable, unparseable) fails:
+// only a base that demonstrably has no ratchet file reads as not enrolled.
+func withBaseCompare(root string, head *ratchet.Baseline, v ratchet.Verdict) ratchet.Verdict {
+	var lines []string
+	fail := false
+	base, err := ratchet.ReadBase(root)
+	if err != nil {
+		lines = append(lines, "::error::ratchet: the PR's base could not be compared, so this PR's ratchet is unverified: "+err.Error())
+		fail = true
+	} else {
+		bv := ratchet.CompareBase(base.Baseline, head)
+		for _, f := range bv.Failures {
+			lines = append(lines, "::error::"+f)
+		}
+		fail = len(bv.Failures) > 0
+		var loosened strings.Builder
+		for _, l := range bv.Loosened {
+			lines = append(lines, "ratchet: "+l.Summary(), l.Annotation())
+			fmt.Fprintf(&loosened, "- %s\n", l.Summary())
+		}
+		if loosened.Len() > 0 {
+			v.Summary += "\n**Loosened on this PR** (against base " + base.Commit + "):\n\n" + loosened.String()
+		}
+	}
+	v.Lines = append(lines, v.Lines...)
+	v.Fail = v.Fail || fail
+	return v
 }
 
 // Exercise the real CLI gate on a scratch project, not just Compare. The

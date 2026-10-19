@@ -365,6 +365,46 @@ value B and slack S = max(20, 0.5 % of the app target's executable lines):
 reason, and records it in `[reasons]`. Deleting tested code moves both counts
 equally, so it does not move the metric.
 
+#### A pull request cannot loosen or delete its own ratchet
+
+On a pull request the step runs the gate with `--compare-base`, which also reads
+`.lacquer.ratchet.toml` from the PR's **base**: the first parent of the merge
+commit the run checked out, which is the base commit that merge was built on
+(not the event's `base.sha`, which can move on afterwards). In CI's depth-1
+checkout that commit is fetched from `origin`, alone and depth 1, with a
+two-minute limit. Every key the base records is compared, coverage keys for
+every product and the local metrics too:
+
+| Head, against the base | Verdict |
+|---|---|
+| file deleted, or a key removed | fails, naming the key |
+| a key raised, with no reason or the base's unchanged reason | fails, printing the `--loosen` command |
+| a key raised with a new reason | passes, reported as a loosening (below) |
+| a key lowered, or unchanged | passes silently |
+| no file at the base (first enrollment) | passes |
+
+Anything that stops the compare (the checkout is not a merge commit, the base
+cannot be fetched or read, the base's file does not parse) fails the gate and
+says which: a base that could not be read is never treated as "not enrolled".
+On `push`, `workflow_dispatch` and `schedule` there is no base, and the gate
+behaves exactly as above. The rule applies to the step from the lacquer version
+a project's `.lacquer.lock` names, so a project gets it when it syncs.
+
+A loosening writes `loosened <key> <a>→<b>: <reason>` to the job summary and
+leaves one machine-readable line, as a `::notice` annotation on the check run:
+
+```text
+lacquer-ratchet-loosened/v1 {"key":"ios_uncovered_lines","from":4312,"to":4400,"reason":"…"}
+```
+
+That is the whole format: the prefix, one space, one JSON object on one line.
+The raw log line carries it in workflow-command encoding (`%` as `%25`); the
+annotation's message is the text above. A change of shape will be `/v2`. The
+console's merged-PR harvest reads these annotations from the head commit of
+each merged PR that changed `.lacquer.ratchet.toml` and adds one unread inbox
+item per loosened key, so a loosening reaches the inbox and not only a reviewer
+reading the diff.
+
 An enrolled project's app target must also reach `coverage_floor` (80 %) from
 `profiles/ios/baseline.toml`. A project below it adds a dated relaxation:
 

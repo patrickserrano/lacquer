@@ -78,7 +78,7 @@ func TestCheckCoverageStepCallsTheLacquerBinary(t *testing.T) {
 			got := "\n" + string(data)
 			for _, want := range []string{
 				"\nratchet\n", "\n--coverage-report\ncoverage-report.json\n", "\n--product\n" + tc.product + "\n",
-				"\n--ci-event\npull_request\n", "\n--test-result\npassed\n", "\n--summary\n" + summary + "\n",
+				"\n--ci-event\npull_request\n", "\n--compare-base\n", "\n--test-result\npassed\n", "\n--summary\n" + summary + "\n",
 				"/.lacquer-checkout\n",
 			} {
 				if !strings.Contains(got, want) {

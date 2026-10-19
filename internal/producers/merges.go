@@ -17,6 +17,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/ciwait"
 	"github.com/patrickserrano/lacquer/internal/fleet"
 	"github.com/patrickserrano/lacquer/internal/inbox"
+	"github.com/patrickserrano/lacquer/internal/ratchet"
 )
 
 const (
@@ -38,6 +39,12 @@ const (
 	// repoTimeout bounds one gh call, so one stuck repository cannot hold the
 	// console.
 	repoTimeout = 20 * time.Second
+	// filesTimeout bounds the files look, which is slower per merge than the
+	// plain list (see prFiles).
+	filesTimeout = 60 * time.Second
+	// overlapSlack widens the files look past the new merges, so a merge the
+	// search index returns in a slightly different order is still covered.
+	overlapSlack = 5
 )
 
 // HarvestOptions is everything HarvestMerges needs. Run is required: the caller
@@ -71,6 +78,19 @@ type mergedPR struct {
 	Title    string `json:"title"`
 	URL      string `json:"url"`
 	MergedAt string `json:"mergedAt"`
+	// HeadRefOid is the PR's head commit, where its CI's annotations live.
+	HeadRefOid string `json:"headRefOid"`
+}
+
+// prFiles is the second, narrower look at the merges that are new to the inbox:
+// which files each changed. Asked separately because `files` costs about ten
+// times the plain list (measured: 11 s against 1 s for 200 merges), so it is
+// asked only when there is something new, and only for that many.
+type prFiles struct {
+	URL   string `json:"url"`
+	Files []struct {
+		Path string `json:"path"`
+	} `json:"files"`
 }
 
 // HarvestMerges adds one UNREAD entry for every PR merged, in a roster
@@ -133,8 +153,9 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 	}
 
 	type answer struct {
-		prs []mergedPR
-		err error
+		prs   []mergedPR
+		files map[string]prFiles // by PR URL; a new merge missing here is checked anyway
+		err   error
 	}
 	answers := map[string]answer{}
 	var mu sync.Mutex
@@ -154,12 +175,15 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 			defer cancel()
 			out, err := o.Run(ctx, "pr", "list", "-R", repo, "--state", "merged",
 				"--search", "merged:>="+since.UTC().Format(time.RFC3339),
-				"--json", "number,title,url,mergedAt", "--limit", fmt.Sprint(harvestLimit))
+				"--json", "number,title,url,mergedAt,headRefOid", "--limit", fmt.Sprint(harvestLimit))
 			a := answer{err: err}
 			if err == nil {
 				if jerr := json.Unmarshal(out, &a.prs); jerr != nil {
 					a.err = fmt.Errorf("unreadable gh output: %w", jerr)
 				}
+			}
+			if fresh := newMerges(a.prs, since, existing); a.err == nil && fresh > 0 {
+				a.files, a.err = listFiles(o.Run, repo, since, fresh)
 			}
 			mu.Lock()
 			answers[repo] = a
@@ -194,6 +218,17 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 			if pr.URL == "" || existing[pr.URL] {
 				continue
 			}
+			// Loosenings first: the merge entry is what marks a PR as done, so a
+			// failed look leaves it unmarked and the next harvest looks again.
+			if f, known := a.files[pr.URL]; !known || touchesRatchet(f) {
+				added, err := harvestLoosenings(o, r, pr, existing)
+				res.Added = append(res.Added, added...)
+				if err != nil {
+					res.Unavailable = append(res.Unavailable, fmt.Sprintf("ratchet loosening harvest %s#%d (%v)", r.repo, pr.Number, err))
+					failed = true
+					break
+				}
+			}
 			e, err := inbox.Add(o.InboxPath, inbox.Entry{
 				Type:    inbox.Unread,
 				Title:   fmt.Sprintf("%s#%d merged: %s", r.repo, pr.Number, pr.Title),
@@ -227,6 +262,161 @@ func HarvestMerges(o HarvestOptions) HarvestResult {
 		res.Unavailable = append(res.Unavailable, fmt.Sprintf("merge harvest (cursor not saved: %v)", err))
 	}
 	return res
+}
+
+// newMerges counts the merges in prs that the inbox does not hold yet.
+func newMerges(prs []mergedPR, since time.Time, existing map[string]bool) int {
+	n := 0
+	for _, pr := range prs {
+		if t, err := time.Parse(time.RFC3339, pr.MergedAt); err == nil && t.Before(since) {
+			continue
+		}
+		if pr.URL != "" && !existing[pr.URL] {
+			n++
+		}
+	}
+	return n
+}
+
+// listFiles asks for the files and head commit of the newest merges since the
+// cursor. limit covers every new merge; asking for more would only cost time.
+func listFiles(run ciwait.Runner, repo string, since time.Time, limit int) (map[string]prFiles, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), filesTimeout)
+	defer cancel()
+	out, err := run(ctx, "pr", "list", "-R", repo, "--state", "merged",
+		"--search", "merged:>="+since.UTC().Format(time.RFC3339),
+		"--json", "url,files", "--limit", fmt.Sprint(min(limit+overlapSlack, harvestLimit)))
+	if err != nil {
+		return nil, fmt.Errorf("files of new merges: %w", err)
+	}
+	var list []prFiles
+	if err := json.Unmarshal(out, &list); err != nil {
+		return nil, fmt.Errorf("files of new merges: unreadable gh output: %w", err)
+	}
+	byURL := map[string]prFiles{}
+	for _, f := range list {
+		byURL[f.URL] = f
+	}
+	return byURL, nil
+}
+
+// touchesRatchet reports whether a merge changed the ratchet file. gh lists at
+// most 100 files a PR; a list that long may have cut the file off, so it counts.
+func touchesRatchet(f prFiles) bool {
+	if len(f.Files) >= 100 {
+		return true
+	}
+	for _, file := range f.Files {
+		if file.Path == ratchet.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// harvestLoosenings raises one UNREAD entry per coverage-ratchet loosening the
+// merged PR's CI reported (#571). The gate prints each loosening as a
+// `::notice` whose message is ratchet.LoosenedPrefix + JSON; GitHub keeps it as
+// a check-run annotation on the PR's head commit, which is where this reads
+// it: one call for the head's check runs, then one per run that has
+// annotations. No log is downloaded.
+//
+// Each entry's ref is the PR URL plus #ratchet-loosened-<key>, so a rerun, or
+// the same line from several matrix legs, adds it once. A damaged line, or a
+// look that failed, is an error: the caller reports it and does not mark the
+// PR done.
+func harvestLoosenings(o HarvestOptions, r harvestRepo, pr mergedPR, existing map[string]bool) ([]inbox.Entry, error) {
+	if pr.HeadRefOid == "" {
+		return nil, fmt.Errorf("gh reported no head commit for the PR, so its check runs cannot be read")
+	}
+	found, err := loosenings(o.Run, r.repo, pr.HeadRefOid)
+	if err != nil {
+		return nil, err
+	}
+	var added []inbox.Entry
+	for _, l := range found {
+		ref := pr.URL + "#ratchet-loosened-" + l.Key
+		if existing[ref] {
+			continue
+		}
+		e, err := inbox.Add(o.InboxPath, inbox.Entry{
+			Type:    inbox.Unread,
+			Title:   fmt.Sprintf("%s#%d loosened %s %d→%d", r.repo, pr.Number, l.Key, l.From, l.To),
+			Body:    "reason: " + l.Reason,
+			Ref:     ref,
+			Project: r.name,
+		})
+		if err != nil {
+			return added, err
+		}
+		existing[ref] = true
+		added = append(added, e)
+	}
+	return added, nil
+}
+
+// loosenings reads every loosening line from the head commit's latest check
+// runs, once per key.
+func loosenings(run ciwait.Runner, repo, head string) ([]ratchet.Loosened, error) {
+	var runs struct {
+		Total  *int `json:"total_count"`
+		Checks []struct {
+			ID     int64 `json:"id"`
+			Output struct {
+				Annotations int `json:"annotations_count"`
+			} `json:"output"`
+		} `json:"check_runs"`
+	}
+	if err := ghJSON(run, &runs, "api", "repos/"+repo+"/commits/"+head+"/check-runs?filter=latest&per_page=100"); err != nil {
+		return nil, fmt.Errorf("check runs of %s: %w", head, err)
+	}
+	if runs.Total == nil {
+		return nil, fmt.Errorf("check runs of %s: gh answered without a total_count", head)
+	}
+	if *runs.Total > len(runs.Checks) {
+		return nil, fmt.Errorf("check runs of %s: %d runs, only %d read", head, *runs.Total, len(runs.Checks))
+	}
+	var out []ratchet.Loosened
+	seen := map[string]bool{}
+	for _, c := range runs.Checks {
+		if c.Output.Annotations == 0 {
+			continue
+		}
+		var anns []struct {
+			Message string `json:"message"`
+		}
+		if err := ghJSON(run, &anns, "api", fmt.Sprintf("repos/%s/check-runs/%d/annotations?per_page=100", repo, c.ID)); err != nil {
+			return nil, fmt.Errorf("annotations of check run %d: %w", c.ID, err)
+		}
+		if c.Output.Annotations > len(anns) {
+			return nil, fmt.Errorf("annotations of check run %d: %d, only %d read", c.ID, c.Output.Annotations, len(anns))
+		}
+		for _, a := range anns {
+			l, ok, err := ratchet.ParseLoosened(a.Message)
+			if err != nil {
+				return nil, fmt.Errorf("check run %d: %w", c.ID, err)
+			}
+			if ok && !seen[l.Key] {
+				seen[l.Key] = true
+				out = append(out, l)
+			}
+		}
+	}
+	return out, nil
+}
+
+// ghJSON runs one bounded gh call and decodes its output into v.
+func ghJSON(run ciwait.Runner, v any, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), repoTimeout)
+	defer cancel()
+	out, err := run(ctx, args...)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(out, v); err != nil {
+		return fmt.Errorf("unreadable gh output: %w", err)
+	}
+	return nil
 }
 
 type harvestRepo struct{ name, repo string }
