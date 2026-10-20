@@ -405,4 +405,8 @@ func TestCIRoundCommandRefusesAnImplicitHEADThatIsNotThePRHead(t *testing.T) {
 			t.Errorf("the refused HEAD was recorded:\n%s", c.Body)
 		}
 	}
+	// The refusal charged nothing, so the right SHA is still round 1.
+	if code, out, errs := ciRound(t, nil, "begin", "7", "--sha", prHead); code != 0 || !strings.Contains(out, "round 1 of 2") {
+		t.Fatalf("--sha <PR head> after the refusal: exit %d\n%s%s", code, out, errs)
+	}
 }

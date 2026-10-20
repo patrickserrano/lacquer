@@ -183,3 +183,22 @@ func TestRecordedShaStillAnswersAlreadyRecorded(t *testing.T) {
 		t.Errorf("not answered as already recorded:\n%s", got.Text)
 	}
 }
+
+// A refused begin writes NOTHING: on a fresh PR the head is not charged as an
+// unrecorded push, so the legitimate begin that follows is still round 1.
+func TestRefusalOnAFreshPRRecordsNothing(t *testing.T) {
+	r, rp := realRig(t, "")
+	refused(t, r, Begin(context.Background(), r.realOpts(rp.base)), rp.base)
+	if n := len(r.comments()); n != 0 {
+		t.Fatalf("the refused call posted %d ledger comment(s), want none", n)
+	}
+	got := Begin(context.Background(), r.realOpts(rp.head))
+	want(t, got, CodeGranted)
+	if got.Round != 1 || got.Spent != 1 {
+		t.Errorf("round/spent = %d/%d, want 1/1", got.Round, got.Spent)
+	}
+	cs := r.comments()
+	if len(cs) != 1 || strings.Contains(strings.ToLower(cs[0].Body), "unrecorded") {
+		t.Errorf("want exactly the round-1 record and no unrecorded charge, got %d comments", len(cs))
+	}
+}

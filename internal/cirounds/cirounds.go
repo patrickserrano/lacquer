@@ -123,7 +123,15 @@ func Begin(ctx context.Context, o Options) Result {
 	if o.Review != "" && (oneLine(o.Review) == "" || o.Reason != "") {
 		return unavailable(o, "--review must state the requested change and reviewer, and replaces --reason")
 	}
-	rd, ledger, res := load(ctx, o)
+	// The head check runs inside load, between reading the ledger and charging an
+	// unrecorded head, so a refusal writes nothing. A SHA already recorded as a
+	// round skips it and still answers "already recorded".
+	rd, ledger, res := load(ctx, o, func(rd ciwait.Reading, l Ledger) *Result {
+		if r, ok := l.roundFor(o.SHA); ok && r.Kind != KindUnrecorded {
+			return nil
+		}
+		return checkDescendsFromHead(ctx, o, rd.Head)
+	})
 	if res != nil {
 		return *res
 	}
@@ -132,10 +140,6 @@ func Begin(ctx context.Context, o Options) Result {
 	if r, ok := ledger.roundFor(o.SHA); ok && r.Kind != KindUnrecorded {
 		return Result{Code: CodeGranted, Round: r.Round, Spent: len(ledger.Rounds), Cap: o.Cap,
 			Text: fmt.Sprintf("Round %d of %d for PR #%d is already recorded for %s; nothing new was spent.\n", r.Round, o.Cap, o.PR, short(o.SHA))}
-	}
-
-	if res := checkDescendsFromHead(ctx, o, rd.Head); res != nil {
-		return *res
 	}
 
 	failing := names(rd.Failed())
@@ -183,10 +187,11 @@ func Begin(ctx context.Context, o Options) Result {
 
 // checkDescendsFromHead refuses a SHA that is neither the PR's head nor a
 // descendant of it: the commit about to be pushed has to be the head or build on
-// it, or the round is spent on a commit the PR will never carry. It runs after
-// the "already recorded" answer, so a recorded SHA still says so, and before any
-// stop notice is posted. It fails closed: a head it cannot find locally cannot be
-// compared, and a wrong record can only be undone by an explicit budget reset. It returns nil to accept.
+// it, or the round is spent on a commit the PR will never carry. It runs inside
+// load before any observed head is charged, and not for a SHA already recorded
+// as a round, so a refusal writes nothing and a recorded SHA still says so. It
+// fails closed: a head it cannot find locally cannot be compared, and a wrong
+// record can only be undone by an explicit budget reset. It returns nil to accept.
 func checkDescendsFromHead(ctx context.Context, o Options, head string) *Result {
 	if !shaRe.MatchString(head) {
 		r := unavailable(o, fmt.Sprintf("could not read the PR's head commit (got %q), so %s cannot be checked against it", head, o.SHA))
@@ -237,7 +242,7 @@ func Status(ctx context.Context, o Options) Result {
 	if o.Cap < 1 {
 		return unavailable(o, fmt.Sprintf("the round cap must be at least 1, got %d", o.Cap))
 	}
-	rd, ledger, res := load(ctx, o)
+	rd, ledger, res := load(ctx, o, nil)
 	if res != nil {
 		return *res
 	}
@@ -280,7 +285,7 @@ func Reset(ctx context.Context, o Options) Result {
 	if o.Cap < 1 {
 		return unavailable(o, "the round cap must be at least 1")
 	}
-	rd, ledger, res := load(ctx, o)
+	rd, ledger, res := load(ctx, o, nil)
 	if res != nil {
 		return *res
 	}
@@ -296,8 +301,10 @@ func Reset(ctx context.Context, o Options) Result {
 }
 
 // load reads the PR and its ledger. A failure is CodeUnavailable: a gate that
-// cannot see must not say "go ahead".
-func load(ctx context.Context, o Options) (ciwait.Reading, Ledger, *Result) {
+// cannot see must not say "go ahead". gate, when non-nil, sees the reading and
+// the ledger before any observed head is charged; a non-nil result is returned
+// as the refusal and nothing has been written. Only Begin passes one.
+func load(ctx context.Context, o Options, gate func(ciwait.Reading, Ledger) *Result) (ciwait.Reading, Ledger, *Result) {
 	now := time.Now()
 	if o.Now != nil {
 		now = o.Now()
@@ -315,6 +322,11 @@ func load(ctx context.Context, o Options) (ciwait.Reading, Ledger, *Result) {
 	if err != nil {
 		r := unavailable(o, "could not read the round ledger on the PR: "+err.Error())
 		return ciwait.Reading{}, Ledger{}, &r
+	}
+	if gate != nil {
+		if r := gate(rd, ledger); r != nil {
+			return rd, ledger, r
+		}
 	}
 	// The first begin may register the push that opened the PR. Every other
 	// unknown head is charged unless commit metadata proves a GitHub update.
