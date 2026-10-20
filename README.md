@@ -27,7 +27,7 @@ every project regardless.
 | `lacquer skills` | Install `[project].skills` entries via the [`skills` CLI](https://github.com/vercel-labs/skills). |
 | `lacquer plugins` | Install `core/bootstrap/plugins.toml` (machine-level Claude Code plugins) via `claude plugin`. |
 | `lacquer status` | Show each region's stamped version vs the lacquer's latest. |
-| `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change, 4 on a baseline violation, 6 on an undeclared stack (usable as a CI gate). With `--ci` (what the shipped CI runs, at the lock's own version), exit 8 when a file matches the lock's hash but not that version's render: the lock was written by a different build than it names. With `--ci --ci-event pull_request`, exit 9 when the PR's lock names an older lacquer than its base's and records no reason. |
+| `lacquer audit` | Classify project drift; exit 3 if a sync would clobber a local change, 4 on a baseline violation, 6 on an undeclared stack (usable as a CI gate). With `--ci` (what the shipped CI runs, at the lock's own version), exit 8 when a file matches the lock's hash but not that version's render: the lock was written by a different build than it names. With `--ci --ci-event pull_request`, exit 9 when the PR's lock names an older lacquer than its base's and records no reason. The PR-time floor holds only when the PR's lock names v1.79.0 or later, because CI runs the binary the PR head's lock names; a downgrade to an older release re-renders the workflow without the floor and is caught after the merge by the gate-off harvest. |
 | `lacquer wait pr <N>` | Block until every check on a PR is terminal (no tokens while it sleeps). Exit 0 none failed, 1 a check failed, 2 timed out, 3 no checks — an empty check list is never a pass. Exits 2, 3 and 4 also raise an inbox ACTION (`--no-inbox` to skip). The sanctioned way to wait for CI. |
 | `lacquer version` | Print labeled content and build versions, plus the resolved content root path. |
 
@@ -511,6 +511,7 @@ too reads as a sync here; `audit --ci` fails it in CI (exit 8).
 under this: it exits 9 on a downgrade with no recorded reason, and prints the
 reason when there is one. It only holds between two releases that both carry
 it, which is why the harvest, not the floor, is the gate.
+The PR-time floor holds only when the PR's lock names v1.79.0 or later, because CI runs the binary the PR head's lock names; a downgrade to an older release re-renders the workflow without the floor and is caught after the merge by the gate-off harvest.
 
 An enrolled project's app target must also reach `coverage_floor` (80 %) from
 `profiles/ios/baseline.toml`. A project below it adds a dated relaxation:
