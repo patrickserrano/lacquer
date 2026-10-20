@@ -177,6 +177,9 @@ func Run(dir string, args ...string) ([]byte, error) {
 			}
 			return json.Marshal(map[string]any{"comments": cs})
 		}
+		if len(rest) == 3 && rest[1] == "--json" && rest[2] == "headRefName" {
+			return []byte(`{"headRefName":"pr-branch"}`), nil
+		}
 		if len(rest) == 3 && rest[1] == "--json" && rest[2] == "state,headRefOid,statusCheckRollup" {
 			return os.ReadFile(filepath.Join(dir, "rollup.json"))
 		}

@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -72,7 +73,28 @@ type Options struct {
 	Inbox string
 
 	Run ciwait.Runner
+	// Git runs git in the checkout the command was started from and returns its
+	// stdout; a non-zero exit is an error. nil means the real git, bounded by
+	// gitTimeout. Tests pass a runner pointed at a temporary repository.
+	Git GitRunner
 	Now func() time.Time
+}
+
+// GitRunner runs `git` with args and returns its stdout.
+type GitRunner func(ctx context.Context, args ...string) ([]byte, error)
+
+// gitTimeout bounds each git call Begin makes: the object lookups are local and
+// instant, so a call that is still running after this is hung, not slow.
+const gitTimeout = 30 * time.Second
+
+func realGit(ctx context.Context, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", args...).Output() // #nosec G204 -- fixed subcommands; args are SHAs already matched by shaRe
+	if err != nil {
+		return nil, fmt.Errorf("git %s: %w", args[0], err)
+	}
+	return out, nil
 }
 
 // Result is what a call decided and the text to show.
@@ -101,7 +123,15 @@ func Begin(ctx context.Context, o Options) Result {
 	if o.Review != "" && (oneLine(o.Review) == "" || o.Reason != "") {
 		return unavailable(o, "--review must state the requested change and reviewer, and replaces --reason")
 	}
-	rd, ledger, res := load(ctx, o)
+	// The head check runs inside load, between reading the ledger and charging an
+	// unrecorded head, so a refusal writes nothing. A SHA already recorded as a
+	// round skips it and still answers "already recorded".
+	rd, ledger, res := load(ctx, o, func(rd ciwait.Reading, l Ledger) *Result {
+		if r, ok := l.roundFor(o.SHA); ok && r.Kind != KindUnrecorded {
+			return nil
+		}
+		return checkDescendsFromHead(ctx, o, rd.Head)
+	})
 	if res != nil {
 		return *res
 	}
@@ -155,13 +185,64 @@ func Begin(ctx context.Context, o Options) Result {
 	return Result{Code: CodeGranted, Round: entry.Round, Spent: entry.Round, Cap: o.Cap, Text: granted(o, entry)}
 }
 
+// checkDescendsFromHead refuses a SHA that is neither the PR's head nor a
+// descendant of it: the commit about to be pushed has to be the head or build on
+// it, or the round is spent on a commit the PR will never carry. It runs inside
+// load before any observed head is charged, and not for a SHA already recorded
+// as a round, so a refusal writes nothing and a recorded SHA still says so. It
+// fails closed: a head it cannot find locally cannot be compared, and a wrong
+// record can only be undone by an explicit budget reset. It returns nil to accept.
+func checkDescendsFromHead(ctx context.Context, o Options, head string) *Result {
+	if !shaRe.MatchString(head) {
+		r := unavailable(o, fmt.Sprintf("could not read the PR's head commit (got %q), so %s cannot be checked against it", head, o.SHA))
+		return &r
+	}
+	if o.SHA == head {
+		return nil
+	}
+	git := o.Git
+	if git == nil {
+		git = realGit
+	}
+	if _, err := git(ctx, "cat-file", "-e", head+"^{commit}"); err != nil {
+		r := unavailable(o, fmt.Sprintf("the PR's head %s is not in this checkout, so %s cannot be compared with it.\nRun `git fetch` for the PR branch first, then retry.", head, o.SHA))
+		return &r
+	}
+	if _, err := git(ctx, "merge-base", "--is-ancestor", head, o.SHA); err != nil {
+		r := unavailable(o, fmt.Sprintf("%s is not the PR's head and does not build on it.\n  commit given: %s\n  PR head:      %s (branch %s)\nRun from the PR branch's checkout after committing, or pass --sha <PR head>.", short(o.SHA), o.SHA, head, headBranch(ctx, o)))
+		return &r
+	}
+	return nil
+}
+
+// headBranch names the PR's head branch for a refusal. It is advice only, so a
+// failure to read it is "unknown" rather than a second error.
+func headBranch(ctx context.Context, o Options) string {
+	args := []string{"pr", "view"}
+	if o.Repo != "" {
+		args = append(args, "-R", o.Repo)
+	}
+	args = append(args, fmt.Sprint(o.PR), "--json", "headRefName")
+	out, err := o.Run(ctx, args...)
+	if err != nil {
+		return "unknown"
+	}
+	var raw struct {
+		Name string `json:"headRefName"`
+	}
+	if json.Unmarshal(out, &raw) != nil || raw.Name == "" {
+		return "unknown"
+	}
+	return raw.Name
+}
+
 // Status records any unknown head and reports the ledger: exit 0 if the agent may still
 // ask for a round, CodeExhausted if not.
 func Status(ctx context.Context, o Options) Result {
 	if o.Cap < 1 {
 		return unavailable(o, fmt.Sprintf("the round cap must be at least 1, got %d", o.Cap))
 	}
-	rd, ledger, res := load(ctx, o)
+	rd, ledger, res := load(ctx, o, nil)
 	if res != nil {
 		return *res
 	}
@@ -204,7 +285,7 @@ func Reset(ctx context.Context, o Options) Result {
 	if o.Cap < 1 {
 		return unavailable(o, "the round cap must be at least 1")
 	}
-	rd, ledger, res := load(ctx, o)
+	rd, ledger, res := load(ctx, o, nil)
 	if res != nil {
 		return *res
 	}
@@ -220,8 +301,10 @@ func Reset(ctx context.Context, o Options) Result {
 }
 
 // load reads the PR and its ledger. A failure is CodeUnavailable: a gate that
-// cannot see must not say "go ahead".
-func load(ctx context.Context, o Options) (ciwait.Reading, Ledger, *Result) {
+// cannot see must not say "go ahead". gate, when non-nil, sees the reading and
+// the ledger before any observed head is charged; a non-nil result is returned
+// as the refusal and nothing has been written. Only Begin passes one.
+func load(ctx context.Context, o Options, gate func(ciwait.Reading, Ledger) *Result) (ciwait.Reading, Ledger, *Result) {
 	now := time.Now()
 	if o.Now != nil {
 		now = o.Now()
@@ -239,6 +322,11 @@ func load(ctx context.Context, o Options) (ciwait.Reading, Ledger, *Result) {
 	if err != nil {
 		r := unavailable(o, "could not read the round ledger on the PR: "+err.Error())
 		return ciwait.Reading{}, Ledger{}, &r
+	}
+	if gate != nil {
+		if r := gate(rd, ledger); r != nil {
+			return rd, ledger, r
+		}
 	}
 	// The first begin may register the push that opened the PR. Every other
 	// unknown head is charged unless commit metadata proves a GitHub update.
