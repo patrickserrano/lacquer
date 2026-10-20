@@ -307,9 +307,58 @@ jobs:
             nonce="${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-1}-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
             title="iOS CI provenance $nonce"
             since=$(jq -rn --argjson t "$(( $(date -u +%s) - 120 ))" '$t | todate')
-            gh_api -X POST "/repos/$GITHUB_REPOSITORY/actions/workflows/ios-ci.yml/dispatches" \
-              -f ref="$GITHUB_REF" -f "inputs[dispatch_id]=$nonce" > /dev/null \
-              || fail "no FULL iOS CI run proves $EXPECTED_SHA, and dispatching one on $GITHUB_REF failed."
+            # Only this POST is retried (#586), and only on a transient failure:
+            # an HTTP 5xx, or a transport failure that carries no HTTP status (a
+            # connection error, or the api_timeout alarm killing the call, exit
+            # 142). A 4xx, and any error that is neither, fails at once, as it
+            # always did: retrying a refusal cannot help and could hide it.
+            #
+            # Bounded: 3 attempts in all, 10 s then 30 s apart, each attempt
+            # under the api_timeout. Worst case adds 40 s of backoff plus two
+            # more api_timeouts (2 x 30 s) = 100 s to the script's 125 minutes,
+            # well inside the job's 140.
+            #
+            # The nonce and title above are made once, so every attempt carries
+            # the SAME dispatch id. A 5xx or timed-out POST that GitHub did
+            # accept leaves a run behind, and the retry makes a second one with
+            # the same id; the "iOS CI runs carry this release's dispatch id"
+            # refusal below then fails closed. Keep that check as it is.
+            max_attempts=3
+            backoff_first="${PROVENANCE_DISPATCH_BACKOFF_1:-10}"
+            backoff_second="${PROVENANCE_DISPATCH_BACKOFF_2:-30}"
+            attempt=1
+            while :; do
+              rc=0
+              err=$(gh_api -X POST "/repos/$GITHUB_REPOSITORY/actions/workflows/ios-ci.yml/dispatches" \
+                -f ref="$GITHUB_REF" -f "inputs[dispatch_id]=$nonce" 2>&1 > /dev/null) || rc=$?
+              [ "$rc" != 0 ] || break
+              # gh prints either `gh: <message> (HTTP 502)` or `HTTP 502: <message>
+              # (<url>)`; take the status only from those positions, so a message
+              # that merely mentions a code cannot set it.
+              code=$(sed -nE -e 's/^(gh: )?HTTP ([0-9]{3})([^0-9].*)?$/\2/p' \
+                -e 's/^.*\(HTTP ([0-9]{3})\)$/\1/p' <<< "$err" | head -n 1)
+              transient=no
+              if [ -n "$code" ]; then
+                last="HTTP $code"
+                case "$code" in 5??) transient=yes ;; esac
+              elif [ "$rc" = 142 ]; then
+                last="timed out after ${api_timeout}s"
+                transient=yes
+              elif grep -Eqi 'dial tcp|connection (refused|reset)|no such host|i/o timeout|tls handshake timeout|unexpected eof|context deadline exceeded|network is unreachable' <<< "$err"; then
+                last="transport error"
+                transient=yes
+              else
+                last="unclassified error, exit $rc"
+              fi
+              if [ "$transient" != yes ] || [ "$attempt" -ge "$max_attempts" ]; then
+                fail "no FULL iOS CI run proves $EXPECTED_SHA, and dispatching one on $GITHUB_REF failed after $attempt attempt$([ "$attempt" = 1 ] || echo s) (last: $last)."
+              fi
+              wait_for=$backoff_first
+              [ "$attempt" != 2 ] || wait_for=$backoff_second
+              echo "Dispatch attempt $attempt of $max_attempts failed ($last); retrying in ${wait_for}s with the same dispatch id."
+              sleep "$wait_for"
+              attempt=$(( attempt + 1 ))
+            done
             echo "Dispatched a FULL iOS CI run of $EXPECTED_SHA on $GITHUB_REF as '$title'."
 
             deadline=$(( $(date +%s) + appear_timeout ))

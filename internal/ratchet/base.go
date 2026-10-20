@@ -31,6 +31,13 @@ import (
 // checkout, so an unreachable remote fails the gate instead of hanging the job.
 var BaseFetchTimeout = 2 * time.Minute
 
+// BaseNotEnrolled is the one line the gate prints when it read the base
+// successfully and found no ratchet file there (#586). Without it a reader
+// cannot tell "compared against the base, nothing to report" from "the base was
+// not enrolled, so no compare was made". It is printed only for that outcome,
+// never for a base that could not be read.
+const BaseNotEnrolled = "base not enrolled: no base compare (first enrollment)"
+
 // Base is what the PR's base commit holds.
 type Base struct {
 	Commit string

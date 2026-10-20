@@ -28,10 +28,16 @@ import (
 // carry several bodies, served in order with the last one repeating, which is
 // how a run goes from in_progress to completed across polls.
 //
-// Two statuses are not HTTP: "HANG" execs a long sleep (the caller's bound has
-// to kill it), and "EXITn" makes the tool exit n without a response (a
-// transport failure). An unrouted request answers 404, so a step that asks for
-// something no fixture provided is refused, never silently satisfied.
+// Three statuses are not HTTP: "HANG" execs a long sleep (the caller's bound has
+// to kill it), "EXITn" makes the tool exit n without a response, and
+// "ERR:<text>" makes gh print <text> on stderr and exit 1 (curl, which has no
+// such failure, treats it as 000), so a test can serve the exact message a
+// real gh prints for a connection error or an HTTP error. An unrouted request
+// answers 404, so a step that asks for something no fixture provided is
+// refused, never silently satisfied.
+//
+// A status may be several, separated by "|": "502|502|204" answers the first
+// request 502, the second 502, and the third and every later one 204.
 //
 // Every request is appended to `calls`, and every `-f key=value` field of a gh
 // call to `fields`. A body may contain @@NONCE@@, replaced by the last
@@ -306,12 +312,17 @@ if [ -n "$line" ]; then
   counter="$prefix.served"
   n=$(cat "$counter" 2>/dev/null || echo 0)
   echo $((n + 1)) > "$counter"
+  IFS='|' read -r -a statuses <<< "$status"
+  si=$n
+  [ "$si" -lt "${#statuses[@]}" ] || si=$((${#statuses[@]} - 1))
+  status=${statuses[$si]}
   [ "$n" -ge "$count" ] && n=$((count - 1))
   body="$prefix.$n"
 fi
 case "$status" in
   HANG) exec sleep 60 ;;
   EXIT*) exit "${status#EXIT}" ;;
+  ERR:*) [ "$tool" = gh ] && { printf '%s\n' "${status#ERR:}" >&2; exit 1; }; status=000 ;;
 esac
 render() {
   if [ -f "$FAKE_API_DIR/nonce" ] && LC_ALL=C grep -q '@@NONCE@@' "$body"; then
