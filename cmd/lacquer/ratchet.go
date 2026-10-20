@@ -238,6 +238,9 @@ func withBaseCompare(root string, head *ratchet.Baseline, live map[string]bool, 
 		lines = append(lines, "::error::ratchet: the PR's base could not be compared, so this PR's ratchet is unverified: "+err.Error())
 		fail = true
 	} else {
+		if base.Baseline == nil {
+			lines = append(lines, ratchet.BaseNotEnrolled)
+		}
 		bv := ratchet.CompareBase(base.Baseline, head, live)
 		if ratchet.Enrolled(base.Baseline) && (head == nil || !hasKey(head, m.key)) {
 			value := "<the uncovered lines a passing run reports>"

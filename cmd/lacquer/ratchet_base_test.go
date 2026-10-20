@@ -230,3 +230,48 @@ func TestBaseCompareFailsAKeyRemovedWithItsProductButNoNewReason(t *testing.T) {
 		})
 	}
 }
+
+// The base compare says when it made none (#586): an absent file at the base is
+// a pass, and the output must say so, or it reads like a compare that found
+// nothing to report.
+func TestBaseCompareSaysWhenTheBaseIsNotEnrolled(t *testing.T) {
+	_, env := basePR(t, "", locals+"ios_uncovered_lines = 100\n")
+	code, out := baseGate(t, env, "pull_request", 100)
+	if code != 0 {
+		t.Fatalf("exit %d; a first enrollment must still pass:\n%s", code, out)
+	}
+	if n := strings.Count(out, "base not enrolled: no base compare (first enrollment)"); n != 1 {
+		t.Fatalf("the not-enrolled line appears %d times, want exactly 1:\n%s", n, out)
+	}
+}
+
+func TestBaseCompareDoesNotSayNotEnrolledForAnEnrolledBase(t *testing.T) {
+	for name, head := range map[string]string{
+		"tightened": locals + "ios_uncovered_lines = 90\n",
+		"unchanged": locals + "ios_uncovered_lines = 100\n",
+		"deleted":   "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, env := basePR(t, locals+"ios_uncovered_lines = 100\n", head)
+			_, out := baseGate(t, env, "pull_request", 100)
+			if strings.Contains(out, "base not enrolled") {
+				t.Fatalf("an enrolled base was reported as not enrolled:\n%s", out)
+			}
+		})
+	}
+}
+
+// A base that cannot be read is an error, never the not-enrolled line. The
+// base is enrolled here but its commit cannot be fetched, so the only way to
+// print the line is to mistake the failure for an absent file.
+func TestBaseCompareFetchFailureIsNotTheNotEnrolledLine(t *testing.T) {
+	dir, env := basePR(t, locals+"ios_uncovered_lines = 100\n", locals+"ios_uncovered_lines = 100\n")
+	gittest.Git(t, dir, "remote", "set-url", "origin", "file://"+filepath.Join(t.TempDir(), "gone.git"))
+	code, out := baseGate(t, env, "pull_request", 100)
+	if code != 4 || !strings.Contains(out, "the PR's base could not be compared") || !strings.Contains(out, "could not fetch the base commit") {
+		t.Fatalf("exit %d; want 4 naming the fetch failure:\n%s", code, out)
+	}
+	if strings.Contains(out, "base not enrolled") {
+		t.Fatalf("a base that could not be fetched printed the not-enrolled line:\n%s", out)
+	}
+}

@@ -568,3 +568,200 @@ func TestDispatchTitleMatchesTheCIRunName(t *testing.T) {
 		t.Error("the release gate does not look for the title ci.yml gives its dispatched run")
 	}
 }
+
+// The dispatch POST is retried on a transient failure (#586). Backoff is shrunk
+// to nothing so the tests run in seconds; the shipped 10 s / 30 s are pinned in
+// TestReleaseDispatchRetryIsBounded.
+var noBackoff = map[string]string{
+	"PROVENANCE_DISPATCH_BACKOFF_1": "0",
+	"PROVENANCE_DISPATCH_BACKOFF_2": "0",
+}
+
+const dispatchRoute = "POST /repos/acme/demo/actions/workflows/ios-ci.yml/dispatches"
+
+// dispatchFixture is noIOSRunFixture with the dispatch route answering status.
+func dispatchFixture(t *testing.T, status string) (*fakeAPI, string, string) {
+	t.Helper()
+	dir, sha, tree := commitRepo(t)
+	f := noIOSRunFixture(t, sha, tree)
+	f.on(dispatchRoute, status, nil)
+	return f, dir, sha
+}
+
+func postCount(f *fakeAPI) int {
+	n := 0
+	for _, c := range f.calls() {
+		if c == "POST_/repos/acme/demo/actions/workflows/ios-ci.yml/dispatches" {
+			n++
+		}
+	}
+	return n
+}
+
+// dispatchIDs is the dispatch_id each POST carried, in order.
+func dispatchIDs(f *fakeAPI) []string {
+	var ids []string
+	for _, l := range strings.Split(f.fields(), "\n") {
+		if id, ok := strings.CutPrefix(l, "inputs[dispatch_id]="); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func assertPosts(t *testing.T, f *fakeAPI, want int) {
+	t.Helper()
+	if got := postCount(f); got != want {
+		t.Errorf("the gate POSTed the dispatch %d time(s), want %d", got, want)
+	}
+}
+
+func TestReleaseRetriesTheDispatchOnA5xxWithOneNonce(t *testing.T) {
+	f, dir, sha := dispatchFixture(t, "502|502|204")
+	res := runProvenance(t, f, dir, sha, noBackoff)
+	assertReleased(t, res)
+	assertPosts(t, f, 3)
+	ids := dispatchIDs(f)
+	if len(ids) != 3 || ids[0] != ids[1] || ids[1] != ids[2] || ids[0] == "" {
+		t.Errorf("every attempt must carry the same dispatch id; got %q", ids)
+	}
+	for _, want := range []string{"attempt 1 of 3 failed (HTTP 502)", "attempt 2 of 3 failed (HTTP 502)"} {
+		if !strings.Contains(res.out, want) {
+			t.Errorf("no retry line %q:\n%s", want, res.out)
+		}
+	}
+}
+
+func TestReleaseFailsAfterThreeDispatchAttemptsOnA5xx(t *testing.T) {
+	f, dir, sha := dispatchFixture(t, "503")
+	res := runProvenance(t, f, dir, sha, noBackoff)
+	assertBlocked(t, res, "dispatching one on refs/tags/v1.2.3 failed after 3 attempts (last: HTTP 503)")
+	assertPosts(t, f, 3)
+}
+
+func TestReleaseDoesNotRetryA4xxDispatch(t *testing.T) {
+	for _, status := range []string{"422", "403", "404", "429"} {
+		t.Run(status, func(t *testing.T) {
+			f, dir, sha := dispatchFixture(t, status)
+			res := runProvenance(t, f, dir, sha, noBackoff)
+			assertBlocked(t, res, "failed after 1 attempt (last: HTTP "+status+")")
+			assertPosts(t, f, 1)
+		})
+	}
+}
+
+func TestReleaseDoesNotRetryAnUnclassifiableDispatchError(t *testing.T) {
+	for name, text := range map[string]string{
+		"no status":   "gh: something nobody planned for",
+		"empty":       "",
+		"token":       "gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable.",
+		"exit status": "gh: exit status 1",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, dir, sha := dispatchFixture(t, "ERR:"+text)
+			res := runProvenance(t, f, dir, sha, noBackoff)
+			assertBlocked(t, res, "failed after 1 attempt (last: unclassified error, exit 1)")
+			assertPosts(t, f, 1)
+		})
+	}
+}
+
+func TestReleaseRetriesTheDispatchOnATransportError(t *testing.T) {
+	cases := map[string]struct {
+		status string
+		env    map[string]string
+		last   string
+	}{
+		"connection refused": {
+			status: `ERR:Post "https://api.github.com/repos/acme/demo/actions/workflows/ios-ci.yml/dispatches": dial tcp 140.82.112.5:443: connect: connection refused|204`,
+			last:   "transport error",
+		},
+		"no such host": {status: `ERR:Post "https://api.github.com/x": dial tcp: lookup api.github.com: no such host|204`, last: "transport error"},
+		"alarm timeout": {
+			// The fake sleeps past api_timeout; the perl alarm kills it (exit 142).
+			status: "HANG|204",
+			env:    map[string]string{"PROVENANCE_API_TIMEOUT": "1"},
+			last:   "timed out after 1s",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f, dir, sha := dispatchFixture(t, c.status)
+			env := map[string]string{}
+			for k, v := range noBackoff {
+				env[k] = v
+			}
+			for k, v := range c.env {
+				env[k] = v
+			}
+			res := runProvenance(t, f, dir, sha, env)
+			assertReleased(t, res)
+			assertPosts(t, f, 2)
+			if !strings.Contains(res.out, "attempt 1 of 3 failed ("+c.last+")") {
+				t.Errorf("no retry line naming %q:\n%s", c.last, res.out)
+			}
+		})
+	}
+}
+
+// The status is read from where gh puts it, in either of its two message
+// shapes, and from nowhere else: a message that merely mentions a code must not
+// turn a refusal into a retry, or a transient error into a refusal.
+func TestReleaseClassifiesDispatchErrorsFromGhStderr(t *testing.T) {
+	cases := []struct {
+		name, stderr string
+		posts        int
+		last         string
+	}{
+		{"5xx, message first", "gh: Server Error (HTTP 502)", 3, "HTTP 502"},
+		{"5xx, status first", "HTTP 504: Gateway Timeout (https://api.github.com/repos/acme/demo/actions/workflows/ios-ci.yml/dispatches)", 3, "HTTP 504"},
+		{"4xx, message first", "gh: Validation Failed (HTTP 422)", 1, "HTTP 422"},
+		{"4xx, status first", "HTTP 403: Resource not accessible by integration (https://api.github.com/x)", 1, "HTTP 403"},
+		{"4xx naming a 5xx", "gh: upstream answered HTTP 502 earlier (HTTP 422)", 1, "HTTP 422"},
+		{"5xx naming a 4xx", "gh: not HTTP 404 really (HTTP 500)", 3, "HTTP 500"},
+		{"a code in a URL only", "gh: could not parse https://example.com/HTTP 502/x", 1, "unclassified error, exit 1"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f, dir, sha := dispatchFixture(t, "ERR:"+c.stderr)
+			res := runProvenance(t, f, dir, sha, noBackoff)
+			assertBlocked(t, res, "(last: "+c.last+")")
+			assertPosts(t, f, c.posts)
+		})
+	}
+}
+
+// Requirement (4): a 5xx POST that GitHub accepted anyway leaves a run behind,
+// and the retry makes a second with the same dispatch id. The "N runs carry
+// this release's dispatch id" refusal must still fire after a retry.
+func TestReleaseRefusesTwoRunsCreatedByARetriedDispatch(t *testing.T) {
+	f, dir, sha := dispatchFixture(t, "502|204")
+	a := iosRun(dispatchID, sha, "workflow_dispatch", "completed", "success")
+	a["display_title"] = "iOS CI provenance @@NONCE@@"
+	b := iosRun(302, sha, "workflow_dispatch", "completed", "success")
+	b["display_title"] = "iOS CI provenance @@NONCE@@"
+	f.on("GET /repos/acme/demo/actions/workflows/ios-ci.yml/runs?event=workflow_dispatch&created=*", "200",
+		map[string]any{"workflow_runs": []any{b, a}})
+	res := runProvenance(t, f, dir, sha, noBackoff)
+	assertBlocked(t, res, "2 iOS CI runs carry this release's dispatch id")
+	assertPosts(t, f, 2)
+	if !strings.Contains(res.out, "attempt 1 of 3 failed (HTTP 502)") {
+		t.Errorf("the dispatch was not retried before the refusal:\n%s", res.out)
+	}
+}
+
+// The shipped bound: 3 attempts, 10 s then 30 s apart, stated in a comment
+// beside the code with its worst case.
+func TestReleaseDispatchRetryIsBounded(t *testing.T) {
+	run := provenanceStep(t).Run
+	for _, want := range []string{
+		"max_attempts=3",
+		`backoff_first="${PROVENANCE_DISPATCH_BACKOFF_1:-10}"`,
+		`backoff_second="${PROVENANCE_DISPATCH_BACKOFF_2:-30}"`,
+		"= 100 s",
+	} {
+		if !strings.Contains(run, want) {
+			t.Errorf("the provenance step does not contain %q", want)
+		}
+	}
+}
