@@ -46,9 +46,13 @@ func (r *rig) opts(local, reason string) Options {
 	return Options{
 		PR: 7, Repo: "o/r", Cap: r.cap, SHA: local, Reason: reason, Inbox: r.inbox,
 		Run: func(_ context.Context, args ...string) ([]byte, error) { return fakegh.Run(r.dir, args...) },
+		Git: gitAcceptsEveryHead,
 		Now: func() time.Time { return time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC) },
 	}
 }
+
+// gitAcceptsEveryHead: budget tests predate the head-ancestry check (#582); ancestry is covered by the real-git tests.
+func gitAcceptsEveryHead(context.Context, ...string) ([]byte, error) { return nil, nil }
 
 func (r *rig) begin(local, reason string) Result {
 	r.t.Helper()
@@ -172,7 +176,8 @@ func TestFreshSessionOnAnExhaustedPRIsBlocked(t *testing.T) {
 	r.head(sha('b'), fakegh.Failed("lint"))
 
 	fresh := Options{PR: 7, Repo: "o/r", Cap: 2, SHA: sha('c'), Reason: goodReason,
-		Run: func(_ context.Context, args ...string) ([]byte, error) { return fakegh.Run(r.dir, args...) }}
+		Run: func(_ context.Context, args ...string) ([]byte, error) { return fakegh.Run(r.dir, args...) },
+		Git: gitAcceptsEveryHead}
 	if got := Begin(context.Background(), fresh); got.Code != CodeExhausted {
 		t.Fatalf("a fresh session got exit %d on an exhausted PR:\n%s", got.Code, got.Text)
 	}

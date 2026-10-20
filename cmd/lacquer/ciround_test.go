@@ -376,3 +376,33 @@ func TestCIRoundUnrecordedPushAndExplicitReset(t *testing.T) {
 		})
 	}
 }
+
+// Run from a checkout whose HEAD is not the PR's head, with no --sha: the implicit
+// HEAD is held to the same rule as an explicit one, and nothing is recorded for it.
+func TestCIRoundCommandRefusesAnImplicitHEADThatIsNotThePRHead(t *testing.T) {
+	a := project(t, "")
+	prHead := commit(t, "the PR branch's tip")
+	state := statefulGH(t, prHead)
+	if out, err := exec.Command("git", "checkout", "-q", "--detach", a).CombinedOutput(); err != nil {
+		t.Fatalf("git checkout: %v\n%s", err, out)
+	}
+
+	code, out, _ := ciRound(t, nil, "begin", "7")
+	if code != 13 {
+		t.Fatalf("exit %d, want 13\n%s", code, out)
+	}
+	for _, s := range []string{a, prHead, "pass --sha <PR head>"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("refusal lacks %q:\n%s", s, out)
+		}
+	}
+	cs, err := fakegh.Comments(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cs {
+		if strings.Contains(c.Body, a) {
+			t.Errorf("the refused HEAD was recorded:\n%s", c.Body)
+		}
+	}
+}

@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -72,7 +73,28 @@ type Options struct {
 	Inbox string
 
 	Run ciwait.Runner
+	// Git runs git in the checkout the command was started from and returns its
+	// stdout; a non-zero exit is an error. nil means the real git, bounded by
+	// gitTimeout. Tests pass a runner pointed at a temporary repository.
+	Git GitRunner
 	Now func() time.Time
+}
+
+// GitRunner runs `git` with args and returns its stdout.
+type GitRunner func(ctx context.Context, args ...string) ([]byte, error)
+
+// gitTimeout bounds each git call Begin makes: the object lookups are local and
+// instant, so a call that is still running after this is hung, not slow.
+const gitTimeout = 30 * time.Second
+
+func realGit(ctx context.Context, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", args...).Output() // #nosec G204 -- fixed subcommands; args are SHAs already matched by shaRe
+	if err != nil {
+		return nil, fmt.Errorf("git %s: %w", args[0], err)
+	}
+	return out, nil
 }
 
 // Result is what a call decided and the text to show.
@@ -110,6 +132,10 @@ func Begin(ctx context.Context, o Options) Result {
 	if r, ok := ledger.roundFor(o.SHA); ok && r.Kind != KindUnrecorded {
 		return Result{Code: CodeGranted, Round: r.Round, Spent: len(ledger.Rounds), Cap: o.Cap,
 			Text: fmt.Sprintf("Round %d of %d for PR #%d is already recorded for %s; nothing new was spent.\n", r.Round, o.Cap, o.PR, short(o.SHA))}
+	}
+
+	if res := checkDescendsFromHead(ctx, o, rd.Head); res != nil {
+		return *res
 	}
 
 	failing := names(rd.Failed())
@@ -153,6 +179,56 @@ func Begin(ctx context.Context, o Options) Result {
 		return unavailable(o, fmt.Sprintf("another session took round %d of PR #%d first; this call did NOT get it. Do not push. Run `lacquer ci-round status %d` to read the ledger.", entry.Round, o.PR, o.PR))
 	}
 	return Result{Code: CodeGranted, Round: entry.Round, Spent: entry.Round, Cap: o.Cap, Text: granted(o, entry)}
+}
+
+// checkDescendsFromHead refuses a SHA that is neither the PR's head nor a
+// descendant of it: the commit about to be pushed has to be the head or build on
+// it, or the round is spent on a commit the PR will never carry. It runs after
+// the "already recorded" answer, so a recorded SHA still says so, and before any
+// stop notice is posted. It fails closed: a head it cannot find locally cannot be
+// compared, and a wrong record can only be undone by an explicit budget reset. It returns nil to accept.
+func checkDescendsFromHead(ctx context.Context, o Options, head string) *Result {
+	if !shaRe.MatchString(head) {
+		r := unavailable(o, fmt.Sprintf("could not read the PR's head commit (got %q), so %s cannot be checked against it", head, o.SHA))
+		return &r
+	}
+	if o.SHA == head {
+		return nil
+	}
+	git := o.Git
+	if git == nil {
+		git = realGit
+	}
+	if _, err := git(ctx, "cat-file", "-e", head+"^{commit}"); err != nil {
+		r := unavailable(o, fmt.Sprintf("the PR's head %s is not in this checkout, so %s cannot be compared with it.\nRun `git fetch` for the PR branch first, then retry.", head, o.SHA))
+		return &r
+	}
+	if _, err := git(ctx, "merge-base", "--is-ancestor", head, o.SHA); err != nil {
+		r := unavailable(o, fmt.Sprintf("%s is not the PR's head and does not build on it.\n  commit given: %s\n  PR head:      %s (branch %s)\nRun from the PR branch's checkout after committing, or pass --sha <PR head>.", short(o.SHA), o.SHA, head, headBranch(ctx, o)))
+		return &r
+	}
+	return nil
+}
+
+// headBranch names the PR's head branch for a refusal. It is advice only, so a
+// failure to read it is "unknown" rather than a second error.
+func headBranch(ctx context.Context, o Options) string {
+	args := []string{"pr", "view"}
+	if o.Repo != "" {
+		args = append(args, "-R", o.Repo)
+	}
+	args = append(args, fmt.Sprint(o.PR), "--json", "headRefName")
+	out, err := o.Run(ctx, args...)
+	if err != nil {
+		return "unknown"
+	}
+	var raw struct {
+		Name string `json:"headRefName"`
+	}
+	if json.Unmarshal(out, &raw) != nil || raw.Name == "" {
+		return "unknown"
+	}
+	return raw.Name
 }
 
 // Status records any unknown head and reports the ledger: exit 0 if the agent may still
