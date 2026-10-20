@@ -17,6 +17,8 @@ Capture native-resolution screenshots on the simulator, downscale to the other r
 
 Aspect ratios differ <0.4%, so downscaling 6.9"→6.7"/6.5" is visually lossless. If the app's deployment target is iOS 26+, **no real 6.5"-class device can run it** — those sizes MUST be derived from a 6.9" capture, never captured natively.
 
+**Starting April 2027, submissions must include iPhone Duo screenshots.** Apple: "Starting April 2027, any apps or games submitted will need to include screenshots for iPhone Duo." (Source: "Prepare and submit your apps for iPhone Duo", Oct 5, 2026, <https://developer.apple.com/news/?id=kkphp5qo>.) The table above has no Duo row and the Device types list below has no Duo constant: neither is published here yet, so do not guess them. They are tracked in lacquer issue #577, part (ii). See also the dated requirements in `ios-release-guide`.
+
 ## Capture pipeline
 
 1. **Boot the largest Pro Max sim** and build/install: `flowdeck simulator boot <udid>`; `flowdeck run -S <udid> -d ios/DerivedData-shots`. Find the UDID with `flowdeck simulator list` (pick an iPhone 17/16 Pro Max).

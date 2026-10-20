@@ -2,9 +2,9 @@
 
 Project structure, entry point, and the Info.plist keys that decide how a watchOS app is distributed and run.
 
-## Submission requirements (watchOS 26, effective April 2026)
+## Submission requirements (watchOS 26 cycle, April 2026: past)
 
-Two hard gates apply to every Watch target:
+These rows record the April 2026 cycle, which has passed. For the current cycle, starting April 2027, watchOS apps must be built with the watchOS 27 SDK or later; see the dated table in `ios-release-guide`. The two gates below applied to every Watch target in the 26 cycle:
 
 | Rule | Effective | Detail |
 |---|---|---|
