@@ -1400,13 +1400,15 @@ type RuntimePin struct {
 // `watchOS-27-0` string in the platform table below. They agreed, which is the
 // only reason the second one went unnoticed; the next bump would have moved one.
 // Moving a runtime is not a harmless change either: a sync that moved the pin
-// from 26.2 to 27.0 crash-looped two consumers' test hosts.
+// from 26.2 to 27.0 crash-looped two consumers' test hosts. It sits at 27.2
+// because the runner host's 27.0 runtime is listed as ready but cannot create a
+// device ("runtime path not found").
 //
 // A var rather than a const only so a test can move it to a value nobody would
 // hard-code and prove both jobs follow. Nothing else assigns it. Bump it when the
 // host Xcode moves; a project that cannot follow yet declares a dated
 // [baseline.relax].simulator_runtime instead of excluding ci.yml.
-var DefaultRuntimePin = RuntimePin{Major: "27", Minor: "0"}
+var DefaultRuntimePin = RuntimePin{Major: "27", Minor: "2"}
 
 // Runtime is the simctl runtime identifier for osName at this pin, e.g.
 // com.apple.CoreSimulator.SimRuntime.watchOS-27-0.

@@ -46,7 +46,7 @@ func TestSimulatorRuntimeRelaxInTermIsReportedNotGated(t *testing.T) {
 
 // An override naming the fleet pin changes nothing and should be deleted.
 func TestSimulatorRuntimeRelaxOnThePinIsDead(t *testing.T) {
-	code, out := auditRuntimeRelax(t, `major = "27", minor = "0", until = "2099-12-31"`)
+	code, out := auditRuntimeRelax(t, `major = "27", minor = "2", until = "2099-12-31"`)
 	if code != 0 {
 		t.Errorf("audit exited %d, want 0\n%s", code, out)
 	}

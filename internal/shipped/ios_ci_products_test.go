@@ -125,7 +125,7 @@ var legacyIOSCITokens = map[string]string{
 	// Added with the coverage gate (#522 U1): the lone product is "-".
 	"{{IOS_CI_COVERAGE_PRODUCT}}": "-",
 	// The runtime pin moved into Go (#522 U3) and renders the same literal.
-	"{{IOS_CI_SIM_RUNTIME}}": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+	"{{IOS_CI_SIM_RUNTIME}}": "com.apple.CoreSimulator.SimRuntime.iOS-27-2",
 	// Both empty unless a project declares [baseline.relax].simulator_runtime.
 	"{{IOS_CI_SIM_RUNTIME_OVERRIDE}}": "",
 	"{{IOS_CI_RELAX_KEYS}}":           "",
