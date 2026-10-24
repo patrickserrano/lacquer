@@ -26,7 +26,7 @@ func renderedIOSPin(t *testing.T, ci string) string {
 // must keep receiving it, or the sync that ships this moves the whole fleet's
 // tests to another OS, which is the incident the pin exists to prevent.
 func TestSimRuntimeTokenRendersTheSamePinAsBefore(t *testing.T) {
-	const before = "com.apple.CoreSimulator.SimRuntime.iOS-27-0"
+	const before = "com.apple.CoreSimulator.SimRuntime.iOS-27-2"
 	for name, cfg := range map[string]*config.Config{
 		"lone product":  soloConfig(),
 		"two products":  twoIOSProducts(),
@@ -57,8 +57,8 @@ func TestWatchRuntimeFollowsTheIOSPin(t *testing.T) {
 	if got, want := leg["runtime"], "com.apple.CoreSimulator.SimRuntime.watchOS-91-3"; got != want {
 		t.Errorf("watch runtime = %v after moving the pin, want %q", got, want)
 	}
-	if strings.Contains(ci, "-27-0") {
-		t.Error("a 27.0 runtime is still rendered after the pin moved: something hard-codes it")
+	if strings.Contains(ci, "-27-2") {
+		t.Error("a 27.2 runtime is still rendered after the pin moved: something hard-codes it")
 	}
 }
 

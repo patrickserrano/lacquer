@@ -20,9 +20,9 @@ import (
 
 const (
 	overrideUntil = "2026-12-31"
-	iosPin        = "com.apple.CoreSimulator.SimRuntime.iOS-27-0"
+	iosPin        = "com.apple.CoreSimulator.SimRuntime.iOS-27-2"
 	iosOverride   = "com.apple.CoreSimulator.SimRuntime.iOS-26-2"
-	watchPin      = "com.apple.CoreSimulator.SimRuntime.watchOS-27-0"
+	watchPin      = "com.apple.CoreSimulator.SimRuntime.watchOS-27-2"
 	watchOverride = "com.apple.CoreSimulator.SimRuntime.watchOS-26-2"
 )
 

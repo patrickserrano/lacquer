@@ -88,7 +88,7 @@ func TestWatchProductRendersAWatchOSDestination(t *testing.T) {
 		// And the simulator facts, all from the platform table rather than the
 		// manifest.
 		{"device_type", "Apple Watch Series 12 (46mm)"},
-		{"runtime", "com.apple.CoreSimulator.SimRuntime.watchOS-27-0"},
+		{"runtime", "com.apple.CoreSimulator.SimRuntime.watchOS-27-2"},
 		{"ready_service", "com.apple.Carousel"},
 		{"sim_prefix", "CI-Watch"},
 	} {

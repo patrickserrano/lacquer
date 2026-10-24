@@ -1976,8 +1976,14 @@ jobs:
           # same one. Update this when the host Xcode moves.
           PINNED_RUNTIME="{{IOS_CI_SIM_RUNTIME}}"{{IOS_CI_SIM_RUNTIME_OVERRIDE}}
 
-          if ! xcrun simctl list runtimes | grep -q "$PINNED_RUNTIME"; then
-            FALLBACK=$(xcrun simctl list runtimes | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS[0-9-]*' | sort -V | tail -1)
+          # The identifier is the last field of each `simctl list runtimes` line, and
+          # is matched WHOLE. A substring match answers yes for a host that has only
+          # the device-specific runtime (the pin plus a "-<device>" suffix), of which the
+          # pin is a prefix, and the old fallback pattern then extracted the pin plus
+          # a trailing "-", which is not a runtime. Only plain iOS-<major>-<minor> ids are candidates.
+          # `|| true` keeps the no-runtime message below reachable under pipefail.
+          if ! xcrun simctl list runtimes | awk '{print $NF}' | grep -qxF -- "$PINNED_RUNTIME"; then
+            FALLBACK=$(xcrun simctl list runtimes | awk '{print $NF}' | grep -E '^com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9]+-[0-9]+$' | sort -V | tail -1 || true)
             if [ -z "$FALLBACK" ]; then
               echo "::error::No iOS simulator runtimes installed"
               xcrun simctl list runtimes
