@@ -27,3 +27,40 @@ func TestMergeRejectsMalformedConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestHostedRunnerValues(t *testing.T) {
+	for _, ok := range []string{"blacksmith-2vcpu-ubuntu-2404", "ubuntu-latest"} {
+		if err := ValidHostedValue(ok); err != nil {
+			t.Errorf("rejected allowed value %q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404-arm", "ubuntu-24.04", "macos-latest", "Ubuntu-Latest"} {
+		if err := ValidHostedValue(bad); err == nil {
+			t.Errorf("accepted unknown value %q", bad)
+		}
+	}
+}
+
+func TestCheckHostedRunsOn(t *testing.T) {
+	for _, expr := range []string{HostedRunsOn, "${{ vars.CI_RUNNER || 'ubuntu-latest' }}"} {
+		if err := CheckHostedRunsOn(expr); err != nil {
+			t.Errorf("rejected %q: %v", expr, err)
+		}
+	}
+	for _, expr := range []string{
+		"blacksmith-2vcpu-ubuntu-2404",                                // allowed label, but hardcoded: ignores the switch
+		"ubuntu-latest",                                               // same
+		"blacksmith-4vcpu-ubuntu-2404",                                // 4-core
+		"${{ vars.CI_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",     // 4-core fallback
+		"${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404-arm' }}", // ARM fallback
+		"${{ vars.CI_RUNNER || 'some-unknown-label' }}",               // unknown fallback
+		"${{ vars.CI_RUNNER || '' }}",                                 // empty fallback
+		"${{ vars.OTHER_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}",  // a second variable
+		"${{ vars.CI_RUNNER }}",                                       // no fallback: an unset variable is an empty label
+		"${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} ",    // trailing junk
+	} {
+		if err := CheckHostedRunsOn(expr); err == nil {
+			t.Errorf("accepted %q", expr)
+		}
+	}
+}

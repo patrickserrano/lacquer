@@ -16,6 +16,13 @@ package shipped
 // and hardcoded `blacksmith-4vcpu-ubuntu-2404` for all 14 shipped Blacksmith
 // jobs, silently reverting #312's five ARM jobs back to x64 along with it.
 //
+// Since the single-switch change every hosted Linux job takes its runner from
+// ONE Actions variable (actionlint.HostedVar) with a Blacksmith 2-vCPU x64
+// fallback, so a person can move the whole fleet to GitHub-hosted runners by
+// setting the variable. The table below therefore pins the SET of hosted jobs,
+// and each one's rendered `runs-on:` must be exactly the switch expression;
+// there are no per-job labels left, and no 4-vCPU or ARM hosted label exists.
+//
 // Nothing before this file checked a runner LABEL at all, which is exactly
 // how a refactor could revert a deliberately-chosen cost decision and still
 // pass a green suite. This test does not key on the comments that (correctly)
@@ -42,6 +49,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/actionlint"
 	"gopkg.in/yaml.v3"
 )
 
@@ -54,21 +62,15 @@ type blacksmithLabel struct {
 }
 
 const (
-	arm2  = "blacksmith-2vcpu-ubuntu-2404-arm"
-	x64_4 = "blacksmith-4vcpu-ubuntu-2404"
-	x64_2 = "blacksmith-2vcpu-ubuntu-2404"
+	hostedExpr = "switch" // every hosted job renders actionlint.HostedRunsOn
 
 	armWhy = "coordination-only job (diff/jq/gh-api, no Xcode, no architecture-sensitive " +
-		"binary) -- Blacksmith bills a one-minute-per-job minimum regardless of vCPU count, " +
-		"so halving the vCPUs and taking ARM's 0.625 rate multiplier is pure savings (#312)"
-	x64BuildWhy = "a real build/lint/test job, never moved by #312 -- not worth revalidating on a " +
-		"different architecture for its billing profile"
-	supabaseDenoArmWhy = "Deno and the lacquer download both ship linux-arm64 and nothing in this job " +
-		"drives Postgres, so it bills 1.25 per minute instead of 4"
-	x64DeployWhy = "a few seconds of `supabase db push`: 2 vCPUs halves the billed weight, and the " +
-		"Supabase CLI stays on x64"
-	x64SupabaseWhy = "drives Postgres, pgTAP or the Supabase CLI -- #312 deliberately left the " +
-		"supabase profile on x64 rather than revalidating that stack on ARM"
+		"binary), so it runs on x64 as well as it ran on ARM"
+	x64BuildWhy        = "a real build/lint/test job"
+	supabaseDenoArmWhy = "Deno and the lacquer download are arch-aware, so x64 is fine"
+	x64DeployWhy       = "a few seconds of `supabase db push`; the Supabase CLI runs on x64"
+	x64SupabaseWhy     = "drives Postgres, pgTAP or the Supabase CLI; runs on the 2-vCPU default " +
+		"(no 4-vCPU hosted label exists)"
 )
 
 // blacksmithJobKey identifies one job across the fleet of shipped workflows:
@@ -88,13 +90,13 @@ var expectedBlacksmithRunnerLabels = map[blacksmithJobKey]blacksmithLabel{
 	// Every `changes` job, the release coordination jobs and the supabase health
 	// ping moved to pi-gate (free); see pi_gate_jobs_test.go. They are absent
 	// here on purpose: a Blacksmith label reappearing on one is UNLISTED.
-	{"ios", "release.yml", "select-products"}:      {arm2, armWhy + "; release coordination stays hosted: unproven on pi-gate for a real release"},
-	{"ios", "release.yml", "notify-on-failure"}:    {arm2, armWhy + "; release coordination stays hosted: unproven on pi-gate for a real release"},
-	{"ios", "release.yml", "verify-ci-provenance"}: {arm2, armWhy + "; stays hosted because release_provenance_test pins the release safety gate to a hosted Linux runner"},
-	{"web", "ci.yml", "check"}:                     {x64_4, x64BuildWhy},
-	{"supabase", "ci.yml", "check"}:                {arm2, supabaseDenoArmWhy},
-	{"supabase", "ci.yml", "database"}:             {x64_4, x64SupabaseWhy},
-	{"supabase", "ci.yml", "deploy-database"}:      {x64_2, x64DeployWhy},
+	{"ios", "release.yml", "select-products"}:      {hostedExpr, armWhy + "; release coordination stays hosted: unproven on pi-gate for a real release"},
+	{"ios", "release.yml", "notify-on-failure"}:    {hostedExpr, armWhy + "; release coordination stays hosted: unproven on pi-gate for a real release"},
+	{"ios", "release.yml", "verify-ci-provenance"}: {hostedExpr, armWhy + "; stays hosted because release_provenance_test pins the release safety gate to a hosted Linux runner"},
+	{"web", "ci.yml", "check"}:                     {hostedExpr, x64BuildWhy},
+	{"supabase", "ci.yml", "check"}:                {hostedExpr, supabaseDenoArmWhy},
+	{"supabase", "ci.yml", "database"}:             {hostedExpr, x64SupabaseWhy},
+	{"supabase", "ci.yml", "deploy-database"}:      {hostedExpr, x64DeployWhy},
 }
 
 // blacksmithRunsOnDoc captures just enough of a rendered workflow to read
@@ -172,32 +174,31 @@ func runBlacksmithRunnerLabelsCheck(t *testing.T, dir string) {
 				continue
 			}
 			label := node.Value
-			if !strings.HasPrefix(label, "blacksmith-") {
-				continue
-			}
 			blacksmithJobsFound++
 
 			key := blacksmithJobKey{profile: profile, file: file, jobID: jobID}
 			want, ok := expectedBlacksmithRunnerLabels[key]
 			if !ok {
 				unlisted = append(unlisted, fmt.Sprintf(
-					"%s job %q: runs-on %q is a Blacksmith job with no entry in "+
-						"expectedBlacksmithRunnerLabels -- a new Blacksmith job must choose a "+
-						"runner size deliberately here, rather than defaulting silently",
+					"%s job %q: runs-on %q is a hosted job with no entry in "+
+						"expectedBlacksmithRunnerLabels -- a new hosted job must be listed and use the switch, not a "+
+						"hardcoded label",
 					rel, jobID, label))
 				continue
 			}
 			seenExpected[key] = true
-			if label != want.label {
+			if err := actionlint.CheckHostedRunsOn(label); err != nil {
+				violations = append(violations, fmt.Sprintf("%s job %q: %v -- %s", rel, jobID, err, want.why))
+			} else if label != actionlint.HostedRunsOn {
 				violations = append(violations, fmt.Sprintf(
-					"%s job %q: runs-on is %q, want %q -- %s",
-					rel, jobID, label, want.label, want.why))
+					"%s job %q: runs-on is %q, want exactly %q -- %s",
+					rel, jobID, label, actionlint.HostedRunsOn, want.why))
 			}
 		}
 	}
 
 	if blacksmithJobsFound == 0 {
-		t.Fatal("found zero Blacksmith jobs across every shipped workflow -- either every job " +
+		t.Fatal("found zero hosted jobs across every shipped workflow -- either every job " +
 			"moved off Blacksmith or the detector is broken; this test must not pass vacuously")
 	}
 
@@ -219,9 +220,9 @@ func runBlacksmithRunnerLabelsCheck(t *testing.T, dir string) {
 		if !seenExpected[k] {
 			missing = append(missing, fmt.Sprintf(
 				"profiles/%s/workflows/%s job %q: expected in expectedBlacksmithRunnerLabels "+
-					"(want %q) but not found in any rendered shipped workflow -- the job was "+
+					"(want the switch expression) but not found in any rendered shipped workflow -- the job was "+
 					"renamed, removed, or moved off Blacksmith without updating this table",
-				k.profile, k.file, k.jobID, expectedBlacksmithRunnerLabels[k].label))
+				k.profile, k.file, k.jobID))
 		}
 	}
 

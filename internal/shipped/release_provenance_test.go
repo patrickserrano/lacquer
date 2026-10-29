@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/actionlint"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"gopkg.in/yaml.v3"
 )
@@ -49,15 +50,16 @@ func TestReleaseRefusesACommitCINeverPassed(t *testing.T) {
 	// two minutes on a hosted runner, not forty-five on the box every other
 	// repository's release is queued behind.
 	//
-	// Asserted as a PROPERTY (a hosted Blacksmith Linux SKU) rather than one
-	// exact label. The property is what the paragraph above actually cares
-	// about; pinning the string additionally froze the vCPU count, so
-	// right-sizing this job to a cheaper SKU failed a test whose stated intent
-	// it satisfied. A regression that matters here -- moving the gate onto the
-	// dedicated Mac, or onto a self-hosted array -- still fails.
+	// Asserted as a PROPERTY (a hosted Linux runner taken from the one
+	// CI_RUNNER switch) rather than one exact label. The property is what the
+	// paragraph above actually cares about; pinning the string additionally
+	// froze the vCPU count, so right-sizing this job to a cheaper SKU failed a
+	// test whose stated intent it satisfied. A regression that matters here --
+	// moving the gate onto the dedicated Mac, or onto a self-hosted array --
+	// still fails: neither is a scalar that passes CheckHostedRunsOn.
 	got, _ := job.RunsOn.(string)
-	if !strings.HasPrefix(got, "blacksmith-") || !strings.Contains(got, "ubuntu") {
-		t.Errorf("provenance gate runs on %v, want a hosted Blacksmith Linux runner", job.RunsOn)
+	if err := actionlint.CheckHostedRunsOn(got); err != nil {
+		t.Errorf("provenance gate runs on %v, want a hosted Linux runner on the CI_RUNNER switch: %v", job.RunsOn, err)
 	}
 	// A job-level permissions block REPLACES the workflow default, so both keys
 	// have to be present: `checks: read` alone leaves checkout unable to clone.

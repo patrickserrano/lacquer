@@ -43,6 +43,11 @@ func TestActionlintLabelsEqualRenderedWorkflowLabels(t *testing.T) {
 			var labels []string
 			switch runs := job.RunsOn.(type) {
 			case string:
+				// A hosted job's runs-on is the switch expression; the label
+				// actionlint must know is its literal fallback.
+				if err := actionlint.CheckHostedRunsOn(runs); err == nil {
+					runs = actionlint.HostedDefault
+				}
 				labels = []string{runs}
 			case []any:
 				for _, v := range runs {

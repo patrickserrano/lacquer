@@ -19,7 +19,49 @@ var Syntax = region.Hash
 
 // Labels names only custom labels; actionlint already knows GitHub's OS,
 // architecture and self-hosted labels. Keep this in step with shipped workflows.
-const Labels = "dedicated\npi-gate\nblacksmith-4vcpu-ubuntu-2404\nblacksmith-2vcpu-ubuntu-2404\nblacksmith-2vcpu-ubuntu-2404-arm"
+const Labels = "dedicated\npi-gate\n" + HostedDefault
+
+// HostedVar is the Actions variable every hosted Linux job reads its runner
+// from. A person flips it by hand (`gh variable set`); nothing in this repo
+// sets it.
+const HostedVar = "CI_RUNNER"
+
+// HostedDefault is the runner a hosted Linux job uses when HostedVar is unset:
+// Blacksmith, 2 vCPU, x64. There is deliberately no 4-vCPU or ARM hosted label.
+const HostedDefault = "blacksmith-2vcpu-ubuntu-2404"
+
+// HostedAllowed lists every value HostedVar may hold, and every literal
+// fallback a template may carry. The variable itself lives on GitHub, so
+// ValidHostedValue is the only place the allowed set is enforced.
+var HostedAllowed = []string{HostedDefault, "ubuntu-latest"}
+
+// ValidHostedValue reports whether v is an allowed value for HostedVar.
+func ValidHostedValue(v string) error {
+	for _, ok := range HostedAllowed {
+		if v == ok {
+			return nil
+		}
+	}
+	return fmt.Errorf("hosted runner %q is not allowed; use one of %s", v, strings.Join(HostedAllowed, ", "))
+}
+
+// HostedRunsOn is the exact `runs-on:` value a hosted Linux job must carry.
+var HostedRunsOn = "${{ vars." + HostedVar + " || '" + HostedDefault + "' }}"
+
+// CheckHostedRunsOn validates a hosted job's rendered `runs-on:` scalar: it
+// must read HostedVar and fall back to an allowed literal. A bare label (even
+// an allowed one) fails, because it would not follow the switch.
+func CheckHostedRunsOn(runsOn string) error {
+	rest, found := strings.CutPrefix(runsOn, "${{ vars."+HostedVar+" || '")
+	if !found {
+		return fmt.Errorf("runs-on %q does not read vars.%s; want %s", runsOn, HostedVar, HostedRunsOn)
+	}
+	fallback, found := strings.CutSuffix(rest, "' }}")
+	if !found {
+		return fmt.Errorf("runs-on %q is not of the form %s", runsOn, HostedRunsOn)
+	}
+	return ValidHostedValue(fallback)
+}
 
 // Body is the managed portion of the self-hosted-runner.labels sequence.
 func Body() string { return "    - " + strings.ReplaceAll(Labels, "\n", "\n    - ") }

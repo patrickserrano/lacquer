@@ -508,7 +508,9 @@ jobs:
 
   check:
     name: Lint · Types · Test · Build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Hosted runner switch (CI_RUNNER variable, Blacksmith 2-vCPU x64 default);
+    # see internal/shipped/blacksmith_runner_labels_test.go.
+    runs-on: ${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
