@@ -1,7 +1,7 @@
 name: Supabase CI
 
 # Deno backend — no Apple toolchain to worry about, so the real work runs on
-# Blacksmith (4vcpu for the database stack, 2vcpu for the rest), an ephemeral hosted Linux runner
+# Blacksmith (2vcpu, switchable via the CI_RUNNER variable), an ephemeral hosted Linux runner
 # billed outside the GitHub Actions allowance.
 #
 # This was once routed to the fleet's self-hosted Synology/Pi and moved back off
@@ -469,9 +469,14 @@ jobs:
 
   check:
     name: Format · Lint · Test
-    # 2vcpu-arm: Deno and the arch-aware lacquer download both ship linux-arm64
-    # builds, and nothing here drives Postgres. Bills 1.25 per minute, not 4.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # Hosted Linux runner, read from the CI_RUNNER Actions variable and falling
+    # back to Blacksmith 2-vCPU x64. Set CI_RUNNER to `ubuntu-latest` to move
+    # every hosted job to GitHub-hosted runners; unset it to return. Allowed
+    # values are checked in internal/actionlint and pinned for every hosted job
+    # by internal/shipped/blacksmith_runner_labels_test.go. No job needs more
+    # than 2 vCPUs or a particular architecture. Deno and the lacquer download are
+    # arch-aware, and nothing here drives Postgres.
+    runs-on: ${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     needs: changes
     # Skip on docs-only PRs. Skipped counts as passing for the CI OK aggregator.
     if: needs.changes.outputs.code == 'true'
@@ -620,9 +625,11 @@ jobs:
     # The steps are independent: a Splinter failure does not skip pgTAP (see the
     # `if:` on the steps below), so a failing PR still reports both.
     #
-    # Stays 4vcpu-x64: the full local stack (Postgres plus ~8 services) is the
-    # one workload in this file that is not billing-dominated, and it has not
-    # been proven on a smaller runner. One boot instead of two halves its bill.
+    # 2 vCPUs on the hosted-runner switch (the CI_RUNNER variable; see `check`).
+    # The full local stack (Postgres plus ~8 services) is the one workload here
+    # that has not been measured on 2 vCPUs. If `Start local stack` starts hitting
+    # its timeout, say so rather than reintroducing a 4-vCPU label: none is allowed.
+    # One boot instead of two keeps the cost down.
     #
     # Hosted (Blacksmith), like every job in this file except the `ci-ok` gate.
     # Called out here because this
@@ -645,7 +652,7 @@ jobs:
     # fleet-wide -- too weak for the heavier profiles' actual workloads to be
     # worth the operational cost of running it. A red CI that cannot run is
     # worth less than a small bill.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     needs: changes
     # `db`, not `code`. `code` is the deny-list — true for any non-docs change —
     # so in a repo that carries a Supabase component next to an iOS or web one
@@ -741,9 +748,9 @@ jobs:
 
   deploy-database:
     name: Deploy migrations
-    # 2vcpu-x64: a few seconds of `supabase db push`, so the weight is all
-    # billing; the Supabase CLI stays on x64.
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # A few seconds of `supabase db push`; the Supabase CLI runs on x64. Hosted
+    # runner switch: see `check`.
+    runs-on: ${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     # Only a merge to main, and only behind the schema jobs. `supabase db push`
     # is the one step here that touches production, so it must not be reachable
     # from a PR, and a migration must never land there without the lint and the

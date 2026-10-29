@@ -230,15 +230,16 @@ Xcode-touching work (build/test/lint/archive/sign/release) uses
 `runs-on: [self-hosted, macOS, ARM64, dedicated]` — never a GitHub-hosted
 macOS runner (`macos-latest`) or a stray self-hosted label like `mac-mini`. A
 pure script/REST-call job with no Xcode dependency (a docs publish, a
-deploy) uses `blacksmith-4vcpu-ubuntu-2404` instead — don't tie up
+deploy) uses the hosted Linux runner expression below instead — don't tie up
 the Mac for work that doesn't need it.
 
 Two rules about the Linux label, because GitHub bills **per job started, with
 a one-minute minimum** — cost tracks job *count*, not duration:
 
-- Ordinary Linux jobs use `blacksmith-4vcpu-ubuntu-2404`. Blacksmith is a
-  drop-in `runs-on` replacement that bills separately from the GitHub Actions
-  allowance, so these jobs no longer draw down the account's included minutes.
+- Ordinary hosted Linux jobs use one switchable runner:
+  `runs-on: ${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}`. Unset,
+  they run on Blacksmith 2-vCPU x64, which bills separately from the GitHub
+  Actions allowance. See **The hosted runner switch** below.
 - The `ci-ok` merge gate uses `[self-hosted, Linux, pi-gate]`. It is an
   `if: always()` job that only reads `needs.*.result`, so it starts on **every**
   run and its one-minute minimum was pure waste. `pi-gate` is a **role** label
@@ -316,3 +317,34 @@ sits outside the component, and an explicit config costs nothing.
 
 Neither hook suppresses stderr any more. A swallowed error is indistinguishable
 from a clean run, which is precisely how a dead hook survives for months.
+
+## The hosted runner switch
+
+Every synced job that runs on a hosted Linux runner reads its runner from one
+Actions variable, `CI_RUNNER`, and falls back to Blacksmith 2-vCPU x64 when it
+is unset. It covers each hosted job in the synced iOS release workflow and the
+web and Supabase CI workflows. Self-hosted jobs (`pi-gate`, the dedicated Mac)
+are unaffected.
+
+- **Allowed values:** `blacksmith-2vcpu-ubuntu-2404` (the default) and
+  `ubuntu-latest`. No 4-vCPU or ARM hosted label is allowed; no hosted job
+  needs one.
+- **It is a manual switch.** A job on GitHub-hosted runners with no budget left
+  fails; it does not move anywhere. A person sets the variable to
+  `ubuntu-latest` to move hosted jobs onto GitHub-hosted runners, and unsets it
+  to go back.
+- **Set it for an organization or a single repository:**
+
+  ```sh
+  gh variable set CI_RUNNER --org <org> --visibility all --body ubuntu-latest
+  gh variable set CI_RUNNER --repo <owner>/<repo> --body ubuntu-latest
+  gh variable delete CI_RUNNER --org <org>      # back to the default
+  ```
+
+  A repository value overrides an organization value.
+- **Linting:** lacquer checks each synced hosted job's `runs-on` is exactly the
+  expression above with an allowed literal fallback. The variable's value lives
+  on GitHub, so lacquer cannot check it; a value outside the allowed list
+  leaves jobs queued on a label no runner serves, so use only the two values.
+- **Projects that list `config-variables`** in `.github/actionlint.yaml` must add
+  `CI_RUNNER` to that list, or actionlint reports an undefined variable.

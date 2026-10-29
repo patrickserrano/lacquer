@@ -70,22 +70,15 @@ jobs:
   # repositories do not have.
   verify-ci-provenance:
     name: Verify release provenance
-    # 2vcpu-arm, not 4vcpu-x64: this job is `gh api` + `jq` + one ancestry check,
-    # no Xcode and no architecture-sensitive binary, so there is nothing here
-    # that behaves differently on ARM. Blacksmith bills vCPU-weighted minutes
-    # with a one-minute-per-job minimum, so halving the vCPUs halves that
-    # weighting and ARM's x0.625 rate multiplier discounts it further. This job
-    # plus select-products and notify-on-failure measured 128 billing minutes
-    # across 32 runs in 30 days on the wrong (x64) label.
-    #
-    # #339 templated this alongside the deliberately-x64 build-and-deploy runner
-    # decision into a single templated `LINUX_RUNNER` value; #340 then hardcoded that
-    # token to one x64 value everywhere, silently reverting this job (and
-    # select-products, notify-on-failure, and both `changes` jobs) back to
-    # 4vcpu-x64. internal/shipped/blacksmith_runner_labels_test.go pins each
-    # job's expected label individually so a token merge like that cannot do
-    # this again without failing a named test.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # Coordination only (`gh api` + `jq` + one ancestry check): no Xcode and no
+    # architecture-sensitive binary. Hosted Linux runner, read from the
+    # CI_RUNNER Actions variable and falling back to Blacksmith 2-vCPU x64.
+    # Set CI_RUNNER to `ubuntu-latest` to move every hosted job to
+    # GitHub-hosted runners; unset it to return. Allowed
+    # values are checked in internal/actionlint and pinned for every hosted job
+    # by internal/shipped/blacksmith_runner_labels_test.go. No job needs more
+    # than 2 vCPUs or a particular architecture.
+    runs-on: ${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     # The release needs a FULL, green CI OK from the iOS CI workflow on this
     # exact commit (D5): a pull-request run never counts, nor does another
     # workflow's CI OK (#508). When iOS CI never ran on the commit (the push
@@ -401,16 +394,11 @@ jobs:
   # Runs on ubuntu because it is jq over a JSON literal: no Xcode, and it must
   # not occupy the dedicated Mac.
   #
-  # 2vcpu-arm, not 4vcpu-x64, for the same billing reason as verify-ci-provenance
-  # above: a jq one-liner bills the Blacksmith one-minute-per-job minimum
-  # regardless of vCPU count, so the smaller ARM shape is strictly cheaper with
-  # no behavioural difference. See verify-ci-provenance's comment for the
-  # #339/#340 incident that silently reverted this job to x64 once already,
-  # and internal/shipped/blacksmith_runner_labels_test.go for the test that now
-  # pins it.
+  # Hosted runner switch: see verify-ci-provenance. A jq one-liner needs no
+  # particular size or architecture.
   select-products:
     name: Select products
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: ${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
@@ -1315,11 +1303,9 @@ jobs:
 
   notify-on-failure:
     name: Notify on Failure
-    # 2vcpu-arm, not 4vcpu-x64: one `echo`, gated to run at most once per
-    # release. Same billing rationale as verify-ci-provenance above, and the
-    # same #339/#340 incident silently reverted it to x64; see that job's
-    # comment and internal/shipped/blacksmith_runner_labels_test.go.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # One `echo`, gated to run at most once per release. Hosted runner switch:
+    # see verify-ci-provenance.
+    runs-on: ${{ vars.CI_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     needs: [verify-ci-provenance, select-products, build-and-deploy]
     # `always()` rather than `failure()`, because a failed selection SKIPS
     # build-and-deploy rather than failing it, and a job whose need was skipped
