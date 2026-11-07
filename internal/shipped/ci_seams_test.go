@@ -15,14 +15,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The existing rootapp fixture includes only the intended ShellCheck repairs.
+// The existing rootapp fixture pins the default workflow renders, including
+// the event-qualified dispatch title and the intended ShellCheck repairs.
 // A changed timeout default or an unconditional bootstrap changes the digest.
 func TestCISeamsDefaultRender(t *testing.T) {
 	cfg, err := config.Load(filepath.Join(root(t), "internal/shipped/testdata/projects/rootapp/.lacquer.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]string{"ci.yml": "8da45180d9ce1583370a9b9294b54435d90567003a0d79864ae1376bb4643cf5", "release.yml": "889565f6bb872ad0fd90936c8b3f5609f529b7996e46d25da5ca783d2ae840f9"} {
+	for name, want := range map[string]string{"ci.yml": "2ab51f9483ed2176cdc5babe7e1ecd9e9ab4d91889f437e12feac7d0a3b8708a", "release.yml": "889565f6bb872ad0fd90936c8b3f5609f529b7996e46d25da5ca783d2ae840f9"} {
 		raw, err := os.ReadFile(filepath.Join(root(t), "profiles/ios/workflows", name))
 		if err != nil {
 			t.Fatal(err)
