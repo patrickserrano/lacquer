@@ -98,12 +98,16 @@ func twoIOSProducts() *config.Config {
 // the surrounding workflow, because both sides read the same template, and only
 // fails when a renderer stops agreeing with the pre-matrix form.
 var legacyIOSCITokens = map[string]string{
-	"{{IOS_CI_PRODUCT_SUFFIX}}":  "",
-	"{{IOS_CI_BUILD_STRATEGY}}":  "",
-	"{{IOS_CI_TEST_STRATEGY}}":   "",
-	"{{IOS_CI_ARTIFACT_SUFFIX}}": "",
-	"{{IOS_CI_SIM_SUFFIX}}":      "",
-	"{{IOS_CI_SIM_MATCH}}":       "",
+	"{{IOS_CI_TEST_JOB_TIMEOUT}}":  "20",
+	"{{IOS_CI_TEST_STEP_TIMEOUT}}": "10",
+	"{{IOS_CI_LINT_RESULT}}":       "exit $status",
+	"{{IOS_CI_FORMAT_CHECK}}":      `"$SWIFTFORMAT_BIN" --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.`,
+	"{{IOS_CI_PRODUCT_SUFFIX}}":    "",
+	"{{IOS_CI_BUILD_STRATEGY}}":    "",
+	"{{IOS_CI_TEST_STRATEGY}}":     "",
+	"{{IOS_CI_ARTIFACT_SUFFIX}}":   "",
+	"{{IOS_CI_SIM_SUFFIX}}":        "",
+	"{{IOS_CI_SIM_MATCH}}":         "",
 	// Both empty unless a product declares extra_test_targets. A project that
 	// declares none gets neither the array setup nor the verification step —
 	// which is what makes the extra selectors an opt-in rather than an edit to

@@ -30,6 +30,46 @@ description: Every lacquer CLI subcommand.
 `lacquer help` (or `--help`/`-h`) prints usage, including the full `console`
 flag surface this table abbreviates.
 
+## iOS CI manifest options
+
+`lacquer sync` accepts these optional `.lacquer.toml` settings:
+
+```toml
+[ci]
+ios_test_job_timeout_minutes = 90
+ios_test_step_timeout_minutes = 60
+
+[ios]
+package_resolved = "ci_scripts/Package.resolved"
+```
+
+The Test job defaults to 20 minutes and its Run Tests step to 10. Timeout
+values must be integers from 1 to 360; the effective step limit must be no
+greater than the effective job limit. Omitted values retain their defaults.
+Test selection and the timeouts of other jobs are unchanged.
+
+`ios.package_resolved` opts into restoring a committed lockfile after the
+existing XcodeGen generation step, before package checks or builds. The source
+path is relative to the repository root (including with nested components).
+Use this for a git-ignored generated Xcode project with one committed source
+of pins, rather than committing a second copy inside the generated project.
+CI and release copy it into the project's
+`project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. Missing or untracked
+sources fail; strict resolution still rejects pins inconsistent with the
+project's requirements. Without the option, no bootstrap step is rendered.
+
+Temporary iOS lint debt uses the existing time-boxed relaxation table:
+
+```toml
+[baseline.relax]
+lint = { until = "2026-12-01", reason = "Existing style violations being migrated" }
+```
+
+Both SwiftLint and SwiftFormat still run. Their failure is non-blocking through
+the UTC expiry date, inclusive, with a warning. A nonempty reason and valid
+date are required. An expired or malformed entry fails CI; removing it restores
+strict checks. This does not relax builds, tests, or package pin validation.
+
 ## Recorded decisions: `lacquer decisions`
 
 Decisions were lost when they were paraphrased on the way into a brief, and the

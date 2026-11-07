@@ -131,6 +131,7 @@ func CIWatchTestJob(cfg *config.Config, prefix string) string {
 		"@@XCODEPROJ@@", cfg.Project.Xcodeproj,
 		"@@WATCH_RUNTIME_OVERRIDE@@", watchRuntimeOverride(cfg),
 		"@@SECRETS_SEED@@", watchSecretsSeed(cfg.Products(), prefix),
+		"@@PACKAGE_RESOLVED_BOOTSTRAP@@", PackageResolvedBootstrap(cfg),
 	).Replace(watchJobBody)
 	b.WriteString(body)
 	return b.String()
@@ -285,7 +286,7 @@ const watchJobBody = `
           # fails before it can open one.
           if [ -f "@@COMPONENT_PREFIX@@project.yml" ]; then
             (cd @@COMPONENT_PREFIX@@. && xcodegen generate)
-          fi
+          fi@@PACKAGE_RESOLVED_BOOTSTRAP@@
 
       - name: Install xcbeautify
         run: brew list xcbeautify >/dev/null 2>&1 || brew install xcbeautify

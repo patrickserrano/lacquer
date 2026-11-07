@@ -663,7 +663,7 @@ jobs:
           # Without this, a clean checkout can archive a stale or absent project.
           if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
             (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
-          fi
+          fi{{IOS_PACKAGE_RESOLVED_BOOTSTRAP}}
 
       # Fail closed on Package.resolved drift. xcodebuild resolves Swift packages
       # against the project's REQUIREMENTS, not the committed lockfile: when a
