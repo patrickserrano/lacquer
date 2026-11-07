@@ -42,4 +42,5 @@ func TestRenderedRunNamesAvoidBareInputs(t *testing.T) {
 	if names == 0 {
 		t.Fatal("no rendered run-name checked; the input-context regression must not pass vacuously")
 	}
+	t.Logf("checked %d rendered workflows and %d run-name fields", len(files), names)
 }

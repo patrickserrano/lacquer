@@ -4,7 +4,7 @@ name: iOS CI
 # that is empty or whitespace falls back to the event's default. The release
 # gate dispatches with one, and finds ITS run by this title rather than by
 # "the latest run" (see verify-ci-provenance in ios-release.yml).
-run-name: ${{ inputs.dispatch_id && format('iOS CI provenance {0}', inputs.dispatch_id) || '' }}
+run-name: ${{ github.event.inputs.dispatch_id && format('iOS CI provenance {0}', github.event.inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
