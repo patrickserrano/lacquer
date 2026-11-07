@@ -32,8 +32,9 @@ const strictResolveFlag = "-onlyUsePackageVersionsFromResolvedFile"
 const strictResolveStep = "Resolve Swift packages from Package.resolved"
 
 type spmStep struct {
-	Name string `yaml:"name"`
-	Run  string `yaml:"run"`
+	Name             string `yaml:"name"`
+	Run              string `yaml:"run"`
+	WorkingDirectory string `yaml:"working-directory"`
 }
 
 type spmDoc struct {

@@ -2,15 +2,56 @@ package shipped
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/patrickserrano/lacquer/internal/actionlint"
+	"github.com/patrickserrano/lacquer/internal/baseline"
+	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/version"
 	"gopkg.in/yaml.v3"
 )
+
+// Keep ShellCheck enabled: workflow schema lint alone misses invalid directive
+// comments and the redirection patterns in embedded shell scripts.
+func TestIOSWorkflowActionlintWithShellcheck(t *testing.T) {
+	for _, tool := range []string{"actionlint", "shellcheck"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not installed (CI requires both tools)", tool)
+		}
+	}
+	cfg := watchProject()
+	if _, err := toml.Decode("[ios]\npackage_resolved = 'ci_scripts/Package.resolved'\n", cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Baseline.Relax = map[string]baseline.Relax{"lint": {Until: "2099-01-01", Reason: "existing lint debt"}, "format": {Until: "2099-02-01", Reason: "existing format debt"}}
+	for name, c := range map[string]*config.Config{"defaults": soloConfig(), "products": twoIOSProducts(), "options": cfg} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			workflow := filepath.Join(dir, "ci.yml")
+			if err := os.WriteFile(workflow, []byte(renderIOSCI(t, c)), 0600); err != nil {
+				t.Fatal(err)
+			}
+			configPath := filepath.Join(dir, "actionlint.yaml")
+			body, err := actionlint.Merge("", version.Version{Major: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("actionlint", "-config-file", configPath, "-pyflakes=", workflow)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("actionlint with ShellCheck: %v\n%s", err, out)
+			}
+		})
+	}
+}
 
 // Compare actual runs-on values in synced workflows with the production list,
 // not another handwritten test config. A new workflow label must fail here.

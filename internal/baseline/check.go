@@ -41,7 +41,7 @@ func (r Relax) UntilDate() (time.Time, error) {
 // "swift_verison" would otherwise read as a permanent, invisible exemption,
 // which is precisely the class of silent failure this package exists to end.
 //
-// "documentation", "pgtap" and "coverage" are the keys here that Check does NOT
+// "lint", "format", "documentation", "pgtap" and "coverage" are keys Check does NOT
 // emit a finding for, and that is deliberate. Every other key maps to an Xcode build
 // setting this package reads out of the pbxproj; "every declaration carries a
 // doc comment and the docs build clean" is not a build setting, and neither is
@@ -55,8 +55,10 @@ func (r Relax) UntilDate() (time.Time, error) {
 // "simulator_runtime" is not a build setting either: it moves the simulator the
 // iOS and watch test jobs run on off the fleet pin, and RuntimeFinding, not
 // Check, evaluates it.
+// "lint" and "format" are enforced independently by the iOS SwiftLint and
+// SwiftFormat CI steps, using the same runtime expiry reader as documentation.
 func KnownKeys() []string {
-	return []string{"swift_version", "warnings_as_errors", "strict_concurrency", "documentation", "pgtap", "coverage", SimulatorRuntimeKey}
+	return []string{"swift_version", "warnings_as_errors", "strict_concurrency", "documentation", "pgtap", "coverage", SimulatorRuntimeKey, "lint", "format"}
 }
 
 // SimulatorRuntimeKey is the relaxation that tests on an older simulator runtime

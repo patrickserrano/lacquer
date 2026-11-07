@@ -1946,9 +1946,13 @@ type Web struct {
 // internal/fragments. Absent, .swiftlint.yml renders exactly as shipped.
 type IOS struct {
 	SwiftLintCustomRules map[string]fragments.SwiftLintRule `toml:"swiftlint_custom_rules"`
+	// PackageResolved opts into copying this repository-relative committed file
+	// into the generated Xcode project after the existing XcodeGen bootstrap.
+	PackageResolved string `toml:"package_resolved"`
 }
 
 type Config struct {
+	CI         CI          `toml:"ci"`
 	Web        Web         `toml:"web"`
 	IOS        IOS         `toml:"ios"`
 	Project    Project     `toml:"project"`
@@ -2240,6 +2244,12 @@ func Load(path string) (*Config, error) {
 		cfg.Root = abs
 	}
 	if err := validateProject(cfg.Project); err != nil {
+		return nil, err
+	}
+	if err := validateCI(cfg.CI); err != nil {
+		return nil, err
+	}
+	if err := validatePackageResolved(&cfg); err != nil {
 		return nil, err
 	}
 	if err := validateBaseline(cfg.Baseline); err != nil {

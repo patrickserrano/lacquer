@@ -11,6 +11,9 @@ A project opts in per **component** (a subdirectory) via a `.lacquer.toml`
 manifest. Each component declares one or more **profiles**; `core` applies to
 every project regardless.
 
+The [iOS profile guide](profiles/ios/README.md) documents optional CI test
+timeouts and restoring package pins into a generated Xcode project.
+
 ## Commands
 
 | Command | Does |

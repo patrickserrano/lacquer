@@ -500,7 +500,7 @@ jobs:
           result=fail
           # shellcheck disable=SC2329  # invoked by the EXIT trap on the next line
           #
-          # shellcheck cannot follow `trap publish EXIT`, so from 0.11.0 it reports
+          # ShellCheck cannot follow `trap publish EXIT`, so from 0.11.0 it reports
           # SC2329 "This function is never invoked" here. actionlint surfaces that in
           # every project that syncs this file, and no project can silence it locally --
           # editing a managed file is drift, so the directive has to ship from the
@@ -731,7 +731,7 @@ jobs:
               status=1
             fi
           done
-          exit $status
+          {{IOS_CI_LINT_RESULT}}
 
       # Lint with the SwiftFormat this project PINS, never the runner's Homebrew.
       # A routine `brew upgrade` moved a shared runner to a release with new
@@ -764,7 +764,7 @@ jobs:
         env:
           SWIFTFORMAT_BIN: ${{ steps.swiftformat.outputs.bin }}
         run: |
-          "$SWIFTFORMAT_BIN" --lint --config {{COMPONENT_PREFIX}}.swiftformat {{COMPONENT_PREFIX}}.
+          {{IOS_CI_FORMAT_CHECK}}
 
       # Prove the checks above can actually FAIL. Everything else in this job
       # asks "does this project pass?"; doctor asks "would these checks notice
@@ -938,7 +938,7 @@ jobs:
           # spec (xcodeproj committed with no generator) is unaffected.
           if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
             (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
-          fi
+          fi{{IOS_PACKAGE_RESOLVED_BOOTSTRAP}}
 
       # A declared xcodeproj that doesn't exist on disk yet is expected for a
       # component declared per the archetype rule before any code exists (e.g.
@@ -1344,7 +1344,7 @@ jobs:
           # spec (xcodeproj committed with no generator) is unaffected.
           if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
             (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
-          fi
+          fi{{IOS_PACKAGE_RESOLVED_BOOTSTRAP}}
 
       # Keep Spotlight out of the build output, before anything creates it.
       #
@@ -1605,7 +1605,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' && needs.changes.outputs.xcodeproj == 'true' && needs.changes.outputs.reuse != 'true'
     # Per-step fail-fast timeouts below catch silent hangs; this is the generous
     # backstop with headroom for a cold, cache-cold build.
-    timeout-minutes: 20
+    timeout-minutes: {{IOS_CI_TEST_JOB_TIMEOUT}}
     env:
       # Homebrew is shared by every runner user on this Mac, and cleanup after an
       # install fails on files another user owns (Permission denied @ apply2files),
@@ -1727,7 +1727,7 @@ jobs:
           # spec (xcodeproj committed with no generator) is unaffected.
           if [ -f "{{COMPONENT_PREFIX}}project.yml" ]; then
             (cd {{COMPONENT_PREFIX}}. && xcodegen generate)
-          fi
+          fi{{IOS_PACKAGE_RESOLVED_BOOTSTRAP}}
 
       # Keep Spotlight out of the build output, before anything creates it.
       #
@@ -2109,7 +2109,7 @@ jobs:
         # that can stall silently (hence the heartbeat watchdog below). Normal
         # ~1-2 min; ~5x that as a fail-fast ceiling so a hung session frees the
         # runner instead of squatting it for the job max.
-        timeout-minutes: 10
+        timeout-minutes: {{IOS_CI_TEST_STEP_TIMEOUT}}
         run: |
           set -o pipefail
           DEVICE_ID="${{ steps.simulator.outputs.device_id }}"
@@ -2475,17 +2475,14 @@ jobs:
             echo "## iOS Test Coverage: ${APP_COVERAGE}%"
             echo ""
             echo "_Coverage calculated for {{IOS_CI_APP_TARGET}} target only (excludes third-party dependencies)_"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          {
             echo ""
             echo "### Coverage by Target"
             echo '```'
+            printf '%s' "$COV_JSON" | \
+              jq -r '.targets[] | "\(.lineCoverage * 100 | floor)% \(.name)"' | \
+              sort -rn
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          printf '%s' "$COV_JSON" | \
-            jq -r '.targets[] | "\(.lineCoverage * 100 | floor)% \(.name)"' | \
-            sort -rn >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
           # The verdict: the ratchet band and the floor, decided by the lacquer
           # binary the step above verified, and reported by its exit code alone.

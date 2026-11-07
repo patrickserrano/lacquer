@@ -356,6 +356,11 @@ jobs:
           # shellcheck disable=SC2086
           go test $pkgs -race -timeout 15m
 
+      - name: Install rendered-workflow linters
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          shellcheck --version
+
       - name: Test the e2e suite (no race detector -- see above)
         run: go test ./internal/shipped/ -timeout 20m
 

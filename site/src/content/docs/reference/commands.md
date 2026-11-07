@@ -30,6 +30,48 @@ description: Every lacquer CLI subcommand.
 `lacquer help` (or `--help`/`-h`) prints usage, including the full `console`
 flag surface this table abbreviates.
 
+## iOS CI manifest options
+
+`lacquer sync` accepts these optional `.lacquer.toml` settings:
+
+```toml
+[ci]
+ios_test_job_timeout_minutes = 90
+ios_test_step_timeout_minutes = 60
+
+[ios]
+package_resolved = "ci_scripts/Package.resolved"
+```
+
+The Test job defaults to 20 minutes and its Run Tests step to 10. Timeout
+values must be integers from 1 to 360; the effective step limit must be no
+greater than the effective job limit. Omitted values retain their defaults.
+Test selection and the timeouts of other jobs are unchanged.
+
+`ios.package_resolved` opts into restoring a committed lockfile after the
+existing XcodeGen generation step, before package checks or builds. The source
+path is relative to the repository root (including with nested components).
+Use this for a git-ignored generated Xcode project with one committed source
+of pins, rather than committing a second copy inside the generated project.
+CI and release copy it into the project's
+`project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. Missing or untracked
+sources fail; strict resolution still rejects pins inconsistent with the
+project's requirements. Without the option, no bootstrap step is rendered.
+
+Temporary iOS lint and formatting debt use independent time-boxed entries:
+
+```toml
+[baseline.relax]
+lint = { until = "2026-12-01", reason = "Existing style violations being migrated" }
+format = { until = "2026-12-31", reason = "Existing formatting violations being migrated independently" }
+```
+
+`lint` controls only SwiftLint; `format` controls only SwiftFormat. Both tools
+still run. Each entry has its own reason and inclusive UTC expiry date, and
+admits only that tool's failure with a warning. An expired or malformed entry
+fails its tool's step; removing an entry restores that tool's strict checks.
+Neither entry relaxes builds, tests, package pins, or the other tool.
+
 ## Recorded decisions: `lacquer decisions`
 
 Decisions were lost when they were paraphrased on the way into a brief, and the
