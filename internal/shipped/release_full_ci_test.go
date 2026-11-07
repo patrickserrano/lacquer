@@ -558,7 +558,7 @@ func TestProvenanceWaitIsBounded(t *testing.T) {
 // waits out its bound and fails.
 func TestDispatchTitleMatchesTheCIRunName(t *testing.T) {
 	ci := renderIOSCI(t, soloConfig())
-	if !strings.Contains(ci, "run-name: ${{ inputs.dispatch_id && format('iOS CI provenance {0}', inputs.dispatch_id) || '' }}") {
+	if !strings.Contains(ci, "run-name: ${{ github.event.inputs.dispatch_id && format('iOS CI provenance {0}', github.event.inputs.dispatch_id) || '' }}") {
 		t.Error("ios ci.yml does not name a nonce-carrying dispatch 'iOS CI provenance <nonce>'")
 	}
 	if !strings.Contains(ci, "dispatch_id:") {
