@@ -59,20 +59,22 @@ func TestIOSPackageResolvedValidation(t *testing.T) {
 }
 
 func TestLintRelaxationValidation(t *testing.T) {
-	for _, tc := range []struct{ value, want string }{
-		{`{ until = "2099-01-01", reason = "existing lint debt" }`, ""},
-		{`{ until = "2000-01-01", reason = "expired debt" }`, ""},
-		{`{ reason = "no expiry" }`, "until"},
-		{`{ until = "2099-01-01" }`, "reason"},
-		{`{ until = "not-a-date", reason = "debt" }`, "until"},
-	} {
-		_, err := loadString(t, "[project]\nname = 'demo'\n[baseline.relax]\nlint = "+tc.value+"\n")
-		if tc.want == "" {
-			if err != nil {
-				t.Fatal(err)
+	for _, key := range []string{"lint", "format"} {
+		for _, tc := range []struct{ value, want string }{
+			{`{ until = "2099-01-01", reason = "existing lint debt" }`, ""},
+			{`{ until = "2000-01-01", reason = "expired debt" }`, ""},
+			{`{ reason = "no expiry" }`, "until"},
+			{`{ until = "2099-01-01" }`, "reason"},
+			{`{ until = "not-a-date", reason = "debt" }`, "until"},
+		} {
+			_, err := loadString(t, "[project]\nname = 'demo'\n[baseline.relax]\n"+key+" = "+tc.value+"\n")
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
-		} else if err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Fatalf("error = %v, want %q", err, tc.want)
 		}
 	}
 }

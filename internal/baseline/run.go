@@ -119,7 +119,7 @@ func Run(lacquerRoot, projectRoot string, targets []Target, relax map[string]Rel
 		}
 		if unchecked != "" {
 			for _, key := range keys {
-				if key == "documentation" || key == "pgtap" || key == "coverage" || key == SimulatorRuntimeKey || key == "lint" {
+				if key == "documentation" || key == "pgtap" || key == "coverage" || key == SimulatorRuntimeKey || key == "lint" || key == "format" {
 					continue
 				}
 				r := relax[key]

@@ -43,20 +43,27 @@ to a fresh resolution. A tracked destination is rejected to prevent two
 committed lockfiles from drifting. With no `ios.package_resolved`, no copy step
 is rendered.
 
+Both `project.xcodeproj` and `ios.package_resolved` are repository-relative.
+For a component at `ios/`, declare `xcodeproj = "ios/Demo.xcodeproj"` under
+`[project]`. XcodeGen runs inside `ios/`; the copy step explicitly runs at the
+repository root, so neither path gets the component prefix applied twice.
+
 The package guard remains strict: pins that disagree with the generated
 project's package requirements fail the job. Update the source lockfile when
 changing requirements; copying it never resolves or repairs pins.
 
-## Temporary lint debt
+## Temporary lint and formatting debt
 
 ```toml
 [baseline.relax]
 lint = { until = "2026-12-01", reason = "Existing style violations being migrated" }
+format = { until = "2026-12-31", reason = "Existing formatting violations being migrated independently" }
 ```
 
-The iOS SwiftLint and SwiftFormat checks still run and log their findings, but
-their failure is non-blocking through the stated date (inclusive, UTC). The
-entry must have a nonempty reason and a valid expiry date. Expired or malformed
-entries fail CI, even if lint passes. Removing the entry restores strict lint.
+`lint` applies only to SwiftLint; `format` applies only to SwiftFormat. Each
+tool still runs and logs findings, but its failure is non-blocking through its
+own date (inclusive, UTC). Each entry needs its own nonempty reason and valid
+expiry date. Expired or malformed entries fail their tool's step, even when
+the tool passes. Removing an entry restores strict checks for that tool.
 The existing `scripts/docs-relaxation.sh` reader applies the runtime date; no
 workflow regeneration is needed when the date passes.

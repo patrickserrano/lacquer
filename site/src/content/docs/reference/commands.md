@@ -58,17 +58,19 @@ CI and release copy it into the project's
 sources fail; strict resolution still rejects pins inconsistent with the
 project's requirements. Without the option, no bootstrap step is rendered.
 
-Temporary iOS lint debt uses the existing time-boxed relaxation table:
+Temporary iOS lint and formatting debt use independent time-boxed entries:
 
 ```toml
 [baseline.relax]
 lint = { until = "2026-12-01", reason = "Existing style violations being migrated" }
+format = { until = "2026-12-31", reason = "Existing formatting violations being migrated independently" }
 ```
 
-Both SwiftLint and SwiftFormat still run. Their failure is non-blocking through
-the UTC expiry date, inclusive, with a warning. A nonempty reason and valid
-date are required. An expired or malformed entry fails CI; removing it restores
-strict checks. This does not relax builds, tests, or package pin validation.
+`lint` controls only SwiftLint; `format` controls only SwiftFormat. Both tools
+still run. Each entry has its own reason and inclusive UTC expiry date, and
+admits only that tool's failure with a warning. An expired or malformed entry
+fails its tool's step; removing an entry restores that tool's strict checks.
+Neither entry relaxes builds, tests, package pins, or the other tool.
 
 ## Recorded decisions: `lacquer decisions`
 

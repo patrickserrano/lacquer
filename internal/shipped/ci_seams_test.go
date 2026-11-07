@@ -99,6 +99,10 @@ func TestPackageResolvedBootstrap(t *testing.T) {
 				}
 				cfg := watchProject()
 				cfg.Project.Xcodeproj = prefix + "Demo.xcodeproj"
+				cfg.Components = []config.Component{{Path: strings.TrimSuffix(prefix, "/"), Profiles: []string{"ios"}}}
+				if prefix == "" {
+					cfg.Components[0].Path = "."
+				}
 				if _, err := toml.Decode("[ios]\npackage_resolved = '"+source+"'\n", cfg); err != nil {
 					t.Fatal(err)
 				}
@@ -139,7 +143,9 @@ func TestPackageResolvedBootstrap(t *testing.T) {
 						}
 						project := cfg.Project.Xcodeproj
 						dest := project + "/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-						writeSPMFile(t, repo, project+"/project.pbxproj", pbxRemotePackages)
+						if steps[copyAt].WorkingDirectory != "." {
+							t.Fatalf("%s/%s: bootstrap must pin repository-root working directory", workflow, job)
+						}
 						if err := os.Remove(filepath.Join(repo, dest)); err != nil && !os.IsNotExist(err) {
 							t.Fatal(err)
 						}
@@ -149,6 +155,27 @@ func TestPackageResolvedBootstrap(t *testing.T) {
 							cmd.Env = append(os.Environ(), env...)
 							out, err := cmd.CombinedOutput()
 							return string(out), err
+						}
+						generatorBin := t.TempDir()
+						stubTool(t, generatorBin, "xcodegen", `[ -f project.yml ] || exit 1
+mkdir -p Demo.xcodeproj
+printf '%s' "$GENERATED_PBX" > Demo.xcodeproj/project.pbxproj
+pwd > "$GENERATED_AT"
+`)
+						generatedAt := filepath.Join(t.TempDir(), "generated-at")
+						if out, err := run(steps[generate].Run, "PATH="+generatorBin+":"+os.Getenv("PATH"), "GENERATED_PBX="+pbxRemotePackages, "GENERATED_AT="+generatedAt); err != nil {
+							t.Fatalf("generation: %v\n%s", err, out)
+						}
+						gotDir, err := os.ReadFile(generatedAt)
+						if err != nil {
+							t.Fatal(err)
+						}
+						wantDir, err := filepath.EvalSymlinks(filepath.Join(repo, prefix))
+						if err != nil {
+							t.Fatal(err)
+						}
+						if strings.TrimSpace(string(gotDir)) != wantDir {
+							t.Fatalf("generation cwd=%q, want %q", gotDir, wantDir)
 						}
 						if out, err := run(steps[copyAt].Run); err != nil {
 							t.Fatalf("bootstrap: %v\n%s", err, out)

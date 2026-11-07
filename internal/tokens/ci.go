@@ -17,7 +17,10 @@ const (
 )
 
 // PackageResolvedBootstrap renders the shared post-generation copy, before
-// package caching, strict resolution or builds. It never resolves packages.
+// package caching, strict resolution or builds. Manifest paths are repository-
+// relative, even when generation runs inside a nested component; pin the copy
+// step to the repository root rather than applying the component prefix twice.
+// It never resolves packages.
 func PackageResolvedBootstrap(cfg *config.Config) string {
 	if cfg.IOS.PackageResolved == "" {
 		return ""
@@ -25,6 +28,7 @@ func PackageResolvedBootstrap(cfg *config.Config) string {
 	return fmt.Sprintf(`
 
       - name: Bootstrap Package.resolved
+        working-directory: "."
         run: |
           set -euo pipefail
           source=%q

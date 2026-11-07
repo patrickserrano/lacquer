@@ -1,6 +1,7 @@
 package shipped
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,30 +10,44 @@ import (
 	"github.com/patrickserrano/lacquer/internal/baseline"
 )
 
-// A dated relaxation may admit existing violations, but must still run lint,
-// reject expired/malformed debt, and keep an unrelated relaxation isolated.
+// Each tool must read only its own debt and expiry, while still executing.
 func TestLintRelaxationRunsAndExpires(t *testing.T) {
 	for _, linked := range []bool{false, true} {
 		for _, tc := range []struct {
-			name, date, key string
-			relaxed         bool
-			clean           bool
+			name                    string
+			dates                   map[string]string
+			lintOK, formatOK, clean bool
 		}{
-			{"active", "2099-01-01", "lint", true, false},
-			{"expired", "2000-01-01", "lint", false, false},
-			{"other key", "2099-01-01", "documentation", false, false},
-			{"clean active", "2099-01-01", "lint", true, true},
-			{"clean expired", "2000-01-01", "lint", false, true},
-			{"expiry day", "2026-11-07", "lint", true, false},
-			{"malformed", "invalid", "lint", false, false},
+			{"no debt", nil, false, false, false},
+			{"lint only", map[string]string{"lint": "2099-01-01"}, true, false, false},
+			{"format only", map[string]string{"format": "2099-01-01"}, false, true, false},
+			{"both active", map[string]string{"lint": "2099-01-01", "format": "2099-02-01"}, true, true, false},
+			{"lint expired format active", map[string]string{"lint": "2000-01-01", "format": "2099-01-01"}, false, true, false},
+			{"format expired lint active", map[string]string{"lint": "2099-01-01", "format": "2000-01-01"}, true, false, false},
+			{"both expired", map[string]string{"lint": "2000-01-01", "format": "2000-02-01"}, false, false, false},
+			{"lint expiry day", map[string]string{"lint": "2026-11-07"}, true, false, false},
+			{"format expiry day", map[string]string{"format": "2026-11-07"}, false, true, false},
+			{"other key", map[string]string{"documentation": "2099-01-01"}, false, false, false},
+			{"malformed lint", map[string]string{"lint": "invalid"}, false, false, false},
+			{"malformed format", map[string]string{"format": "invalid"}, false, false, false},
+			{"clean active", map[string]string{"lint": "2099-01-01", "format": "2099-02-01"}, true, true, true},
+			{"clean lint expired", map[string]string{"lint": "2000-01-01", "format": "2099-01-01"}, false, true, true},
+			{"clean format expired", map[string]string{"lint": "2099-01-01", "format": "2000-01-01"}, true, false, true},
 		} {
-			t.Run(tc.name+map[bool]string{true: "/worktree", false: "/checkout"}[linked], func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/linked=%v", tc.name, linked), func(t *testing.T) {
 				cfg := soloConfig()
-				cfg.Baseline.Relax = map[string]baseline.Relax{tc.key: {Until: tc.date, Reason: "existing style debt"}}
+				cfg.Baseline.Relax = map[string]baseline.Relax{}
+				manifest := "[baseline.relax]\n"
+				for _, key := range []string{"lint", "format", "documentation"} {
+					if until, ok := tc.dates[key]; ok {
+						cfg.Baseline.Relax[key] = baseline.Relax{Until: until, Reason: "existing tool-specific debt"}
+						manifest += fmt.Sprintf("%s = { until = %q, reason = \"existing tool-specific debt\" }\n", key, until)
+					}
+				}
 				doc := parseIOSCI(t, cfg)
 				repo := t.TempDir()
 				tree(t, repo, ".swiftlint.yml", ".swiftformat", "App.swift")
-				writeSPMFile(t, repo, ".lacquer.toml", "[baseline.relax]\n"+tc.key+" = { until = \""+tc.date+"\", reason = \"existing style debt\" }\n")
+				writeSPMFile(t, repo, ".lacquer.toml", manifest)
 				helper, err := os.ReadFile(filepath.Join(root(t), "core/root/scripts/docs-relaxation.sh"))
 				if err != nil {
 					t.Fatal(err)
@@ -54,16 +69,22 @@ func TestLintRelaxationRunsAndExpires(t *testing.T) {
 					exitCode = "0"
 				}
 				for _, tool := range []string{"swiftlint", "swiftformat"} {
-					stubTool(t, bin, tool, "echo lint-ran\nexit "+exitCode+"\n")
+					stubTool(t, bin, tool, "echo "+tool+"-ran\nexit "+exitCode+"\n")
 				}
-				for _, name := range []string{"Run SwiftLint", "Check SwiftFormat"} {
-					body := stepRun(t, doc, "lint", name)
-					out, code := runStepIn(t, repo, body, bin, "SWIFTFORMAT_BIN="+filepath.Join(bin, "swiftformat"))
-					if (code == 0) != tc.relaxed {
-						t.Fatalf("%s exit %d, relaxed=%v\n%s", name, code, tc.relaxed, out)
+				for _, step := range []struct {
+					name, tool string
+					ok         bool
+				}{{"Run SwiftLint", "swiftlint", tc.lintOK}, {"Check SwiftFormat", "swiftformat", tc.formatOK}} {
+					out, code := runStepIn(t, repo, stepRun(t, doc, "lint", step.name), bin, "SWIFTFORMAT_BIN="+filepath.Join(bin, "swiftformat"))
+					if (code == 0) != step.ok {
+						t.Errorf("%s exit %d, want success=%v\n%s", step.name, code, step.ok, out)
 					}
-					if tc.relaxed && (!strings.Contains(out, "lint-ran") || !strings.Contains(out, "::warning::")) {
-						t.Fatalf("%s did not run and report relaxed lint: %s", name, out)
+					if !strings.Contains(out, step.tool+"-ran") {
+						t.Errorf("%s did not execute: %s", step.name, out)
+					}
+					key := map[string]string{"swiftlint": "lint", "swiftformat": "format"}[step.tool]
+					if step.ok && tc.dates[key] != "" && !strings.Contains(out, "::warning::") {
+						t.Errorf("%s admitted debt without reporting it: %s", step.name, out)
 					}
 				}
 			})
