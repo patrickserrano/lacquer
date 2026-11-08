@@ -96,6 +96,7 @@ expect_output = '(?s)Probe\.swift:[0-9]+:[0-9]+: error: \(indent\).*Source input
 
 [[probe]]
 name = "missing_docs rejects an undocumented declaration"
+ios_documentation_hook = true
 why = """
 The documentation baseline is enforced by .swiftlint-docs.yml. If that config is
 mis-scoped it matches no files, exits 0, and the whole standard silently stops
@@ -116,6 +117,7 @@ expect_output = '(?s)Probe\.swift:[0-9]+:[0-9]+: error: Missing Docs Violation:.
 
 [[probe]]
 name = "missing_docs does not apply to test targets"
+ios_documentation_hook = true
 why = """
 The companion to the probe above, and it asserts `pass` rather than `fail` for
 the same reason the supabase profile's `env()` probe does: the thing under test

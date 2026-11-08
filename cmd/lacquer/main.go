@@ -206,6 +206,12 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			fmt.Fprint(stdout, ratchet.CoverageNotes(b, &config.Config{}))
 		}
 		fmt.Fprintf(stdout, "sync complete: %d regions, %d assets\n", res.Regions, res.Assets)
+		if len(res.RemovedDocumentation) > 0 {
+			fmt.Fprintf(stdout, "removed unchanged managed documentation files:\n  %s\n", strings.Join(res.RemovedDocumentation, "\n  "))
+		}
+		if len(res.PreservedDocumentation) > 0 {
+			fmt.Fprintf(stdout, "documentation files preserved because ownership or unchanged legacy content could not be verified; review lacquer audit:\n  %s\n", strings.Join(res.PreservedDocumentation, "\n  "))
+		}
 		if len(res.WarningsUnchecked) > 0 {
 			fmt.Fprintf(stdout, "warnings-as-errors: NOT CHECKED — the gate could not read these projects, so it did not vouch for them:\n  %s\n", strings.Join(res.WarningsUnchecked, "\n  "))
 		}

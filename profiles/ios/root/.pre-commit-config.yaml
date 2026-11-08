@@ -61,20 +61,7 @@ repos:
         language: system
         types: [swift]
 
-      # The documentation baseline, and now the whole of it. It used to be the
-      # cheap half of a pair, with a CI `Docs` job building the DocC archive;
-      # that job and the script behind it are both gone, so nothing anywhere
-      # else checks this. There is no CI twin to defer to and no second chance
-      # after the push — a `|| true` here would retire the baseline, not soften
-      # it.
-      - id: swiftlint-docs
-        name: SwiftLint (documentation)
-        entry: scripts/docs-hook.sh scripts/precommit-swift.sh swiftlint-docs
-        verbose: true
-        language: system
-        types: [swift]
-        files: ^{{COMPONENT_PREFIX}}
-
+      # lacquer:documentation-hook
       # Deliberately no local `xcodebuild test` hook. This fleet's self-hosted
       # Mac runner is frequently the same physical machine as the one you're
       # committing from — a local test run doesn't save CI wall-clock the way it

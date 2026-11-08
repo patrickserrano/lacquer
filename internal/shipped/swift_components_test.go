@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/config"
 	"github.com/patrickserrano/lacquer/internal/gittest"
 	"github.com/patrickserrano/lacquer/internal/swiftcomponents"
@@ -416,7 +417,10 @@ func TestPushPathsRenderOnePerPackageComponent(t *testing.T) {
 // precommitConfigHooks reads the shipped .pre-commit-config.yaml template.
 func precommitConfigHooks(t *testing.T) map[string]map[string]any {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root(t), "profiles", "ios", "root", ".pre-commit-config.yaml"))
+	// The retained docs hook is explicit opt-in; preserve the raw prefix here
+	// so the existing filter assertions still test the template contract.
+	cfg := &config.Config{IOS: config.IOS{DocumentationHook: true}}
+	b, _, err := assets.Render(assets.Asset{Src: filepath.Join(root(t), "profiles/ios/root/.pre-commit-config.yaml"), Dest: ".pre-commit-config.yaml", Prefix: "{{COMPONENT_PREFIX}}"}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

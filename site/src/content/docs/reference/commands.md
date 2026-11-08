@@ -72,6 +72,19 @@ admits only that tool's failure with a warning. An expired or malformed entry
 fails its tool's step; removing an entry restores that tool's strict checks.
 Neither entry relaxes builds, tests, package pins, or the other tool.
 
+### Optional iOS documentation commit check
+
+`[ios].documentation_hook = true` opts into the existing documentation
+pre-commit hook and its config. The default is `false`: documentation coverage
+is a writing convention, not a commit gate. A sync removes the hook entry;
+previously managed `scripts/docs-hook.sh` and component `.swiftlint-docs.yml`
+are removed only when lock-owned, clean, tracked and byte-identical to a
+known published legacy render. This permits `audit --ci` immediately after an upgrade.
+The now-unused reader is retired too in iOS-only projects.
+Edited, untracked, symlinked or project-owned files are preserved for review;
+the general orphan exit policy is unchanged. Existing `[baseline.relax] documentation` entries
+remain accepted. Other lint and formatting gates are unchanged.
+
 ## Recorded decisions: `lacquer decisions`
 
 Decisions were lost when they were paraphrased on the way into a brief, and the
