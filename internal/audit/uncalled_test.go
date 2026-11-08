@@ -163,7 +163,7 @@ func TestAgentDocumentationIsRequiredForUncalledExemption(t *testing.T) {
 // searched non-script units would report a code path that runs on every commit
 // in eight repositories as dead.
 func TestASiblingScriptCallerCountsThroughTheChain(t *testing.T) {
-	lacquer, project := uncalledLacquer(t, uncalledManifestNoSecrets, map[string]string{
+	lacquer, project := uncalledLacquer(t, uncalledManifestNoSecrets+"\n[ios]\ndocumentation_hook = true\n", map[string]string{
 		"profiles/ios/root/.pre-commit-config.yaml":    "repos:\n  - hooks:\n      - entry: scripts/docs-hook.sh swiftlint-docs\n",
 		"profiles/ios/root/scripts/docs-hook.sh":       "#!/usr/bin/env bash\nstate=$(scripts/docs-relaxation.sh .lacquer.toml || echo none)\n",
 		"profiles/ios/root/scripts/docs-relaxation.sh": "#!/usr/bin/env bash\necho none\n",

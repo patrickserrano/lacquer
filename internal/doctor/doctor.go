@@ -45,6 +45,8 @@ import (
 // Probe is one self-test: a fixture, a command, and the outcome that proves the
 // check is wired up.
 type Probe struct {
+	// IOSDocumentationHook limits this probe to the explicitly enabled hook.
+	IOSDocumentationHook bool `toml:"ios_documentation_hook"`
 	// Check selects a built-in configuration probe; mutually exclusive with argv.
 	Check string `toml:"check"`
 	Name  string `toml:"name"`
@@ -273,7 +275,12 @@ func Run(lacquerRoot, projectRoot string, cfg *config.Config, only []string, out
 				return nil, err
 			}
 			for _, pr := range probes {
-				r := runProbe(pr, c.Path, p, compDir, projectRoot)
+				var r Result
+				if p == "ios" && pr.IOSDocumentationHook && !cfg.IOS.DocumentationHook {
+					r = Result{Component: c.Path, Profile: p, Name: pr.Name, OK: true, Skipped: true, Detail: "[ios].documentation_hook is disabled; no documentation commit check is installed"}
+				} else {
+					r = runProbe(pr, c.Path, p, compDir, projectRoot)
+				}
 				results = append(results, r)
 				mark := "ok  "
 				if !r.OK {

@@ -41,6 +41,7 @@ type preCommitConfig struct {
 func iosDocsHook(t *testing.T) (p *project, hook, stub string) {
 	t.Helper()
 	p = fromFixture(t, "rootapp")
+	appendManifest(t, p, "\n[ios]\ndocumentation_hook = true\n")
 	p.sync()
 
 	var cfg preCommitConfig

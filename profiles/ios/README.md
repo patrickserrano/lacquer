@@ -84,3 +84,30 @@ expiry date. Expired or malformed entries fail their tool's step, even when
 the tool passes. Removing an entry restores strict checks for that tool.
 The existing `scripts/docs-relaxation.sh` reader applies the runtime date; no
 workflow regeneration is needed when the date passes.
+
+## Documentation commit hook (opt-in)
+
+Documentation coverage is a writing convention, not a default commit gate.
+A default iOS sync installs no `swiftlint-docs` pre-commit entry,
+`scripts/docs-hook.sh`, or component `.swiftlint-docs.yml`. To retain the
+previous documentation check explicitly:
+
+```toml
+[ios]
+documentation_hook = true
+```
+
+This installs the existing hook and files unchanged. Its two doctor probes
+run only with the opt-in; otherwise doctor explicitly reports them skipped.
+The ordinary SwiftLint and SwiftFormat gates are unchanged.
+
+Existing projects lose the hook entry on their next sync. Sync also removes
+these two retired files when they are clean tracked regular files, recorded in
+the lock, and match a known published legacy render byte-for-byte. Their lock entries
+are cleared, so the next `lacquer audit --ci` passes without hand deletions.
+Edited, untracked, symlinked or project-owned files are preserved and reported
+for review; a matching hand-edited lock alone cannot authorize removal.
+The general orphan policy is unchanged and still blocks audit on leftovers.
+Existing `[baseline.relax] documentation` entries remain valid and can be
+removed when the documentation hook is disabled. With the opt-in, the existing
+runtime relaxation and expiry checks still apply.

@@ -470,7 +470,12 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, []string, 
 
 		// profile root tree -> project root (verbatim relative paths)
 		if err := walkInto(filepath.Join(base, "root"),
-			func(src, rel string) { add(src, rel, prefix, p) }); err != nil {
+			func(src, rel string) {
+				if p == "ios" && !cfg.IOS.DocumentationHook && filepath.ToSlash(rel) == "scripts/docs-hook.sh" {
+					return
+				}
+				add(src, rel, prefix, p)
+			}); err != nil {
 			return nil, nil, nil, err
 		}
 	}
@@ -480,7 +485,12 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, []string, 
 		prefix := tokens.Prefix(c.Path)
 		for _, p := range c.Profiles {
 			if err := walkInto(filepath.Join(lacquerRoot, "profiles", p, "config"),
-				func(src, rel string) { add(src, filepath.Join(c.Path, rel), prefix, p) }); err != nil {
+				func(src, rel string) {
+					if p == "ios" && !cfg.IOS.DocumentationHook && rel == ".swiftlint-docs.yml" {
+						return
+					}
+					add(src, filepath.Join(c.Path, rel), prefix, p)
+				}); err != nil {
 				return nil, nil, nil, err
 			}
 		}

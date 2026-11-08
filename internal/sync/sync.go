@@ -27,7 +27,9 @@ import (
 // and the number of whole-file assets copied.
 type Result struct {
 	Regions, Assets int
-	Ratchets        []ratchet.Finding
+	// RemovedDocumentation and PreservedDocumentation report scoped retirement.
+	RemovedDocumentation, PreservedDocumentation []string
+	Ratchets                                     []ratchet.Finding
 	// Replaced lists pre-existing units adopted on first sync (no lock baseline).
 	Replaced []string
 	// WarningsUnchecked lists components whose warnings-as-errors gate could not
@@ -281,6 +283,11 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 		}
 	}
 
+	retiredDocs, preservedDocs, err := prepareDocumentationRetirement(lacquerRoot, projectRoot, cfg, plan)
+	if err != nil {
+		return Result{}, fmt.Errorf("preflight documentation retirement: %w", err)
+	}
+
 	// Writes: substitute + merge region bodies.
 	for _, r := range regions {
 		body, _ := tokens.Substitute(r.body, tokens.Values(cfg, r.prefix))
@@ -297,6 +304,12 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 		}
 	}
 
+	removedDocs, newlyPreserved, err := removeDocumentationRetirements(projectRoot, retiredDocs)
+	if err != nil {
+		return Result{}, fmt.Errorf("retire documentation files: %w", err)
+	}
+	preservedDocs = append(preservedDocs, newlyPreserved...)
+
 	// Record the baseline so the next audit/sync can tell a project's edits apart
 	// from lacquer updates. Fail loud if it can't be written — a missing or stale
 	// lock would silently disable the clobber guard.
@@ -312,7 +325,7 @@ func Run(lacquerRoot, projectRoot string, force bool) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Regions: len(regions), Assets: len(plan), Replaced: replaced, Ratchets: ratchets, WarningsUnchecked: unchecked}, nil
+	return Result{Regions: len(regions), Assets: len(plan), Replaced: replaced, Ratchets: ratchets, WarningsUnchecked: unchecked, RemovedDocumentation: removedDocs, PreservedDocumentation: preservedDocs}, nil
 }
 
 // mergeInto resolves rel under projectRoot (confining it within the root even

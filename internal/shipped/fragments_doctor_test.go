@@ -49,6 +49,9 @@ func TestDoctorIOSProbesBiteWithProjectRules(t *testing.T) {
 	p := &project{root: dir, lacquerRoot: lacquerRoot, t: t}
 	p.commit("init")
 	appendManifest(t, p, `
+[ios]
+documentation_hook = true
+
 [ios.swiftlint_custom_rules.sentry_import_confined]
 name = "import Sentry confined"
 regex = '^\s*import\s+Sentry\s*$'

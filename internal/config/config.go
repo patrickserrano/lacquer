@@ -1945,6 +1945,9 @@ type Web struct {
 // component's managed .swiftlint.yml. They may only ADD rules; see
 // internal/fragments. Absent, .swiftlint.yml renders exactly as shipped.
 type IOS struct {
+	// DocumentationHook opts into the documentation pre-commit hook and config.
+	// Off by default: documentation coverage is a writing convention.
+	DocumentationHook    bool                               `toml:"documentation_hook"`
 	SwiftLintCustomRules map[string]fragments.SwiftLintRule `toml:"swiftlint_custom_rules"`
 	// PackageResolved opts into copying this repository-relative committed file
 	// into the generated Xcode project after the existing XcodeGen bootstrap.
