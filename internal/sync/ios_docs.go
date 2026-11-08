@@ -16,7 +16,7 @@ type documentationRetirement struct {
 	dest, hash string
 }
 
-// prepareDocumentationRetirement authorizes only the two retired docs assets.
+// prepareDocumentationRetirement authorizes only the retired docs assets.
 // Both lock ownership and a known legacy render must match. This is not
 // general orphan cleanup: edited, untracked and project-owned files survive.
 func prepareDocumentationRetirement(lacquerRoot, projectRoot string, cfg *config.Config, current []assets.Asset) ([]documentationRetirement, []string, error) {
@@ -28,6 +28,7 @@ func prepareDocumentationRetirement(lacquerRoot, projectRoot string, cfg *config
 		for _, profile := range comp.Profiles {
 			if profile == "ios" {
 				want["scripts/docs-hook.sh"] = true
+				want["scripts/docs-relaxation.sh"] = true
 				want[filepath.ToSlash(filepath.Join(comp.Path, ".swiftlint-docs.yml"))] = true
 			}
 		}
@@ -161,6 +162,12 @@ func removeDocumentationRetirements(projectRoot string, files []documentationRet
 // are also their exact render digests. Retain older entries for safe upgrades.
 func publishedDocumentationHash(dest, hash string) bool {
 	switch filepath.Base(dest) {
+	case "docs-relaxation.sh":
+		switch hash {
+		case "17f84600416bb08111465e6f3f1f846e39033d00bf6675baee624244203b562e", // 98940b0
+			"b2773a038c1fb691bd51a1796932970629653ecae68a8a5ef7a3dd31c6d49aa4": // c8cf78e
+			return true
+		}
 	case "docs-hook.sh":
 		switch hash {
 		case "8c47f75c0fd05131bbfb370d773ed646e794b70a7e6a1fb6d43a09e4ef39d4ea", // 413a099

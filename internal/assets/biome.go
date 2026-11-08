@@ -68,7 +68,7 @@ func renderFragments(a Asset, body []byte, cfg *config.Config) ([]byte, error) {
 	}
 	switch filepath.Base(a.Dest) {
 	case ".pre-commit-config.yaml":
-		return renderDocumentationHook(body, cfg.IOS.DocumentationHook)
+		return renderDocumentationHook(body, cfg.IOS.DocumentationHook, a.Prefix)
 	case "biome.json":
 		body, err := renderBiomeIgnores(body, cfg.Web.BiomeIgnores)
 		if err != nil || len(cfg.Web.BiomeOverrides) == 0 {

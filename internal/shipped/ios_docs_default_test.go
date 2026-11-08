@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/patrickserrano/lacquer/internal/assets"
 	"github.com/patrickserrano/lacquer/internal/audit"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/doctor"
@@ -37,7 +38,7 @@ func assertDocumentationHook(t *testing.T, p *project, enabled bool) {
 	if hookFound != enabled {
 		t.Errorf("documentation hook present=%t, want %t", hookFound, enabled)
 	}
-	for _, rel := range []string{"scripts/docs-hook.sh", ".swiftlint-docs.yml"} {
+	for _, rel := range []string{"scripts/docs-hook.sh", ".swiftlint-docs.yml", "scripts/docs-relaxation.sh"} {
 		_, err := os.Stat(filepath.Join(p.root, rel))
 		if enabled && err != nil || !enabled && !os.IsNotExist(err) {
 			t.Errorf("%s enabled=%t: %v", rel, enabled, err)
@@ -152,7 +153,7 @@ func TestIOSDocumentationHookRetirement(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, rel := range []string{"scripts/docs-hook.sh", ".swiftlint-docs.yml"} {
+			for _, rel := range []string{"scripts/docs-hook.sh", ".swiftlint-docs.yml", "scripts/docs-relaxation.sh"} {
 				if _, present := lk.Files[rel]; present {
 					t.Fatalf("removed retired file retained in lock: %s", rel)
 				}
@@ -187,13 +188,13 @@ func TestIOSDocumentationDoctorScope(t *testing.T) {
 func TestIOSSharedRelaxationReaderCallers(t *testing.T) {
 	for _, tc := range []struct {
 		name, manifest string
-		unused         bool
+		reader         bool
 	}{
-		{"default", "", true},
-		{"documentation opt-in", "\n[ios]\ndocumentation_hook = true\n", false},
-		{"lint consumer", "\n[baseline.relax]\nlint = {until='2999-12-31', reason='Existing lint debt'}\n", false},
-		{"format consumer", "\n[baseline.relax]\nformat = {until='2999-12-31', reason='Existing formatting debt'}\n", false},
-		{"documentation debt without hook", "\n[baseline.relax]\ndocumentation = {until='2999-12-31', reason='Existing documentation debt'}\n", true},
+		{"default", "", false},
+		{"documentation opt-in", "\n[ios]\ndocumentation_hook = true\n", true},
+		{"lint consumer", "\n[baseline.relax]\nlint = {until='2999-12-31', reason='Existing lint debt'}\n", true},
+		{"format consumer", "\n[baseline.relax]\nformat = {until='2999-12-31', reason='Existing formatting debt'}\n", true},
+		{"documentation debt without hook", "\n[baseline.relax]\ndocumentation = {until='2999-12-31', reason='Existing documentation debt'}\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := fromFixture(t, "rootapp")
@@ -204,17 +205,51 @@ func TestIOSSharedRelaxationReaderCallers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := 0
-			if tc.unused {
-				want = 1
+			if len(found) != 0 {
+				t.Fatalf("unneeded reader or other script shipped: %+v", found)
 			}
-			if len(found) != want {
-				t.Fatalf("uncalled scripts: %+v, want count %d", found, want)
+			plan, err := assets.Plan(p.lacquerRoot, p.config())
+			if err != nil {
+				t.Fatal(err)
 			}
-			for _, f := range found {
-				if !f.Confirmed() || f.Dest != "scripts/docs-relaxation.sh" {
-					t.Fatalf("unexpected unused script: %+v", f)
+			reader := false
+			for _, asset := range plan {
+				if asset.Dest == "scripts/docs-relaxation.sh" {
+					reader = true
 				}
+			}
+			if reader != tc.reader {
+				t.Fatalf("reader planned=%t, want %t", reader, tc.reader)
+			}
+
+		})
+	}
+}
+
+// A project-owned CI workflow still calls the reader for declared style debt.
+func TestIOSReaderKeepsOwnedStyleWorkflowWorking(t *testing.T) {
+	for _, ownership := range []string{"seed_once", "exclude"} {
+		t.Run(ownership, func(t *testing.T) {
+			p := fromFixture(t, "rootapp")
+			appendManifest(t, p, "\n[ios]\ndocumentation_hook = true\n[baseline.relax]\nlint = {until='2999-12-31', reason='Existing lint debt'}\n")
+			p.sync()
+			p.commit("old render with style consumer")
+			manifest := strings.Replace(p.read(".lacquer.toml"), "documentation_hook = true", "documentation_hook = false", 1)
+			entry := "seed_once=['.github/workflows/ios-ci.yml']"
+			if ownership == "exclude" {
+				entry = "exclude=[{path='.github/workflows/ios-ci.yml',reason='Project-owned workflow'}]"
+			}
+			manifest = strings.Replace(manifest, "[project]\n", "[project]\n"+entry+"\n", 1)
+			if err := os.WriteFile(filepath.Join(p.root, ".lacquer.toml"), []byte(manifest), 0600); err != nil {
+				t.Fatal(err)
+			}
+			p.commit("own the style workflow")
+			p.sync()
+			if !strings.Contains(p.read(".github/workflows/ios-ci.yml"), "scripts/docs-relaxation.sh") {
+				t.Fatal("owned workflow no longer exercises its dependency")
+			}
+			if _, err := os.Stat(filepath.Join(p.root, "scripts/docs-relaxation.sh")); err != nil {
+				t.Fatalf("owned style gate lost its reader: %v", err)
 			}
 		})
 	}

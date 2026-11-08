@@ -58,7 +58,7 @@ func TestAuditCIAfterDocumentationHookRetirement(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, rel := range []string{"scripts/docs-hook.sh", ".swiftlint-docs.yml"} {
+			for _, rel := range []string{"scripts/docs-hook.sh", ".swiftlint-docs.yml", "scripts/docs-relaxation.sh"} {
 				if _, err := os.Lstat(filepath.Join(dir, rel)); !os.IsNotExist(err) {
 					t.Errorf("retired file remains: %s (%v)", rel, err)
 				}

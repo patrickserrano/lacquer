@@ -99,12 +99,17 @@ documentation_hook = true
 
 This installs the existing hook and files unchanged. Its two doctor probes
 run only with the opt-in; otherwise doctor explicitly reports them skipped.
-The ordinary SwiftLint and SwiftFormat gates are unchanged.
+In iOS-only projects, `scripts/docs-relaxation.sh` is included only for the
+opt-in or a declared lint/format relaxation, including a project-owned style
+workflow. Other profiles, including
+mixed-profile projects, retain their existing reader bytes. The ordinary
+SwiftLint and SwiftFormat gates are unchanged.
 
 Existing projects lose the hook entry on their next sync. Sync also removes
-these two retired files when they are clean tracked regular files, recorded in
+these retired files when they are clean tracked regular files, recorded in
 the lock, and match a known published legacy render byte-for-byte. Their lock entries
 are cleared, so the next `lacquer audit --ci` passes without hand deletions.
+The now-unused reader is retired too in iOS-only projects.
 Edited, untracked, symlinked or project-owned files are preserved and reported
 for review; a matching hand-edited lock alone cannot authorize removal.
 The general orphan policy is unchanged and still blocks audit on leftovers.

@@ -80,6 +80,7 @@ is a writing convention, not a commit gate. A sync removes the hook entry;
 previously managed `scripts/docs-hook.sh` and component `.swiftlint-docs.yml`
 are removed only when lock-owned, clean, tracked and byte-identical to a
 known published legacy render. This permits `audit --ci` immediately after an upgrade.
+The now-unused reader is retired too in iOS-only projects.
 Edited, untracked, symlinked or project-owned files are preserved for review;
 the general orphan exit policy is unchanged. Existing `[baseline.relax] documentation` entries
 remain accepted. Other lint and formatting gates are unchanged.

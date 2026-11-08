@@ -21,6 +21,7 @@ func TestDocumentationRetirementSafety(t *testing.T) {
 			}
 			writeFile(t, filepath.Join(lq, "VERSION"), "1\n")
 			writeFile(t, filepath.Join(lq, "core/CLAUDE.core.md"), "CORE\n")
+			writeFile(t, filepath.Join(lq, "core/root/scripts/docs-relaxation.sh"), "old reader\n")
 			writeFile(t, filepath.Join(lq, "profiles/ios/CLAUDE.ios.md"), "IOS\n")
 			writeFile(t, filepath.Join(lq, "profiles/ios/root/scripts/docs-hook.sh"), "old hook\n")
 			writeFile(t, filepath.Join(lq, "profiles/ios/config/.swiftlint-docs.yml"), "old config\n")
@@ -143,6 +144,10 @@ func TestDocumentationRetirementSafety(t *testing.T) {
 			removeConfig := tc != "opt in" && tc != "sync refused" && tc != "parent symlink" && tc != "lock symlink"
 			if removeConfig && !os.IsNotExist(statErr) || !removeConfig && statErr != nil {
 				t.Errorf("config removed=%t: %v", removeConfig, statErr)
+			}
+			_, readerErr := os.Lstat(filepath.Join(project, "scripts/docs-relaxation.sh"))
+			if removeConfig && !os.IsNotExist(readerErr) || !removeConfig && readerErr != nil {
+				t.Errorf("reader removed=%t: %v", removeConfig, readerErr)
 			}
 			if tc == "unrelated orphan" {
 				orphans, err := audit.Orphans(lq, project)

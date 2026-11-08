@@ -406,7 +406,12 @@ func plan(lacquerRoot string, cfg *config.Config) ([]Asset, []string, []string, 
 		return nil, nil, nil, err
 	}
 	if err := walkInto(filepath.Join(lacquerRoot, "core", "root"),
-		func(src, rel string) { add(src, rel, "", "") }); err != nil {
+		func(src, rel string) {
+			if filepath.ToSlash(rel) == "scripts/docs-relaxation.sh" && !documentationReaderNeeded(cfg) {
+				return
+			}
+			add(src, rel, "", "")
+		}); err != nil {
 		return nil, nil, nil, err
 	}
 
