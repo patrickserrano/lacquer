@@ -354,7 +354,7 @@ jobs:
           result=fail
           # shellcheck disable=SC2329  # invoked by the EXIT trap on the next line
           #
-          # shellcheck cannot follow `trap publish EXIT`, so from 0.11.0 it reports
+          # ShellCheck cannot follow `trap publish EXIT`, so from 0.11.0 it reports
           # SC2329 "This function is never invoked" here. actionlint surfaces that in
           # every project that syncs this file, and no project can silence it locally --
           # editing a managed file is drift, so the directive has to ship from the
