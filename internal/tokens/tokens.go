@@ -369,6 +369,7 @@ var registry = []entry{
 	{IOSCITestJobTimeout, true},
 	{IOSCITestStepTimeout, true},
 	{IOSPackageResolvedBootstrap, false},
+	{LacquerReleaseDownload, true},
 	// Required, exactly as {{SCHEME}} and {{PROJECT_NAME}} were before these
 	// replaced them in ci.yml. A manifest with a blank scheme or project_name
 	// must keep failing the sync loudly; it must not quietly render
@@ -526,6 +527,7 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCITestJobTimeout:         fmt.Sprint(cfg.CI.IOSTestJobTimeoutMinutes()),
 		IOSCITestStepTimeout:        fmt.Sprint(cfg.CI.IOSTestStepTimeoutMinutes()),
 		IOSPackageResolvedBootstrap: PackageResolvedBootstrap(cfg),
+		LacquerReleaseDownload:      releaseDownloadScript(),
 		IOSCIScheme:                 CIScheme(products),
 		IOSCIOnlyTesting:            CIOnlyTesting(products),
 		IOSCIExtraTestSetup:         CIExtraTestSetup(products),

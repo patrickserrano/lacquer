@@ -338,6 +338,7 @@ jobs:
           # Through the environment rather than inline `${{ }}`: this value is a
           # redirect target read off the network, and it ends up in a URL.
           LACQUER_TAG: ${{ steps.lacquerrel.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # GitHub's default shell for a `run:` step with no `shell:` key is
           # `bash -e {0}`, and `set -uo pipefail` does NOT clear that `-e` --
@@ -407,10 +408,10 @@ jobs:
           fi
           asset="lacquer_${version}_${os}_${arch}.tar.gz"
           base="https://github.com/patrickserrano/lacquer/releases/download/${LACQUER_TAG}"
-          if ! curl -fsSL --retry 3 -o "$RUNNER_TEMP/$asset" "$base/$asset" ||
-             ! curl -fsSL --retry 3 -o "$RUNNER_TEMP/checksums.txt" "$base/checksums.txt"; then
+{{LACQUER_RELEASE_DOWNLOAD}}
+          if ! download_release_file "$asset" || ! download_release_file checksums.txt; then
             echo "::error::Downloading the lacquer ${LACQUER_TAG} release failed, so drift was NOT checked on this PR."
-            exit 0
+            exit 1
           fi
           # Verify BEFORE unpacking. A truncated or substituted tarball must not
           # be able to produce the binary that says "no drift" — a silent pass is
@@ -432,7 +433,7 @@ jobs:
           )
           if ! verify; then
             echo "::error::Checksum verification failed for ${asset} — the download is corrupt or substituted, so drift was NOT checked on this PR."
-            exit 0
+            exit 1
           fi
           if ! tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" lacquer; then
             echo "::error::Unpacking ${asset} failed, so drift was NOT checked on this PR."
@@ -580,6 +581,7 @@ jobs:
         working-directory: "."
         env:
           LACQUER_TAG: ${{ steps.doctorrel.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ ! -f .lacquer.toml ]; then
@@ -599,14 +601,13 @@ jobs:
           version="${LACQUER_TAG#v}"
           asset="lacquer_${version}_${os}_${arch}.tar.gz"
           base="https://github.com/patrickserrano/lacquer/releases/download/${LACQUER_TAG}"
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$asset" "$base/$asset"
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/checksums.txt" "$base/checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -E "[[:space:]]\*?${asset}\$" checksums.txt > lacquer.sha256)
-          [ -s "$RUNNER_TEMP/lacquer.sha256" ]
-          if command -v sha256sum >/dev/null 2>&1; then
-            (cd "$RUNNER_TEMP" && sha256sum -c lacquer.sha256)
-          else
-            (cd "$RUNNER_TEMP" && shasum -a 256 -c lacquer.sha256)
+{{LACQUER_RELEASE_DOWNLOAD}}
+          download_release_file "$asset"
+          download_release_file checksums.txt
+          if ! (cd "$RUNNER_TEMP" && grep -E "[[:space:]]\*?${asset}\$" checksums.txt > lacquer.sha256 && [ -s lacquer.sha256 ] &&
+                if command -v sha256sum >/dev/null 2>&1; then sha256sum -c lacquer.sha256; else shasum -a 256 -c lacquer.sha256; fi); then
+            echo "::error::Checksum verification failed for ${asset}; the checks will not run an unverified binary."
+            exit 1
           fi
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" lacquer
           chmod +x "$RUNNER_TEMP/lacquer"

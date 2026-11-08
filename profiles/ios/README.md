@@ -52,6 +52,19 @@ The package guard remains strict: pins that disagree with the generated
 project's package requirements fail the job. Update the source lockfile when
 changing requirements; copying it never resolves or repairs pins.
 
+## CI release downloads
+
+CI installers across the iOS, web and Supabase profiles retry transient release
+downloads five times, waiting 15, 30, 60 and 120 seconds. Each curl attempt has a
+5-second connect timeout and 10-second total timeout; HTTP 404 fails immediately.
+After exhaustion, the step uses `gh release download` with the workflow token,
+bounded to 30 seconds. Hosted runner images include gh; self-hosted runners
+without it use authenticated API requests with curl and Python 3's JSON parser.
+The API requests have 15-second limits each. No extra token scope is required
+for these public assets. Both the archive and `checksums.txt` use this policy.
+The pinned tag and checksum source stay the same; checksum mismatches fail
+without retrying, and the checks never run an unverified download.
+
 ## Temporary lint and formatting debt
 
 ```toml
