@@ -57,7 +57,7 @@ func releaseInstallSteps(t *testing.T) []releaseInstallStep {
 
 // Run the real rendered selection/download/checksum section, stopping before
 // extraction or any product checks. Only network calls and sleep are stubbed.
-func runReleaseInstall(t *testing.T, st releaseInstallStep, osName, arch, target, failures string, corrupt, ghFail, noGH bool) (int, string, string) {
+func runReleaseInstall(t *testing.T, st releaseInstallStep, osName, arch, target, failures string, corrupt, ghFail, noGH bool, extraEnv ...string) (int, string, string) {
 	t.Helper()
 	start := strings.Index(st.run, "case \"$(uname -m)\"")
 	end := strings.Index(st.run, "tar -xzf")
@@ -104,10 +104,12 @@ if [ "$CORRUPT" = true ] && [ "$file" != checksums.txt ]; then echo corrupt > "$
 	} else if osName == "linux" {
 		unameArch = "aarch64"
 	}
-	out, code := runCoverageStep(t, script, bin,
-		"LACQUER_TAG=v1.2.3", "RUNNER_TEMP="+dir, "STATE="+dir, "FIXTURES="+fixtures,
-		"OS_NAME="+unameOS, "ARCH_NAME="+unameArch, "TARGET="+target, "FAILURES="+failures,
-		fmt.Sprintf("CORRUPT=%t", corrupt), fmt.Sprintf("GH_FAIL=%t", ghFail), "GH_TOKEN=stub-auth")
+	env := []string{
+		"LACQUER_TAG=v1.2.3", "RUNNER_TEMP=" + dir, "STATE=" + dir, "FIXTURES=" + fixtures,
+		"OS_NAME=" + unameOS, "ARCH_NAME=" + unameArch, "TARGET=" + target, "FAILURES=" + failures,
+		fmt.Sprintf("CORRUPT=%t", corrupt), fmt.Sprintf("GH_FAIL=%t", ghFail), "GH_TOKEN=stub-auth",
+	}
+	out, code := runCoverageStep(t, script, bin, append(env, extraEnv...)...)
 	trace, err := os.ReadFile(filepath.Join(dir, "trace"))
 	if err != nil {
 		t.Fatalf("installer made no network call: %v\n%s", err, out)
@@ -187,10 +189,11 @@ func TestReleaseInstallAllPlatforms(t *testing.T) {
 }
 
 const releaseCurlStub = `
-out=""; url=""; writeout=false; connect=false; bound=false; auth=false
+out=""; url=""; headers=""; writeout=false; connect=false; bound=false; auth=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift;;
+    -D|--dump-header) headers=$2; shift;;
     -w) writeout=true; shift;;
     --connect-timeout) [ "$2" -gt 0 ] && [ "$2" -le 5 ] && connect=true; shift;;
     --max-time) [ "$2" -gt 0 ] && [ "$2" -le 15 ] && bound=true; shift;;
@@ -210,6 +213,19 @@ case "$url" in
     status=200
     if [ "$name" = "$TARGET" ]; then
       i=0; for s in $FAILURES; do i=$((i+1)); if [ "$i" = "$n" ]; then status=$s; fi; done
+    fi
+    if [ -n "$headers" ]; then
+      : > "$headers"
+      if [ "${REDIRECT_RATE_LIMIT:-}" = true ]; then
+        printf 'HTTP/1.1 302 Found\r\nx-ratelimit-remaining: 0\r\nretry-after: 1\r\n\r\n' >> "$headers"
+      fi
+      printf 'HTTP/2 %s\r\n' "$status" >> "$headers"
+      case "${RATE_SIGNAL:-}" in
+        remaining) printf 'X-RateLimit-Remaining: 0\r\n' >> "$headers";;
+        available) printf 'X-RateLimit-Remaining: 1\r\n' >> "$headers";;
+        retry) printf 'Retry-After: %s\r\n' "$RETRY_AFTER" >> "$headers";;
+      esac
+      printf '\r\n' >> "$headers"
     fi
     case "$status" in
       200) ;;

@@ -23,7 +23,7 @@ func TestCISeamsDefaultRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]string{"ci.yml": "f45b16d2561e6c6130fbe6a228acb8e34595e463dd76ef2bcccf3508b4c60a2a", "release.yml": "889565f6bb872ad0fd90936c8b3f5609f529b7996e46d25da5ca783d2ae840f9"} {
+	for name, want := range map[string]string{"ci.yml": "d2732845e11049bb86e9743766df5d6eef4b8f8e8cd9c494545c22f1fa34d807", "release.yml": "889565f6bb872ad0fd90936c8b3f5609f529b7996e46d25da5ca783d2ae840f9"} {
 		raw, err := os.ReadFile(filepath.Join(root(t), "profiles/ios/workflows", name))
 		if err != nil {
 			t.Fatal(err)

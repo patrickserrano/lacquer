@@ -57,6 +57,10 @@ changing requirements; copying it never resolves or repairs pins.
 CI installers across the iOS, web and Supabase profiles retry transient release
 downloads five times, waiting 15, 30, 60 and 120 seconds. Each curl attempt has a
 5-second connect timeout and 10-second total timeout; HTTP 404 fails immediately.
+HTTP 403 retries only when the final response has a rate-limit signal
+(`x-ratelimit-remaining: 0` or `retry-after`). Retry-After seconds/HTTP dates
+can extend a delay within the total 225-second wait budget; a delay that will
+not fit goes straight to authenticated fallback. Plain 403 still fails fast.
 After exhaustion, the step uses `gh release download` with the workflow token,
 bounded to 30 seconds. Hosted runner images include gh; self-hosted runners
 without it use authenticated API requests with curl and Python 3's JSON parser.

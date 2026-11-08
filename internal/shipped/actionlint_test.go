@@ -1,6 +1,7 @@
 package shipped
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/patrickserrano/lacquer/internal/actionlint"
 	"github.com/patrickserrano/lacquer/internal/baseline"
 	"github.com/patrickserrano/lacquer/internal/config"
+	"github.com/patrickserrano/lacquer/internal/tokens"
 	"github.com/patrickserrano/lacquer/internal/version"
 	"gopkg.in/yaml.v3"
 )
@@ -50,6 +52,71 @@ func TestIOSWorkflowActionlintWithShellcheck(t *testing.T) {
 				t.Fatalf("actionlint with ShellCheck: %v\n%s", err, out)
 			}
 		})
+	}
+}
+
+// Cover every non-iOS shell variant, rather than trusting a shared-looking
+// template comment to parse the same way in every profile.
+func TestWebAndSupabaseActionlintWithShellcheck(t *testing.T) {
+	for _, tool := range []string{"actionlint", "shellcheck"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Fatalf("%s is required for rendered workflow coverage", tool)
+		}
+	}
+	for _, profile := range []string{"web", "supabase"} {
+		for _, nested := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/nested=%t", profile, nested), func(t *testing.T) {
+				cfg := ciConfig()
+				cfg.Root = t.TempDir()
+				prefix := ""
+				if nested {
+					prefix = "component/"
+					cfg.Project.BuildEnv = []string{"PUBLIC_API_URL", "SERVER_TOKEN"}
+					if err := os.MkdirAll(filepath.Join(cfg.Root, "component"), 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(cfg.Root, "component/package.json"), []byte(`{"packageManager":"pnpm@10.0.0"}`), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				raw, err := os.ReadFile(filepath.Join(root(t), "profiles", profile, "workflows", "ci.yml"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				rendered, missing := tokens.Substitute(string(raw), tokens.Values(cfg, prefix))
+				if len(missing) != 0 {
+					t.Fatal(missing)
+				}
+				if profile == "web" {
+					want := "npm ci"
+					if nested {
+						want = "pnpm install --frozen-lockfile"
+					}
+					if !strings.Contains(rendered, want) {
+						t.Fatalf("package-manager variant missing %q", want)
+					}
+					if nested && !strings.Contains(rendered, "PUBLIC_API_URL:") {
+						t.Fatal("build environment variant was not rendered")
+					}
+				}
+				dir := t.TempDir()
+				workflow, configPath := filepath.Join(dir, "ci.yml"), filepath.Join(dir, "actionlint.yaml")
+				if err := os.WriteFile(workflow, []byte(rendered), 0600); err != nil {
+					t.Fatal(err)
+				}
+				body, err := actionlint.Merge("", version.Version{Major: 1})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(configPath, []byte(body), 0600); err != nil {
+					t.Fatal(err)
+				}
+				cmd := exec.Command("actionlint", "-config-file", configPath, "-pyflakes=", workflow)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("actionlint with ShellCheck: %v\n%s", err, out)
+				}
+			})
+		}
 	}
 }
 
