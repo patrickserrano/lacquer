@@ -11,6 +11,30 @@ import (
 type CI struct {
 	IOSTestJobTimeoutMinutesSetting  *int `toml:"ios_test_job_timeout_minutes"`
 	IOSTestStepTimeoutMinutesSetting *int `toml:"ios_test_step_timeout_minutes"`
+
+	// IOSFailOnOwnSourceWarnings opts the Build and Test jobs into failing when
+	// xcodebuild prints a Swift `warning:` whose file is inside this repository's
+	// own sources. Off unless the manifest says so: a project that does not ask
+	// keeps the workflow it has, byte for byte.
+	IOSFailOnOwnSourceWarnings bool `toml:"ios_fail_on_own_source_warnings"`
+	// IOSOwnSourceWarningsAllowlistSetting names the project's file of regexes
+	// for warnings that are known and accepted. A pointer so an explicit empty
+	// string (invalid) is told apart from an absent key (the default path).
+	IOSOwnSourceWarningsAllowlistSetting *string `toml:"ios_own_source_warnings_allowlist"`
+}
+
+// DefaultOwnSourceWarningsAllowlist is where the gate looks for allowlisted
+// warnings when the manifest does not name a file. It sits beside
+// .lacquer.toml and .lacquer.lock. A missing file is an empty allowlist.
+const DefaultOwnSourceWarningsAllowlist = ".lacquer-warning-allowlist"
+
+// IOSOwnSourceWarningsAllowlist returns the configured allowlist path or the
+// default.
+func (c CI) IOSOwnSourceWarningsAllowlist() string {
+	if c.IOSOwnSourceWarningsAllowlistSetting != nil {
+		return *c.IOSOwnSourceWarningsAllowlistSetting
+	}
+	return DefaultOwnSourceWarningsAllowlist
 }
 
 // IOSTestJobTimeoutMinutes returns the configured job limit or 20 minutes.
@@ -41,8 +65,34 @@ func validateCI(c CI) error {
 			return fmt.Errorf("[ci].%s must be a positive integer from 1 to 360 minutes", f.key)
 		}
 	}
+	if err := validateOwnSourceWarnings(c); err != nil {
+		return err
+	}
 	if c.IOSTestStepTimeoutMinutes() > c.IOSTestJobTimeoutMinutes() {
 		return fmt.Errorf("[ci].ios_test_step_timeout_minutes (%d) must not exceed ios_test_job_timeout_minutes (%d), including defaults", c.IOSTestStepTimeoutMinutes(), c.IOSTestJobTimeoutMinutes())
+	}
+	return nil
+}
+
+func validateOwnSourceWarnings(c CI) error {
+	if c.IOSOwnSourceWarningsAllowlistSetting == nil {
+		return nil
+	}
+	// An allowlist with the gate off is read by nothing. Say so rather than
+	// let a setting that looks effective do nothing.
+	if !c.IOSFailOnOwnSourceWarnings {
+		return fmt.Errorf("[ci].ios_own_source_warnings_allowlist is set, but ios_fail_on_own_source_warnings is not true, so nothing would read it")
+	}
+	path := *c.IOSOwnSourceWarningsAllowlistSetting
+	if path == "" {
+		return fmt.Errorf("[ci].ios_own_source_warnings_allowlist must not be empty; omit the key to use %s", DefaultOwnSourceWarningsAllowlist)
+	}
+	if !filepath.IsLocal(path) {
+		return fmt.Errorf("[ci].ios_own_source_warnings_allowlist must be a relative path inside the repository")
+	}
+	// Quoted in shell like xcodeproj and package_resolved, so the same charset.
+	if !xcodeprojVal.MatchString(filepath.ToSlash(path)) {
+		return fmt.Errorf("[ci].ios_own_source_warnings_allowlist contains unsafe path characters")
 	}
 	return nil
 }

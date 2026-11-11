@@ -38,6 +38,8 @@ flag surface this table abbreviates.
 [ci]
 ios_test_job_timeout_minutes = 90
 ios_test_step_timeout_minutes = 60
+ios_fail_on_own_source_warnings = true
+ios_own_source_warnings_allowlist = ".lacquer-warning-allowlist"
 
 [ios]
 package_resolved = "ci_scripts/Package.resolved"
@@ -47,6 +49,16 @@ The Test job defaults to 20 minutes and its Run Tests step to 10. Timeout
 values must be integers from 1 to 360; the effective step limit must be no
 greater than the effective job limit. Omitted values retain their defaults.
 Test selection and the timeouts of other jobs are unchanged.
+
+`ci.ios_fail_on_own_source_warnings = true` opts the Build (Release) and Test
+jobs into failing when `xcodebuild` prints a Swift `warning:` for a file inside
+the repository (not an SPM checkout, `DerivedData`, or a path outside the
+checkout). Off by default, and then the rendered workflow is unchanged.
+`ci.ios_own_source_warnings_allowlist` (default `.lacquer-warning-allowlist`)
+names an optional file of extended regexes, one per line, matched against the
+whole warning line; a missing file is an empty allowlist, and setting the path
+without the gate on is an error. See the iOS profile README for what it
+cannot see.
 
 `ios.package_resolved` opts into restoring a committed lockfile after the
 existing XcodeGen generation step, before package checks or builds. The source
