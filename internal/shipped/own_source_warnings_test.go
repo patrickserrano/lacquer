@@ -407,6 +407,22 @@ func TestOwnSourceWarningGateFailsClosed(t *testing.T) {
 			t.Errorf("the failure does not name the allowlist:\n%s", res.out)
 		}
 	})
+	// A pattern that matches an empty string matches every line, so it silently
+	// turns the gate off while looking like an allowlist entry.
+	for _, re := range []string{".*", "a*", "^", "SendableMetatypes|", "(|x)"} {
+		t.Run("an allowlist regex that matches an empty string fails: "+re, func(t *testing.T) {
+			log := ownWarn
+			res, _ := runGate(t, gateConfigOn(), "test", &log, strp(re+"\n"))
+			if res.exit == 0 {
+				t.Fatalf("%q allowed every warning and the gate passed:\n%s", re, res.out)
+			}
+			// BSD grep calls an empty alternation invalid and GNU grep accepts it
+			// as matching empty; either way it must be refused, with a reason.
+			if !strings.Contains(res.out, "::error::") || !(strings.Contains(res.out, "empty string") || strings.Contains(res.out, "not a valid")) {
+				t.Errorf("the failure does not say why:\n%s", res.out)
+			}
+		})
+	}
 	t.Run("an invalid allowlist regex fails when a warning would have used it", func(t *testing.T) {
 		log := ownWarn
 		res, _ := runGate(t, gateConfigOn(), "test", &log, strp("([unclosed\n"))
