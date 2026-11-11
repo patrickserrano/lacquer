@@ -32,7 +32,16 @@ func TestIOSWorkflowActionlintWithShellcheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Baseline.Relax = map[string]baseline.Relax{"lint": {Until: "2099-01-01", Reason: "existing lint debt"}, "format": {Until: "2099-02-01", Reason: "existing format debt"}}
-	for name, c := range map[string]*config.Config{"defaults": soloConfig(), "products": twoIOSProducts(), "options": cfg} {
+	// The opt-in warnings gate adds a shell step to two jobs; lint it under the
+	// same rules, with the default allowlist and with a custom one, for a single
+	// product and for a matrix.
+	gateSolo := gateConfigOn()
+	gateProducts := twoIOSProducts()
+	gateProducts.CI.IOSFailOnOwnSourceWarnings = true
+	customAllowlist := "ci/warning allowlist.txt"
+	gateProducts.CI.IOSOwnSourceWarningsAllowlistSetting = &customAllowlist
+	for name, c := range map[string]*config.Config{"defaults": soloConfig(), "products": twoIOSProducts(), "options": cfg,
+		"own-source warnings gate": gateSolo, "own-source warnings gate with products and a custom allowlist": gateProducts} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			workflow := filepath.Join(dir, "ci.yml")

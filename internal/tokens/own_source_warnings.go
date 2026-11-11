@@ -130,7 +130,7 @@ done < "$work/patterns"
   fi
 } | sort -u > "$work/roots"
 
-awk -v ROOTS="$work/roots" -v OWN="$work/own" -v SUMMARY="$work/summary" '
+if ! awk -v ROOTS="$work/roots" -v OWN="$work/own" -v SUMMARY="$work/summary" '
   BEGIN {
     n = 0
     while ((getline r < ROOTS) > 0) { if (r != "") root[++n] = r }
@@ -160,8 +160,7 @@ awk -v ROOTS="$work/roots" -v OWN="$work/own" -v SUMMARY="$work/summary" '
     if (own) print $0 > OWN
   }
   END { printf "%d\n", total + 0 > SUMMARY }
-' "$log"
-if [ "$?" -ne 0 ]; then
+' "$log"; then
   echo "::error::Could not scan $log for Swift warnings."
   exit 1
 fi
