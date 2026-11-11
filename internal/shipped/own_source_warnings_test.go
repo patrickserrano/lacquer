@@ -278,6 +278,13 @@ func TestOwnSourceWarningGateOutcomes(t *testing.T) {
 		{name: "an own-source warning fails", log: noise + ownWarn, wantExit: 1,
 			mustHave: []string{"Feature.swift:41:17: warning:", "[#SendableMetatypes]", "1 "}},
 		{name: "an SPM checkout warning passes", log: noise + spmWarn, wantExit: 0, mustNot: []string{"Thing.swift:88"}},
+		{name: "a SourcePackages checkout outside DerivedData passes", log: noise + "@REPO@/SourcePackages/checkouts/P/Sources/P/A.swift:1:1: warning: dep\n", wantExit: 0},
+		{name: "a .build checkout passes", log: noise + "@REPO@/.build/checkouts/P/Sources/P/B.swift:1:1: warning: dep\n", wantExit: 0},
+		{name: "a .build directory inside a local package passes", log: noise + "@REPO@/Packages/Local/.build/checkouts/P/Sources/P/C.swift:1:1: warning: dep\n", wantExit: 0},
+		{name: "a local package's own sources are the repository's own", log: noise + "@REPO@/Packages/Local/Sources/Local/D.swift:1:1: warning: mine\n", wantExit: 1,
+			mustHave: []string{"D.swift:1:1"}},
+		{name: "a comment in the allowlist is never compiled as a regex", log: noise + ownWarn,
+			allowlist: strp("# see the ticket (still open\nSendableMetatypes\n"), wantExit: 0},
 		{name: "a DerivedData warning passes", log: noise + ddWarn, wantExit: 0},
 		{name: "a Watch DerivedData warning passes", log: noise + watchDD, wantExit: 0},
 		{name: "a toolchain-path warning outside the workspace passes", log: noise + outside, wantExit: 0},
@@ -318,6 +325,9 @@ func TestOwnSourceWarningGateOutcomes(t *testing.T) {
 				if res.exit != c.wantExit {
 					t.Fatalf("%s: exit = %d, want %d\n%s", job, res.exit, c.wantExit, res.out)
 				}
+				if c.wantExit != 0 && !strings.Contains(res.out, "::error::") {
+					t.Errorf("%s: the failure carries no ::error:: annotation, so the run page shows no reason:\n%s", job, res.out)
+				}
 				for _, s := range c.mustHave {
 					if !strings.Contains(res.out, s) {
 						t.Errorf("%s: output lacks %q:\n%s", job, s, res.out)
@@ -349,15 +359,28 @@ func TestOwnSourceWarningGateFollowsASymlinkedWorkspace(t *testing.T) {
 		t.Skipf("cannot create a symlink here: %v", err)
 	}
 	// GITHUB_WORKSPACE is the spelling the runner hands xcodebuild; the shell's
-	// own cwd may be the other one.
-	for _, spelling := range []struct{ name, logged, cwd, workspace string }{
-		{"logged by the real path, workspace and cwd the link", real, link, link},
-		{"logged by the link, cwd the real path, workspace the link", link, real, link},
-		{"logged by the link, workspace the real path, cwd the link", link, link, real},
+	// own cwd may be the other one. Each case isolates one way the checkout
+	// can be recognised, so removing any single one of them fails a case:
+	// the physical path of $PWD (workspace unset), the physical path of
+	// $GITHUB_WORKSPACE (run from a subdirectory, where the physical $PWD no
+	// longer prefixes the log), and the logical spellings of both.
+	for _, spelling := range []struct{ name, logged, cwd, workspace, sub string }{
+		{"logged by the real path, cwd the link, workspace unset", real, link, "", ""},
+		{"logged by the real path, workspace and cwd the link", real, link, link, ""},
+		{"logged by the link, cwd the real path, workspace the link", link, real, link, ""},
+		{"logged by the link, workspace the real path, cwd the link", link, link, real, ""},
+		{"logged by the real path, run from a subdirectory of the link workspace", real, link, link, "sub"},
 	} {
 		t.Run(spelling.name, func(t *testing.T) {
 			run, _, _, _ := gateStep(t, gateConfigOn(), "test")
-			if err := os.WriteFile(filepath.Join(spelling.cwd, "xcodebuild.log"),
+			dir := spelling.cwd
+			if spelling.sub != "" {
+				dir = filepath.Join(spelling.cwd, spelling.sub)
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(dir, "xcodebuild.log"),
 				[]byte(spelling.logged+"/App/Sources/Feature.swift:1:1: warning: spelled differently\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -366,12 +389,22 @@ func TestOwnSourceWarningGateFollowsASymlinkedWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			cmd := exec.Command("bash", "-e", script)
-			cmd.Dir = spelling.cwd
-			cmd.Env = append(os.Environ(), "GITHUB_WORKSPACE="+spelling.workspace, "PWD="+spelling.cwd)
+			cmd.Dir = dir
+			env := []string{"PWD=" + dir}
+			if spelling.workspace != "" {
+				env = append(env, "GITHUB_WORKSPACE="+spelling.workspace)
+			}
+			// Drop any GITHUB_WORKSPACE the host environment carries, so "unset" is unset.
+			for _, kv := range os.Environ() {
+				if !strings.HasPrefix(kv, "GITHUB_WORKSPACE=") && !strings.HasPrefix(kv, "PWD=") {
+					env = append(env, kv)
+				}
+			}
+			cmd.Env = env
 			out, err := cmd.CombinedOutput()
 			var ee *exec.ExitError
 			if !errors.As(err, &ee) || ee.ExitCode() != 1 {
-				t.Fatalf("a warning in the repository's own file passed when the workspace was spelled two ways (err=%v)\n%s", err, out)
+				t.Fatalf("a warning in the repository's own file passed when the workspace was spelled differently (err=%v)\n%s", err, out)
 			}
 		})
 	}
