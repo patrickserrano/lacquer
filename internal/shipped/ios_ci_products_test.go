@@ -144,6 +144,10 @@ var legacyIOSCITokens = map[string]string{
 	// secrets template has no key list to check bundles against.
 	"{{IOS_CI_BUNDLE_SECRETS_BUILD}}": "",
 	"{{IOS_CI_BUNDLE_SECRETS_TEST}}":  "",
+	// Both empty unless [ci].ios_fail_on_own_source_warnings is true: the gate
+	// is opt-in, so a project that does not set it renders what it always did.
+	"{{IOS_CI_OWN_SOURCE_WARNINGS_BUILD}}": "",
+	"{{IOS_CI_OWN_SOURCE_WARNINGS_TEST}}":  "",
 }
 
 // iosCITokenRe finds every IOS_CI_* placeholder in the template.
