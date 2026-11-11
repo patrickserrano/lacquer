@@ -78,3 +78,61 @@ func TestLintRelaxationValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnSourceWarningsGateValidation(t *testing.T) {
+	for _, tc := range []struct{ name, settings, want string }{
+		{"absent is off", "", ""},
+		{"on", "ios_fail_on_own_source_warnings = true", ""},
+		{"explicitly off", "ios_fail_on_own_source_warnings = false", ""},
+		{"on with a custom allowlist", "ios_fail_on_own_source_warnings = true\nios_own_source_warnings_allowlist = \"ci/warning-allowlist.txt\"", ""},
+		{"a string is not a bool", "ios_fail_on_own_source_warnings = \"yes\"", "ios_fail_on_own_source_warnings"},
+		// An allowlist beside a gate that is off would be read by nothing: a
+		// setting that looks like it works and does not.
+		{"allowlist with the gate off", "ios_own_source_warnings_allowlist = \"allow.txt\"", "ios_fail_on_own_source_warnings"},
+		{"allowlist with the gate explicitly off", "ios_fail_on_own_source_warnings = false\nios_own_source_warnings_allowlist = \"allow.txt\"", "ios_fail_on_own_source_warnings"},
+		{"absolute allowlist", "ios_fail_on_own_source_warnings = true\nios_own_source_warnings_allowlist = \"/etc/allow.txt\"", "relative path"},
+		{"escaping allowlist", "ios_fail_on_own_source_warnings = true\nios_own_source_warnings_allowlist = \"../allow.txt\"", "relative path"},
+		{"shell metacharacter in the allowlist path", "ios_fail_on_own_source_warnings = true\nios_own_source_warnings_allowlist = \"$(touch bad)\"", "unsafe path characters"},
+		{"empty allowlist path", "ios_fail_on_own_source_warnings = true\nios_own_source_warnings_allowlist = \"\"", "ios_own_source_warnings_allowlist"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadString(t, "[project]\nname = \"demo\"\n[ci]\n"+tc.settings+"\n")
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v; want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestOwnSourceWarningsAccessors(t *testing.T) {
+	off, err := loadString(t, "[project]\nname = \"demo\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.CI.IOSFailOnOwnSourceWarnings {
+		t.Error("the gate must be OFF when the manifest does not mention it")
+	}
+	on, err := loadString(t, "[project]\nname = \"demo\"\n[ci]\nios_fail_on_own_source_warnings = true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !on.CI.IOSFailOnOwnSourceWarnings {
+		t.Error("ios_fail_on_own_source_warnings = true did not turn the gate on")
+	}
+	if got, want := on.CI.IOSOwnSourceWarningsAllowlist(), ".lacquer-warning-allowlist"; got != want {
+		t.Errorf("default allowlist = %q, want %q", got, want)
+	}
+	custom, err := loadString(t, "[project]\nname = \"demo\"\n[ci]\nios_fail_on_own_source_warnings = true\nios_own_source_warnings_allowlist = \"ci/allow.txt\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := custom.CI.IOSOwnSourceWarningsAllowlist(), "ci/allow.txt"; got != want {
+		t.Errorf("custom allowlist = %q, want %q", got, want)
+	}
+}

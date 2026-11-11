@@ -404,6 +404,9 @@ var registry = []entry{
 	// All three empty unless a product declares secrets.
 	{IOSCIBundleSecretsBuild, false},
 	{IOSCIBundleSecretsTest, false},
+	// Both empty unless [ci].ios_fail_on_own_source_warnings is true.
+	{IOSCIOwnSourceWarningsBuild, false},
+	{IOSCIOwnSourceWarningsTest, false},
 	{IOSReleaseBundleSecrets, false},
 	{IOSReleaseArchivedSecrets, false},
 	// Empty for every project with one Swift component: no package for Lint to
@@ -557,6 +560,9 @@ func Values(cfg *config.Config, prefix string) map[string]string {
 		IOSCIBundleSecretsTest:    CIBundleSecretsTest(products, prefix),
 		IOSReleaseBundleSecrets:   ReleaseBundleSecrets(products, prefix),
 		IOSReleaseArchivedSecrets: ReleaseArchivedSecrets(products, prefix),
+
+		IOSCIOwnSourceWarningsBuild: CIOwnSourceWarningsBuild(cfg),
+		IOSCIOwnSourceWarningsTest:  CIOwnSourceWarningsTest(cfg),
 
 		IOSCIPushPaths:      CIPushPaths(cfg, prefix),
 		IOSCILintComponents: CILintComponents(cfg, prefix),
