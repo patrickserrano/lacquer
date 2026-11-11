@@ -128,7 +128,17 @@ done < "$work/patterns"
     printf '%s\n' "$GITHUB_WORKSPACE"
     (cd "$GITHUB_WORKSPACE" 2> /dev/null && pwd -P)
   fi
-} | sort -u > "$work/roots"
+} > "$work/roots.raw"
+# On macOS /tmp, /var and /etc are links into /private, and xcodebuild logs the
+# standardized path: a checkout at /private/tmp/x is logged as /tmp/x. So each
+# root is also tried with /private removed and with /private added.
+while IFS= read -r root; do
+  printf '%s\n' "$root"
+  case "$root" in
+    /private/*) printf '%s\n' "${root#/private}" ;;
+    /*) printf '%s\n' "/private$root" ;;
+  esac
+done < "$work/roots.raw" | sort -u > "$work/roots"
 
 if ! awk -v ROOTS="$work/roots" -v OWN="$work/own" -v SUMMARY="$work/summary" '
   BEGIN {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -478,4 +479,172 @@ func TestOwnSourceWarningGateReportsWhatItScanned(t *testing.T) {
 			t.Errorf("a passing run does not report %q:\n%s", want, res.out)
 		}
 	}
+}
+
+// runGateIn runs one job's rendered gate from cwd, with GITHUB_WORKSPACE set to
+// workspace (left unset when empty), against a log written into cwd. Unlike
+// runGate the workspace is a free string, so a test can name a root that is
+// spelled differently from where the log is: the directory need not exist.
+func runGateIn(t *testing.T, job, cwd, workspace, logContent string) gateRun {
+	t.Helper()
+	run, _, _, _ := gateStep(t, gateConfigOn(), job)
+	logName := "xcodebuild.log"
+	if job == "build-release" {
+		logName = "xcodebuild-release.log"
+	}
+	if err := os.WriteFile(filepath.Join(cwd, logName), []byte(logContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(t.TempDir(), "gate.sh")
+	if err := os.WriteFile(script, []byte(run), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "-e", script)
+	cmd.Dir = cwd
+	env := []string{"PWD=" + cwd}
+	if workspace != "" {
+		env = append(env, "GITHUB_WORKSPACE="+workspace)
+	}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GITHUB_WORKSPACE=") && !strings.HasPrefix(kv, "PWD=") {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	res := gateRun{out: string(out)}
+	var ee *exec.ExitError
+	switch {
+	case err == nil:
+	case errors.As(err, &ee):
+		res.exit = ee.ExitCode()
+	default:
+		t.Fatalf("could not run the gate: %v", err)
+	}
+	return res
+}
+
+// On macOS /tmp, /var and /etc are links into /private, and xcodebuild prints a
+// standardized path: a workspace whose cwd and GITHUB_WORKSPACE are
+// /private/tmp/x can be logged as /tmp/x. No root the gate knew matched, so an
+// own-source warning counted as "outside the checkout" and the gate passed: a
+// measured false green. The gate must also try each root with /private removed
+// and with /private added, in both directions.
+func TestOwnSourceWarningGateKnowsThePrivateSpellingOfTheWorkspace(t *testing.T) {
+	const warn = "/App/Sources/Feature.swift:41:17: warning: capture of non-Sendable type 'Self.Type' in an isolated closure [#SendableMetatypes]\n"
+	for _, tc := range []struct{ name, workspace, logged string }{
+		{"workspace under /private, logged without it", "/private/gate-ws/x", "/gate-ws/x"},
+		{"workspace without /private, logged under it", "/gate-ws/x", "/private/gate-ws/x"},
+		{"/private/tmp workspace logged as /tmp", "/private/tmp/gate-ws", "/tmp/gate-ws"},
+		{"/private/var workspace logged as /var", "/private/var/folders/aa/bb/T/gate-ws", "/var/folders/aa/bb/T/gate-ws"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, job := range []string{"build-release", "test"} {
+				// cwd is a directory unrelated to the workspace's spelling, so the
+				// only root that can match is the one derived from GITHUB_WORKSPACE.
+				res := runGateIn(t, job, t.TempDir(), tc.workspace, tc.logged+warn)
+				if res.exit != 1 {
+					t.Fatalf("%s: an own-source warning logged as %s passed with the workspace %s (exit %d):\n%s",
+						job, tc.logged, tc.workspace, res.exit, res.out)
+				}
+				if !strings.Contains(res.out, "Feature.swift:41:17") {
+					t.Errorf("%s: the offending line is not printed:\n%s", job, res.out)
+				}
+			}
+		})
+	}
+	// The derived spellings widen what counts as the checkout by exactly that
+	// prefix and no more: a different directory is still outside.
+	t.Run("an unrelated directory is still outside", func(t *testing.T) {
+		res := runGateIn(t, "test", t.TempDir(), "/private/gate-ws/x", "/private/gate-ws/y"+warn)
+		if res.exit != 0 {
+			t.Fatalf("a warning under a sibling directory counted as own (exit %d):\n%s", res.exit, res.out)
+		}
+	})
+	// The real shape, where the machine has it: a physical /private workspace
+	// that xcodebuild logs through the link.
+	t.Run("a real /private workspace logged through the link", func(t *testing.T) {
+		phys, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(phys, "/private/") {
+			t.Skipf("%s is not under /private on this machine; the cases above cover the spelling rule", phys)
+		}
+		res := runGateIn(t, "test", phys, phys, strings.TrimPrefix(phys, "/private")+warn)
+		if res.exit != 1 {
+			t.Fatalf("real %s logged as %s passed (exit %d):\n%s", phys, strings.TrimPrefix(phys, "/private"), res.exit, res.out)
+		}
+	})
+}
+
+// The step must carry exactly name, working-directory and run. A key added by a
+// later edit (continue-on-error would turn the gate into a no-op that fails
+// visibly and never fails the job; if:, a skippable gate) changes that set.
+func TestOwnSourceWarningGateStepCarriesExactlyItsKeys(t *testing.T) {
+	var doc struct {
+		Jobs map[string]struct {
+			Steps []map[string]any `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(renderIOSCI(t, gateConfigOn())), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, job := range []string{"build-release", "test"} {
+		found := false
+		for _, step := range doc.Jobs[job].Steps {
+			if step["name"] != gateStepName {
+				continue
+			}
+			found = true
+			var keys []string
+			for k := range step {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			if got, want := strings.Join(keys, ","), "name,run,working-directory"; got != want {
+				t.Errorf("%s: gate step keys = %s, want %s", job, got, want)
+			}
+		}
+		if !found {
+			t.Errorf("%s: no gate step", job)
+		}
+	}
+}
+
+// Three more ways the shipped script is right and a one-line edit would not
+// be noticed.
+func TestOwnSourceWarningGateSiblingDirectoryAndSameFileAndSpacedAllowlist(t *testing.T) {
+	t.Run("a sibling directory sharing the checkout's prefix is outside", func(t *testing.T) {
+		log := "@REPO@-tools/Sources/Tool.swift:1:1: warning: a sibling directory, not the checkout\n"
+		for _, job := range []string{"build-release", "test"} {
+			res, _ := runGate(t, gateConfigOn(), job, &log, nil)
+			if res.exit != 0 {
+				t.Fatalf("%s: <checkout>-tools/… counted as the checkout (exit %d):\n%s", job, res.exit, res.out)
+			}
+		}
+	})
+	t.Run("two different warnings in one file are two warnings", func(t *testing.T) {
+		log := ownWarn + "@REPO@/App/Sources/Feature.swift:90:3: warning: a second, different warning in the same file\n"
+		for _, job := range []string{"build-release", "test"} {
+			res, _ := runGate(t, gateConfigOn(), job, &log, nil)
+			if res.exit != 1 || !strings.Contains(res.out, "2 Swift warning") {
+				t.Fatalf("%s: want exit 1 and 2 warnings, got exit %d:\n%s", job, res.exit, res.out)
+			}
+			if !strings.Contains(res.out, "Feature.swift:41:17") || !strings.Contains(res.out, "Feature.swift:90:3") {
+				t.Errorf("%s: both lines must be printed:\n%s", job, res.out)
+			}
+		}
+	})
+	t.Run("an allowlist path with a space is read", func(t *testing.T) {
+		cfg := gateConfigOn()
+		cfg.CI.IOSOwnSourceWarningsAllowlistSetting = strp("ci/warning allowlist.txt")
+		for _, job := range []string{"build-release", "test"} {
+			log := ownWarn
+			res, _ := runGate(t, cfg, job, &log, strp("SendableMetatypes\n"))
+			if res.exit != 0 || !strings.Contains(res.out, "1 allowlisted") {
+				t.Fatalf("%s: the allowlist at a path with a space was not read (exit %d):\n%s", job, res.exit, res.out)
+			}
+		}
+	})
 }
