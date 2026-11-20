@@ -73,7 +73,7 @@ jobs:
       # fetching a newer toolchain. The first live run died on exactly that:
       #   svu/v3@v3.4.1 requires go >= 1.25.3 (running go 1.23.12)
       # Bump this together with the svu pin below; they are one decision.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: "1.25.3" # the minimum svu v3.4.1 declares
 
